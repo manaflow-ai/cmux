@@ -359,6 +359,64 @@ test("with an App Theme set, a space or workspace theme says it replaces the App
   expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
 });
 
+// Leo, 2026-11-04: "theme previews, like for not just the terminal, but the app itself". With an
+// App Theme of its own, the app shows terminal theme previews only on the terminals; Preview on the
+// Whole App previews and picks the terminal theme with the App Theme matching it.
+test("Preview on the Whole App previews a terminal theme on the chrome too, and a pick makes the app match", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: { values: { "appearance.theme": "Nord", "appearance.appTheme": "Rose Pine" } },
+  });
+  const row = () => theme(page!).querySelector<HTMLElement>('[data-theme-row="whole-app"]');
+  expect(row()).not.toBeNull();
+  const option = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  // Off: a terminal theme preview is the terminal's alone.
+  await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
+  await fire(option("Dracula"), "contextmenu");
+  expect(previews().at(-1)).toEqual({ key: "appearance.theme", value: "Dracula" });
+  await fire(document.querySelector<HTMLElement>(".theme-search")!, "keydown", { key: "Escape" });
+  // On: the same preview carries the App Theme matching the terminal, and the hero draws it.
+  await click(row()!.querySelector<HTMLElement>("[role=switch]")!);
+  await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
+  await fire(option("Dracula"), "contextmenu");
+  expect(previews().at(-1)).toEqual({
+    key: "appearance.theme",
+    value: "Dracula",
+    also: [{ key: "appearance.appTheme", value: "followTerminal" }],
+  });
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+  // A pick writes the terminal theme and puts the App Theme back to matching it.
+  await fire(option("Dracula"), "mousedown");
+  await until(() => ops(page!.provider, "cmux.settings.set").length === 2, "the App Theme follow mode");
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([
+    { key: "appearance.theme", value: "Dracula" },
+    { key: "appearance.appTheme", value: "followTerminal" },
+  ]);
+  expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
+});
+
+// A whole-app pick whose terminal write is refused keeps the App Theme: the follow mode waits for the write.
+test("Preview on the Whole App: a refused terminal pick leaves the App Theme as it was", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: {
+      values: { "appearance.theme": "Nord", "appearance.appTheme": "Rose Pine" },
+      failing: { "cmux.settings.set": "cmux.settings.invalid" },
+    },
+  });
+  const row = () => theme(page!).querySelector<HTMLElement>('[data-theme-row="whole-app"]');
+  const option = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!;
+  await click(row()!.querySelector<HTMLElement>("[role=switch]")!);
+  await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
+  await fire(option("Dracula"), "mousedown");
+  await until(() => ops(page!.provider, "cmux.settings.set").length > 0, "the terminal theme write");
+  // fixed-wait: proving the follow mode never goes out needs a quiet window after the refused write.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.theme", value: "Dracula" }]);
+});
+
 test("Open Theme File, below the Theme File row, asks the host to open the theme file", async () => {
   page = await renderPage({ path: "/settings/theme" });
   const row = theme(page).querySelector<HTMLElement>('[data-theme-row="themeFileOpen"]')!;

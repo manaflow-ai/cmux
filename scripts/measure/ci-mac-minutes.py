@@ -100,7 +100,7 @@ def main():
         result = summarize((json.loads(line) for line in stream if line.strip()), args.since, args.until)
     if args.manifest:
         manifest = json.loads(args.manifest.read_text())
-        expected = {"since": args.since, "until": args.until, "records": result["unique_records"]}
+        expected = {"since": args.since, "until": args.until, "records": result["unique_records"], "complete": True}
         if any(manifest.get(key) != value for key, value in expected.items()):
             parser.error("completion manifest does not match the capture")
         result["coverage"] = "exporter reports complete; window and count verified"

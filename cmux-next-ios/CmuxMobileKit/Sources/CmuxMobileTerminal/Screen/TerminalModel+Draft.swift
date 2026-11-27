@@ -23,7 +23,10 @@ extension TerminalModel {
                 composerNotice = TerminalConnectionState.inputNotSentNotice
             }
         }
-        if attachments.isEmpty { attachments = previous.attachments }
+        if attachments.isEmpty {
+            attachments = previous.attachments
+            syncAttachmentUploads()
+        }
     }
 
     /// A cold start (or a host built with nothing before it): the tab's draft from disk.

@@ -80,14 +80,18 @@ class DedicatedMini(unittest.TestCase):
 
     def test_early_controls_take_their_one_route_on_every_attempt(self):
         pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
-        for changes in ({}, {"github.run_attempt": 2, "vars.RUNNER_POOLS": pools},
-                        {"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}):
+        # #55652: the cmux-tui client's first attempt of a push, schedule or plain dispatch takes the
+        # GCP nightly pool; a rerun (or a loop retry) takes the Linux rerun pool.
+        for changes, first in (({}, True), ({"github.run_attempt": 2, "vars.RUNNER_POOLS": pools}, False),
+                               ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, True)):
             for job in RESERVED_CONTROLS:
                 with self.subTest(job=job, changes=changes):
                     self.assertEqual(selected(job, context(**changes)), JIT_LABEL)
             for job in LINUX_CONTROLS:
                 with self.subTest(job=job, changes=changes):
-                    self.assertIn(selected(job, context(**changes)), LINUX_LABELS)
+                    gcp = first and job == "resolve-nightly-cmux-tui-client"
+                    self.assertEqual(selected(job, context(**changes)),
+                                     "cmux-gcp-nightly-x64" if gcp else "cmux-linux")
         for job in RESERVED_CONTROLS + LINUX_CONTROLS:
             with self.subTest(job=job, fork=True):
                 self.assertEqual(selected(job, context(**{"github.repository": "other/cmux",
