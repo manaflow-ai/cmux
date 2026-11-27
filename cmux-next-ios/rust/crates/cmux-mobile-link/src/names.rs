@@ -42,6 +42,7 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const PHONE_PAGE: &str = "phone-page-v1";
 pub const BUNDLE: &str = "bundle-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
@@ -119,6 +120,10 @@ pub const ALL: &[Capability] = &[
     host(
         TAB_SNAPSHOTS,
         "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
+    ),
+    host(
+        PHONE_PAGE,
+        "(2026-11-24) The host routes agents' `browser.page.*` calls to a tab the phone shows itself (`phone-page`, the phone opens it; RFD 0089).",
     ),
     host(
         MAILBOX_SEND,

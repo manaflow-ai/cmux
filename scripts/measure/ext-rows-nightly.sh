@@ -4,7 +4,7 @@
 # id, data, daemon and customize folder; the Mac's own apps are untouched) and launched, then
 # scripts/measure/ext-rows-nightly.py runs one function per row through the copy's own CLI and daemon ops,
 # no clicks: web panes, background activation, link openers, the New Tab page, `ext new` for every kind,
-# composer slash commands and mentions, status items, background event workers, chat-widget routing,
+# composer slash commands and mentions, status items, background event workers, chat-widget drawing,
 # context-menu rows, agent (MCP) tools, plugin CLI subcommands, a forked first-party app, extension
 # settings, installs from a folder and the https-only git references, toolbar items and overlays.
 #   cmux-ci run --class exclusive --label measure --display \
@@ -98,6 +98,22 @@ app="$("$side" path "$name")"
 config="$CMUX_SIDE_ROOT/$name/config/cmux-next.json"
 if [[ ",${rows:-mcp_tools}," == *,mcp_tools,* ]]; then
   echo '{"agents":{"cmuxMcp":"on"}}' > "$config" || exit 3
+fi
+if [[ ",${rows:-chat_widget}," == *,chat_widget,* ]]; then
+  # Only the disposable copy opts into chat widgets; preserve its other settings.
+  python3 - "$config" <<'PY' || exit 3
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("ext_rows_chat_widget", "scripts/measure/ext-rows-chat-widget.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+receipt = module.prepare_test_copy_config(Path(sys.argv[1]))
+print("ERW chat widget config " + json.dumps(receipt), flush=True)
+sys.exit(0 if receipt.get("ok") is True else 3)
+PY
 fi
 "$side" launch "$name" >&2 || exit 3
 python3 scripts/measure/ext-rows-nightly.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \

@@ -22,6 +22,9 @@ case "${1:-}" in
     python3 -c 'import json, sys; sys.exit(json.loads(sys.argv[1]) != ["arm64"])' "$VARIANTS" \
       || { echo "nightly-next-one builds arm64 only, not $VARIANTS" >&2; exit 1; }
     { echo "CHANNEL_APP_PATH=build-universal/Build/Products/Release/$APP_NAME.app"; echo "TMPDIR=$RUNNER_TEMP"; } >> "$GITHUB_ENV"
+    # The keyless prebuild's deltas outlive this job for nightly-next-deltas, the job after the feed that signs them
+    # when it lands on this Mac (its `done` names the build and the DMG's digest; anything else is rebuilt there).
+    echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
     leftover="$HOME/Library/Keychains/build.keychain-db"
     if [ -e "$leftover" ]; then
       echo "Deleting the signing keychain an ended job left: $leftover"
