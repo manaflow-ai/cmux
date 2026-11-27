@@ -83,7 +83,9 @@ createRoot(body).render(<SceneRenderer store={store} dispatch={() => {}} />);
 window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".cmux-app-scene-row-title"));
 let revision = 0;
 window.benchChangeOne = ((index: number) =>
-  store.apply([{ op: "update", id: `r${index}`, props: { title: `Changed ${++revision}` } }])) as typeof window.benchChangeOne;
+  store.apply([
+    { op: "update", id: `r${index}`, props: { title: `Changed ${++revision}` } },
+  ])) as typeof window.benchChangeOne;
 const settle = () =>
   document.querySelector("[data-app-type=Row]") ? (window.benchReady = true) : requestAnimationFrame(settle);
 requestAnimationFrame(settle);
