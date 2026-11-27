@@ -1179,6 +1179,13 @@
           "scripts/ci/workflow_paths_cover_inputs.py",
           "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
         ]
+      },
+      "web-pipeline": {
+        "why": "Routed by the pr-pipeline step table web-browser inputs; job_inputs does not yet classify table_jobs callers.",
+        "suggested_inputs": [
+          "ci/steps.toml",
+          ".github/workflows/pr-pipeline.yml"
+        ]
       }
     }
   }
