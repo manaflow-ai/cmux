@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -44,5 +45,49 @@ struct AgentPaneClosedStartHoldTests {
         await socket.untilClosed()
         #expect(!pane.transport.replacements.holds, "a start on the closed socket held the tab after the reconnect")
         #expect(pane.transport.replacements.beginSandbox(replacingOpened: true))
+    }
+    /// A chat on another machine (a Cloud machine's daemon behind the owning session): answers
+    /// `initialize`, never answers a start or open, and ends when the test says so.
+    final class DroppingWire: AcpmuxPaneWire, @unchecked Sendable { // crash-allow: test support; every access holds the lock
+        private let state = Mutex<(onFrame: (@Sendable (String) -> Void)?, onClose: (@Sendable (Int, String) -> Void)?)>((nil, nil))
+
+        func open(onFrame: @escaping @Sendable (String) -> Void, onClose: @escaping @Sendable (Int, String) -> Void) async throws {
+            state.withLock { $0 = (onFrame, onClose) }
+        }
+
+        func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
+            completion(true)
+            guard text.contains(#""method":"initialize""#),
+                  let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  let id = object["id"] as? Int else { return }
+            state.withLock { $0.onFrame }?(#"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":1,"_meta":{"acpmux":{"origin":"remote"}}}}"#)
+        }
+
+        func cancel(code: Int, reason: String) {}
+
+        /// The path ends by itself (the machine's link dropped).
+        func drop() { state.withLock { $0.onClose }?(1006, "link lost") }
+    }
+
+    @Test func anOpenUnansweredWhenACloudMachinesLinkDroppedNoLongerHoldsTheTab() async throws {
+        let wire = DroppingWire()
+        let route = AgentPaneRemoteRoute(machine: "host", approvals: nil) { wire }
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(.remote(route))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: "\"origin\":\"remote\"")
+        transport.sessions.add("s")
+        transport.gestures.record()
+        let attach = #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"s"}}"#
+        #expect(await transport.send(connection: id, frames: [attach]) == nil)
+        #expect(await transport.lineDrained(within: .seconds(10)))
+        #expect(transport.replacements.holds)
+        let socket = try #require(transport.socket)
+
+        wire.drop()
+        await socket.untilClosed()
+        #expect(!transport.replacements.holds, "an open on the dropped link held the tab")
     }
 }
