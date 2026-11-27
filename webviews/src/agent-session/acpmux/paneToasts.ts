@@ -68,6 +68,19 @@ export function createPaneToasts(): NoticeQueue {
   return createNoticeQueue(PANE_TOAST_LIMIT, { anchors: anchorMemory(PANE_TOAST_ANCHOR_PREFIX) });
 }
 
+/**
+ * The sender-missing line (P4, name the thing and what to check): a peer's `HOST/NAME` names the chat
+ * and its machine, with the two likely causes ("It may have ended, or build-box is offline");
+ * a bare name keeps the short line.
+ */
+export function senderMissingText(ref: string): string {
+  const slash = ref.indexOf("/");
+  if (slash > 0 && slash < ref.length - 1) {
+    return translate("message.senderNotFoundOnHost", { name: ref.slice(slash + 1), host: ref.slice(0, slash) });
+  }
+  return translate("message.senderNotFound", { name: ref });
+}
+
 export function paneNotices(sinks: PaneNoticeSinks): PaneNotices {
   const transcript = (text: string) => void sinks.transcript()?.notice(text);
   const drawn = (text: string, group: string, kind?: "error") =>
@@ -87,6 +100,6 @@ export function paneNotices(sinks: PaneNoticeSinks): PaneNotices {
     transcript,
     transient: (text, group) => transient(text, group),
     failed: (text) => transient(text, "feedback", "error"),
-    senderMissing: (name) => transient(translate("message.senderNotFound", { name }), "senderMissing"),
+    senderMissing: (name) => transient(senderMissingText(name), "senderMissing"),
   };
 }

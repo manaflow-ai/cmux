@@ -44,6 +44,7 @@ export function HatHeadDeck({
   items,
   chatHarness,
   look,
+  at = "lead",
   peeked,
   onPeek,
   onOpenItem,
@@ -52,6 +53,9 @@ export function HatHeadDeck({
   items: readonly TrayItem[];
   chatHarness: string | undefined;
   look: "strip" | "cards";
+  /// Where it sits in the row: leading the words in the icon column, or after them (the one-line hat's
+  /// `trail` arm, hatLine.experiment.ts).
+  at?: "lead" | "trail";
   /// The key of the line the header names now (runningTray.ts `trayItemKey`), if one.
   peeked: string | undefined;
   onPeek: (key: string | undefined) => void;
@@ -79,6 +83,7 @@ export function HatHeadDeck({
     <span
       className="acpmux-hat-deck"
       data-look={look}
+      data-at={at}
       data-peeking={peeked !== undefined || undefined}
       aria-hidden="true"
       onPointerLeave={() => {

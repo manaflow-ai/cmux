@@ -105,6 +105,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         } else {
             account.append(.action("palette.auth.signIn", title: Self.text("menu.menuBar.signIn", "Sign In to cmux…"),
                                    symbol: "person.crop.circle"))
+            if let backend = state.signInBackend { account.append(.info(backend, symbol: nil, avatar: false)) }
         }
         var agents: [Item] = []
         if let awake = state.keepingAwake {

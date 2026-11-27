@@ -113,7 +113,7 @@ fn dispatch_command(
         command @ (Command::SetTerminalCommandHistory(_)
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
-        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ServerStats { include, .. } => cmd_server::server_stats(mux, client, include),
         Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
@@ -137,7 +137,7 @@ fn dispatch_command(
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
-        Command::Identify { machine_metadata, revisions } => {
+        Command::Identify { machine_metadata, revisions, .. } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
         Command::ShutdownDaemon {
@@ -543,26 +543,19 @@ fn dispatch_command(
             cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
-            let drag = transaction.is_some() && input_qos::from_app(&actor);
-            let reply = cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction);
-            input_qos::note_drag(writer, drag && reply.is_ok());
-            reply
+            input_qos::note_drag(writer, transaction.is_some() && input_qos::from_app(&actor));
+            cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
         }
         Command::SetDividerVisible { split, visible, transaction } => {
             cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
-            let drag = transaction.is_some() && input_qos::from_app(&actor);
-            let reply =
-                cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction);
-            input_qos::note_drag(writer, drag && reply.is_ok());
-            reply
+            input_qos::note_drag(writer, transaction.is_some() && input_qos::from_app(&actor));
+            cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
         Command::SetLayoutSizes { values, transaction } => {
-            let drag = input_qos::from_app(&actor);
-            let reply = cmd_panes::set_layout_sizes(mux, client, actor, values, transaction);
-            input_qos::note_drag(writer, drag && reply.is_ok());
-            reply
+            input_qos::note_drag(writer, input_qos::from_app(&actor));
+            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
@@ -717,6 +710,7 @@ fn dispatch_command(
             title,
             pinned,
             marked_unread,
+            keep_awake,
             mutation,
         } => cmd_workspaces::set_workspace_metadata(
             mux,
@@ -728,6 +722,7 @@ fn dispatch_command(
             title,
             pinned,
             marked_unread,
+            keep_awake,
             mutation,
         ),
         Command::ListPersonal => cmd_profiles::list_personal(mux),

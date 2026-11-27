@@ -263,22 +263,18 @@ for n in a uplink client; do mint "$n" --ephemeral; done
 mint front
 # VM B's key comes from cmux itself: a throwaway headscale API key goes to `cmux vm tailnet mint-key`
 # on stdin, which asks headscale's API for one single-use ephemeral key (10 min) and writes it 0600.
+# A staging VM can take ~10 min to answer, so the mint runs once B answers (tailnet-move-vms.ts
+# --key-b-cmd), not here: minted before the boot, the key expired before `tailscale up` (run 45821728719).
 MINTED_BY_CMUX=""
+KEY_B_CMD=()
 if [[ -n $CMUX_CLI ]]; then
   APIKEY=$(hs apikeys create --expiration 1h 2>/dev/null | tail -1)
   [[ -n ${GITHUB_ACTIONS:-} && -n $APIKEY ]] && echo "::add-mask::$APIKEY"
-  if (umask 077; printf '%s' "$APIKEY" | "$CMUX_CLI" --json vm tailnet mint-key --key-stdin --headscale-api \
-        --login-server http://127.0.0.1:8080 --allow-http --headscale-user "$USER_ID" --ephemeral \
-        --out "$WORK/keys/b" >"$WORK/mint.json" 2>"$WORK/mint.err") && [[ -s $WORK/keys/b ]]; then
-    [[ -n ${GITHUB_ACTIONS:-} ]] && echo "::add-mask::$(cat "$WORK/keys/b")"
-    MODE=$(stat -c %a "$WORK/keys/b")
-    MINTED_BY_CMUX=$(cat "$WORK/keys/b")
-    result PASS mint "cmux vm tailnet mint-key wrote VM B's key ($MODE, $(jq -c '{reusable,ephemeral,expiresInSecs}' "$WORK/mint.json")) from a headscale API key; the API key stays on the runner"
-  else
-    redact <"$WORK/mint.err"
-    result FAIL mint "cmux vm tailnet mint-key did not mint VM B's key"; exit 1
-  fi
+  (umask 077; printf '%s' "$APIKEY" >"$WORK/keys/headscale-api")
   unset APIKEY
+  printf 'umask 077; exec %q --json vm tailnet mint-key --key-stdin --headscale-api --login-server http://127.0.0.1:8080 --allow-http --headscale-user %q --ephemeral --out %q <%q >%q 2>%q\n' \
+    "$CMUX_CLI" "$USER_ID" "$WORK/keys/b" "$WORK/keys/headscale-api" "$WORK/mint.json" "$WORK/mint.err" >"$WORK/mint-b.sh"
+  KEY_B_CMD=(--key-b-cmd "bash $(printf %q "$WORK/mint-b.sh")")
 else
   mint b --ephemeral
 fi
@@ -292,7 +288,17 @@ VMS_UP=1
 T0=$(date +%s.%N)
 if (cd "$REPO" && bun scripts/cmux-next/tailnet-move-vms.ts up --run "$RUN" --login-server "$CONTROL" \
       --key-a "$WORK/keys/a" --key-b "$WORK/keys/b" --tarball "https://pkgs.tailscale.com/stable/$TARBALL" \
-      --json "$WORK/vms.json") 2>&1 | redact; then :; fi
+      "${KEY_B_CMD[@]}" --json "$WORK/vms.json") 2>&1 | redact; then :; fi
+if [[ -n $CMUX_CLI ]]; then
+  if [[ -s $WORK/keys/b && -s $WORK/mint.json ]]; then
+    MODE=$(stat -c %a "$WORK/keys/b")
+    MINTED_BY_CMUX=$(cat "$WORK/keys/b")
+    result PASS mint "cmux vm tailnet mint-key wrote VM B's key once B answered ($MODE, $(jq -c '{reusable,ephemeral,expiresInSecs}' "$WORK/mint.json")) from a headscale API key; the API key stays on the runner"
+  else
+    redact <"$WORK/mint.err" 2>/dev/null || true
+    result FAIL mint "cmux vm tailnet mint-key did not mint VM B's key"; exit 1
+  fi
+fi
 if [[ ! -s $WORK/vms.json ]]; then
   cat "$WORK/bore/drops" 2>/dev/null || true
   result FAIL vms "two staging VMs did not come up on the tailnet"; exit 1
