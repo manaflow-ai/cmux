@@ -1324,11 +1324,11 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
         assert with_config["ref"] == "${{ inputs.checkout_ref }}"
         for retry in checkouts[1:]:
             assert checkout.get("id") == "checkout", job_name
-            assert checkout.get("continue-on-error") is True, job_name
+            assert checkout.get("continue-on-error") == "true", job_name
             assert retry["uses"] == checkout["uses"], job_name
             assert retry["with"] == with_config, job_name
             assert retry.get("if") == "steps.checkout.outcome == 'failure'", job_name
-            assert not retry.get("continue-on-error", False), job_name
+            assert retry.get("continue-on-error", "false") == "false", job_name
 
 
 def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
