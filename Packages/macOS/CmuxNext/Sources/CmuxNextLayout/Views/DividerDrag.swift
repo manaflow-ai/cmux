@@ -69,7 +69,8 @@ struct DividerDrag {
                 screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime(), drag.sharedEdges)
             }
             apply(at: windowPoint, phase: .ended)
-            screen.context.frameTiming?.changed(in: screen.window) // a move and its release in one frame
+            screen.noteDragChange() // a move and its release in one frame
+            screen.context.frameTiming?.ended() // the drag's work line: its page detaches, attaches and fence joins
             screen.activeDrag?.hintToast?.dismiss()
             screen.activeDrag = nil
             model.setGestureActive(false)
@@ -125,7 +126,7 @@ struct DividerDrag {
         guard let drag = screen.activeDrag, drag.waiting else { return }
         screen.activeDrag?.waiting = false
         apply(at: drag.lastWindowPoint, phase: .changed)
-        screen.context.frameTiming?.changed(in: screen.window) // the drag's first change: its commit ends the timing
+        screen.noteDragChange() // the drag's first change: its commit is its first frame, later ones its moves
     }
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes

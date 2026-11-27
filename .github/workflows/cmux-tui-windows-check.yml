@@ -61,6 +61,8 @@ on:
       - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/action-surfaces.json"
@@ -81,6 +83,7 @@ on:
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-settle.json"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
@@ -125,6 +128,8 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "docs/cmux-next/guide/llms-full.txt"
+      - "docs/cmux-next/guide/pages.json"
       - "examples/looks/**"
       - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
@@ -173,7 +178,7 @@ jobs:
       windows_gnu_check_tree: ${{ steps.graph.outputs.windows_gnu_check_tree }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -189,13 +194,16 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # CI_LAND_KEEPS_SELECTOR=1 (repository variable, default off): the full-ci label follows the crate graph
+          # here as in cmux-tui-spec.yml (cmux#59250), instead of running every job; off, the call is unchanged.
+          FOLLOWS_GRAPH: ${{ vars.CI_LAND_KEEPS_SELECTOR == '1' && '--full-ci-follows-graph' || '' }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-windows-check.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" $FOLLOWS_GRAPH
 
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)
@@ -207,7 +215,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -296,11 +304,18 @@ jobs:
           # libc::mkfifo) with no cfg landed through this check because it never compiled test
           # code, and then broke the Windows jobs that do (2026-11-16: cmux-tui.yml's test
           # (windows) checks acpmux --all-targets; cmux-tui-build-package.yml's long-path step
-          # builds cmux-tui-core's lib tests). Each line is what one of those compiles.
+          # builds cmux-tui-core's lib tests). Each line is what one of those compiles. cmux-host (the
+          # machine agent and updater) had no Windows check at all (RFD 0157 D2); it compiles for
+          # Windows today, and this keeps it so. cmux-browser-host's tests were the same gap: acpmux
+          # links its lib, but nothing compiled its unit tests for Windows (its integration tests read
+          # CARGO_BIN_EXE_*, which cargo check never sets, so they are left to cargo test).
           for targets in "-p cmux-tui-core -p cmux-tui -p acpmux" \
                          "-p acpmux --all-targets" \
                          "-p cmux-tui-core --lib --tests" \
-                         "-p cmux-tui --lib --bins --tests"; do
+                         "-p cmux-tui --lib --bins --tests" \
+                         "-p cmux-host --lib --bins --tests" \
+                         "-p cmux-browser-host --lib --bins" \
+                         "-p cmux-browser-host --lib --profile test"; do
             # shellcheck disable=SC2086 # $targets is a list of cargo arguments
             if ! cargo check --locked --target x86_64-pc-windows-gnu $targets 2>&1 | tee "$log"; then
               if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi

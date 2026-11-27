@@ -158,7 +158,7 @@ pub fn ssh_target(command: Option<&str>) -> Option<String> {
     let words: Vec<&str> = tokens(command?).collect();
     let index = words.iter().position(|word| *word == "ssh" || word.ends_with("/ssh"))?;
     let mut skip_next = false;
-    for word in &words[index + 1..] {
+    for word in words.iter().skip(index + 1) {
         if skip_next {
             skip_next = false;
             continue;

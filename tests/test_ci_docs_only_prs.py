@@ -76,7 +76,6 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
-    "app-store-shelf.yml": "cmux-tui/crates/cmux-app-host/** (its generated REFERENCE.md is put back in the block)",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
     "chat-open-perf-report.yml": "webviews/src/agent-session/**",
@@ -87,6 +86,8 @@ SCOPED: dict[str, str] = {
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
+    "cmux-next-degenerate-lab.yml": "scripts/cmux-next/degenerate-lab/** (its own README; the lab gates nothing, and an "
+                                    "edit to its workflow would run the lab on that pull request)",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",

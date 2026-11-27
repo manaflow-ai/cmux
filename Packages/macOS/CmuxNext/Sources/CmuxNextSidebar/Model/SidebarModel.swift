@@ -332,6 +332,9 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// The machines a workspace row's chat can move to (its Move to… targets; none for a row that is no lone chat),
+    /// from the App: a drag of that one row may drop on them, which moves the chat (`SidebarChatMove`).
+    @ObservationIgnored public var chatMoveTargets: ((WorkspaceID) -> [MachineID])?
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
@@ -926,5 +929,16 @@ public final class SidebarModel {
             return
         }
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+
+    /// ``toggle()`` timed from this key press or click to the first frame its slide resizes the panes in (`side_open`,
+    /// `side_close`; the layout's `ScreenContentView+FrameTiming`). A toggle that moves no pane (a floating sidebar, the
+    /// rail's overlay) times nothing: its arm lapses. Measurement only.
+    public func toggle(timing: TransitionFrameLog?) {
+        if let timing {
+            timing.arm(isHidden ? .sideOpen : .sideClose)
+            timing.input()
+        }
+        toggle()
     }
 }

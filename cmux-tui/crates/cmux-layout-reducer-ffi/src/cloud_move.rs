@@ -3,8 +3,8 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    asks, autosize, cli, folder, handoff, ledger, machine_update, pin, place, priority, progress,
-    seed, session_transfer, settle, targets, wait,
+    asks, autosize, chat_moves, cli, folder, handoff, ledger, machine_update, pin, place, priority,
+    progress, seed, session_transfer, settle, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -49,6 +49,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             cli::read(request.reading, &request.output)
         }
         // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_chat_move" => {
+            #[derive(Deserialize)]
+            struct Request {
+                prior: Option<chat_moves::Move>,
+                event: chat_moves::Event,
+            }
+            let request: Request = read(request)?;
+            json!({ "next": to_value(chat_moves::step(request.prior, request.event))? })
+        }
         b"cloud_move_progress" => {
             let facts: progress::Facts = read(request)?;
             to_value(progress::line(&facts))?
