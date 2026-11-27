@@ -109,7 +109,7 @@ jobs:
   swift-fleet:
     name: fast tier (Swift entries, build fleet)
     needs: swift-results
-    if: ${{ !cancelled() && needs.swift-results.result != 'skipped' }}
+    if: ${{ !cancelled() && (inputs.only == '' || inputs.only == 'swift') && needs.swift-results.result != 'skipped' }}
     # Only a registry or commit the public route cannot serve needs the private gateway.
     runs-on: ${{ needs.swift-results.outputs.verdict == 'unavailable' && 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}
     permissions:
@@ -130,7 +130,7 @@ jobs:
             *) echo "::error::Unexpected fleet verdict '$VERDICT'"; exit 1 ;;
           esac
 
-      - name: Checkout the registry
+      - name: Checkout the registry and suite sources for fleet display routing
         if: needs.swift-results.outputs.verdict == 'unavailable'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
@@ -141,6 +141,8 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/cmux-next/fast-tier.json
+            scripts/ci/display-suites.txt
+            Packages/**/Tests/**/*.swift
             .gitmodules
           sparse-checkout-cone-mode: false
 
