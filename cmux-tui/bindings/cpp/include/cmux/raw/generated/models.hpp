@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "17cbe2df12a93d29d636612f73f8fe588f98748851f567dc42bce1831963464f";
+inline constexpr std::string_view kProtocolIrSha256 = "96fdd810cffbc0561025fcf62f11518ed27c690bddd91e6ba838c9768d84cf08";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -177,6 +177,7 @@ struct ServerStatsCommandRow;
 struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
+struct ServerStatsDiskCheckpoints;
 struct ServerStatsDiskFile;
 struct ServerStatsDiskJournal;
 struct ServerStatsDiskJournalKind;
@@ -5476,6 +5477,15 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsDiskCheckpoints {
+    std::uint64_t budget_bytes{};
+    std::uint64_t bytes{};
+    std::uint64_t checkpoints{};
+    std::uint64_t largest_bytes{};
+    bool over_budget{};
+    friend bool operator==(const ServerStatsDiskCheckpoints&, const ServerStatsDiskCheckpoints&) = default;
+};
+
 struct ServerStatsDiskFile {
     std::uint64_t bytes{};
     std::uint64_t files{};
@@ -5531,6 +5541,7 @@ struct ServerStatsDiskSegments {
 };
 
 struct ServerStatsDisk {
+    Field<ServerStatsDiskCheckpoints> checkpoints{};
     std::optional<std::string> error{};
     std::vector<ServerStatsDiskFile> files{};
     bool files_truncated{};
@@ -5999,6 +6010,7 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> icon{};
+    Field<bool> keep_awake{};
     Field<std::string> key{};
     Field<bool> marked_unread{};
     Field<std::string> mutation_id{};
@@ -7949,6 +7961,12 @@ template <>
 struct Codec<ServerStatsDisk> {
     static Result<Json> encode(const ServerStatsDisk& value);
     static Result<ServerStatsDisk> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskCheckpoints> {
+    static Result<Json> encode(const ServerStatsDiskCheckpoints& value);
+    static Result<ServerStatsDiskCheckpoints> decode(const Json& value);
 };
 
 template <>

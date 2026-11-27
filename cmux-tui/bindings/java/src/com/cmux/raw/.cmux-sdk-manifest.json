@@ -797,8 +797,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "18c4838c494139d1cbccca1f4dc108fd9186341294d1f455461716d1ce508cd5",
-      "size": 87497
+      "sha256": "924dcdcc3ad35627c59796d9b6d44e1d2c5e1314fecc62844aacddf8a4d5e6f2",
+      "size": 87579
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -2317,7 +2317,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fa8eea43904c1052d213d587850fdd61f8974d9188e570b67fe80571d217d794",
+      "sha256": "87aed73f87d581a2d633c509c63a55c65d7adad6bd68833831d4e623895e34cc",
       "size": 8591
     },
     {
@@ -2782,8 +2782,13 @@
     },
     {
       "path": "ServerStatsDisk.java",
-      "sha256": "6553b111b97dea5e564c8a24dcce65a65e5ec2bb253b954d71bc221a46fed0e5",
-      "size": 10460
+      "sha256": "fe27ef6b83fd37002b6b65532425441e6ff8a7a77a2b1445ac338dfbb6007d01",
+      "size": 11260
+    },
+    {
+      "path": "ServerStatsDiskCheckpoints.java",
+      "sha256": "9c1cc2d2ded32a5c24b7c6a5e2b18e042963b3d83193aee6ccc5d390fde572ff",
+      "size": 5166
     },
     {
       "path": "ServerStatsDiskFile.java",
@@ -3087,8 +3092,8 @@
     },
     {
       "path": "SetWorkspaceMetadataRequest.java",
-      "sha256": "4154573cdfc79d1e8acc0b99c40c38903118a195305a34c1a6468c78c03934c2",
-      "size": 9057
+      "sha256": "7efa8f7b69cfa589b920ccc8ca331b96b0d9bd280e06b9c8f0937e88e425f2f4",
+      "size": 9761
     },
     {
       "path": "SettingsChangedEvent.java",
@@ -3907,7 +3912,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "17cbe2df12a93d29d636612f73f8fe588f98748851f567dc42bce1831963464f",
+  "ir_sha256": "96fdd810cffbc0561025fcf62f11518ed27c690bddd91e6ba838c9768d84cf08",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
