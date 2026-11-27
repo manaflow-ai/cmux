@@ -609,13 +609,53 @@ def summary(path: str | None, text: str) -> None:
             out.write(text + "\n")
 
 
+# The plan's look for an earlier verdict of the same probe waits this long at most on a spent rate limit, then
+# runs the suite as before: a probe never waits on the lookup longer than a short render would take to start.
+REUSE_LOOKUP_WAIT = 60.0
+
+
+def reusable_run(args: argparse.Namespace, suites: dict[str, Suite]) -> tuple[str, str]:
+    """The earlier run of this same probe (same title: suite, job, commit) whose verdict this run reads instead of
+    running the suite again, and why; ("", "") when it runs the suite. The dispatch's own reuse input wins (a judge
+    that already had the verdict but could not read its origin run sends it). A confirm run never reuses: its whole
+    point is another render. A hot swap out probe never does either: its tree is not the commit's. Gallery-health
+    commit 72157adeb82 rendered twice (runs 45955682014 and 45961171063, 11-27, 7 runner-hours each) for one verdict."""
+    if getattr(args, "confirm", "") or getattr(args, "pieces", ""):
+        return "", ""
+    if str(getattr(args, "reuse", "") or "").isdigit():
+        return str(args.reuse), "the dispatch named it"
+    probe = Probe(args.suite, getattr(args, "job", "") or "", args.only or "", args.probe_sha, args.good or "", "", "")
+    budget = API_WAIT_BUDGET["seconds"]
+    API_WAIT_BUDGET["seconds"] = min(budget, REUSE_LOOKUP_WAIT)
+    try:
+        runs = list_runs(args.repo, args.branch)
+
+        def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
+            return suite_verdicts(run_jobs(args.repo, rid), suites), True
+
+        known = known_verdict(runs, probe, jobs_of)
+    except RuntimeError as err:
+        print(f"plan: earlier probe runs unreadable, running the suite: {err}", file=sys.stderr)
+        return "", ""
+    finally:
+        API_WAIT_BUDGET["seconds"] = budget
+    if not known:
+        return "", ""
+    return str(known[1]["id"]), f"it was already {known[0]} there"
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     suites = load_manifest(Path(args.manifest))
     if args.mode == PROBE:
         if args.suite not in suites or not SHA_RE.match(args.probe_sha or ""):
             raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
-        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": args.good if SHA_RE.match(args.good or "") else ""})
-        summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
+        reuse, why = reusable_run(args, suites)
+        write_outputs(args.github_output, {"suites": " " if reuse else f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "",
+                                           "base": args.good if SHA_RE.match(args.good or "") else "", "reuse": reuse})
+        if reuse:
+            summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}` reuses run {reuse}'s verdict ({why}); no suite runs.")
+        else:
+            summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
     def judged(run_id: int) -> bool:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
@@ -653,11 +693,13 @@ class Probe:
     pieces: str = ""  # hot swap out: piece_swap.State; sha is then the culprit with state.out swapped out
     confirm: str = ""  # flake-aware confirm: 'red-N' (sha is the culprit, bad) or 'green-N' (sha is its parent, good)
     step: str = ""  # the origin red's failing step names (STEP_SEP-joined): a probe is red only if it fails one of them
+    reuse: str = ""  # an earlier run of this same probe whose suite jobs give this run's verdict (no suite runs again)
 
     def inputs(self) -> dict[str, str]:
         extra = {"pieces": self.pieces} if self.pieces else {}
         extra |= {"confirm": self.confirm} if self.confirm else {}
         extra |= {"step": self.step} if self.step else {}
+        extra |= {"reuse": self.reuse} if self.reuse else {}
         return extra | {
             "mode": PROBE,
             "suite": self.suite,
@@ -777,6 +819,12 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
+def stuck_chain_start(good: str, bad: str) -> str:
+    """The sha a stuck red's bisect over good..bad starts at (stuck_probe's): stuck_reds counts finished bisects by it,
+    in the batch judge and in each probe's judge alike, so both agree on whether the bisect is capped."""
+    return stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha
+
+
 def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str], step: str = "") -> Probe:
     """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
     re-confirms it: next_step reads a pass there as a flake)."""
@@ -796,7 +844,7 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
         return "lost", None
     if conclusion not in ("success", "failure"):
         if probe.tries < MAX_PROBE_RETRIES:
-            return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
+            return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1, "reuse": ""})  # no verdict to reuse: run it
         return "lost", None
     good, bad = probe.good, probe.bad
     if bad and probe.sha == bad and conclusion == "success":  # a stuck red's one-commit range, re-confirmed: it passed
@@ -813,7 +861,8 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
     if len(span) <= 1:
         return "culprit", bad
     mid = span[(len(span) - 1) // 2]
-    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin)
+    # The origin red's failing step travels with every probe of the chain (#61284 set it on the first only).
+    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin, step=probe.step)
 
 
 def commits_between(commits: list[str], good: str, bad: str) -> list[str]:
@@ -1078,7 +1127,9 @@ def judge_pieces(args: argparse.Namespace, probe: Probe, state, conclusion: str)
 
 def cmd_judge(args: argparse.Namespace) -> int:
     suites = load_manifest(Path(args.manifest))
-    jobs = run_jobs(args.repo, args.run_id)
+    # A probe that reuses an earlier run of itself (reusable_run) ran no suite: that run's jobs are its verdict.
+    reuse = str(getattr(args, "reuse", "") or "") if args.mode == PROBE else ""
+    jobs = run_jobs(args.repo, int(reuse) if reuse.isdigit() else args.run_id)
     verdicts = suite_verdicts(jobs, suites)
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": "", "pieces": "", "piece": ""}
     memo: dict[int, tuple[dict[str, tuple[str, str]], bool]] = {}
@@ -1101,8 +1152,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites,
-                           chain_start=lambda good, bad: stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
@@ -1137,7 +1187,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 0
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0),
-                  args.pieces or "", getattr(args, "confirm", "") or "", getattr(args, "step", "") or "")
+                  args.pieces or "", getattr(args, "confirm", "") or "", getattr(args, "step", "") or "",
+                  reuse if reuse.isdigit() else "")
     found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
@@ -1152,7 +1203,11 @@ def cmd_judge(args: argparse.Namespace) -> int:
             found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)
             if not probe.step:  # a chain begun before the step travelled: the origin's red names it
                 probe.step = STEP_SEP.join(sorted(red_step_names(steps_of(origin["id"]), probe.job)))
-            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
+            # The same chain_start as the batch judge: without it every judged probe of the job since its first red
+            # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
+            # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
+            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites,
+                                                                                  chain_start=stuck_chain_start)]
     except RuntimeError as err:
         # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
         # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
@@ -1160,8 +1215,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
         # unreadable" after the full 600 s budget; its web-tests chain was re-probed commit for commit an hour
         # later). Run the same probe again instead: its judge checks the inputs once GitHub answers.
         if probe.tries < MAX_PROBE_RETRIES:
-            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1})
-            summary(args.summary, f"The origin run could not be read ({str(err)[-200:]}); running the probe at `{probe.sha[:11]}` again.")
+            # The suite already gave its verdict here: the next run reads it (reuse) and only judges again, instead
+            # of rendering the same commit once more. Probe run 45955682014 (gallery-health at 72157adeb82, 11-27)
+            # had its verdict, hit the rate limit reading its origin, and its retry 45961171063 re-rendered all 21
+            # legs (7 runner-hours) for no new verdict.
+            had = probe_conclusion(verdicts, probe) in ("success", "failure", "skipped") and not probe.pieces and not probe.confirm
+            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1, "reuse": (probe.reuse or str(args.run_id)) if had else ""})
+            how = f"judging it again on this run's verdict (reuse {again.reuse})" if had else "running the probe again"
+            summary(args.summary, f"The origin run could not be read ({str(err)[-200:]}); {how} at `{probe.sha[:11]}`.")
             if not args.dry_run:
                 dispatch_probe(args.repo, args.branch, again)
             write_outputs(args.github_output, out)
@@ -1544,6 +1605,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--pieces", default="")
         p.add_argument("--confirm", default="")
         p.add_argument("--step", default="")
+        p.add_argument("--reuse", default="", help="probe: an earlier run of this probe whose verdict is read instead of running the suite")
 
     p = sub.add_parser("tick")
     common(p)
