@@ -91,7 +91,6 @@ import { useCountedRender } from "../perfRender";
 import { useStableProps } from "../stableProps";
 import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
-import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
@@ -253,8 +252,6 @@ export function useSessionInfo({
   beside,
   wide = false,
   onReconnectMcp,
-  readCarried,
-  onResolveCarried,
   remoteControl,
   cloud,
   onCompact,
@@ -340,10 +337,6 @@ export function useSessionInfo({
   split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home`, and sends
-  /// `_acpmux/agent_home_resolve` on the click. The chat's own panel only (not Quick Chat).
-  readCarried?: ReadCarried;
-  onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
@@ -630,8 +623,6 @@ export function useSessionInfo({
         onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
-        readCarried={subagent ? undefined : readCarried}
-        onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
         cloud={cloud}
         onCompact={stableOnCompact}
@@ -907,8 +898,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
-  readCarried,
-  onResolveCarried,
   remoteControl,
   cloud,
   onCompact,
@@ -983,9 +972,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Carried memory (CarriedSection.tsx): `_acpmux/agent_home` and `_acpmux/agent_home_resolve`.
-  readCarried?: ReadCarried;
-  onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
   cloud?: SessionInfoCloudControl;
@@ -1533,9 +1519,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
-        // Carried memory is the chat's own, never a subagent's.
-        readCarried={scope ? undefined : readCarried}
-        onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
         cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
