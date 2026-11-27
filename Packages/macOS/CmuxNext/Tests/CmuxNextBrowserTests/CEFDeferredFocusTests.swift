@@ -206,6 +206,108 @@ import Testing
         #expect(FocusSpyShim.granted.isEmpty, "an ask taken back while the window was off screen was granted when it came on screen")
     }
 
+    /// The user's window switch in an active app (Cmd-` to a window restored behind the key one): AppKit reports the
+    /// window on screen before it reports it key. The kept ask, re-asked when the window came on screen, waits while
+    /// another window has the keys, and is granted once, when its own window becomes key.
+    @Test func anAskHeldWhileAnotherWindowIsKeyIsGrantedWhenItsWindowBecomesKey() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 57)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true // on screen first, still behind the key window
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while another window had the keys")
+
+        Self.becomeKey(window, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [57], "its window became key, and the page that waited for it got no grant")
+        Self.becomeKey(other, keys, runtime)
+        Self.becomeKey(window, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [57], "the kept ask was granted more than once")
+    }
+
+    /// The other order: the window becomes key while it is still off screen (AppKit reports the key change first). The
+    /// ask waits on, and is granted once, when the window comes on screen.
+    @Test func aWindowKeyBeforeItIsOnScreenGetsItsGrantWhenItIs() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 58)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        Self.becomeKey(window, keys, runtime) // key, still off screen
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while its cmux window was not on screen")
+
+        window.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [58], "its window came on screen after it became key, and its page got no grant")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [58], "the kept ask was granted more than once")
+    }
+
+    /// A key change grants only the asks that wait for that window: a window whose page has the focus already, or that
+    /// has no page waiting, becoming key grants nothing; the page that waits gets its grant when its own window does.
+    @Test func aKeyChangeToAWindowWithNoAskWaitingGrantsNothing() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (waiting, _) = try createdTab(runtime, browser: 59)
+        let (focused, _) = try createdTab(runtime, browser: 60)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let empty = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.closeAfterTest()
+            other.closeAfterTest()
+            empty.closeAfterTest()
+        }
+        let keys = KeyRecorder(key: other)
+        waiting.keyWindows = keys.seam
+        focused.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(waiting.contentView)
+        try #require(other.contentView).addSubview(focused.contentView)
+        Self.endTurn()
+
+        focused.setFocused(true)
+        waiting.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true
+        Self.endTurn()
+        try #require(FocusSpyShim.granted == [60], "the page of the key window got no grant, or the other page took focus")
+
+        Self.becomeKey(empty, keys, runtime)
+        Self.becomeKey(other, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [60], "a key change to a window with no ask waiting granted a page")
+
+        Self.becomeKey(window, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [60, 59], "its window became key, and the page that waited for it got no grant")
+    }
+
     /// An ask taken back (focus moved on) before the page showed is not granted later.
     @Test func focusTakenBackBeforeThePageShowsIsNotGranted() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
@@ -760,6 +862,13 @@ import Testing
         window.occlusionChanged = { runtime.windowGuard.onOcclusionChanged?($0) }
         window.onScreen = false
         return window
+    }
+
+    /// `window` becomes the app's key window, reported to `runtime` as AppKit's key changes reach it in the app: through
+    /// its window guard, the app's one observer of every window's key changes (``CEFRuntime/windowGuard``).
+    static func becomeKey(_ window: NSWindow, _ keys: KeyRecorder, _ runtime: CEFRuntime) {
+        keys.key = window
+        runtime.windowGuard.onBecameKey?(window)
     }
 
     /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
