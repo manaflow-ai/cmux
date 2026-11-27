@@ -699,7 +699,10 @@ public final class AgentPaneModel {
             // A New Tab page's composer is not the launch's front chat.
             if newTab == nil { AgentPaneLaunchTimings.shared.inputEchoed(at: echoedAt) }
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled, let copy, let live):
+        case .painted(let fromKeptTail, let settled, let copy, let live, let newTabDrawn):
+            // A context arrives before the lazy screen. Never release or capture the preserved
+            // composer on that empty frame; the page reports again after the screen mounts.
+            if newTab != nil, newTabDrawn == false { return AgentPaneReply.success() }
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             if settled, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.painted_settled") }
             // The page's own app drew the chat (not the inert saved copy): what the relaunch bench times as

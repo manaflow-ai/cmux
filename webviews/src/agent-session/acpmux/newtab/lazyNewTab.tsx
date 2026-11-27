@@ -48,6 +48,11 @@ function subscribe(listener: () => void): () => void {
 
 const current = () => loaded;
 
+/// Render observation for the native reveal gate; a context alone can still draw null.
+export function useNewTabChunkDrawn(): boolean {
+  return useSyncExternalStore(subscribe, current, current) !== undefined;
+}
+
 function useNewTabModules(): NewTabModules | undefined {
   const modules = useSyncExternalStore(subscribe, current, current);
   useEffect(() => {

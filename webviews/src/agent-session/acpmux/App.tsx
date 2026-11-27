@@ -790,7 +790,7 @@ import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
 import { usePaneHostOverload } from "./OverloadNotice";
 import { drawPaneBody } from "./pane/PaneBody";
-import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
+import { preloadNewTabWhenIdle, useNewTabChunkDrawn } from "./newtab/lazyNewTab";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -7196,6 +7196,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Not two frames: WebKit stops animation frames once the window is occluded, so a second frame
   // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
   // the same way).
+  const newTabChunkDrawn = useNewTabChunkDrawn();
   const paintReported = useRef(false);
   /// The chat whose settled frame the paint report named (`pane.painted` with `settled: true`).
   const settledReported = useRef<string | undefined>(undefined);
@@ -7420,7 +7421,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const liveNow = liveSession !== undefined && liveReported.current !== liveSession;
     if (paintReported.current && !settledNow && !liveNow) return;
     const first = !paintReported.current;
-    paintReported.current = true;
+    // A null lazy screen is a paint observation, not the screen's completed first report.
+    // Native keeps its cover until the loaded screen's observation follows.
+    paintReported.current = newTab === undefined || newTabChunkDrawn;
     if (settledNow) settledReported.current = settledSession;
     if (liveNow) liveReported.current = liveSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
@@ -7444,6 +7447,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (first) acpmuxPerf.markLaunch("painted");
         void callNative("pane.painted", {
           drewKeptTail,
+          ...(newTab !== undefined ? { newTabDrawn: newTabChunkDrawn } : {}),
           ...(settledNow ? { settled: true } : {}),
           ...(liveNow ? { live: true } : {}),
         }).catch(() => undefined);
@@ -7454,7 +7458,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         preloadNewTabWhenIdle();
       }, 0),
     );
-  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab, newTabChunkDrawn]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
