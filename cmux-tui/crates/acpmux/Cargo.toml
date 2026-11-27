@@ -90,6 +90,8 @@ cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+# What an upstream error says (529, 503, retry-after), shared with OptChat's Chief.
+cmux-upstream-error = { path = "../cmux-upstream-error" }
 cmux-transport-rewrite.workspace = true
 # Felt-latency metrics (`server/felt.rs`); portable, so every OS builds it.
 cmux-felt.workspace = true

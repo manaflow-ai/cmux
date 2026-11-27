@@ -42,6 +42,105 @@ import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
+class NightlyGateTest(unittest.TestCase):
+    """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
+    input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
+    beforehand fast like fast-fail is useful ci all stuff"). The 11-27 causes: #59540 (an IJG-licensed crate through
+    cmux-tui/Cargo.lock). #51044 (a duplicate webviews import) is the compile preflight's and #46903 (the shelf)
+    is cmux-next-guards.yml app-store-shelf-pr's, both run on landing heads."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import head_tier
+        import pr_router
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+        cls.affected = ("cheap", head_tier.LAND_AFFECTED_REASON + ": the full tier runs once an hour")
+
+    def landing(self, files, decided=None):
+        event = {"action": "synchronize", "pull_request": {
+            "draft": False, "labels": [{"name": "ready-to-land"}],
+            "base": {"ref": "feat-cmux-next", "repo": {"full_name": "o/r"}},
+            "head": {"ref": "lane/x", "repo": {"full_name": "o/r"}}}}
+        decided = decided or self.affected
+        start, why = self.router.route(event, self.callees, files, decided=decided)
+        table = self.router.table_jobs_routed(self.callees, files, full=decided[0] == "full")
+        return start, why, self.router.nightly_gate_table(self.callees, files, decided, start, table)
+
+    def test_a_nightly_step_keeps_whole_directory_inputs_under_pr_scope(self) -> None:
+        t = table('''
+            [step.shelf]
+            job = "linux"
+            inputs = ["first-party-apps/**"]
+            nightly = ["nightly.yml:shelf:Check"]
+            run = "true"
+            [step.plain]
+            job = "linux"
+            inputs = ["first-party-apps/**"]
+            run = "true"
+        ''')
+        paths = ["first-party-apps/notes/app.ts"]
+        self.assertEqual(ci_steps.route(t, paths, pr_scope=True), {"linux": ["shelf"]})
+        self.assertEqual(ci_steps.nightly_gate_steps(t, paths), ["shelf"])
+        self.assertEqual(ci_steps.nightly_gate_steps(t, ["docs/x.md"]), [])
+        for bad in ('nightly = ["shelf:Check"]', 'nightly = [3]'):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ci_steps.TableError, "nightly"):
+                table(f'[step.a]\njob = "linux"\n{bad}\nrun = "true"')
+
+    def test_the_table_maps_the_nightly_causes(self) -> None:
+        steps = ci_steps.load().steps
+        for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
+                            ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
+            with self.subTest(name):
+                self.assertTrue(steps[name].nightly)
+                self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), [name])
+
+    def test_a_landing_head_runs_only_the_nightly_steps_it_routes(self) -> None:
+        start, why, (jobs, only) = self.landing(["cmux-tui/Cargo.lock", "web/app/page.tsx"])
+        self.assertIn("pr-pipeline.yml", start)
+        # Cargo.lock reaches the iOS FFI too: the ios fast verdict starts the pipeline and the reason names both.
+        self.assertIn("nightly gate", why["pr-pipeline.yml"])
+        self.assertEqual(jobs, ["linux"])
+        self.assertEqual(only, ["rust-notices"])
+        start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
+        self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
+        self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
+
+    def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
+        start, _, (jobs, only) = self.landing(["web/app/page.tsx"])
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
+
+    def test_a_full_tier_head_runs_its_whole_route(self) -> None:
+        start, _, (jobs, only) = self.landing(["cmux-tui/Cargo.lock"], decided=("full", "ready-to-land"))
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertEqual(only, [], "the linux job runs every routed step; the nightly steps keep every input there")
+
+    def test_a_cheap_head_not_landing_still_waits(self) -> None:
+        start, _, (_, only) = self.landing(["cmux-tui/Cargo.lock"], decided=("cheap", "ready head before ready-to-land"))
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual(only, [])
+
+    def test_the_switch_off_starts_nothing(self) -> None:
+        with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0"}):
+            start, _, (jobs, only) = self.landing(["first-party-apps/notes/src/app.ts"])
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual(only, [])
+
+    def test_the_workflows_pass_only_through(self) -> None:
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(router["route"]["outputs"]["only"], "${{ steps.route.outputs.only }}")
+        self.assertEqual(router["pipeline"]["with"]["only"], "${{ needs.route.outputs.only || \'\' }}")
+        self.assertIn("only", pipeline[True]["workflow_call"]["inputs"] if True in pipeline else
+                      pipeline["on"]["workflow_call"]["inputs"])
+        run = next(s for s in pipeline["jobs"]["linux"]["steps"] if s.get("id") == "run")
+        self.assertEqual(run["env"]["ROUTER_ONLY"], "${{ inputs.only }}")
+        self.assertIn('--only "$ROUTER_ONLY"', run["run"])
+
+
 def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Table:
     import tomllib
 
@@ -937,6 +1036,11 @@ class PipelineTest(unittest.TestCase):
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
         self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
+        # Under --pr-scope a whole-tree `**` routes nothing, so tt-ci-step-table runs on a pull request only through
+        # tooling-tests-5's named inputs: a change to the table or a workflow routes it.
+        for path in ("ci/steps.toml", ".github/workflows/pr-router.yml"):
+            with self.subTest(path=path):
+                self.assertIn("tooling-tests-5", ci_steps.route(ci_steps.load(ci_steps.TABLE), [path], pr_scope=True)["linux"])
         # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
         # ready-to-land stays on for later heads; full-ci is one-shot (CI_FULL_CI_ONE_SHOT=0 makes it sticky).
         repo = {"full_name": "manaflow-ai/cmux"}
@@ -1008,7 +1112,8 @@ class PipelineTest(unittest.TestCase):
             self.assertIn('table=["web-browser"]\n', out.read_text())
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
-        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
+        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}",
+                                                         "only": "${{ needs.route.outputs.only || '' }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
@@ -1290,7 +1395,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(carried, [i for i in tt_ids if i not in staying])
         for step in tooling:
             with self.subTest(step=step.name):
-                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                # `**` routes it on every change; named inputs after it are what route it under --pr-scope.
+                self.assertEqual((step.job, step.inputs[0], step.alone), ("linux", "**", False))
+                self.assertTrue(all("**" not in g for g in step.inputs[1:]), step.inputs)
                 self.assertLessEqual(step.timeout, 360)
                 self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
                               step.run)
