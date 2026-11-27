@@ -6,14 +6,14 @@ public import Foundation
 /// `cmux.settings.cloud.allotment.get`), answered here so the app target only routes the op.
 extension CloudEnvironmentsSettings {
     /// `cmux.settings.environments.state`.
-    public var pageState: JSONValue { (try? JSONValue.parse(JSONEncoder().encode(state))) ?? .null }
+    public var pageState: JSONValue { (try? JSONValue.parse(JSONEncoder().encode(state))) ?? .null } // main-actor-ok: a team's few environments
 
     /// `cmux.settings.environments.run`.
     public func runPage(_ params: JSONValue) async throws -> JSONValue {
-        guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
+        guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else { // main-actor-ok: one card action's params
             throw PageError.invalidParams("unknown environments action")
         }
-        return (try? JSONValue.parse(JSONEncoder().encode(await self.run(run)))) ?? .object([:])
+        return (try? JSONValue.parse(JSONEncoder().encode(await self.run(run)))) ?? .object([:]) // main-actor-ok: one action's result
     }
 }
 
