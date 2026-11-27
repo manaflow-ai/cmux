@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The two-half screen-share-vs-pair.sh run (peer-token=) as one command, from a lane VM or any host with cmux-ci.
 #
-#   scripts/measure/screen-share-vs-pair-launch.sh HOST_MAC VIEWER_MAC [--ref SHA] [--viewer-ip IP] [RUN_ARG...]
+#   scripts/measure/screen-share-vs-pair-launch.sh HOST_MAC VIEWER_MAC [--ref SHA] [--viewer-ip IP] [--host-label L] [RUN_ARG...]
+#   (--host-label bench for a bench-only worker such as the dedicated bench mini; repeatable)
 #   e.g. scripts/measure/screen-share-vs-pair-launch.sh cmux19 cmux23 host=nightly inputs=key,click,scroll samples=30 trials=2
 #
 # By hand the pair is three cmux-ci runs: a mode=probe step on the viewer to learn its LAN address (the host half
@@ -18,11 +19,12 @@ set -uo pipefail
 host_mac=$1 viewer_mac=$2; shift 2
 [[ "$host_mac" =~ ^[a-z0-9-]+$ && "$viewer_mac" =~ ^[a-z0-9-]+$ && "$host_mac" != "$viewer_mac" ]] \
   || { echo "HOST_MAC and VIEWER_MAC are two different fleet Mac names" >&2; exit 2; }
-ref="" viewer_ip="" run_args=()
+ref="" viewer_ip="" run_args=() host_labels=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref=${2:-}; shift 2 ;;
     --viewer-ip) viewer_ip=${2:-}; shift 2 ;;
+    --host-label) host_labels+=(--label "${2:-}"); shift 2 ;;
     mode=*|partner=*|partner-ip=*|peer-token=*|role=*) echo "$1 is set by this launcher" >&2; exit 2 ;;
     *=*) run_args+=("--arg=$1"); shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -55,7 +57,7 @@ cmux-ci run "${common[@]}" --pair "$key" --target-worker "$viewer_mac" --pin-str
   --arg=role=viewer "--arg=peer-token=$token" --artifact artifacts/screen-share-vs-pair/report.tgz \
   >"$out/viewer.log" 2>&1 &
 viewer_pid=$!
-cmux-ci run "${common[@]}" --pair "$key" --target-worker "$host_mac" --pin-strict --timeout 7200 \
+cmux-ci run "${common[@]}" ${host_labels[@]+"${host_labels[@]}"} --pair "$key" --target-worker "$host_mac" --pin-strict --timeout 7200 \
   --arg=mode=run "--arg=partner=$viewer_mac" "--arg=partner-ip=$viewer_ip" "--arg=peer-token=$token" \
   ${run_args[@]+"${run_args[@]}"} --artifact artifacts/screen-share-vs-pair/report.tgz >"$out/host.log" 2>&1
 host_rc=$?

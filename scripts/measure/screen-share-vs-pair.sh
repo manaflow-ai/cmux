@@ -37,11 +37,12 @@
 #     --artifact artifacts/screen-share-vs-pair/report.tgz
 #             The viewer half ends at the host half's /done, or after hold-s= (default 3600) seconds.
 # host-ip=lan|tailnet  the address the viewer dials for the clock probe and the stream (--host-ip). lan (default)
-#             is this Mac's en0/en1 address. tailnet is its 100.64.0.0/10 address: the viewer half's own sockets
-#             to an office-LAN address get EHOSTUNREACH (`No route to host`) from macOS Local Network privacy,
-#             which refuses launchd-started programs the LAN with no grant (cmuxterm-hq handbook
-#             host-stall-read-as-dead-network.md), while their sockets to a tailnet address pass. Two Macs on one
-#             LAN reach each other directly inside WireGuard; the leg's --link is `wired-tailnet` then.
+#             is this Mac's en0/en1 address. tailnet is its 100.64.0.0/10 address. A launchd step's own sockets to
+#             an office-LAN address get EHOSTUNREACH (`No route to host`) from macOS Local Network privacy, so both
+#             LAN halves run inside CmuxScreenEvalLauncher.app (the rig here, peer-serve on the viewer), which
+#             holds that grant once it is allowed at each Mac's console; the run checks it before any leg
+#             (`localnet` in run.jsonl) and stops naming the Mac that lacks it. Two Macs on one LAN reach each
+#             other directly inside WireGuard; the leg's --link is `wired-tailnet` then.
 # queue-depth=N  (3..8) CMUX_RD_SCK_QUEUE_DEPTH=N on the host's serve: the ScreenCaptureKit surface pool depth
 #             (cmux-rd-host mac/capture.rs; default none set: its own depth). The label gains `-qN`.
 # max-refresh=1  CMUX_RD_MAC_MAX_REFRESH=1 on the host's serve: the captured display switches to its fastest
@@ -151,8 +152,11 @@ if [[ "$role" == viewer ]]; then
     | tee -a "$work/probe.txt"
   (sleep 3; echo "SSVP self-connect $self_ip:$peer_port $(tcp_check "$self_ip" "$peer_port")" \
     | tee -a "$work/probe.txt") &
-  python3 -I "$vs" peer-serve --bind "$self_ip" --port "$peer_port" --token-file "$work/peer-token" \
-    --hold-s "$hold_s" 2>&1 | tee "$work/run.log"
+  # Inside CmuxScreenEvalLauncher.app (screen-stream-eval.sh peer-serve=): the bench peer-serve starts sends
+  # the stream's UDP to the shared Mac's LAN address, which macOS Local Network privacy refuses this step's
+  # own processes (`sends refused: No route to host (os error 65)`); the app holds that grant.
+  bash scripts/measure/screen-stream-eval.sh "peer-serve=$self_ip" "peer-port=$peer_port" "peer-hold=$hold_s" \
+    "peer-token-file=$work/peer-token" 2>&1 | tee "$work/run.log"
   rc=${PIPESTATUS[0]}
   [[ -n "$rig_root" ]] && rm -rf "$rig_root"
   pack; exit "$rc"
