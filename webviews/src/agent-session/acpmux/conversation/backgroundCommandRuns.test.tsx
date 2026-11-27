@@ -13,11 +13,15 @@ import { BACKGROUND_TURN } from "./backgroundTurns";
 import { turnView } from "./turns";
 
 // The default look: background turns draw inline, with no line of their own.
+// Put back exactly what was there: the key itself, when the file found none (test/support/leakDetector.ts).
+const hadExperiments = "cmuxExperiments" in globalThis;
+const previousExperiments = globalThis.cmuxExperiments;
 beforeAll(() => {
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
 });
 afterAll(() => {
-  delete globalThis.cmuxExperiments;
+  if (hadExperiments) globalThis.cmuxExperiments = previousExperiments;
+  else delete globalThis.cmuxExperiments;
 });
 
 let at = 0;

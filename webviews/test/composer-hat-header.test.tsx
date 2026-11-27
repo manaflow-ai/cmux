@@ -92,7 +92,8 @@ const port: StartedSession = {
 const items = trayItems([reviewer], [watcher], [port], false);
 
 async function mount(arm: string, props: Record<string, unknown> = {}) {
-  scope.cmuxExperiments = { "composer-hat-header": arm };
+  // The top-bar arms draw on the carded tally header, so these tests pin it.
+  scope.cmuxExperiments = { "composer-hat-header": arm, "subagent-tray-fold-head": "tally" };
   resetTrayOpenMemory();
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);

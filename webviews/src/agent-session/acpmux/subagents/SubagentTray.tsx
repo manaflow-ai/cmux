@@ -929,11 +929,17 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
-          {!kindsHead && (
+          {/* A deck takes the counts' place, so its words stay: the summary, or the pointed-at line's name. */}
+          {(!kindsHead || deck) && (
             // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
             // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
-            // A fold or unfold is the reader's own change: keyed by it, the words change at once.
-            <Dwelt key={open ? "open" : "folded"} value={headText} dwellMs={PHASE_DWELL_MS}>
+            // A fold or unfold, or pointing at a deck's mark, is the reader's own change: keyed by it, the
+            // words change at once.
+            <Dwelt
+              key={`${open ? "open" : "folded"}:${peekItem ? peeked : ""}`}
+              value={headText}
+              dwellMs={PHASE_DWELL_MS}
+            >
               {(text) => (
                 <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
               )}
