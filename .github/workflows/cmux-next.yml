@@ -81,6 +81,7 @@ on:
       - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
+      - examples/setups/*/cmux-setup.json
       - webviews/test/fixtures/**
       # Why: note-489
       - webviews/src/**
@@ -299,6 +300,7 @@ on:
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_same_tree_status_never_silent.py
+      - tests/test_ci_same_tree_status_pool_tokens.py
       - scripts/ci/cmux_next_same_tree_status.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
@@ -361,21 +363,7 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
-      - skills/cmux-extension-author/prompts/add-animation.md
-      - skills/cmux-extension-author/prompts/clone-app-flow.md
-      - skills/cmux-extension-author/prompts/composer-slash-command.md
-      - skills/cmux-extension-author/prompts/new-tab-page.md
-      - skills/cmux-extension-author/prompts/palette-command.md
-      - skills/cmux-extension-author/prompts/sidebar-show.md
-      - skills/cmux-extension-author/recipes/command.md
-      - skills/cmux-extension-author/recipes/composer-command.md
-      - skills/cmux-extension-author/recipes/composer-mention.md
-      - skills/cmux-extension-author/recipes/live-section.md
-      - skills/cmux-extension-author/recipes/newtab.md
-      - skills/cmux-extension-author/recipes/pane.md
-      - skills/cmux-extension-author/recipes/section.md
-      - skills/cmux-extension-author/recipes/session-info.md
-      - skills/cmux-extension-author/recipes/widget.md
+      - skills/cmux-extension-author/**
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -403,6 +391,7 @@ on:
       - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
+      - examples/setups/*/cmux-setup.json
       - scripts/cmux-next/check-generator-inputs.sh
       # Why: note-526
       - scripts/cmux-next/generated-autofixable.sh
@@ -689,6 +678,7 @@ on:
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_same_tree_status_never_silent.py
+      - tests/test_ci_same_tree_status_pool_tokens.py
       - scripts/ci/cmux_next_same_tree_status.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
@@ -747,21 +737,7 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
-      - skills/cmux-extension-author/prompts/add-animation.md
-      - skills/cmux-extension-author/prompts/clone-app-flow.md
-      - skills/cmux-extension-author/prompts/composer-slash-command.md
-      - skills/cmux-extension-author/prompts/new-tab-page.md
-      - skills/cmux-extension-author/prompts/palette-command.md
-      - skills/cmux-extension-author/prompts/sidebar-show.md
-      - skills/cmux-extension-author/recipes/command.md
-      - skills/cmux-extension-author/recipes/composer-command.md
-      - skills/cmux-extension-author/recipes/composer-mention.md
-      - skills/cmux-extension-author/recipes/live-section.md
-      - skills/cmux-extension-author/recipes/newtab.md
-      - skills/cmux-extension-author/recipes/pane.md
-      - skills/cmux-extension-author/recipes/section.md
-      - skills/cmux-extension-author/recipes/session-info.md
-      - skills/cmux-extension-author/recipes/widget.md
+      - skills/cmux-extension-author/**
   # Why: note-366
   workflow_dispatch:
     inputs:
@@ -1091,6 +1067,8 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Why: 2026-11-27-tip-daemon-superseded-defers.md
+          CMUX_TUI_TREE_TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || '' }}
           # Why: note-99
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || inputs.base_tier == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           # Why: note-100
@@ -1146,6 +1124,8 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Why: 2026-11-27-tip-daemon-superseded-defers.md
+          CMUX_TUI_TREE_TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || '' }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.base_tier == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           # Why: note-106
@@ -1517,7 +1497,8 @@ jobs:
     # Why: note-396
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Why: note-349
-    timeout-minutes: 15
+    # Why: 2026-11-27-checks-timeout-20.md
+    timeout-minutes: 20
     permissions:
       contents: read
       actions: read
@@ -1550,7 +1531,7 @@ jobs:
       - name: Start the slow checks in the background
         env:
           # Why: 2026-11-24-checks-1.md
-          JOB_TIMEOUT_MINUTES: 15
+          JOB_TIMEOUT_MINUTES: 20
           # Why: 2026-11-24-checks-2.md
           AFFECTED_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
         run: bash -e scripts/ci/cmux-next-steps/start-slow-checks.sh
@@ -2584,6 +2565,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -2597,6 +2579,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3136,6 +3119,7 @@ jobs:
         if: env.CMUX_FAST_TIER_FLEET != 'report'
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3151,6 +3135,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3378,7 +3363,7 @@ jobs:
       # Why: 2026-11-26-fast-tier-cargo-reuse.md
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
       # Why: note-559
-      FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
+      FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_FAST_TIER_PR_SCOPE) != '0' && '1' || '' }}
     steps:
       # Why: 2026-11-26-fast-tier-freestyle-link.md
       - name: Note when the checkout starts (Freestyle link check)
@@ -3402,6 +3387,22 @@ jobs:
             exit 1
           fi
           echo "checkout took ${took} s on ${RUNNER_NAME}: link fast enough, continuing"
+
+      # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff"
+      # (cmux#51044: the checkout's merge commit was 73 min behind the base).
+      - name: Merge the head onto the live base
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GIT_AUTH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # An inline step, not a local action: a stale merge commit may predate both.
+          if grep -qs merge-live-base scripts/ci/compile_preflight.py; then
+            python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
+          else
+            echo "this checkout predates scripts/ci/compile_preflight.py merge-live-base; keeping GitHub's merge commit"
+          fi
 
       - name: List the changed paths
         if: ${{ env.FAST_TIER_PR_SCOPE == '1' }}
@@ -3539,7 +3540,10 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
       - name: Test the R2 workspace delta
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
-        run: bash scripts/ci/tests/cargo-target-delta.test.sh
+        run: |
+          bash scripts/ci/tests/cargo-target-delta.test.sh
+          # The delta with rustc's incremental state is over a single PUT's 5 GiB (seed run 45982767555).
+          bash scripts/ci/tests/r2-cache-multipart.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
@@ -3606,6 +3610,17 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
 
+      # Why: 2026-11-27-cargo-delta-matched-entry.md
+      - name: Key the workspace delta to the restored dependency entry
+        id: r2-cargo-ws-base
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          MATCHED: ${{ steps.r2-cargo-target.outputs.cache-matched-key }}
+          TARGET_PREFIX: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+          WS_BASE: ${{ steps.r2-cargo-key.outputs.ws-base }}
+        run: scripts/ci/cargo-delta-prefix.sh "$MATCHED" "$TARGET_PREFIX" "$WS_BASE" >> "$GITHUB_OUTPUT"
+
       # Why: 2026-11-26-fast-tier-cargo-reuse.md
       - name: Restore source mtimes for the R2 cargo build
         if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
@@ -3639,7 +3654,9 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/cargo-delta
           key: ${{ steps.r2-cargo-key.outputs.ws-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+          restore-keys: |
+            ${{ steps.r2-cargo-ws-base.outputs.prefix }}
+            ${{ steps.r2-cargo-key.outputs.ws-prefix }}
 
       - name: Apply the workspace delta
         id: r2-cargo-ws-apply
@@ -3860,6 +3877,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3874,6 +3892,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -4327,6 +4346,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-247
@@ -4343,6 +4363,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-249
@@ -4792,10 +4813,11 @@ jobs:
           echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
       - name: Install checkout tools
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+        run: for try in 1 2 3; do apt-get update -qq -o Acquire::Retries=3 && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git python3 curl ca-certificates && break; [ "$try" = 3 ] && exit 1; echo "apt try $try failed (a mirror mid-sync?), updating again"; sleep 15; done
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: &generated-files-linux-checkout
           persist-credentials: false
@@ -4820,6 +4842,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *generated-files-linux-checkout
       - name: Trust workspace
@@ -4958,6 +4981,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -4972,6 +4996,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -5523,7 +5548,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -5542,7 +5567,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
-        timeout-minutes: 15
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -5938,6 +5963,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-301
@@ -5952,6 +5978,7 @@ jobs:
 
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Why: note-303
@@ -6434,6 +6461,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_TOKEN_SPARE: ${{ steps.status-token.outputs.token }}
+          GH_TOKEN_POOL: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           NEEDS: ${{ toJSON(needs) }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           STATE: ${{ inputs.same_tree_state }}
@@ -6478,6 +6506,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_TOKEN_SPARE: ${{ steps.status-token.outputs.token }}
+          GH_TOKEN_POOL: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           NEEDS: ${{ toJSON(needs) }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           STATE: ${{ inputs.same_tree_state }}
@@ -6588,6 +6617,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -6597,6 +6627,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false

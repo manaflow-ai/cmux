@@ -108,7 +108,7 @@ jobs:
     if: needs.route.outputs.walk == 'true'
     name: Walk the first-user journey (iPhone simulator)
     # No secret in this job: the mock account (DEBUG) stands in for sign-in.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.route.outputs.retry_runs_on || needs.route.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.route.outputs.retry_runs_on || needs.route.outputs.runs_on) }}
     timeout-minutes: 75
     steps:
       - name: Result paths

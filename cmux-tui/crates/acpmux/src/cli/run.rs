@@ -18,6 +18,7 @@ pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_s
 
 mod extra;
 pub(crate) mod fanout;
+mod history_upkeep;
 pub(crate) mod launch;
 pub(crate) mod ls;
 pub(crate) mod ls_archived;

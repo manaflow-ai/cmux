@@ -25,7 +25,8 @@ jobs:
       contents: read
       pull-requests: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The checker fetch's wait (at most 240 s) and the checker's PRIVATE_NAMES_READ_BOUND_S (300 s), inside 10 minutes.
+    timeout-minutes: 10
     steps:
       # cmux-bot's installation budget first: the routing App runs past its hourly cap and answers 403 then.
       - name: Mint the private checker read token (cmux-bot)
@@ -65,20 +66,52 @@ jobs:
           # The job token is shared by every run in this repo and runs out; the checker falls back to these.
           PR_READ_TOKENS: ${{ steps.bot-token.outputs.token }} ${{ steps.route-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # A read every token's budget refused waits for the soonest reset inside this bound, not a capped 60 s
+          # that ends red for a rerun the next hour turns green (runs 45960905805, 45960538227: 3 of 3 tokens 403).
+          PRIVATE_NAMES_READ_BOUND_S: '300'
+          FETCH_WAIT_S: '240'
         run: |
           set -euo pipefail
           checker="$RUNNER_TEMP/private_names.py"
           url="https://api.github.com/repos/${GITHUB_REPOSITORY_OWNER}/cmuxterm-hq/contents/tools/agent-guards/private_names.py?ref=main"
           fetched=""
-          for name in BOT_TOKEN ROUTE_TOKEN; do
-            token="${!name}"
-            [ -n "$token" ] || continue
-            if curl -sSf --retry 2 --max-time 60 -H 'accept: application/vnd.github.raw' \
-                -H @<(printf 'authorization: Bearer %s\n' "$token") -o "$checker" "$url"; then
-              fetched="$name"
-              break
+          # One round over both App tokens. A quota refusal (403/429 with x-ratelimit-remaining 0 or Retry-After)
+          # records when that token's budget is back; the soonest one inside FETCH_WAIT_S gets one more round.
+          fetch_round() {
+            soonest=""
+            for name in BOT_TOKEN ROUTE_TOKEN; do
+              token="${!name}"
+              [ -n "$token" ] || continue
+              headers="$RUNNER_TEMP/checker.headers"
+              code="$(curl -sS --retry 2 --max-time 60 -D "$headers" -o "$checker" -w '%{http_code}' \
+                -H 'accept: application/vnd.github.raw' \
+                -H @<(printf 'authorization: Bearer %s\n' "$token") "$url")" || code=000
+              if [ "$code" = 200 ]; then
+                fetched="$name"
+                return 0
+              fi
+              if [ "$code" = 403 ] || [ "$code" = 429 ]; then
+                lower="$(tr -d '\r' < "$headers" | tr '[:upper:]' '[:lower:]')"
+                after="$(sed -n 's/^retry-after: *\([0-9][0-9]*\)$/\1/p' <<<"$lower" | tail -n 1)"
+                reset="$(sed -n 's/^x-ratelimit-reset: *\([0-9][0-9]*\)$/\1/p' <<<"$lower" | tail -n 1)"
+                at=""
+                if [ -n "$after" ]; then at=$(( $(date +%s) + after ));
+                elif grep -qx 'x-ratelimit-remaining: *0' <<<"$lower" && [ -n "$reset" ]; then at="$reset"; fi
+                if [ -n "$at" ] && { [ -z "$soonest" ] || [ "$at" -lt "$soonest" ]; }; then soonest="$at"; fi
+              fi
+              echo "::notice::the checker fetch answered $code with $name"
+            done
+            return 1
+          }
+          if ! fetch_round && [ -n "$soonest" ]; then
+            wait=$(( soonest - $(date +%s) + 5 ))
+            [ "$wait" -ge 1 ] || wait=1
+            if [ "$wait" -le "$FETCH_WAIT_S" ]; then
+              echo "::notice::every App token's budget refused the checker fetch; fetching again in ${wait}s"
+              sleep "$wait"
+              fetch_round || true
             fi
-          done
+          fi
           if [ -z "$fetched" ]; then
             echo "::error::private-names could not fetch its checker with either App token (rate limit or access); rerun this check"
             exit 1

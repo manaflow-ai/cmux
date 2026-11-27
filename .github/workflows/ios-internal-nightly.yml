@@ -321,6 +321,11 @@ jobs:
           root="$HOME/cmux-mobile-builds"
           [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
           export CMUX_MOBILE_BUILDS_ROOT="$root"
+          # Hosted fallback jobs use a disposable build root. Keep Swift package clones under the
+          # runner's home so repeated INTERNAL archives do not fetch the same pins from GitHub.
+          if [ "$HOSTED_FALLBACK" = true ]; then
+            export CMUX_MOBILE_SPM_CACHE="$HOME/Library/Caches/cmux-mobile-internal/spm"
+          fi
           cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
             --marketing-version "$MARKETING" --build-number "$BUILD_NUMBER"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"

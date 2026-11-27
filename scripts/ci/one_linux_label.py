@@ -48,6 +48,10 @@ CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
 # The canonical route as it read before the overflow switch. A workflow added on the base in this form names no size,
 # so no picker triggers on it; it is upgraded by exact match. nightly.yml keeps its own route (it never spills).
 PRE_OVERFLOW = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+# The base writes the same route with the fork branch first too (rfd0135-gates.yml, pr-router.yml at fa7ee53a): both
+# orders are upgraded, each keeping its own order.
+PRE_OVERFLOW_FORK_FIRST = f"${{{{ {FORK_PR} || {OWNER_GUARD} || '{LABEL}' }}}}"
+CANONICAL_FORK_FIRST = f"${{{{ {FORK_PR} || {OWNER_GUARD} || {OVERFLOW} || '{LABEL}' }}}}"
 NO_OVERFLOW = frozenset({"nightly.yml"})
 
 # A term naming or choosing a Linux x64 size.
@@ -323,11 +327,12 @@ FOLLOW_ON = (
 
 
 def follow_on(name: str, text: str, report: Report) -> str:
-    if name not in NO_OVERFLOW and PRE_OVERFLOW in text:
-        for n, line in enumerate(text.split("\n"), 1):
-            if PRE_OVERFLOW in line:
-                report.changed.append((name, n, f"{name}:{n} (overflow switch)"))
-        text = text.replace(PRE_OVERFLOW, CANONICAL)
+    for before, after in ((PRE_OVERFLOW, CANONICAL), (PRE_OVERFLOW_FORK_FIRST, CANONICAL_FORK_FIRST)):
+        if name not in NO_OVERFLOW and before in text:
+            for n, line in enumerate(text.split("\n"), 1):
+                if before in line:
+                    report.changed.append((name, n, f"{name}:{n} (overflow switch)"))
+            text = text.replace(before, after)
     for workflow, old, new in FOLLOW_ON:
         if workflow == name and old in text:
             text = text.replace(old, new)
