@@ -107,6 +107,7 @@ public final class LocalhostForwarder {
         let password: String
         var listener: NWListener?
         var binding: Task<Result<UInt16, Failure>, Never>?
+        var bindingID: UInt = 0
 
         init(target: Target, macID: String?) {
             self.target = target
@@ -236,14 +237,9 @@ public final class LocalhostForwarder {
         } else if let binding = route.binding {
             localPort = try await binding.value.get()
         } else {
-            let task = Task { () -> Result<UInt16, Failure> in
-                do { return .success(try await self.bindProxy(route, key: key)) }
-                catch let error as Failure { return .failure(error) }
-                catch { return .failure(.unavailable(String(describing: error))) }
-            }
-            route.binding = task
+            let (task, bindingID) = startProxyBinding(route, key: key)
             let result = await task.value
-            if route.binding == task { route.binding = nil }
+            if route.bindingID == bindingID { route.binding = nil }
             localPort = try result.get()
         }
         return ProxyRoute(target: target, localPort: localPort, username: route.username, password: route.password)
@@ -254,6 +250,20 @@ public final class LocalhostForwarder {
         route.binding?.cancel()
         route.listener?.cancel()
         route.listener = nil
+    }
+
+    /// Registers a proxy bind before starting it, so concurrent callers and
+    /// resume cannot create two listeners for the same route.
+    private func startProxyBinding(_ route: ProxyForward, key: ProxyKey) -> (Task<Result<UInt16, Failure>, Never>, UInt) {
+        route.bindingID &+= 1
+        let bindingID = route.bindingID
+        let task = Task { () -> Result<UInt16, Failure> in
+            do { return .success(try await self.bindProxy(route, key: key)) }
+            catch let error as Failure { return .failure(error) }
+            catch { return .failure(.unavailable(String(describing: error))) }
+        }
+        route.binding = task
+        return (task, bindingID)
     }
 
     private func bindProxy(_ route: ProxyForward, key: ProxyKey) async throws(Failure) -> UInt16 {
@@ -365,7 +375,11 @@ public final class LocalhostForwarder {
             Task { _ = await self.bind(forward, port: port) }
         }
         for (key, route) in proxies where route.listener == nil && route.binding == nil {
-            Task { _ = try? await self.bindProxy(route, key: key) }
+            let (task, bindingID) = startProxyBinding(route, key: key)
+            Task {
+                _ = await task.value
+                if route.bindingID == bindingID { route.binding = nil }
+            }
         }
     }
 
@@ -395,7 +409,7 @@ public final class LocalhostForwarder {
         }
         forward.binding = task
         let result = await task.value
-        if forward.binding == task { forward.binding = nil }
+        forward.binding = nil
         if case .failure(.portInUse) = result, forwards[port] === forward { forwards[port] = nil }
         return result
     }
