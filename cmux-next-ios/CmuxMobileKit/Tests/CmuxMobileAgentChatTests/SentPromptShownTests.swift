@@ -36,9 +36,12 @@ import Testing
         #expect(store.turns.count == 1)
         #expect(shown.isUnconfirmed)
         #expect(shown.prompt == "run the tests\nand summarize")
-        #expect(store.isRunning)
+        // A bubble on its way is not a turn yet (#57933): the composer does not turn into Stop,
+        // and the pending copy draws it (``AgentChatStore/outgoing``) until the Mac has it.
+        #expect(!store.isRunning)
+        #expect(store.outgoing.map(\.id) == [id])
         let before = Self.rowIDs(store)
-        #expect(before.contains("u-\(AgentChatStore.localTurnID(id))"))
+        #expect(!before.contains("u-\(AgentChatStore.localTurnID(id))"), "drawn once, by its pending copy")
         #expect(store.justSentRowKey() == AgentChatStore.localTurnID(id))
         #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
 
@@ -49,7 +52,9 @@ import Testing
         #expect(turn.id == "t1")
         #expect(!turn.isUnconfirmed)
         #expect(turn.rowKey == AgentChatStore.localTurnID(id))
-        #expect(Self.rowIDs(store) == before, "same rows: nothing is taken out and put in again")
+        #expect(store.outgoing.isEmpty, "the pending copy goes at the record")
+        #expect(Self.rowIDs(store).starts(with: before + ["u-\(AgentChatStore.localTurnID(id))"]),
+                "the Mac's turn draws under the sent bubble's key")
 
         // The turn goes on under the Mac's id: its answer and its end land in it.
         store.apply(.update(.agentMessageChunk(text: "All green.", messageId: "m1")))
@@ -107,8 +112,10 @@ import Testing
         // The Mac ran another prompt first: its updates must not land in the shown bubble's turn.
         store.apply(.userMessage(text: "from the Mac", promptId: "other", turnId: "t1", attachments: [], at: Date()))
         store.apply(.update(.agentMessageChunk(text: "Working on it.", messageId: "m1")))
-        #expect(store.turns.map(\.id) == ["t1"])
-        #expect(store.turns.last?.answerMarkdown == "Working on it.")
+        // The shown bubble waits after the Mac's turn, in the order sent (#57933).
+        #expect(store.turns.map(\.id) == ["t1", AgentChatStore.localTurnID(id)])
+        #expect(store.turns.first?.answerMarkdown == "Working on it.")
+        #expect(store.turns.last?.answerMarkdown == "")
         store.apply(.turnResult(turnId: "t1", status: .completed, errorText: nil, at: Date()))
         store.apply(.userMessage(text: "mine", promptId: id, turnId: "t2", attachments: [], at: Date()))
         #expect(store.turns.map(\.id) == ["t1", "t2"], "each once, in the Mac's order")
@@ -121,8 +128,9 @@ import Testing
         store.apply(.userMessage(text: "first", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
         #expect(store.isRunning)
         store.send(prompt: "and the docs", steer: true)
+        // Every message shows the moment Send is tapped (#57933): a steer, in the running turn.
         #expect(store.turns.count == 1)
-        #expect(store.turns.last?.items.isEmpty == true)
+        #expect(store.turns.last?.items.contains { if case .steer(let m) = $0 { m.text == "and the docs" } else { false } } == true)
     }
 
     @Test func aSentPromptKeepsItsAttachmentsThroughTheRecord() throws {
