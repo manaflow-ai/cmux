@@ -139,7 +139,7 @@ pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
-mod harness_magic;
+pub(crate) mod harness_magic;
 mod harness_sandbox;
 mod harness_view;
 mod harness_watch;
@@ -283,6 +283,8 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+/// Four session states, never unknown (`hub/session_state.rs`).
+pub(crate) mod session_state;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
