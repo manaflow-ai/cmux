@@ -4,7 +4,6 @@
     {"package": "Packages/Shared/CmuxVNC", "target": "CmuxVNCIntegrationTests", "run_by": ".github/workflows/cmux-vnc.yml"},
     {"package": "Packages/Shared/CmuxMessagesLab", "target": "MessagesLabHomeTests", "not_run": "a lab package whose suites include frame-time budgets (HomeBackgroundLoadPerfTests, DragWhileStreamingTests) and layout checks; 1 of its 2 suites fails on an owned Mac (HomeRetrySendTests, HomeMenuHighlightFollowTests, HomeOpensAtNewestTests among others) and drag tests take 40 s each"},
     {"package": "Packages/Shared/CmuxMessagesLab", "target": "MessagesLabSidebarTests", "not_run": "same package as MessagesLabHomeTests: the package lane runs a package whole, and MessagesLabHomeTests fails on an owned Mac"},
-    {"package": "Packages/Shared/CmuxSpinner", "target": "CmuxSpinnerTests", "not_run": "red on feat-cmux-next: NoSystemSpinnerTests.noSystemSpinners finds UIActivityIndicatorView in cmux-next-ios/CmuxMobileKit (ChiefSlashSuggestionsView.swift:147 and others) and CmuxMobileBilling MobilePlansView.swift (3); the scan takes 1 s and the pure suites build on Linux, so it joins the Linux lane once those 5 are gone"},
     {"package": "Packages/iOS/CmuxConversation", "target": "CmuxConversationMacUITests", "not_run": "macOS-only (AppKit), and red on an owned Mac: MacComposerAttachmentTests.finderCopyOfAnImageFilePastesThePhoto reads no image from the pasteboard; Core and Geometry run on Linux (scripts/ci/swift-linux-packages.txt)"}
   ]
 }

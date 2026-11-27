@@ -16,6 +16,7 @@ import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { useLasting } from "../../ui/lasting";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import "./DaemonGate.css";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
@@ -69,8 +70,10 @@ type Phase =
   | { kind: "form"; error?: string }
   | { kind: "connecting"; note?: string }
   | { kind: "pairing"; code: string }
-  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry
-   *  loop. `restart` when restarting cmux-tui is the fix. */
+  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no connect
+   *  loop, and the page says why. `restart` when restarting cmux-tui is the fix (a button: a restart is
+   *  the person's call); otherwise the page asks again on its own (`useAutoRetry`), so it opens once the
+   *  person has done what the sentence says, with no Connect to click. */
   | { kind: "blocked"; error: string; restart?: boolean }
   | { kind: "ready"; daemon: DaemonSocket; owner?: DaemonSocket; generation: number; pages?: string };
 
@@ -272,6 +275,11 @@ export function DaemonGate({
   // nothing shows while the retries can still outlast it. Only one that lasts past the grace is
   // said, as one muted line: the last attempt's reason, never in red, since the retries go on.
   const lasting = useLasting(phase.kind === "connecting");
+  // A final refusal with no restart to offer (a daemon too old, a listener cmux cannot restart here):
+  // its fix is outside this page, so asking again is the only thing left, and it is not the person's
+  // decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). One local connect
+  // per ask, on the shared backoff, only while the page is shown.
+  useAutoRetry(phase.kind === "blocked" && !(phase.restart && restart) ? phase : undefined, resume);
   // A new store per connection: the key remounts the page on every reconnect.
   if (phase.kind === "ready")
     return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
@@ -289,9 +297,10 @@ export function DaemonGate({
       {phase.kind === "blocked" && (
         <>
           <p className="hc-gate-error">{phase.error}</p>
-          <div className="hc-gate-actions">
-            {phase.restart && restart ? (
-              // The fix is a restart (the app asks first); the page reconnects once cmux-tui is back.
+          {phase.restart && restart && (
+            <div className="hc-gate-actions">
+              {/* retry-prompt-ok: restarting cmux-tui ends its running work; the app asks first. The page
+                  reconnects once cmux-tui is back. */}
               <button
                 type="button"
                 onClick={() => {
@@ -301,18 +310,8 @@ export function DaemonGate({
               >
                 {t("connect.restart")}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setPhase({ kind: "connecting" });
-                  resume();
-                }}
-              >
-                {t("connect.button")}
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
       {phase.kind === "form" && (
