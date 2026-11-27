@@ -168,6 +168,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      - name: Validate measure scripts fetch commits without an origin remote
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_measure_fetch_commit_no_origin.py
+
       # Build scripts add a Rust target only when it is missing (rustup target add
       # reaches static.rust-lang.org even for an installed target).
       - name: Validate scripts add only missing Rust targets
