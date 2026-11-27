@@ -94,7 +94,7 @@ final class OpenLog: @unchecked Sendable {
         #expect(try await forwarder.proxy(host: "DEV.INTERNAL", port: 8443, macID: "mac-a") == first)
     }
 
-    @Test(.timeLimit(.minutes(1))) func privateProxyAuthenticatesAndTunnelsOnlyItsOwnTarget() async throws {
+    @Test(.timeLimit(.minutes(1))) func privateProxyAuthenticatesAndTunnelsOnlyRetainedHostPorts() async throws {
         let log = OpenLog()
         let forwarder = LocalhostForwarder(openHost: { macID, host, port in
             #expect(host == "dev.internal")
@@ -131,6 +131,26 @@ final class OpenLog: @unchecked Sendable {
         #expect(log.all.count == 1)
         #expect(log.all.first?.macID == "mac-a")
         #expect(log.all.first?.port == 8443)
+
+        let second = try await forwarder.proxy(host: "DEV.INTERNAL", port: 9443, macID: "mac-a")
+        #expect(second.localPort == route.localPort, "domain-only WebKit matching needs one endpoint for both ports")
+        #expect(second.username == route.username && second.password == route.password)
+        #expect(second.target.port == 9443)
+        let secondReply = await request("dev.internal:9443", credentials: auth,
+                                        payload: "GET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n")
+        #expect(secondReply.contains("private-reply"))
+        #expect(log.all.last?.port == 9443)
+        #expect(log.all.count == 2)
+
+        forwarder.retain(proxies: [.init(target: second.target, macID: "mac-a")])
+        #expect(await request("dev.internal:8443", credentials: auth).hasPrefix("HTTP/1.1 403"))
+        #expect(await request("dev.internal:10443", credentials: auth).hasPrefix("HTTP/1.1 403"))
+        #expect(log.all.count == 2, "removed and never-admitted ports do not open channels")
+        let retainedReply = await request("dev.internal:9443", credentials: auth,
+                                          payload: "GET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n")
+        #expect(retainedReply.contains("private-reply"))
+        #expect(log.all.count == 3)
+        #expect(log.all.last?.port == 9443)
     }
 
     func fetch(_ port: UInt16, path: String = "/", origin: String? = nil) async -> (status: Int, body: String)? {

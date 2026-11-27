@@ -101,7 +101,8 @@ public final class LocalhostForwarder {
     }
 
     private final class ProxyForward {
-        let target: Target
+        let host: String
+        var ports: Set<UInt16>
         let macID: String?
         let username: String
         let password: String
@@ -111,9 +112,11 @@ public final class LocalhostForwarder {
         var binding: Task<Result<UInt16, Failure>, Never>?
         var bindingID: UInt = 0
         var connections: [ObjectIdentifier: NWConnection] = [:]
+        var connectionPorts: [ObjectIdentifier: UInt16] = [:]
 
-        init(target: Target, macID: String?) {
-            self.target = target
+        init(host: String, port: UInt16, macID: String?) {
+            self.host = host
+            self.ports = [port]
             self.macID = macID
             username = UUID().uuidString
             password = UUID().uuidString
@@ -159,7 +162,7 @@ public final class LocalhostForwarder {
     }
 
     private struct ProxyKey: Hashable {
-        let target: Target
+        let host: String
         let macID: String?
     }
 
@@ -214,8 +217,20 @@ public final class LocalhostForwarder {
 
     /// Stops named-host proxy routes no tab uses any longer.
     public func retain(proxies keep: Set<ProxyTarget>) {
-        for key in Array(proxies.keys) where !keep.contains(.init(target: key.target, macID: key.macID)) {
-            stopProxy(key)
+        var retained: [ProxyKey: Set<UInt16>] = [:]
+        for item in keep {
+            guard let host = item.target.host else { continue }
+            retained[ProxyKey(host: host, macID: item.macID), default: []].insert(item.target.port)
+        }
+        for (key, route) in proxies {
+            route.ports.formIntersection(retained[key] ?? [])
+            if route.ports.isEmpty {
+                stopProxy(key)
+            } else {
+                for (id, port) in route.connectionPorts where !route.ports.contains(port) {
+                    route.connections[id]?.cancel()
+                }
+            }
         }
     }
 
@@ -225,12 +240,14 @@ public final class LocalhostForwarder {
     public func proxy(host: String, port: UInt16, macID: String?) async throws(Failure) -> ProxyRoute {
         guard let normalized = Target.normalize(host), port != 0 else { throw .unavailable("bad private host") }
         let target = Target(host: normalized, port: port)
-        let key = ProxyKey(target: target, macID: macID)
+        // WebKit matches domains, not ports: one endpoint serves each host/Mac.
+        let key = ProxyKey(host: normalized, macID: macID)
         let route: ProxyForward
         if let existing = proxies[key] {
             route = existing
+            route.ports.insert(port)
         } else {
-            route = ProxyForward(target: target, macID: macID)
+            route = ProxyForward(host: normalized, port: port, macID: macID)
             proxies[key] = route
         }
         guard !suspended else { throw .unavailable("not connected") }
@@ -245,6 +262,7 @@ public final class LocalhostForwarder {
             if route.bindingID == bindingID { route.binding = nil }
             localPort = try result.get()
         }
+        guard proxies[key] === route, !suspended, route.ports.contains(port) else { throw .superseded }
         return ProxyRoute(target: target, localPort: localPort, username: route.username, password: route.password)
     }
 
@@ -316,7 +334,7 @@ public final class LocalhostForwarder {
             throw .superseded
         }
         route.localPort = port
-        log.notice("private host proxy \(route.target.host ?? "?", privacy: .public):\(route.target.port, privacy: .public) on \(port, privacy: .public)")
+        log.notice("private host proxy \(route.host, privacy: .public) on \(port, privacy: .public)")
         return port
     }
 
@@ -530,6 +548,7 @@ public final class LocalhostForwarder {
         route.connections[connectionID] = connection
         defer {
             route.connections.removeValue(forKey: connectionID)
+            route.connectionPorts.removeValue(forKey: connectionID)
             connection.cancel()
         }
         connection.start(queue: Self.queue)
@@ -541,7 +560,11 @@ public final class LocalhostForwarder {
             _ = await Self.send(connection, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             return
         }
-        guard request.authority.lowercased() == Self.authority(host: route.target.host!, port: route.target.port).lowercased() else {
+        guard proxies[key] === route, !suspended,
+              let separator = request.authority.lastIndex(of: ":"),
+              let port = UInt16(request.authority[request.authority.index(after: separator)...]),
+              route.ports.contains(port),
+              request.authority.lowercased() == Self.authority(host: route.host, port: port).lowercased() else {
             _ = await Self.send(connection, Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             return
         }
@@ -549,10 +572,12 @@ public final class LocalhostForwarder {
             _ = await Self.send(connection, Data("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"cmux\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             return
         }
+        let target = Target(host: route.host, port: port)
+        route.connectionPorts[connectionID] = port
         let channel: any LinkChannel
         do {
-            await MainActor.run { self.counts.opened += 1 }
-            channel = try await openHost(route.macID, route.target.host, route.target.port)
+            counts.opened += 1
+            channel = try await openHost(route.macID, route.host, port)
         } catch {
             let linkError = error as? LinkError
             let status = linkError?.code == "forbidden" ? "403 Forbidden" : "502 Bad Gateway"
@@ -560,11 +585,11 @@ public final class LocalhostForwarder {
             let response = "HTTP/1.1 \(status)\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
             _ = await Self.send(connection, Data(response.utf8))
             if let linkError, Self.refusalCodes.contains(linkError.code) {
-                await MainActor.run { self.targetRefusals[route.target] = linkError.message }
+                await MainActor.run { self.targetRefusals[target] = linkError.message }
             }
             return
         }
-        guard proxies[key] === route, !suspended else {
+        guard proxies[key] === route, !suspended, route.ports.contains(port) else {
             await channel.close(code: "superseded", reason: "")
             return
         }
