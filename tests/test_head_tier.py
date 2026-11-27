@@ -13,6 +13,19 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+# CI_HEAVY_AT_LAND is on by default; tests of the other rules read decide() with it off, and the heavy-at-land
+# tests set it themselves.
+_HEAVY_AT_LAND = unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"})
+
+
+def setUpModule() -> None:
+    _HEAVY_AT_LAND.start()
+
+
+def tearDownModule() -> None:
+    _HEAVY_AT_LAND.stop()
+
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
@@ -252,6 +265,16 @@ class LandTierTests(unittest.TestCase):
             self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
         with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"}):
             self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+
+    def test_heavy_at_land_is_on_when_the_variable_is_unset(self) -> None:
+        ev = land_event(labels=("full-ci",))
+        with unittest.mock.patch.dict(os.environ, {"CI_IDLE_BASE_MERGE_SKIP": "0", "CI_SYNC_MERGE_CHEAP": "0",
+                                                   "CI_GREEN_BASE_MERGE_SKIP": "0", "CI_LAND_CARRY": "0"}):
+            os.environ.pop("CI_HEAVY_AT_LAND", None)
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+        for workflow in ("ci.yml", "cmux-next.yml", "cmux-tui-spec.yml", "pr-router.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text()
+            self.assertIn("CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}", text, workflow)
 
     def test_the_router_starts_only_cheap_callees_then_everything_on_the_land_label(self) -> None:
         ev = land_event()
@@ -938,7 +961,7 @@ GATED = {name: "pull_request" for name in (
     "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
     # 17.4k runner-min per 10.8 h on pull request heads (11-25 05:30Z-16:18Z), every push of every head before:
     # rust-workspaces' plan, reads and workspace matrix; cmux-tui-spec's changes router and acpmux/clippy jobs.
-    "rust-workspaces.yml", "cmux-tui-spec.yml")}
+    "rust-workspaces.yml", "cmux-tui-spec.yml", "session-move-tests.yml")}
 GATED["backend-migrations.yml"] = "pull_request_target"
 # Only the draft tier: its one job runs only when the motion-golden label is the one added (a person asks for it).
 DRAFT_ONLY = {"cmux-next-motion-golden.yml": "pull_request"}
@@ -954,9 +977,11 @@ RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
 # records a pass on every pull request so land-judge's required list can name it.
-KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds")}
+KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds"),
+                      ("cmux-next-guards.yml", "app-store-shelf-pr")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
-# land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition.
+# land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition. It runs only
+# where those jobs would (full-ci or CI_LAND_FULL_PER_PR; ios-e2e's PR tailnet gate too), or its runner decides nothing.
 FULL_CARRY_JOBS = {(name, "full-carry") for name in ("cmux-next-guards.yml", "ios-e2e.yml", "test-ios.yml",
                                                      "rust-workspaces.yml")}
 # Runs for a closed pull request (cancels its hot-verify) or a head handed to land. The look plan also runs on every
@@ -1060,6 +1085,11 @@ class GatedWorkflowTests(unittest.TestCase):
                 if (name, job) in FULL_CARRY_JOBS:
                     self.assertIn("github.event.action == 'labeled' && contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), "
                                   "github.event.label.name)", condition or "", f"{name}: job {job}")
+                    # Only where the land tier's jobs run on that label: a bare ready-to-land skips them anyway.
+                    self.assertIn("(contains(github.event.pull_request.labels.*.name, 'full-ci') || "
+                                  "vars.CI_LAND_FULL_PER_PR == '1')", condition or "", f"{name}: job {job}")
+                    if name == "ios-e2e.yml":
+                        self.assertIn("vars.IOS_E2E_PR_TAILNET == 'true'", condition or "", f"{name}: job {job}")
                     continue
                 if (name, job) in KEEP_ON_EVERY_HEAD:
                     self.assertNotIn("CI_LAND_TIER", condition or "", f"{name}: job {job}")
@@ -1136,7 +1166,8 @@ class CiWebLandTierTests(unittest.TestCase):
     def test_the_jobs_that_need_the_shards_skip_with_them(self) -> None:
         jobs = _job_ifs(self.TEXT)
         self.assertNotIn("always()", jobs["react-apps-base-check"])
-        self.assertNotIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("needs.react-apps-check-shard.result == 'success'", jobs["react-apps-base-check"])
         self.assertIn("needs.react-apps-check-shard.result != 'skipped'", jobs["webviews-test-durations"])
 
     def test_the_verdict_jobs_still_run_and_read_the_same_condition(self) -> None:
@@ -1377,7 +1408,7 @@ class RouterRerunPlanTests(unittest.TestCase):
 
     def test_caller_names_cover_every_callee(self) -> None:
         names = self.names()
-        self.assertEqual(names["pr-pipeline.yml"], "pr pipeline")
+        self.assertEqual(names["pr-pipeline.yml"], ["pr pipeline", "pr web pipeline"])
         self.assertEqual(set(names), set(pr_router.caller_jobs(pr_router.ENTRY.read_text())))
 
     def test_only_red_cancelled_short_or_absent_reruns(self) -> None:
@@ -1394,6 +1425,19 @@ class RouterRerunPlanTests(unittest.TestCase):
         self.assertEqual(carried, {"swift-linux-packages.yml"})
         self.assertEqual(rows, {"linux"})
         self.assertEqual(pr_router.rerun_plan(None, self.names(), ["linux"]), (set(), set()))
+
+    def test_split_pipeline_receipts_keep_a_red_browser_and_carry_green_linux(self) -> None:
+        jobs = [self.job("pr pipeline / linux"),
+                self.job("pr pipeline / web-browser", "skipped", 0),
+                self.job("pr web pipeline / linux", "skipped", 0),
+                self.job("pr web pipeline / web-browser", "failure")]
+        carried, rows = pr_router.rerun_plan(jobs, self.names(), ["linux", "web-browser"])
+        self.assertNotIn("pr-pipeline.yml", carried)
+        self.assertEqual(rows, {"linux"})
+        jobs[-1] = self.job("pr web pipeline / web-browser")
+        carried, rows = pr_router.rerun_plan(jobs, self.names(), ["linux", "web-browser"])
+        self.assertIn("pr-pipeline.yml", carried)
+        self.assertEqual(rows, {"linux", "web-browser"})
 
     def test_route_keeps_carried_callees_off(self) -> None:
         callees = pr_router.load_manifest()

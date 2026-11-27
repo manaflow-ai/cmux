@@ -115,6 +115,8 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-extension-author/**"
+      - "schemas/motion-scale/motion-scale.json"
       - "web/public/tui/install-static.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
@@ -145,13 +147,56 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-hover-card-rules/vectors.json"
+      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
+      - "schemas/settings/source/notifications.json"
+      - ".github/workflows/nightly.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream/**"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/AgentListStream/**"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
+      - "Resources/cmux-cli-path/**"
+      - "design/agent-icons/manifest.json"
+      - "docs/chief-setup-prompts.md"
+      - "docs/cmux-next/sidebar-customization/**"
+      - "examples/extensions/web-pane/**"
+      - "first-party-apps/**"
+      - "plans/cmux-next/action-catalog.json"
+      - "samples/apps/**"
+      - "samples/apps/hello-python/**"
+      - "samples/apps/standup/**"
+      - "scripts/ci/cargo-test-selected.sh"
+      - "scripts/ci/cargo-test-wine.sh"
+      - "scripts/ci/cloud_capture_provision.py"
+      - "scripts/ci/pinned-shell.sh"
+      - "scripts/cmux-next/**"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "skills/cmux-extension-author/recipes/**"
+      - "tests/fixtures/classic-to-next/session-groups.json"
+      - "web/app/globals.css"
+      - "webviews/bench/link-profiles.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/row-facts.json"
+      - "schemas/settings/source/samples.json"
+      - "schemas/window-registry/vectors.json"
   workflow_dispatch:
 
 concurrency:
   # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job
   # each) never cancel one another.
-  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -214,7 +259,7 @@ jobs:
     needs: route
     if: ${{ ((inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false'))) && (github.event_name != 'pull_request' || needs.route.result == 'success' || needs.route.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -324,6 +369,26 @@ jobs:
               exit 1
             fi
           done
+
+      # The Windows tests Wine can run, on this Linux runner (scripts/ci/cargo-test-wine.sh): a unix-only
+      # change to them shows red here after merge instead of only on a dispatched Windows runner. What
+      # Wine cannot run (owner-only DACLs, job-object process reads, integrity levels) stays on cmux-tui.yml's
+      # test (windows). It runs after a red cargo check too, so one run names both.
+      - name: Install Wine
+        if: ${{ !cancelled() && steps.tree.outputs.hit != 'true' }}
+        run: |
+          # wine64 alone: the tests are 64-bit console programs. lld links them (MinGW's ld is minutes slower).
+          sudo apt-get install -y --no-install-recommends wine wine64 lld
+
+      - name: Windows tests under Wine (platform, SDK, daemon client)
+        if: ${{ !cancelled() && steps.tree.outputs.hit != 'true' }}
+        working-directory: cmux-tui
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+        run: |
+          # windows_processes reads a child through a job object, which Wine does not implement.
+          ../scripts/ci/cargo-test-wine.sh --locked -p cmux-tui-platform --lib -- --test-threads=1 --skip windows_processes::
+          ../scripts/ci/cargo-test-wine.sh --locked -p cmux-sdk -p cmux-daemon-client --lib
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}
