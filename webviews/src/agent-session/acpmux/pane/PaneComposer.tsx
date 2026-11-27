@@ -85,8 +85,8 @@ import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
-import { paneSends, untilAcpmuxTakesSends } from "../sendWhenReady";
-import { keptAttachments } from "./draftHost";
+import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
+import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
@@ -1010,6 +1010,7 @@ export function drawPaneComposer({
             key={subagentRelay ? subagentDraftKey : undefined}
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
+            onFilled={quick ? undefined : postComposerFilled}
             cloudStarting={cloudStarting}
             {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
