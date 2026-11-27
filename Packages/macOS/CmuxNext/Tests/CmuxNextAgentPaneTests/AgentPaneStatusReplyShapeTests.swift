@@ -79,11 +79,12 @@ struct AgentPaneStatusReplyShapeTests {
             ["name": "bad-port", "url": "ssh://host:abc"],
             ["name": "bad-escape", "url": "ws://x/%zz"],
             ["name": "bad-ip", "url": "wss://[zz]/"],
+            ["name": "leading-zero-ipv4", "url": "wss://[::ffff:192.168.001.1]/"],
             ["name": "bad-path", "url": "ssh://a/b[c]"],
             ["name": "bad-user", "url": "ssh://a@b@c"],
             ["name": "good", "url": "wss://[::1]:8443/acp?x=1#f"],
         ]]))
-        #expect(peers.map { $0["name"] as? String } == ["bad-port", "bad-escape", "bad-ip", "bad-path", "bad-user", "good"])
+        #expect(peers.map { $0["name"] as? String } == ["bad-port", "bad-escape", "bad-ip", "leading-zero-ipv4", "bad-path", "bad-user", "good"])
         #expect(peers.dropLast().allSatisfy { $0["transport"] == nil })
         #expect(peers.last?["transport"] as? String == "wss")
     }
@@ -99,6 +100,10 @@ struct AgentPaneStatusReplyShapeTests {
         #expect(try code(2.0) == 2)
         #expect(try code(true) == 1)
         #expect(try code(2.5) == -32603)
+        #expect(try code(Int64.max) == Int64.max)
+        #expect(try code(Int64.min) == Int64.min)
+        #expect(try code(9_007_199_254_740_993) == 9_007_199_254_740_993)
+        #expect(try code(UInt64.max) == -32603)
     }
 
     @Test func cachedHealthKeepsOnlyWarningInputs() throws {

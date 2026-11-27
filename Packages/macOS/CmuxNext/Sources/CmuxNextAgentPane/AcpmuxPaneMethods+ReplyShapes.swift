@@ -71,6 +71,16 @@ nonisolated extension AcpmuxPaneMethods {
     private static func integerCode(_ value: Any?) -> Int? {
         guard let number = value as? NSNumber else { return nil }
         if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? 1 : 0 }
+        // JSONSerialization keeps integer-backed NSNumber values distinct from floating-point values.
+        // Preserve those exact bits before applying the Rust policy's integral-float coercion below.
+        let objcType = String(cString: number.objCType)
+        if objcType.first.map({ $0.isUppercase }) == true {
+            let unsigned = number.uint64Value
+            return unsigned <= UInt64(Int64.max) ? Int(unsigned) : nil
+        }
+        if objcType.first.map({ "csiqln".contains($0) }) == true {
+            return Int(exactly: number.int64Value)
+        }
         let value = number.doubleValue
         guard value.isFinite, value.rounded(.towardZero) == value,
               value >= -9_223_372_036_854_775_808.0,
@@ -156,7 +166,10 @@ nonisolated extension AcpmuxPaneMethods {
             let ipv4 = text[text.index(after: colon)...]
             let octets = ipv4.split(separator: ".", omittingEmptySubsequences: false)
             guard octets.count == 4,
-                  octets.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy(Self.isASCIIDigit) && Int($0).map({ (0...255).contains($0) }) == true }) else { return false }
+                  octets.allSatisfy({
+                      !$0.isEmpty && ($0.count == 1 || $0.first != "0") &&
+                      $0.utf8.allSatisfy(Self.isASCIIDigit) && Int($0).map({ (0...255).contains($0) }) == true
+                  }) else { return false }
             let values = octets.compactMap { Int($0) }
             let high = String(format: "%x", (values[0] << 8) | values[1])
             let low = String(format: "%x", (values[2] << 8) | values[3])
