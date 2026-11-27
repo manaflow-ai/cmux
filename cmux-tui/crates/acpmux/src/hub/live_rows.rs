@@ -65,7 +65,7 @@ impl Hub {
     /// A live `session`'s row as a list page sends it, serialized: the kept bytes when its
     /// inputs gathered now equal the ones they were rendered from, else rendered and kept.
     pub(super) fn live_row_text(&self, session: &Session, with_tools: bool) -> Arc<str> {
-        let inputs = self.row_inputs(session, with_tools, false);
+        let inputs = self.row_inputs(session, with_tools, None);
         if let Some(bytes) = self.live_row_cache.lock().unwrap_or_else(|e| e.into_inner()).current(
             &session.id,
             with_tools,
