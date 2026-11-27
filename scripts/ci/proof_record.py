@@ -25,6 +25,7 @@ whose head_sha is the PR's current head, and trusts it only when the comment's a
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -102,10 +103,15 @@ def parse(comment_body: str) -> dict | None:
     return record
 
 
+DEFAULT_BOTS = "quota-goblin-*[[]bot[]],cmux-bot[[]bot[]]"
+
+
 def trusted(comment: dict, bots: Iterable[str] = ()) -> bool:
+    """A collaborator's comment, or one by a GitHub App this repository installed (BOTS: fnmatch patterns; a
+    fleet agent's `gh pr comment` goes through the broker and posts as its pool app, quota-goblin-N[bot])."""
     user = comment.get("user") or {}
     return (comment.get("author_association") in TRUSTED_ASSOCIATIONS
-            or (user.get("type") == "Bot" and user.get("login") in set(bots)))
+            or (user.get("type") == "Bot" and any(fnmatch.fnmatchcase(user.get("login") or "", b) for b in bots)))
 
 
 def find(comments: list[dict], suite: str, head_sha: str, bots: Iterable[str] = ()) -> dict | None:
@@ -124,8 +130,7 @@ def find(comments: list[dict], suite: str, head_sha: str, bots: Iterable[str] = 
 def gate(record: dict | None, suite: str) -> tuple[str, str]:
     """The commit-status state and description a gate posts for the record it found."""
     if record is None:
-        return "pending", (f"Waiting for the {suite} proof record at this head: run `cmux ios verify` "
-                           "(scripts/ci/ios_verify.py) and it posts one")
+        return "pending", f"Waiting for the {suite} proof at this head: run `cmux ios verify`"
     if record["verdict"] != "pass":
         failed = [r["name"] for r in record["runs"] if r.get("result") in ("fail", "error")]
         return "failure", f"{suite} proof at this head failed: {', '.join(failed) or 'see the record'}"
@@ -154,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("gate", help="print STATE<TAB>DESCRIPTION for the PR's current head (env REPO, PR, SHA, GH_TOKEN)")
     g.add_argument("--suite", required=True, choices=SUITES)
-    g.add_argument("--bots", default=os.environ.get("PROOF_RECORD_BOTS", "cmux-bot[bot],manaflow-glaeda-route[bot]"))
+    g.add_argument("--bots", default=os.environ.get("PROOF_RECORD_BOTS", DEFAULT_BOTS))
     v = sub.add_parser("validate")
     v.add_argument("file")
     a = ap.parse_args(argv)

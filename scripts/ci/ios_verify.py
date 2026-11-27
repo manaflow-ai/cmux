@@ -195,7 +195,7 @@ def baseline(repo: str, base_ref: str, work: Path) -> tuple[dict | None, dict[st
             comments = gh_json("api", f"repos/{repo}/issues/{p['number']}/comments?per_page=100")
         except SystemExit:
             continue
-        recs = [r for c in comments if proof_record.trusted(c, ("cmux-bot[bot]",))
+        recs = [r for c in comments if proof_record.trusted(c, proof_record.DEFAULT_BOTS.split(","))
                 for r in [proof_record.parse(c.get("body") or "")] if r and r["verdict"] == "pass"]
         for r in reversed(recs):
             for run in r["runs"]:

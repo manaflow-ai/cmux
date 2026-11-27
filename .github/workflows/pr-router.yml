@@ -423,12 +423,15 @@ jobs:
     permissions:
       contents: read
       statuses: write
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_steps.py
             ci/steps.toml
           sparse-checkout-cone-mode: false
@@ -442,6 +445,12 @@ jobs:
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          # The proof requirement: a passing `cmux ios verify` record at this head (scripts/ci/proof_record.py,
+          # ci/proof-record/README.md). vars.CI_IOS_VERIFY_PROOF=0 turns it off; ios_verify.py reruns this job
+          # when it posts a record, so a head proved after the pipeline still turns green.
+          NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
         run: |
           if [ "$RUN" = false ]; then
             state=success; desc="The plan builds nothing on this head"
@@ -451,6 +460,10 @@ jobs:
             state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
           else
             state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+          fi
+          if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
+            IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
+            if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
 
