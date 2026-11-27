@@ -594,7 +594,10 @@ class WorkflowTests(unittest.TestCase):
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
                 # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
                 # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
-                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
+                ensure_gh = steps[i].get("run") in (
+                    "bash scripts/ci/nightly-steps/ensure-gh.sh",
+                    "bash .publish-tooling/scripts/ci/nightly-steps/ensure-gh.sh",
+                )
                 self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
                                 (name, steps[i].get("name")))
 

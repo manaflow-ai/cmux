@@ -69,8 +69,12 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        # Eight since #49284 added sign-live-code-variant; nine since #56641 added nightly-next-pkg.
-        self.assertEqual(len(JOBS), 9)
+        # Upload-only publishers use Linux; all six keychain jobs remain on the signer.
+        self.assertEqual(set(JOBS), {
+            "build-sign-notarize-nightly", "recover-nightly-next-notarization",
+            "generate-nightly-deltas", "nightly-next-one", "nightly-next-pkg",
+            "sign-live-code-variant",
+        })
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
