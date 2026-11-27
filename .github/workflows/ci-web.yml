@@ -2832,6 +2832,8 @@ jobs:
           backend: r2
           path: .webviews-test-history-cache
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Pull requests judge base reds by this entry: a save that wrote nothing fails, not warns.
+          required: true
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in

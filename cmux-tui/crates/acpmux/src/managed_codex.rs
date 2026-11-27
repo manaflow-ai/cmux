@@ -95,9 +95,25 @@ pub async fn install() -> Result<serde_json::Value> {
         sha256: Some(expected.to_owned()),
         ..Default::default()
     };
-    crate::range_fetch::fetch_to_file(&crate::range_fetch::client()?, url, &archive_path, &opts)
-        .await
-        .map_err(|e| anyhow::anyhow!("Codex archive: {e:#}"))?;
+    // The machine's git cache proxy first when it runs (same bytes: the sha256 above still
+    // checks them), then GitHub itself. `CMUX_TRANSPORT_REWRITE=0` skips the proxy.
+    let client = crate::range_fetch::client()?;
+    let order = cmux_transport_rewrite::fetch_order(url);
+    let last = order.len() - 1;
+    for (i, from) in order.iter().enumerate() {
+        match crate::range_fetch::fetch_to_file(&client, from, &archive_path, &opts).await {
+            Ok(report) => {
+                if i < last {
+                    tracing::info!(%from, bytes = report.bytes, "Codex archive through the machine cache");
+                }
+                break;
+            }
+            Err(e) if i < last => {
+                tracing::warn!(%from, "machine cache failed, reading GitHub directly: {e:#}");
+            }
+            Err(e) => return Err(anyhow::anyhow!("Codex archive: {e:#}")),
+        }
+    }
     let bytes = std::fs::read(&archive_path)?;
     let base = base();
     crate::home_fs::create_dirs(&base)?;

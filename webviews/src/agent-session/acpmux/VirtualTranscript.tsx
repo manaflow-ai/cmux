@@ -25,6 +25,7 @@ import { LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
+import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
   type PlacedLayout,
@@ -5914,7 +5915,12 @@ function TranscriptView({
     // Room that only keeps a short first page at the view's foot is no history to give up.
     const room = footRoom.current > 0.5 ? 0 : (layout.origin ?? 0);
     const first = rows[0];
-    if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
+    if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current) return;
+    // Rows that fill the view keep the room, read from the placed layout and the measured box before
+    // the scroller: its size read lays out the commit a streamed reply just made, once a chunk, at a
+    // cost that grows with the mounted rows (bench/chat-100k-flat.bench.ts, grown xN streaming).
+    if (height > 0 && layout.totalHeight - room >= height * OLDER_KEEP_ROOM_VIEWPORTS) return;
+    if (node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
     if (node.scrollHeight - room >= node.clientHeight * OLDER_KEEP_ROOM_VIEWPORTS) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
@@ -7582,6 +7588,8 @@ function TranscriptView({
     // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
     viewTop: shownTop,
     viewHeight: renderFollowing ? 0 : height,
+    // A followed view shelves the rows far above it (conversation/shelvedRows.ts); scrolled up, none.
+    shelfAbove: shelfLine(renderFollowing && !sessionSwitched, shownTop, height),
     frameKey,
     registry,
     setSizeRef,
