@@ -3213,7 +3213,7 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
                                  "ubuntu-24.04")
                 fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
                 self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
-        self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
+        self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 20)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
