@@ -54,9 +54,10 @@
   /* The transcript's own metadata type, as the Worked for line beside it draws it (conversation.css
      .cv-worked): its family, size, tracking and regular weight. Leo, 2026-11-25, of a bold caption
      "2 new messages": "honestly the font is wack it's different from the rest of the app", "size
-     and bolding". */
+     and bolding". The size is --cv-worked-font-size, the one .cv-worked reads, so the two never differ
+     (Leo, 2026-11-27: "the font size on working for and new messages is different"). */
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-worked-font-size);
   font-weight: var(--weight-regular);
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, normal));
   white-space: nowrap;
@@ -74,10 +75,8 @@
   border-top: var(--cmux-hairline-ring) solid var(--unread-accent);
   transform-origin: right center;
 }
-/* Dissipating, the rule narrows toward its end as it fades (compositor only: transform, opacity). */
-.cv-since:not([data-shown]) .cv-since__rule {
-  scale: 0.6 1;
-}
+/* The line comes and goes in place, by opacity alone (Leo, 2026-11-25: "the animation it does when
+   it falls from the top of the screen down is wack"): no scale, no slide. */
 /* Muted as the Worked for words are (--cv-activity-text); the accent rule says where the new part
    starts. */
 .cv-since__tag {
@@ -133,11 +132,6 @@
     opacity: 0;
     scale: 0.7;
   }
-}
-/* Coming and dissipating, the tag grows from and shrinks toward the line's end as it fades, with
-   the rule (compositor only). */
-.cv-since:not([data-shown]) .cv-since__tag {
-  scale: 0.9;
 }
 /* The count ("157 new messages"; Leo, 2026-11-15, of the terminal chat's rule: "we needto properly do
    somthing like this in the gui somehow"): muted caption words in tabular figures, so a count that
@@ -251,13 +245,9 @@
   color: var(--unread-on-accent);
 }
 @media (prefers-reduced-motion: no-preference) {
-  /* In on the calm step, so a line placed at a return comes in quietly; out (dissipating) on the
-     same step, the rule narrowing with it. */
-  .cv-since__line,
-  .cv-since__rule {
-    transition:
-      opacity var(--agent-motion-calm) var(--agent-ease-out),
-      scale var(--agent-motion-calm) var(--agent-ease-out);
+  /* In and out on the calm step, a fade in place. */
+  .cv-since__line {
+    transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
   }
   /* The tag and its two forms ride the same step: a resize across a width step cross-fades the
      words and "New" in place, and ultra tight "New" shrinks and fades instead of popping. */

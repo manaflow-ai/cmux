@@ -7,7 +7,8 @@
 # VM with stress-ng at 4x cores, and get frame_p95_ms and renderer_main_busy_pct publishing from there on every sensor
 # pass, with the [his Mac's] reading as a second series."
 #
-#   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE]
+#   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
+#     [--painter react|dom-floor|worker]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts)
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -20,19 +21,34 @@ set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 out="$root/artifacts/replay-under-load/reading.json"
 cores=""
+profile=0
+trace=""
 bench_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
-    --seconds|--rate|--log|--warm) bench_args+=("$1" "$2"); shift 2 ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE]" >&2; exit 2 ;;
+    --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
+    --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
+    --profile) bench_args+=("$1"); profile=1; shift ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM]" >&2; exit 2 ;;
   esac
 done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
   [[ "$cores" =~ ^[1-9][0-9]*$ ]] || { echo "replay-under-load.sh: --cores takes a positive count" >&2; exit 2; }
   export REPLAY_UNDER_LOAD_PINNED=1
   exec taskset -c "0-$((cores - 1))" "$0" --out "$out" ${bench_args[@]+"${bench_args[@]}"}
+fi
+# One run at a time per machine: two runs on the same CPUs load each other (2x the stress workers, two Chromiums), so
+# each reads the other's load as its own (2026-11-27: two A/B copies overlapped on CPUs 0-7 and read load_per_core
+# 3.2 to 6.1 and p95 66.7 to 83.3 between arms of one change). Every run, the sensor timer's too, waits here for the
+# one before it. A caller already holding the lock on fd 9 (`( flock 9; replay-under-load.sh ... ) 9>LOCK`) has it.
+lock="${REPLAY_UNDER_LOAD_LOCK:-/tmp/replay-under-load.lock}"
+if [ "$(readlink "/proc/$$/fd/9" 2>/dev/null)" = "$lock" ] && flock -n 9; then
+  :
+else
+  exec 9>>"$lock"
+  flock -w "${REPLAY_UNDER_LOAD_LOCK_WAIT:-3600}" 9 || { echo "replay-under-load.sh: another run held $lock past the wait" >&2; exit 1; }
 fi
 mkdir -p "$(dirname "$out")"
 work="$(mktemp -d)"
@@ -63,6 +79,9 @@ stress_pid=$!
 sleep 10
 # Runnable threads on our CPUs while the replay runs: every 5 s, the threads of this run's process tree in state R,
 # over nproc. /proc/loadavg is the host's, which on a --cores run also counts what the rest of the VM runs.
+# A thread is ours when its CPU list is this run's, read from this shell: a caller may pin the run to any CPUs (the
+# VM sensor pins to the quietest ones, e.g. 3,5,9-14), and a fixed 0-(n-1) then matched nothing and read 0.0.
+allowed="$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/$$/status)"
 (
   while :; do
     r=0
@@ -71,7 +90,7 @@ sleep 10
       rest="${line##*) }"
       [ "${rest:0:1}" = "R" ] || continue
       pid="${task#/proc/}"; pid="${pid%%/*}"
-      grep -qs "^Cpus_allowed_list:[[:space:]]*0-$((n - 1))\$" "/proc/$pid/status" && r=$((r + 1))
+      grep -qsxF "Cpus_allowed_list:	$allowed" "/proc/$pid/status" && r=$((r + 1))
     done
     echo "$r" >>"$work/runnable"
     sleep 5
@@ -82,7 +101,23 @@ status=0
 bun bench/replay-under-load.bench.ts --out "$work/bench.json" ${bench_args[@]+"${bench_args[@]}"} >"$work/bench.log" 2>&1 || status=1
 kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
 read -r load1 _ </proc/loadavg
-tail -3 "$work/bench.log"
+# --trace: the stress load stops first, then the attribution reads the trace here (streamed, so a big trace stays out
+# of memory), and the trace is kept gzipped beside it (TRACE.gz) for a fleet step's --artifact.
+if [ -n "$trace" ] && [ -s "$trace" ]; then
+  [ -n "$stress_pid" ] && kill "$stress_pid" 2>/dev/null && wait "$stress_pid" 2>/dev/null
+  stress_pid=""
+  ls -l "$trace" >&2
+  python3 -I "$root/scripts/measure/replay-attribution.py" "$trace" --json "$trace.attribution.json" || status=1
+  gzip -f -1 "$trace"
+fi
+if [ "$profile" -eq 1 ]; then
+  cat "$work/bench.log"
+else
+  # A failed build's log ends on stack frames (a Babel error ends on gensync frames, 2026-11-26), so its cause line,
+  # the bench's "FAILED:" line, goes first.
+  [ "$status" -ne 0 ] && grep -m1 -F 'replay-under-load: FAILED:' "$work/bench.log" | cut -c1-600 >&2
+  tail -3 "$work/bench.log"
+fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
   "${REPLAY_UNDER_LOAD_PINNED:+pinned}" <<'PY'
 import datetime, json, os, sys
@@ -91,7 +126,13 @@ n, stressors, load1 = int(n), int(stressors), float(load1)
 try:
     bench = json.load(open(os.path.join(work, "bench.json")))
 except (OSError, ValueError):
-    bench = {"error": (open(os.path.join(work, "bench.log"), errors="replace").read()[-800:] or "no bench output")}
+    log = open(os.path.join(work, "bench.log"), errors="replace").read()
+    # The cause first: the bench's FAILED line (or the first line naming an error), then the log's tail.
+    lines = [line.strip() for line in log.splitlines() if line.strip()]
+    cause = next((l for l in lines if l.startswith("replay-under-load: FAILED:")), "") or next(
+        (l for l in lines if "Error" in l and not l.startswith("at ")), "")
+    tail = log[-500:]
+    bench = {"error": ((cause[:400] + " ... " + tail) if cause and cause not in tail else log[-800:]) or "no bench output"}
 try:
     samples = [int(x) for x in open(os.path.join(work, "runnable")).read().split()]
 except (OSError, ValueError):

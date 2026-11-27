@@ -43,6 +43,13 @@ pub struct Config {
     /// Where the counters go as JSON after each serve, fallback and bypass (NOW reads it):
     /// `stats.json` beside the include by default.
     pub stats_file: Option<PathBuf>,
+    /// `https://codeload.github.com`: source archives (`archive`).
+    pub codeload: String,
+    /// The release asset and archive cache's size in bytes (`archive`).
+    pub archive_cap: u64,
+    /// crates.io's sparse index and download bases (`crates`).
+    pub crates_index: String,
+    pub crates_dl: String,
 }
 
 impl Config {
@@ -57,6 +64,10 @@ impl Config {
             auth_ttl: Duration::from_secs(60),
             max_body: 64 << 20,
             stats_file: None,
+            codeload: "https://codeload.github.com".to_owned(),
+            archive_cap: crate::archive::DEFAULT_CAP,
+            crates_index: crate::crates::INDEX_UPSTREAM.to_owned(),
+            crates_dl: crate::crates::DL_UPSTREAM.to_owned(),
         }
     }
 }
@@ -73,6 +84,18 @@ pub struct Stats {
     pub fallbacks: AtomicU64,
     /// Ref advertisements sent to github.com because the caller has `CMUX_GIT_CACHE=0`.
     pub bypassed: AtomicU64,
+    /// Release assets and archives served from the cache, and their bytes.
+    pub archive_hits: AtomicU64,
+    pub archive_bytes: AtomicU64,
+    /// Redirected to GitHub because the cache did not hold the bytes GitHub names now.
+    pub archive_misses: AtomicU64,
+    /// Redirected to GitHub because something failed (GitHub unreachable, disk).
+    pub archive_fallbacks: AtomicU64,
+    /// Fetches github.com answered because the mirror did not hold them yet.
+    pub misses: AtomicU64,
+    /// Upstream packs written into the mirror as they streamed to a clone (`Mirrors::keep`).
+    pub kept_packs: AtomicU64,
+    pub kept_bytes: AtomicU64,
 }
 
 impl Stats {
@@ -86,6 +109,13 @@ impl Stats {
             "refused": n(&self.refused),
             "fallbacks": n(&self.fallbacks),
             "bypassed": n(&self.bypassed),
+            "archiveHits": n(&self.archive_hits),
+            "archiveBytes": n(&self.archive_bytes),
+            "archiveMisses": n(&self.archive_misses),
+            "archiveFallbacks": n(&self.archive_fallbacks),
+            "misses": n(&self.misses),
+            "keptPacks": n(&self.kept_packs),
+            "keptBytes": n(&self.kept_bytes),
         })
     }
 }
@@ -122,26 +152,54 @@ pub struct State {
     pub auth: AuthCache,
     pub mirrors: Mirrors,
     pub stats: Arc<Stats>,
-    http: reqwest::Client,
+    pub(crate) http: reqwest::Client,
+    /// Follows no redirect: reads GitHub's redirect for a release asset or archive.
+    pub(crate) probe: reqwest::Client,
+    pub(crate) archives: crate::archive::Archives,
+    pub crate_stats: crate::crates::CrateStats,
     /// Repositories the edge answered for callers without credentials.
     via_edge: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Owns each local upload-pack's stdin writer and reaper.
-    scope: cmux_scope::Scope,
+    pub(crate) scope: cmux_scope::Scope,
 }
 
 impl State {
     pub fn new(cfg: Config) -> Result<Arc<Self>, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        // Every upstream this server reaches is its operator's config (the --upstream, --edge, --peer,
+        // --crates-index and --crates-dl flags, or the defaults the operator ran with), so each is a named host.
+        for host in [&cfg.upstream, &cfg.crates_index, &cfg.crates_dl]
+            .into_iter()
+            .chain(cfg.edge.iter())
+            .chain(&cfg.peers)
+        {
+            cmux_egress::allow_named(host);
+        }
+        let http = cmux_egress::client_builder("cmux_git_cache::server")
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent("git/cmux-git-cache")
             .build()
             .map_err(|e| e.to_string())?;
+        // A git a restart or a crash cut leaves its partial pack; nothing else ever removes it.
+        let (n, bytes) = crate::mirror::sweep_stale_partial_writes(&cfg.cache_root);
+        if n > 0 {
+            eprintln!("git-cache: gave back {n} partial writes left behind, {} MiB", bytes >> 20);
+        }
+        let probe = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("cmux-git-cache")
+            .build()
+            .map_err(|e| e.to_string())?;
         Ok(Arc::new(Self {
+            probe,
+            archives: crate::archive::Archives::default(),
             auth: AuthCache::new(cfg.auth_ttl),
-            mirrors: Mirrors::new(cfg.cache_root.clone()),
+            mirrors: Mirrors::new(cfg.cache_root.clone()).with_http(http.clone()),
             stats: Arc::new(Stats::default()),
+            crate_stats: crate::crates::CrateStats::default(),
             cfg,
             http,
             via_edge: std::sync::Mutex::new(std::collections::HashSet::new()),
@@ -176,7 +234,7 @@ impl State {
         self.via_edge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(route.key());
     }
 
-    fn write_stats(&self) {
+    pub(crate) fn write_stats(&self) {
         StatsWriter(self.cfg.stats_file.clone()).write(&self.stats);
     }
 
@@ -199,12 +257,18 @@ impl State {
 pub fn router(state: Arc<State>) -> Router {
     Router::new()
         .route("/_cmux/git-cache/health", axum::routing::get(health))
+        .merge(crate::crates::routes())
         .fallback(handle)
         .with_state(state)
 }
 
 async fn health(axum::extract::State(state): axum::extract::State<Arc<State>>) -> Response {
     let mut body = state.stats.json();
+    if let (Some(m), serde_json::Value::Object(c)) =
+        (body.as_object_mut(), state.crate_stats.json())
+    {
+        m.extend(c);
+    }
     body["ok"] = true.into();
     body["upstream"] = state.cfg.upstream.clone().into();
     body["tenant"] = state.cfg.tenant.clone().into();
@@ -232,6 +296,11 @@ async fn handle(
     axum::extract::State(state): axum::extract::State<Arc<State>>,
     req: Request,
 ) -> Response {
+    if let Some(resp) =
+        crate::archive::handle(&state, req.method(), req.uri().path(), req.headers()).await
+    {
+        return resp;
+    }
     let Some(route) = route::parse(req.uri().path()) else {
         return (StatusCode::NOT_FOUND, "cmux git cache: not a GitHub repository path\n")
             .into_response();
@@ -330,6 +399,24 @@ async fn passthrough(
     headers: &HeaderMap,
     body: reqwest::Body,
 ) -> (Response, StatusCode) {
+    forward(state, base, route, method, tail, query, headers, body, None).await
+}
+
+/// `passthrough`, and with `tee` a copy of a 200 answer's bytes goes there as they stream by
+/// (the caller's pace is the slower of the two; the copy ends when the answer does or the
+/// caller hangs up).
+#[allow(clippy::too_many_arguments)]
+async fn forward(
+    state: &State,
+    base: &str,
+    route: &Route,
+    method: Method,
+    tail: &str,
+    query: Option<&str>,
+    headers: &HeaderMap,
+    body: reqwest::Body,
+    tee: Option<tokio::sync::mpsc::Sender<Bytes>>,
+) -> (Response, StatusCode) {
     let mut url = route.url(base, tail);
     if let Some(q) = query {
         url.push('?');
@@ -362,11 +449,19 @@ async fn passthrough(
         }
     }
     let stats = state.stats.clone();
-    let stream = resp.bytes_stream().map(move |chunk| {
-        if let Ok(bytes) = &chunk {
-            stats.upstream_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+    let tee = tee.filter(|_| status == StatusCode::OK);
+    let stream = resp.bytes_stream().then(move |chunk| {
+        let tee = tee.clone();
+        let stats = stats.clone();
+        async move {
+            if let Ok(bytes) = &chunk {
+                stats.upstream_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                if let Some(tee) = tee {
+                    let _ = tee.send(bytes.clone()).await;
+                }
+            }
+            chunk.map_err(std::io::Error::other)
         }
-        chunk.map_err(std::io::Error::other)
     });
     (
         out.body(Body::from_stream(stream))
@@ -472,7 +567,12 @@ fn decode(headers: &HeaderMap, raw: &[u8], max: usize) -> Option<Vec<u8>> {
     (out.len() <= max).then_some(out)
 }
 
-async fn upload_pack(state: &State, route: &Route, headers: &HeaderMap, body: Body) -> Response {
+async fn upload_pack(
+    state: &Arc<State>,
+    route: &Route,
+    headers: &HeaderMap,
+    body: Body,
+) -> Response {
     let raw = match axum::body::to_bytes(body, state.cfg.max_body).await {
         Ok(raw) => raw,
         Err(_) => {
@@ -520,13 +620,75 @@ async fn upload_pack(state: &State, route: &Route, headers: &HeaderMap, body: Bo
     }
     let dir = state.mirrors.dir(&state.cfg.tenant, &key);
     let upstream_url = route.url(state.base(route, &caller), "");
-    if !state
+    let mut held = state
         .mirrors
         .ensure(&dir, &upstream_url, &state.peer_urls(route), auth.as_deref(), &wants)
-        .await
-    {
-        state.fallback(&key, &format!("mirror short of {} wants", wants.len()));
-        return upstream(raw).await;
+        .await;
+    let mut keeper = None;
+    if !held {
+        // One clone at a time writes upstream's pack into the mirror; the others wait for it
+        // and are then served here instead of downloading the same pack again.
+        keeper = pkt::whole_clone(&decoded, v2).then(|| state.mirrors.try_keep(&dir)).flatten();
+        if keeper.is_none()
+            && state.mirrors.wait_keep(&dir, crate::mirror::KEEP_WAIT).await
+            && Mirrors::has_all(&dir, &wants).await
+        {
+            held = true;
+        }
+    }
+    if !held {
+        // Not an error of the cache's (that is a fallback): a mirror that does not hold this
+        // yet. github.com answers, and the mirror keeps the answer or fills behind it.
+        state.stats.misses.fetch_add(1, Ordering::Relaxed);
+        state.write_stats();
+        eprintln!(
+            "git-cache: {key} served by github.com (mirror short of {} wants; {})",
+            wants.len(),
+            if keeper.is_some() { "keeping its pack" } else { "filling behind it" }
+        );
+        let Some(guard) = keeper else {
+            state.mirrors.fill_later(dir, upstream_url, auth);
+            return upstream(raw).await;
+        };
+        let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(64);
+        let base = state.base(route, &caller).to_owned();
+        let body = reqwest::Body::from(raw);
+        let (resp, status) = forward(
+            state,
+            &base,
+            route,
+            Method::POST,
+            "/git-upload-pack",
+            None,
+            headers,
+            body,
+            Some(tx),
+        )
+        .await;
+        if status == StatusCode::OK {
+            let st = state.clone();
+            state.scope.spawn_until_cancelled("keep upstream pack", async move {
+                let started = std::time::Instant::now();
+                match Mirrors::keep(&dir, v2, &wants, rx).await {
+                    Ok(bytes) => {
+                        st.stats.kept_packs.fetch_add(1, Ordering::Relaxed);
+                        st.stats.kept_bytes.fetch_add(bytes, Ordering::Relaxed);
+                        st.write_stats();
+                        eprintln!(
+                            "git-cache: {key} kept github.com's pack ({} MiB, {:.1} s): the next clone here is local",
+                            bytes >> 20,
+                            started.elapsed().as_secs_f64()
+                        );
+                    }
+                    Err(e) => eprintln!("git-cache: {key} pack not kept: {e}"),
+                }
+                drop(guard);
+                st.mirrors.fill_later(dir, upstream_url, auth);
+            });
+        } else {
+            drop(guard);
+        }
+        return resp;
     }
     let served = Served { key: key.clone(), caller: short(&caller).to_owned(), started };
     match serve_local(state, &dir, v2, decoded, served).await {

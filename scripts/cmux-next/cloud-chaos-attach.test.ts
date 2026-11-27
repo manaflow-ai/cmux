@@ -3,7 +3,7 @@
 // on this connection (agent_session_attach.rs `(None, _) => refuse(.., Refusal::NotAttached)`). A fake dial keeps
 // that rule; ChatClient.startAttached attaches before the send, as the app does.
 import { describe, expect, it } from "bun:test"
-import { ChatClient, type ChaosContext, type DialLike } from "./cloud-chaos.ts"
+import { ChatClient, replayOf, resumeText, type ChaosContext, type DialLike } from "./cloud-chaos.ts"
 
 const ctx: ChaosContext = { cmux: "cmux", env: {}, machine: "m", exec: (async () => ({ code: 0, stdout: "", stderr: "" })) as any, guest: "", session: "s", tag: "t" } as ChaosContext
 
@@ -64,5 +64,25 @@ describe("ChatClient send after a reserved home start", () => {
     expect(await chat.startAttached("claude")).toBe(refused)
     expect(d.seen).not.toContain("agent-session-attach")
     chat.stop()
+  })
+})
+
+describe("each fault's resume facts", () => {
+  it("a replay is the seq range its pages delivered, live pushes aside", () => {
+    const received = [
+      { seq: 40, via: "live" },
+      { seq: 41, via: "page" },
+      { seq: 42, via: "page" },
+      { seq: 43, via: "live" },
+      { seq: 44, via: "page" },
+    ]
+    expect(replayOf(40, received, 1)).toEqual({ after_seq: 40, first: 41, last: 44 })
+    expect(replayOf(44, received, 5)).toEqual({ after_seq: 44, first: null, last: null })
+  })
+
+  it("the detail names the drop, the acked seq and each replay", () => {
+    expect(resumeText({ drop_at: "step 34 of 100 (seq 40)", acked_seq: 40, replays: [{ after_seq: 40, first: 41, last: 77 }, { after_seq: 77, first: null, last: null }] }))
+      .toBe("dropped at step 34 of 100 (seq 40), acked seq 40, replayed 41..77 after 40, nothing after 77")
+    expect(resumeText({ drop_at: "step 34 of 100 (seq 40)", acked_seq: 40, replays: [] })).toContain("replayed no re-attach")
   })
 })

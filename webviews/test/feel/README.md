@@ -58,10 +58,18 @@ await requireBrowserLane("feel-sidebar.test.ts", async () => {
 What every surface should be put through: drags slow, fast, shaky and in bursts; a click that is not a
 drag; misses just around each handle; a double-click and repeats; bursts and extremes in its data (1, 5
 and 50 items; short and huge text). A stage of its own (a `*.gallery.ts` entry) gives the hand room, like
-`agent-pane.feel-plan-tray`.
+`agent-pane.feel-tray`.
 
 ## Known reds
 
 A scenario that fails on the base today goes in `known` with who is fixing it. It runs as `test.failing`,
 so the base stays green while the report still says FAIL. The fix that makes it pass fails the run until it
 removes that scenario's line, so the fix PR is where the check turns green.
+
+Prefer naming the checks that are red: `known: { name: { by: "who", checks: ["check", ...] } }`. The scenario
+then runs as a plain test: those checks may fail, every other check in it must pass, and a listed check that
+passes fails the run until it leaves the list. A whole-scenario entry hides every check in it, so a new red
+(a burst's layout shift behind its known swaps, composer hat `join-20`) goes unseen.
+
+The report prints a small nonzero measure to two significant figures (`shown` in `verdicts.ts`), so a value
+just over a limit under 1 never reads `0`.

@@ -192,6 +192,9 @@ pub(crate) struct Conn {
     /// Measures the delivery rate and holds the stream's writes at the
     /// low-water mark of unsent bytes ([`crate::send_gate`]).
     pub(crate) send: SendPacer,
+    /// This stream's fresh bytes the driver's pacer holds, as of its last
+    /// pass ([`TcpStack::set_pacer_held`]).
+    pub(crate) pacer_held: usize,
 }
 
 pub(crate) struct Listener {
@@ -283,7 +286,7 @@ impl TcpStack {
             next_port: random_ephemeral_port(),
             syn_origins: tagged.then(HashMap::new),
             closing: false,
-            congestion: tcp::CongestionControl::Cubic,
+            congestion: crate::ultra::congestion_from_env(),
             stream_window: stream_window_from_env(),
             hold: None,
             release_at: None,
@@ -407,6 +410,43 @@ impl TcpStack {
     /// One pass: poll, accept, move bytes between sockets and streams, then
     /// poll again so anything the streams produced is emitted in the same
     /// pass. Returns whether a byte moved, so the engine can pass again.
+    /// Trace only (`CMUX_WG_STALL_TRACE`): every connection's socket and
+    /// channel state, and the device queues, one line each.
+    pub(crate) fn trace_state(&self) -> Vec<String> {
+        let mut lines = vec![format!(
+            "device rx={} tx={} conns={} listeners={}",
+            self.device.rx_len(),
+            self.device.tx_len(),
+            self.conns.len(),
+            self.listeners.len()
+        )];
+        for conn in &self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            let inbound =
+                conn.inbound.as_ref().map(|sender| STREAM_CHANNEL_DEPTH - sender.capacity());
+            lines.push(format!(
+                "conn remote={} local={:?} state={:?} inbound_fill={:?} outbound_len={} pending_write={:?} outbound_closed={} remote_fin={} drained={} send_queue={} recv_queue={} unsent={} srtt={:?} send_window_cap={:?} sack_recovery={} timeout={:?}",
+                conn.remote,
+                socket.local_endpoint(),
+                socket.state(),
+                inbound,
+                conn.outbound.len(),
+                conn.pending_write.as_ref().map(Bytes::len),
+                conn.outbound_closed,
+                conn.remote_fin,
+                conn.drained.len(),
+                socket.send_queue(),
+                socket.recv_queue(),
+                socket.unsent_queue(),
+                socket.smoothed_rtt(),
+                socket.send_window_cap(),
+                socket.sack_recovery(),
+                socket.timeout()
+            ));
+        }
+        lines
+    }
+
     pub(crate) fn step(&mut self) -> bool {
         if self.release_at.is_some_and(|at| Instant::now() >= at) {
             self.release_at = None;
@@ -430,11 +470,27 @@ impl TcpStack {
         for conn in &mut self.conns {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
             let srtt = socket.smoothed_rtt().map(|srtt| Duration::from_micros(srtt.total_micros()));
-            conn.send.update(now, socket.send_queue(), socket.unsent_queue(), srtt);
+            let unsent = socket.unsent_queue() + conn.pacer_held;
+            conn.send.update(now, socket.send_queue(), unsent, srtt);
             // The buffer is the most a stream may use; the path decides how
             // much it does (`SendPacer::send_window`).
             socket.set_send_window_cap(Some(conn.send.send_window(socket.send_capacity())));
         }
+    }
+
+    /// After the driver moved the stack's output into its pacer and sent
+    /// what the pace allowed: each stream's fresh bytes the pacer still holds
+    /// (`held(local, remote)`, [`crate::pacing::Pacer::held`]) count as unsent
+    /// for its send gate. smoltcp counts them in flight, so without this a
+    /// bulk stream's backlog behind the delay window grew in the pacer to its
+    /// whole send window (3 s at 1 MB/s on lte), and a keystroke's echo
+    /// written on the same stream waited behind all of it.
+    pub(crate) fn set_pacer_held(&mut self, held: impl Fn(SocketAddr, SocketAddr) -> usize) {
+        for conn in &mut self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            conn.pacer_held = socket_flow(socket).map_or(0, |(local, remote)| held(local, remote));
+        }
+        self.update_send_gates();
     }
 
     /// Queue a decrypted packet for the next poll. In tagged mode `origin` is
@@ -616,6 +672,7 @@ impl TcpStack {
             drained: VecDeque::new(),
             reset,
             send: SendPacer::new(gate),
+            pacer_held: 0,
         };
         (conn, stream)
     }

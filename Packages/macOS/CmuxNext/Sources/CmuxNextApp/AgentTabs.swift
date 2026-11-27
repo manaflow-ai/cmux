@@ -187,6 +187,9 @@ final class AgentTabStore {
     let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<AgentTabKey> = []
+    /// Tabs whose shown page was let go to be built again in an older renderer (``AgentPageRendererPacking``): the
+    /// next build lies off the window until it painted, over the old page's picture.
+    var rebuiltAway: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
@@ -236,6 +239,7 @@ final class AgentTabStore {
     var sessions: AgentTabMap<String> = .init()
     /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
     var onTabSession: @MainActor () -> Void = {}
+    var firstSessionWaits: [String: @MainActor (String) -> Void] = [:] // by tab id: a hybrid Cloud send begins its move at the first session (``CloudHybridGUIStart``)
     /// The daemon created a remote chat, including its effective seed folder and harness.
     var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
     /// The owner's model credentials: a Cloud chat's start sends the one its Cloud start chose (``CloudAgentCredentials``).
@@ -368,6 +372,8 @@ final class AgentTabStore {
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
     var cloudTurnRewind: AgentPaneCloudTurnRewindHost?
+    /// Sources > Add Folder on a Cloud chat (``CloudUploads/addFolder(tab:session:services:)``); nil: never.
+    var cloudFolderAdd: (@MainActor (_ chat: String, _ session: String) async throws -> [String: Any])?
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
@@ -667,6 +673,7 @@ final class AgentTabStore {
             let switched = sessions[scopedKey] != session
             sessions[scopedKey] = session
             if switched { onTabSession() }
+            if let wait = firstSessionWaits.removeValue(forKey: key) ?? firstSessionWaits.removeValue(forKey: provisional) { wait(session) }
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key, machine: scoped.machine) { sendSession(session, for: key, machine: scoped.machine) }
@@ -679,6 +686,10 @@ final class AgentTabStore {
         model.onCloudTurnRewind = { [weak self] request, session in
             guard let self, let host = self.cloudTurnRewind else { throw AgentPaneHostError.daemonStopped }
             return try await host.run(chat: self.resolve(provisional, machine: scoped.machine), session: session, request: request)
+        }
+        model.onCloudFolderAdd = { [weak self] session in
+            guard let self, let add = self.cloudFolderAdd else { throw AgentPaneHostError.daemonStopped }
+            return try await add(self.resolve(provisional, machine: scoped.machine), session)
         }
         unsentDrafts.wire(model, machine: { scoped.machine }) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
         model.onOpenTab = { [weak self] request in

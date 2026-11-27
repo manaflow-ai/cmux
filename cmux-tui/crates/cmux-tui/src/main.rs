@@ -45,8 +45,6 @@ mod cloud_conversations_backend;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
-mod coderouter_usage;
-#[cfg(unix)]
 #[cfg(unix)]
 mod codex_wrapper;
 #[cfg(not(target_os = "macos"))]
@@ -62,6 +60,8 @@ mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
+#[cfg(unix)]
+mod machine_identity;
 #[cfg(unix)]
 mod machine_secrets;
 #[cfg(unix)]
@@ -687,6 +687,8 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    /// `--freeing-idle-seconds`: the idle freeing timer on with this idle time (the bench).
+    freeing_idle: Option<std::time::Duration>,
     exit_with_pid: Option<local_owner::ExitWith>,
 }
 
@@ -800,6 +802,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        freeing_idle: None,
         exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
@@ -908,6 +911,18 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err("--ws-allow-host needs a host name with no port".into());
                 }
                 out.ws_access.hosts.push(host);
+            }
+            "--freeing-idle-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--freeing-idle-seconds needs a value".to_string())?;
+                let seconds =
+                    value.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
+                        "--freeing-idle-seconds must be a positive integer".to_string()
+                    })?;
+                if out.freeing_idle.replace(std::time::Duration::from_secs(seconds)).is_some() {
+                    return Err("--freeing-idle-seconds may be supplied only once".into());
+                }
             }
             "--terminal-reap-grace-seconds" => {
                 let value = args
@@ -1628,6 +1643,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-resume-lease-seconds",
     "--remote-local-socket",
     "--terminal-reap-grace-seconds",
+    "--freeing-idle-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1899,6 +1915,8 @@ pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statements of main: no other thread runs yet.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
@@ -2076,8 +2094,9 @@ fn run_main() {
     }
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
-        && (matches!(head, "acp" | "harness" | "chats" | "board")
-            || cli::agent_engine_requested(&raw_args))
+        && (matches!(head, "acp" | "harness" | "chats" | "board" | "care")
+            || cli::agent_engine_requested(&raw_args)
+            || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
@@ -2847,6 +2866,9 @@ fn run_server(
             }
         });
     // `identify` answers from the attach below: announce the reaper first.
+    if let Some(idle) = args.freeing_idle {
+        mux.set_freeing_idle_override(idle);
+    }
     if let Some(grace) = args.terminal_reap_grace {
         mux.set_terminal_reap_grace(grace)?;
         mux.announce_terminal_reaper();
@@ -2964,6 +2986,7 @@ fn run_server(
         );
     }
     loopback_policy::install(&mux, loopback_forward_policy);
+    mux.start_terminal_warm_compact();
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
@@ -2973,10 +2996,6 @@ fn run_server(
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-    // Cloud VMs carry coderouter identity in their model-plane env; every
-    // other host resolves no source and gets no poller.
-    #[cfg(unix)]
-    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
@@ -3106,10 +3125,6 @@ fn run_server(
     }
     if let Some(writer) = launch_snapshot_writer {
         writer.stop();
-    }
-    #[cfg(unix)]
-    if let Some(poller) = machine_usage_poller {
-        poller.stop();
     }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();

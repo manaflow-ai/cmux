@@ -37,20 +37,56 @@
       "scope": "agents:write",
       "class": "mutation"
     },
+    "app.pane.close": {
+      "scope": "none",
+      "class": "runtime"
+    },
+    "app.pane.open": {
+      "scope": "none",
+      "class": "runtime"
+    },
     "app.storage.delete": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.get": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.keys": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.set": {
       "scope": "storage:local",
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
+    },
+    "app.view.state": {
+      "scope": "none",
+      "class": "runtime"
+    },
+    "appkv.delete": {
+      "scope": "appkv:write",
+      "class": "mutation"
+    },
+    "appkv.list": {
+      "scope": "appkv:read",
+      "class": "read"
+    },
+    "appkv.set": {
+      "scope": "appkv:write",
       "class": "mutation"
     },
     "automation.audit.list": {
@@ -345,6 +381,10 @@
       "scope": "closed:write",
       "class": "mutation"
     },
+    "cloud.allotment.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.auth.status": {
       "scope": "cloud:read",
       "class": "read"
@@ -501,6 +541,10 @@
       "scope": "cloud:execute",
       "class": "mutation"
     },
+    "cloud.vm.machine.request": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.vm.network_policy": {
       "scope": "cloud:read",
       "class": "read"
@@ -540,26 +584,6 @@
     "coderouter.accounts.list": {
       "scope": "coderouter:read",
       "class": "read"
-    },
-    "coderouter.app.connect_account": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.create_key": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.open": {
-      "scope": "coderouter:write",
-      "class": "mutation"
-    },
-    "coderouter.app.run_test": {
-      "scope": "coderouter:execute",
-      "class": "mutation"
-    },
-    "coderouter.app.start_onboarding": {
-      "scope": "coderouter:write",
-      "class": "mutation"
     },
     "coderouter.detect": {
       "scope": "coderouter:read",
@@ -2009,6 +2033,10 @@
       "scope": "theme:read",
       "class": "read"
     },
+    "theme.slots.resolve": {
+      "scope": "theme:read",
+      "class": "read"
+    },
     "thread.update": {
       "scope": "thread:write",
       "class": "mutation"
@@ -2217,18 +2245,25 @@
     "cloud.machine.io",
     "cloud.machine.link_token",
     "cloud.machine.resize",
+    "cloud.machine.setup_desktop",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_clone_token",
+    "cloud.owner.github_complete",
     "cloud.owner.github_connect",
+    "cloud.owner.github_list",
     "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.op",
+    "cloud.owner.slack",
+    "cloud.owner.slack_awake",
     "cloud.owner.turn_checkpoint",
     "cloud.owner.turn_rewind",
     "cloud.owner.turns",
@@ -2304,6 +2339,7 @@
     "install.rename",
     "install.revoke",
     "install.sign_out",
+    "integration.approval.approve",
     "integration.approval.get",
     "integration.complete",
     "integration.connect",

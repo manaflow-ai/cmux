@@ -79,9 +79,15 @@ export type CloudStartProgress = {
   repository?: string;
   /// The environment whose setup status is being reported by cmux-platform.
   environmentId?: string;
+  /// The environment selected for this start. Kept separately from `environmentId` because a failed
+  /// plan may not have returned the resolved id yet; Retry must still name the same target.
+  environment?: string;
   /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
   machineStartedAt?: number;
   machineFinishedAt?: number;
+  /// The machine step waits out a pause or a resume in flight (the host's `waking`, decided by Rust's
+  /// `cloud_move_settle`, ask-259986a6c4): the card says "Waking machine".
+  waking?: boolean;
   harnessStartedAt?: number;
   harnessFinishedAt?: number;
   /// The git-seed status, forwarded from `git.seed.status`.
@@ -264,6 +270,7 @@ export function cloudStartBegun(
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
   pick?: CloudStartPick,
+  environment?: string,
 ): CloudStartProgress {
   const whole = cwd?.replace(/\/+$/, "");
   const folder = whole?.split("/").pop();
@@ -276,6 +283,7 @@ export function cloudStartBegun(
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(environment ? { environment } : {}),
     ...(pick ? { pick } : {}),
   };
 }
@@ -392,6 +400,8 @@ function pushedFields(current: CloudStartProgress | undefined, push: unknown): C
   const directMachineFinished = number(fields.machineFinishedAt ?? fields.machine_finished_at);
   const directHarnessStarted = number(fields.harnessStartedAt ?? fields.harness_started_at);
   const directHarnessFinished = number(fields.harnessFinishedAt ?? fields.harness_finished_at);
+  if (fields.waking === true) next.waking = true;
+  if (fields.waking === false) delete next.waking;
   if (directMachineStarted !== undefined) next.machineStartedAt = directMachineStarted;
   if (directMachineFinished !== undefined) next.machineFinishedAt = directMachineFinished;
   if (directHarnessStarted !== undefined) next.harnessStartedAt = directHarnessStarted;

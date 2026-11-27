@@ -1,5 +1,5 @@
 //! Harness profile files (BRING-YOUR-OWN-HARNESS H1): one declarative TOML
-//! file per harness, also accepted in cmux.json `agents.harnesses` and in a
+//! file per harness, also accepted in cmux-next.json `agents.harnesses` and in a
 //! managed (company) folder. Each file maps onto one [`HarnessProfile`]; the
 //! extra display, capability, auth and sessions data goes to [`ProfileMeta`].
 //!
@@ -8,7 +8,9 @@
 //!    `/etc/cmux/harnesses/*.toml` (other unix);
 //! 2. user files: `$XDG_CONFIG_HOME/cmux/harnesses/*.toml`, default
 //!    `~/.config/cmux/harnesses/` (`~/.config/cmux-next/harnesses/` on macOS);
-//! 3. cmux.json `agents.harnesses`.
+//! 3. cmux-next.json `agents.harnesses` (never classic cmux's cmux.json: the
+//!    app copies its keys into cmux-next.json once the person accepts the
+//!    Classic import).
 //!
 //! acpmux's own config.json and PATH discovery rank below all three
 //! (`Config::join_profiles`). One bad file never stops the others: it gets a
@@ -65,7 +67,7 @@ pub struct ProfileSources {
     /// so a DEV build offers the person's own harnesses (`claude-sr2`) without
     /// putting its test profiles in front of shipped builds.
     pub person_dir: Option<PathBuf>,
-    /// cmux.json (its `agents.harnesses` object).
+    /// cmux-next.json (its `agents.harnesses` object).
     pub cmux_json: Option<PathBuf>,
 }
 
@@ -77,10 +79,8 @@ impl ProfileSources {
         let explicit_config = xdg.is_some();
         let config_base =
             xdg.map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
-        // cmux NEXT's own folder (`cmux-next` on macOS) holds the harnesses;
-        // classic `cmux.json` stays where cmux Classic keeps it.
+        // cmux NEXT's own folder (`cmux-next` on macOS) holds the harnesses.
         let config_dir = config_base.as_ref().map(|base| base.join(cmux_config::NEXT_DIR));
-        let classic_json = config_base.map(|base| base.join("cmux").join("cmux.json"));
         let managed = if std::env::consts::OS == "macos" {
             PathBuf::from("/Library/Application Support/cmux/harnesses")
         } else {
@@ -90,16 +90,15 @@ impl ProfileSources {
         let build_dir = (!explicit_config)
             .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
             .flatten();
-        Self::with_build_dir(managed, config_dir, classic_json, build_dir)
+        Self::with_build_dir(managed, config_dir, build_dir)
     }
 
     /// The sources for the managed folder, the person's config folder
-    /// (`~/.config/cmux`, `~/.config/cmux-next` on macOS), classic
-    /// `cmux.json` and a DEV build's own harness folder, if any.
+    /// (`~/.config/cmux`, `~/.config/cmux-next` on macOS), cmux-next.json
+    /// and a DEV build's own harness folder, if any.
     fn with_build_dir(
         managed: PathBuf,
         config_dir: Option<PathBuf>,
-        cmux_json: Option<PathBuf>,
         build_dir: Option<PathBuf>,
     ) -> Self {
         let person = config_dir.as_ref().map(|d| d.join("harnesses"));
@@ -107,7 +106,12 @@ impl ProfileSources {
             Some(build) => (Some(build), person),
             None => (person, None),
         };
-        Self { managed: vec![managed], user_dir, person_dir, cmux_json }
+        Self {
+            managed: vec![managed],
+            user_dir,
+            person_dir,
+            cmux_json: Some(crate::user_settings::resolved_path()),
+        }
     }
 
     /// Every folder profile files load from, in precedence order.
@@ -127,7 +131,7 @@ impl ProfileSources {
 /// `root` is the default acpmux home. `None` for every other home: NIGHTLY,
 /// cmux NEXT, RC, release and a standalone acpmux keep the person's folder.
 ///
-/// The user folder (`~/.config/cmux/harnesses`) is per person, not per
+/// The user folder (`~/.config/cmux-next/harnesses`) is per person, not per
 /// build, so a profile a DEV build or a dogfood script wrote there showed in
 /// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
 /// with models m1 and m2 in cmux NEXT). A DEV build never writes it; it still
@@ -277,6 +281,12 @@ pub struct ProfileMeta {
     /// The agent whose cmux hooks report status for a terminal harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hooks: Option<String>,
+    /// `no_model = true`: the harness calls no model (a bench or probe agent `acpmux cli-agent`
+    /// wraps, `/bin/echo`), so its chats spend nothing. Declared, never inferred from the argv:
+    /// `cli-agent` can wrap a model CLI too. Its chats' `usageStats` read zero tokens, stamped
+    /// each pass (`hub/usage_view.rs`), where no transcript would leave them null (unmetered).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_model: bool,
 }
 
 /// Every profile from every source, and every problem found.
@@ -370,6 +380,8 @@ struct ProfileFile {
     auth: Option<AuthNotes>,
     sessions: Option<SessionsSpec>,
     hooks: Option<String>,
+    #[serde(default, alias = "noModel")]
+    no_model: bool,
 }
 
 // ---------------------------------------------------------------- loading
@@ -910,6 +922,7 @@ fn build(
         models_command: models_file.command,
         model_details: details,
         hooks: file.hooks,
+        no_model: file.no_model,
     };
     Ok((id, profile, meta, warnings))
 }

@@ -246,7 +246,7 @@ impl Hub {
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
-/// a pasted secret. So are the running turn's `activity` and `planStep`
+/// a pasted secret. So is the running turn's `activity`
 /// (`hub/activity.rs`): a tool call's title is often a command with its
 /// arguments. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
@@ -389,6 +389,7 @@ pub fn decide(summary: &mut Value) {
     summary.set("indicator", indicator);
     let lane = lane(summary);
     summary.set("lane", lane);
+    super::session_state::set(summary, crate::store::now_ms());
 }
 
 /// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
@@ -513,14 +514,14 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, false)
+        self.summary_with_tools(session, true, None)
     }
 
     /// The whole row of a chat for the `session_changed` that follows one of its records: its
     /// summary, with the time breakdown only when the row owes it
     /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
-    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, true)
+    pub(crate) fn session_change_summary(&self, session: &Session, seq: u64) -> Value {
+        self.summary_with_tools(session, true, Some(seq))
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -577,6 +578,13 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
         self.seed_time_breakdown(session, false);
+    }
+
+    /// Whether a time-breakdown seed of the chat is running, for a server test that waits out
+    /// the one an attach started.
+    #[cfg(test)]
+    pub(crate) fn time_breakdown_seeding_for_test(&self, session: &Session) -> bool {
+        session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding
     }
 
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
@@ -748,7 +756,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false, false)
+        self.summary_with_tools(session, false, None)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -762,9 +770,14 @@ impl Hub {
         Some(cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some())
     }
 
-    /// `change_row`: the row follows a record (`session_change_summary`), so it carries the
-    /// time breakdown only when owed.
-    fn summary_with_tools(&self, session: &Session, with_tools: bool, change_row: bool) -> Value {
+    /// Everything a row reads from the session and the daemon, owned and comparable: two
+    /// equal gathers render the same row (`render_row`, `live_rows.rs`).
+    pub(crate) fn row_inputs(
+        &self,
+        session: &Session,
+        with_tools: bool,
+        change_row: Option<u64>,
+    ) -> RowInputs {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
@@ -859,12 +872,11 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
-            // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
-            task_list: super::task_list::current_task_list(&m),
             approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
@@ -911,7 +923,6 @@ impl Hub {
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
                 activity: t.doing.activity,
-                plan_step: t.doing.plan_step,
             }),
             queue: session
                 .queue()
@@ -948,6 +959,10 @@ impl Hub {
                         .provenance
                         .clone()
                         .filter(|p| super::inbox::is_notice(Some(p))),
+                    origin: Some(super::queue_origin::of(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    )),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,
@@ -1022,12 +1037,12 @@ impl Hub {
             // A detail/attach read seeds this lazily; census rows never scan journals.
             time_breakdown: match (with_tools, change_row) {
                 (false, _) => None,
-                (true, false) => self.cached_time_breakdown(session),
-                (true, true) => session
+                (true, None) => self.cached_time_breakdown(session),
+                (true, Some(seq)) => session
                     .time_breakdown
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .row_snapshot(crate::store::now_ms()),
+                    .row_snapshot(crate::store::now_ms(), seq),
             },
             // Set from the row's own fields below (`set_composer_status`).
             composer_status: None,
@@ -1038,80 +1053,82 @@ impl Hub {
             m.agent_session_id.clone(),
             self.started_at,
         );
-        let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
-        summary.set("sessionReceipt", receipt.to_value());
+        // Every value the row's own keys take, in the order they are set: `render_row` writes
+        // them, so a list that gathers the same inputs reuses the bytes (`live_rows.rs`).
+        let mut extras: Vec<(&'static str, Value)> = Vec::with_capacity(24);
+        extras.push(("qualifiedSessionId", Value::String(receipt.qualified_id())));
+        extras.push(("sessionReceipt", receipt.to_value()));
         // Where its journal's own recovery at the end begins, while it ends the journal: the
         // owner restores a copy past it from there, however far `lastSeq` is (review of #37284
         // at 8b5f3063, F2: a recovery as long as the copy was past it hid the copy).
         if let Some(from) = m.recovered_after.filter(|from| *from < m.last_seq) {
-            summary.set("recoveredAfter", json!(from));
+            extras.push(("recoveredAfter", json!(from)));
         }
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        extras.push(("gitBranch", json!(self.git_branch_now(&m))));
         // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
         if let Some(cold) = &m.cold {
-            summary.set("coldArchive", json!(cold));
+            extras.push(("coldArchive", json!(cold)));
         }
         // Auto mode (`auto_session/record.rs`): where the chat runs and what the person can do.
         // On every row, so the pane tells Auto off from a daemon without Auto.
-        summary.set(
+        extras.push((
             "autoSession",
             crate::auto_session::record::AutoRecord::row_of(m.auto_session.as_ref()),
-        );
+        ));
         // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
         // unfinished closes from `ls --closed --json`.
         if m.status == SessionStatus::Closed
             && let Some(close) = &m.close
         {
-            summary.set("close", json!(close));
+            extras.push(("close", json!(close)));
         }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
-            summary.set(super::additional_dirs::FIELD, dirs);
+            extras.push((super::additional_dirs::FIELD, dirs));
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        extras.push(("subagentsWorkingSince", json!(self.work_below_since(session))));
+        // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
+        // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
+        extras.push(("bgTasksRunning", json!(self.bg_running_count(session))));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
-        summary.set("heldMessages", super::native_messaging::held_messages(session));
+        extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
         // a message past its deadline red, from this field in one `ls` call.
-        let (overdue, due_at) = super::inbox::deadline_row(session);
-        summary.set("inboxOverdue", json!(overdue));
-        summary.set("inboxDueAt", json!(due_at));
+        let (overdue, due_at) = super::inbox::deadline_row(session, &m);
+        extras.push(("inboxOverdue", json!(overdue)));
+        extras.push(("inboxDueAt", json!(due_at)));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
         let waiting = self.subsessions_waiting(session);
-        summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
-        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
+        extras.push(("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count))));
+        extras.push(("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since))));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
-        let turn_runs = summary.get("turn").is_some_and(Value::is_object);
+        let turn_runs = summary.turn.is_some();
         let work = running_work(session, turn_runs, self.running_processes_read(session));
-        summary.set("subagentsRunning", json!(work.subagents));
-        summary.set("subagentNames", json!(work.names));
+        extras.push(("subagentsRunning", json!(work.subagents)));
+        extras.push(("subagentNames", json!(work.names)));
         // Its latest subagents, live and finished, and how many it started: the sidebar nests them
         // under the chat's row (`subagents_recent.rs`; Leo 2026-11-19: "the nested sessions").
         // A chat that never started one carries neither key, so its row costs what it did.
         {
             let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             if tree.seen() > 0 {
-                summary.set("recentSubagents", json!(tree.recent(turn_runs)));
-                summary.set("subagentsSeen", json!(tree.seen()));
+                extras.push(("recentSubagents", json!(tree.recent(turn_runs))));
+                extras.push(("subagentsSeen", json!(tree.seen())));
             }
         }
-        summary.set("commandsRunning", json!(work.commands));
+        extras.push(("commandsRunning", json!(work.commands)));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);
-        summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
-        summary.set("hostBuild", json!(host_build));
-        if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
-            // A History of the person's prompts leaves it out (`turn.notice`).
-            turn.insert("notice".into(), Value::Bool(true));
-        }
+        extras
+            .push(("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build()))));
+        extras.push(("hostBuild", json!(host_build)));
         // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
-        summary.set(
+        extras.push((
             "respawnPending",
             json!(
                 session
@@ -1119,14 +1136,21 @@ impl Hub {
                     .load(Ordering::SeqCst)
                     .then_some(super::profile_respawn::PROFILE_CHANGED)
             ),
-        );
-        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
+        ));
+        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` in `render_row`.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
-        let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
-        summary.set("usageWarnings", json!(warnings));
-        decide(&mut summary);
-        set_composer_status(&mut summary, with_tools);
-        summary
+        RowInputs { summary, extras, notice, with_tools, limits }
+    }
+
+    /// `change_row`: the record the row follows (`session_change_summary`), so it carries the
+    /// time breakdown only when owed.
+    fn summary_with_tools(
+        &self,
+        session: &Session,
+        with_tools: bool,
+        change_row: Option<u64>,
+    ) -> Value {
+        render_row(&self.row_inputs(session, with_tools, change_row))
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {
@@ -1197,6 +1221,21 @@ impl Hub {
     /// every later reader. Before this, one chat whose agent was starting or ending, or a slow
     /// disk walk, held status, and every pane said "Waiting for the agent service" at once
     /// (Leo, 2026-11-12, ask-64cfa32e34).
+    /// The part of [`Hub::status`] a listing reads (`_acpmux/status` with `listCounts`): the
+    /// closed rows the unfiltered list holds, of those the other machines' (decision 213), and
+    /// the peers. Counted, never built, and nothing awaited: under load the full status waits on
+    /// its host, disk and agent reads (up to their 1 s budget each), and `ls --json` read it
+    /// before its list (#58414).
+    pub fn list_counts(&self) -> Value {
+        let (all, live_ids) = self.session_counts();
+        let closed = self.closed_listed(all.saturating_sub(live_ids));
+        json!({
+            "closedListed": closed.all,
+            "closedRemoteListed": closed.remote,
+            "peers": self.peers(),
+        })
+    }
+
     pub async fn status(&self) -> Value {
         let loading = !self.store_loaded() || !self.startup_complete();
         let low = self
@@ -1249,10 +1288,18 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
         let (now, evictions, rehydrations) = self.eviction_counts();
-        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations});
+        let (samples, p50, p99) = self.evicted.rehydrate_quantiles();
+        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations,
+            "residentCap": self.evicted.cap(), "rehydrateSamples": samples,
+            "rehydrateP50Us": p50, "rehydrateP99Us": p99});
         json!({
             "version": VERSION,
             "build": build(),
+            // The wire ABI range this build serves (`protocol/range.rs`), and what the last
+            // update of this host's binary did (`update_inventory.rs`): the version inventory
+            // NOW reads per host through the census (`acpmux_lag`).
+            "abiRange": crate::protocol::range::AbiRange::ours().json(),
+            "updateInventory": crate::update_inventory::read(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
@@ -1297,6 +1344,8 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // Its counters and gauges (`outbox_stats.rs`): `acpmux ls` ends with them.
+            "outboxStats": self.outbox.stats(),
             // The lock bridge (`hub/lock_bridge.rs`): this Mac's screen lock, whether
             // `sessions.keepAwakeWhenLocked` is on, and whether it holds idle sleep off now.
             "lockBridge": super::lock_bridge::state(),
@@ -1415,6 +1464,36 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+/// A row gathered by `Hub::row_inputs`: what `render_row` turns into the row, compared whole
+/// so a cached row is reused only when every input is the same (`live_rows.rs`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RowInputs {
+    summary: crate::protocol::session::SessionSummary,
+    extras: Vec<(&'static str, Value)>,
+    notice: bool,
+    with_tools: bool,
+    limits: crate::config::UsageLimits,
+}
+
+/// The row from its inputs: pure, so equal inputs give equal bytes.
+pub(crate) fn render_row(inputs: &RowInputs) -> Value {
+    let mut summary = serde_json::to_value(&inputs.summary).unwrap_or(Value::Null);
+    for (key, value) in &inputs.extras {
+        summary.set(*key, value.clone());
+    }
+    if inputs.notice
+        && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut)
+    {
+        // A History of the person's prompts leaves it out (`turn.notice`).
+        turn.insert("notice".into(), Value::Bool(true));
+    }
+    let warnings = super::usage_warnings::usage_warnings(&summary, &inputs.limits);
+    summary.set("usageWarnings", json!(warnings));
+    decide(&mut summary);
+    set_composer_status(&mut summary, inputs.with_tools);
+    summary
+}
 
 #[cfg(test)]
 mod forks_any_turn_tests {

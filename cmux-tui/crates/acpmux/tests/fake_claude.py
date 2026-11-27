@@ -184,13 +184,14 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
         return True
     # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
     # question's chat and attachments are cmux-*-context blocks Claude must read.
     text = block.get("text", "")
     return isinstance(text, str) and text.lstrip().startswith(
-        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>"))
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
+         "<cmux-card-context>"))
 
 
 def command_text(content):
@@ -1522,7 +1523,7 @@ while True:
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
         # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
-        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux never sets it).
         if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
             def task_call(tool_id, name, tool_input, result_text, tool_use_result):
                 send({"type": "assistant", "message": {"content": [

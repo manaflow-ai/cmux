@@ -153,13 +153,13 @@ import Testing
 
     @Test func aFoldSurvivesTheFeedsNextPass() {
         let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         let a = WorkspaceID("a")
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a])
         tree.toggle(a)
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a, WorkspaceID("c"): a]) // the feed passes again
         #expect(tree.drawn?.collapsed == [a])
-        #expect(SidebarSessionTree(defaults: defaults).collapsed == [a]) // and the next launch
+        #expect(SidebarSessionTree(defaults: defaults, showsStarted: true).collapsed == [a]) // and the next launch
         tree.toggle(a)
         #expect(tree.drawn?.collapsed == [])
     }
@@ -169,7 +169,7 @@ import Testing
     /// feed's first pass (no parents yet) nothing is dropped.
     @Test func aClosedParentsFoldLeavesTheSavedList() {
         let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d")
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("child-a"): a, WorkspaceID("child-d"): d])
         tree.toggle(a)
@@ -178,7 +178,7 @@ import Testing
         tree.toggle(b)
         #expect(tree.collapsed == [b, d])
         #expect(Set(defaults.stringArray(forKey: SidebarSessionTree.collapsedKey) ?? []) == ["b", "d"])
-        let launched = SidebarSessionTree(defaults: defaults)
+        let launched = SidebarSessionTree(defaults: defaults, showsStarted: true)
         launched.toggle(WorkspaceID("e")) // before the first pass
         #expect(launched.collapsed == [b, d, WorkspaceID("e")])
     }
@@ -189,7 +189,7 @@ import Testing
         let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
         let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d"), c = WorkspaceID("c")
         defaults.set(["a", "b", "d"], forKey: SidebarSessionTree.collapsedKey)
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [b: a, c: b]) // d's lane hasn't loaded yet
         tree.reveal(c, lists: [{ _ in true }])
         #expect(tree.collapsed == [d])

@@ -383,6 +383,22 @@ mark {
   padding-top: var(--ds-space-2);
 }
 
+/* A Remote machine's AutoCloud capabilities (Mac, Xcode, Simulator, GPU), under its policy line. */
+.autocloud-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  padding-top: var(--ds-space-1);
+}
+
+.autocloud-cap {
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
 .row-label {
   flex: 1;
   min-width: 0;
@@ -1347,6 +1363,131 @@ mark {
   width: var(--page-size-160);
 }
 
+/* Settings > Developer (DeveloperTokensCard): scope chips beside a token's name, the create and allow
+   forms as labeled fields, and code lines (the shown-once token, export, curl, the workflow) that
+   wrap inside the card with Copy beside them. */
+.tokens-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.tokens-chips {
+  display: inline-flex;
+  gap: var(--grid-half-step);
+}
+
+.tokens-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.tokens-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.tokens-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.tokens-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: var(--page-size-320);
+}
+
+.tokens-row-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3);
+}
+
+.tokens-row-fields > .tokens-field {
+  flex: 1 1 var(--page-size-160);
+}
+
+.tokens-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tokens-fieldset > legend {
+  margin-bottom: var(--ds-space-1);
+  padding: 0;
+}
+
+.tokens-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+
+.tokens-check > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.tokens-check-title {
+  color: var(--text);
+}
+
+.tokens-warning {
+  color: var(--ds-color-attention, var(--text));
+}
+
+.tokens-subhead {
+  margin-top: var(--ds-space-2);
+}
+
+.tokens-code-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+
+.tokens-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: var(--text-detail) / 1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tokens-secret {
+  font-weight: 600;
+}
+
+/* The shown-once token keeps a step from the list under it. */
+.tokens-created {
+  margin-bottom: var(--ds-space-3);
+}
+
 /* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
    (path, operator, value, remove), and the preview wraps its rendered prompt. */
 .autocloud-form {
@@ -1442,43 +1583,62 @@ mark {
   max-width: var(--page-size-160);
 }
 
-/* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
-   its title and status on one line, one line about it, and its button at the bottom. */
+/* Settings > Connections (ConnectionsPanel.tsx): the catalog as a grid of tiles in rank order, each with
+   its mark, title and status pill on one line, one line about it, and its button at the bottom. */
 .connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
   gap: var(--ds-space-2);
 }
 
+/* Each tile is the pane's connect card (acpmux/ConnectCard.tsx, claudeConnect.css): its pane colours
+   from this page's, as the plan usage card's are (.harness-account-usage). */
 .connections-tile {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-border: var(--border);
+  --agent-accent: var(--cmux-accent, var(--text));
+  --agent-danger: var(--danger);
   display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
   min-width: 0;
+}
+
+.connections-tile > .acpmux-connect-card {
+  flex: 1;
   padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
+  border-color: var(--border);
   background: var(--input-bg);
+}
+
+.connections-tile .acpmux-connect-card__actions {
+  margin-top: auto;
+}
+
+.connections-tile .acpmux-connect-card__details .row-help {
+  white-space: normal;
+}
+
+.connections-monogram {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--ds-space-5);
+  height: var(--ds-space-5);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--muted-text) 18%, transparent);
+  font-weight: 600;
+  font-size: var(--text-detail);
+}
+
+.connections-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--ds-space-2);
 }
 
 .connections-tile[data-connections-state="unavailable"] {
   opacity: 0.7;
-}
-
-.connections-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.connections-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin-top: auto;
-  padding-top: var(--ds-space-2);
 }
 
 .connections-key {
@@ -1497,6 +1657,44 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
+}
+
+/* Settings > Connections, on top (AllConnections.tsx): every connection as one compact row, its
+   title and kind, its status pill and its one action. */
+.all-connections-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  list-style: none;
+}
+
+.all-connections-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+
+.all-connections-row + .all-connections-row {
+  border-top: 1px solid var(--border);
+}
+
+.all-connections-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.all-connections-title,
+.all-connections-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -2513,12 +2711,26 @@ mark {
   height: var(--ds-space-4);
 }
 
+/* A row's title takes the row's whole width at rest: its buttons show only on hover, so they lie
+   over the title's end instead of holding a slot (Leo, 2026-11-24: "if the buttons show on hover,
+   then we should show the whole line before ellipsis-ing. and when the area is hovered over,
+   there's that whatever some amount of good fading that makes it all feel like one motion";
+   "you're early ellipsis-ing because of a button that doesnt even always show"). The title is a
+   .ui-reveal-text (ui/motion/motion.css): its end fades, not an ellipsis, and fades under the
+   buttons while they show. The row is the host (data-reveal-overlap: a chevron or badge may follow
+   a short title, and gives way under the buttons). */
 .menu-row-title {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.menu-row-body {
+  position: relative;
+}
+
+/* A drag shows no buttons, so the title's end shows whole. */
+.menu-preview[data-reordering] .menu-row-body .ui-reveal-text {
+  --ui-reveal-cover: 0px;
 }
 
 button.menu-disclosure {
@@ -2535,6 +2747,11 @@ button.menu-disclosure {
 }
 
 .menu-row-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: var(--layer-raised);
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
@@ -2550,6 +2767,13 @@ button.menu-disclosure {
 /* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
 .menu-row:has(:focus-visible) .menu-row-actions {
   transition: none;
+}
+
+/* Renaming a submenu puts its field where the title was; the buttons then take their place beside it
+   (only in that state). */
+.menu-row-body:has(.menu-rename) .menu-row-actions {
+  position: static;
+  transform: none;
 }
 
 .menu-separator .menu-separator-line {
@@ -3024,6 +3248,18 @@ button.menu-disclosure {
   color: var(--ds-color-attention);
 }
 
+/* A PR entry's lines (`cmux customize use pr:N`): what it cannot carry wraps as one muted sentence
+   each, and the last refresh's note keeps the attention color while the entry is off (it says why
+   it turned off) and reads muted while it is on. */
+.library-needs-build,
+.library-note {
+  overflow-wrap: anywhere;
+}
+
+[data-library-code]:not([data-on]) .library-note {
+  color: var(--ds-color-attention);
+}
+
 .library-position {
   flex: none;
   min-width: var(--ds-space-4);
@@ -3063,6 +3299,175 @@ button.menu-disclosure {
 
 .library-tile .library-order {
   align-self: flex-end;
+}
+
+/* Settings > Appearance > Looks (LooksGalleryCard): a grid of look tiles, each its golden sample in
+   a fixed 16:10 frame (the frame holds its size before the image arrives, so tiles never move), its
+   name and tagline, then Install or its switch and Uninstall. The Stacked list under it is the
+   installed looks top first, one Settings row each. */
+.looks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-rail {
+  display: grid;
+  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-3);
+  overflow-x: auto;
+}
+
+.looks-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.looks-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.looks-tile[data-size="row"] {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+}
+
+.looks-tile[data-size="row"] + .looks-tile[data-size="row"] {
+  border-top: 1px solid var(--ds-color-separator);
+}
+
+.looks-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+}
+
+.looks-tile[data-size="row"] .looks-preview {
+  flex: none;
+  width: 96px;
+}
+
+.looks-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.looks-preview-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-tile-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.looks-tile[data-size="row"] .looks-tile-body {
+  align-items: center;
+}
+
+/* In a tile the text takes the whole width and the controls sit under it, Install or the switch
+   leading and Uninstall trailing, so a long name never squeezes beside them. */
+.looks-tile:not([data-size="row"]) .looks-tile-body {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.looks-tile:not([data-size="row"]) .looks-controls {
+  justify-content: space-between;
+}
+
+.looks-tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.looks-tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.looks-controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.looks-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-sheet {
+  margin: var(--ds-space-3);
+}
+
+.looks-changes {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+  color: var(--ds-color-muted);
+}
+
+.looks-replaces,
+.looks-unreviewed {
+  color: var(--ds-color-attention);
+}
+
+.looks-stacked {
+  margin-top: var(--ds-space-3);
+}
+
+.looks-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.looks-source {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-looks-layer]:not([data-on]) :is(.row-title, .looks-source) {
+  opacity: 0.55;
 }
 
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
@@ -3953,3 +4358,71 @@ button.menu-disclosure {
   stroke: var(--ds-color-accent);
   stroke-linecap: round;
 }
+
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
+}
+
+/* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
+   reopens the Make cmux Yours step. */
+.replay-intro-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.replay-intro-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.replay-intro-card__text .group-title {
+  margin: 0;
+}
+
+.replay-intro-card__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+
+.replay-intro-card__run {
+  flex: none;
+}
+
+/* A card's slot: no box of its own, so a deep link can find any card without changing the layout. */
+.card-slot {
+  display: contents;
+}
+
+/* The row, card or connection a deep link landed on (settingsLinks.ts): ringed while
+ * LinkLanding.tsx holds the attribute (LINK_HIGHLIGHT_MS). */
+[data-link-target] {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+
+/* A link that named nothing on the page says what it asked for. */
+.link-missing {
+  display: block;
+  margin: 0 0 12px;
+}
+
+/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+

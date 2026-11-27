@@ -3,15 +3,22 @@
 // Connect sends the server and whose it is (the active team only when picked), a key-auth row's
 // pasted key goes once and is cleared, Disconnect asks first, an unavailable row says why and has no
 // button, and with no hub only the Connections tab shows.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, test, beforeAll } from "bun:test";
 import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, click, changeValue, fire } = await import("./testing");
 const { mockHubOverview, mockHubState } = await import("./mockHub");
+const { ensureConnectionsUpcomingLabRow } = await import("./mockConnections");
+beforeAll(() => ensureConnectionsUpcomingLabRow());
 
 const path = "/settings/integrations";
+/** The top five in rank order, then the rest a person can see with the Labs toggle off. */
+const TOP_AND_MORE = ["linear", "sentry", "atlassian", "notion", "vercel", "github", "exa", "figma"];
+const UPCOMING = ["slack", "gmail", "google-calendar", "google-drive"];
+const noApprovals = (provider: { hub: unknown }) =>
+  void (provider.hub = mockHubState(mockHubOverview({ approvals: [] })));
 const tabs = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>("[data-hub-tab]")].map((tab) => tab.dataset.hubTab);
 const tiles = (container: HTMLElement) =>
@@ -30,7 +37,7 @@ test("a waiting call opens Approvals; Connections holds the grid in rank order b
   expect(page.container.querySelector('[data-hub-panel="approvals"]')).not.toBeNull();
   expect(page.container.querySelector("[data-connections-entry]")).toBeNull();
   await openConnections(page.container);
-  expect(tiles(page.container)).toEqual(["linear", "github", "sentry", "notion", "exa", "stripe", "figma"]);
+  expect(tiles(page.container)).toEqual(TOP_AND_MORE);
   expect(tile(page.container, "linear").textContent).toContain("Connected · 23 tools");
   expect(tile(page.container, "linear").textContent).toContain("Team");
   expect(page.container.querySelector('[data-hub-group="accounts"]')).not.toBeNull();
@@ -57,10 +64,10 @@ test("Connect sends the server as yours, or the active team's once the team is p
   const page = await renderPage({ path });
   await settle();
   await openConnections(page.container);
-  await click(tile(page.container, "github").querySelector('[data-connections-action="connect"]')!);
+  await click(tile(page.container, "github").querySelector('[data-connect-action="connect"]')!);
   expect(page.provider.connectionsRuns).toEqual([{ action: "connect", name: "github", owner: "me" }]);
   await changeValue(page.container.querySelector<HTMLSelectElement>("[data-connections-owner]")!, "team");
-  await click(tile(page.container, "notion").querySelector('[data-connections-action="connect"]')!);
+  await click(tile(page.container, "notion").querySelector('[data-connect-action="connect"]')!);
   expect(page.provider.connectionsRuns[1]).toEqual({
     action: "connect",
     name: "notion",
@@ -114,7 +121,35 @@ test("an unavailable row says why in one line and has no button", async () => {
   const figma = tile(page.container, "figma");
   expect(figma.dataset.connectionsState).toBe("unavailable");
   expect(figma.querySelector("[data-connections-why]")!.textContent).toBe("Not set up on this deployment yet.");
-  expect(figma.querySelector("[data-connections-action]")).toBeNull();
+  expect(figma.querySelector("[data-connections-action], [data-connect-action]")).toBeNull();
+  page.unmount();
+});
+
+test("Slack and Google list as Not set up only with labs.connectionsUpcoming on", async () => {
+  const off = await renderPage({ path, setup: noApprovals });
+  await settle();
+  expect(tiles(off.container)).toEqual(TOP_AND_MORE);
+  off.unmount();
+  const on = await renderPage({ path, setup: noApprovals, mock: { values: { "labs.connectionsUpcoming": true } } });
+  await settle();
+  expect(tiles(on.container)).toEqual([...TOP_AND_MORE, ...UPCOMING]);
+  const slack = tile(on.container, "slack");
+  expect(slack.dataset.connectionsState).toBe("unavailable");
+  expect(slack.dataset.connectionsUpcoming).toBe("");
+  expect(slack.querySelector("[data-connections-why]")!.textContent).toBe("Not set up on this deployment yet.");
+  expect(slack.querySelector("[data-connections-action]")).toBeNull();
+  on.unmount();
+});
+
+test("Vercel connects in one tap like the rest; its tile is marked as signing in back to this Mac", async () => {
+  const page = await renderPage({ path, setup: noApprovals });
+  await settle();
+  const vercel = () => tile(page.container, "vercel");
+  expect(vercel().dataset.connectionsLoopback).toBe("");
+  expect(tile(page.container, "linear").dataset.connectionsLoopback).toBeUndefined();
+  await click(vercel().querySelector('[data-connect-action="connect"]')!);
+  expect(page.provider.connectionsRuns).toEqual([{ action: "connect", name: "vercel", owner: "me" }]);
+  expect(vercel().dataset.connectionsState).toBe("connected");
   page.unmount();
 });
 
@@ -126,6 +161,100 @@ test("with no hub on this deployment only the Connections tab shows", async () =
   });
   await settle();
   expect(tabs(page.container)).toEqual(["connections"]);
-  expect(tiles(page.container).length).toBe(7);
+  expect(tiles(page.container)).toEqual(TOP_AND_MORE);
   page.unmount();
+});
+
+test("a connected tile whose sign-in lapses soon says when and offers Reconnect; a lapsed one asks to sign in again", async () => {
+  const { mockConnectionsState, mockExpiringCatalog } = await import("./mockConnections");
+  const page = await renderPage({
+    path,
+    setup: (provider) => {
+      provider.hub = mockHubState(mockHubOverview({ approvals: [] }));
+      provider.connections = mockConnectionsState(mockExpiringCatalog());
+    },
+  });
+  await settle();
+  const linear = tile(page.container, "linear");
+  expect(linear.dataset.connectionsState).toBe("connected");
+  expect(linear.querySelector<HTMLElement>(".connect-pill")!.dataset.connectPill).toBe("expiring");
+  expect(linear.querySelector<HTMLElement>("[data-connections-expiry]")!.textContent).toContain(
+    "Reconnect to keep it working",
+  );
+  const sentry = tile(page.container, "sentry");
+  expect(sentry.querySelector<HTMLElement>(".connect-pill")!.dataset.connectPill).toBe("reauth");
+  // A connection that does not lapse soon offers no Reconnect, only Disconnect.
+  expect(tile(page.container, "github").querySelector('[data-connect-action="reconnect"]')).toBeNull();
+  await click(linear.querySelector('[data-connect-action="reconnect"]')!);
+  expect(page.provider.connectionsRuns).toEqual([{ action: "reconnect", id: "mcs_mock_linear" }]);
+  expect(linear.querySelector('[data-connections-action="remove"]')).not.toBeNull();
+  page.unmount();
+});
+
+test("All connections lists the accounts, the model accounts and the connected apps, each with one action", async () => {
+  const page = await renderPage({
+    path,
+    setup: (provider) => void (provider.hub = mockHubState(mockHubOverview({ approvals: [] }))),
+  });
+  await settle();
+  const list = page.container.querySelector<HTMLElement>("[data-all-connections]")!;
+  const rows = [...list.querySelectorAll<HTMLElement>("[data-all-connections-row]")];
+  // cmux and Codex from the accounts (OpenRouter has nothing found, so it is not a connection yet),
+  // then the two connected apps in rank order; none of them counts as a catalog tile.
+  expect(rows.map((row) => row.dataset.allConnectionsRow)).toEqual([
+    "cmux",
+    "model:chatGPT:codex",
+    "app:linear",
+    "app:sentry",
+  ]);
+  expect(rows.map((row) => row.dataset.allConnectionsKind)).toEqual(["account", "model", "app", "app"]);
+  for (const row of rows) expect(row.querySelectorAll("button").length).toBe(1);
+  expect(rows[2]!.textContent).toContain("Connected · 23 tools");
+  expect(tiles(page.container)).toEqual(TOP_AND_MORE);
+  // A model row only links to where it is managed.
+  await click(rows[1]!.querySelector('[data-all-connections-action="manage"]')!);
+  await settle();
+  expect(page.container.querySelector('[data-section="accounts"]')).not.toBeNull();
+  page.unmount();
+});
+
+test("All connections' Reconnect runs on the app row itself", async () => {
+  const { mockConnectionsState, mockExpiringCatalog } = await import("./mockConnections");
+  const page = await renderPage({
+    path,
+    setup: (provider) => {
+      provider.hub = mockHubState(mockHubOverview({ approvals: [] }));
+      provider.connections = mockConnectionsState(mockExpiringCatalog());
+    },
+  });
+  await settle();
+  const row = page.container.querySelector<HTMLElement>('[data-all-connections-row="app:sentry"]')!;
+  expect(row.querySelector<HTMLElement>(".connect-pill")!.dataset.connectPill).toBe("reauth");
+  await click(row.querySelector('[data-all-connections-action="reconnect"]')!);
+  expect(page.provider.connectionsRuns).toEqual([{ action: "reconnect", id: "mcs_mock_sentry" }]);
+  page.unmount();
+});
+
+test("GitHub is one All connections row, folding the integration's accounts and the GitHub sign-ins", async () => {
+  const { allConnectionRows } = await import("./components/AllConnections");
+  const { mockCmuxAccount } = await import("./mockProvider");
+  const signIn = (family: "github" | "claude", name: string, signedIn: boolean) =>
+    ({ id: `${family}-${name}`, family, name, email: null, signedIn }) as never;
+  const accounts = {
+    cmux: mockCmuxAccount.signedIn,
+    github: { connections: [{ account: "sample-team" }] },
+    signInAccounts: [signIn("github", "octocat", true), signIn("claude", "me", false)],
+    groups: [],
+  } as never;
+  const rows = allConnectionRows(accounts, [], null);
+  expect(rows.map((row) => row.id)).toEqual(["cmux", "github", "signin:claude:claude-me"]);
+  expect(rows[1]).toMatchObject({ detail: "octocat, sample-team", status: "connected", action: { to: "accounts" } });
+  expect(rows[2]).toMatchObject({ kind: "model", status: "reauth", action: { to: "models" } });
+  // A GitHub sign-in alone still gets the one row; signed out, it asks to sign in again.
+  const alone = allConnectionRows(
+    { ...(accounts as object), github: null, signInAccounts: [signIn("github", "octocat", false)] } as never,
+    [],
+    null,
+  );
+  expect(alone.filter((row) => row.family === "github")).toMatchObject([{ status: "reauth" }]);
 });

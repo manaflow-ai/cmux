@@ -165,7 +165,7 @@ impl Hub {
                     continue;
                 }
                 () = cache_wait => {
-                    let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                    let dirty: Vec<_> = self.peers.load()
                         .values()
                         .filter(|p| p.cache_is_dirty())
                         .map(|p| (p.name.clone(), p.generation))
@@ -175,7 +175,7 @@ impl Hub {
                     }
                     // A save that runs now, failed, or was put off again leaves its peer dirty:
                     // one more round then. Nothing dirty: no timer until the next kick.
-                    let still = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                    let still = self.peers.load()
                         .values()
                         .any(|p| p.cache_is_dirty());
                     cache_due = still
@@ -199,8 +199,7 @@ impl Hub {
         }
         let dirty: Vec<_> = self
             .peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .load()
             .values()
             .filter(|p| p.cache_is_dirty())
             .map(|p| (p.name.clone(), p.generation))
@@ -258,13 +257,27 @@ impl Hub {
             };
             let started = Instant::now();
             let queued = rx.len() as u64;
-            let label = notice.label();
             if let Some(bytes) = notice.list_bytes() {
                 crate::gauges::peer_lists().taken(bytes);
             }
             let Some(current) = this.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
+            let notice = match notice {
+                PeerNotice::WaitingList(number) => {
+                    let Some(rows) = current.take_waiting_list(number) else {
+                        continue;
+                    };
+                    PeerNotice::Sessions(rows)
+                }
+                other => other,
+            };
+            if matches!(notice, PeerNotice::SessionsPatch { .. })
+                && current.list_baseline_missing.load(Ordering::SeqCst)
+            {
+                continue;
+            }
+            let label = notice.label();
             let settles = matches!(
                 notice,
                 PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
