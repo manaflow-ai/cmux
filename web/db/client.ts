@@ -307,6 +307,20 @@ export function cloudDb(): CloudDb {
   return db;
 }
 
+/**
+ * This process's database client, opened if needed, or undefined when no
+ * database is configured. For callers that only need a handle to compare
+ * against later (see discardCloudDb), where a missing database is the read's
+ * own error to report, not theirs.
+ */
+export function cloudDbIfConfigured(): CloudDb | undefined {
+  try {
+    return cloudDb();
+  } catch {
+    return undefined;
+  }
+}
+
 /** How long a discarded postgres.js client lets its in-flight queries finish before it drops their sockets. */
 const CLOUD_DB_DISCARD_GRACE_SECONDS = 5;
 
@@ -330,11 +344,11 @@ const CLOUD_DB_DISCARD_CLOSE_AFTER_MS = 60_000;
  * (postgres.js then allows a few more seconds for in-flight queries).
  */
 export function discardCloudDb(
-  db: CloudDb,
+  db: CloudDb | undefined,
   { closeAfterMs = CLOUD_DB_DISCARD_CLOSE_AFTER_MS }: { readonly closeAfterMs?: number } = {},
 ): void {
   const state = globalForDb.__cmuxCloudDb;
-  if (!state || state.db !== db) return;
+  if (!db || !state || state.db !== db) return;
   globalForDb.__cmuxCloudDb = undefined;
   const timer = setTimeout(() => {
     void state.abandon().catch(() => undefined);

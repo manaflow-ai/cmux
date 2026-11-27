@@ -14,7 +14,7 @@ import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/v
 
 import type { Span } from "@opentelemetry/api";
 import * as Effect from "effect/Effect";
-import { cloudDb, discardCloudDb, preconnectCloudDb } from "../../../db/client";
+import { cloudDbIfConfigured, discardCloudDb, preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   verifyRequest,
@@ -176,7 +176,7 @@ export async function GET(request: Request): Promise<Response> {
       // whole maxDuration. Past the budget it answers the retryable 503 and
       // drops this instance's client so the next request reconnects.
       // The client this read runs on; only it is dropped at the deadline.
-      const listDb = cloudDb();
+      const listDb = cloudDbIfConfigured();
       const listed = await runVmRoute(listUserVms(user.id, billingTeamId), {
         request,
         databaseDeadline: {
