@@ -4,7 +4,6 @@ import CmuxNextPages
 @testable import CmuxNextOnboarding
 import Foundation
 import Testing
-@testable import CmuxNextApp
 
 /// Make cmux Yours as a split (cmux-window-rules walk_split.rs): the window reads this install's
 /// bundle when the walk shows and logs one start and one end per walk against it (Continue:
@@ -72,7 +71,7 @@ import Testing
         #expect(agents.records.isEmpty)
     }
 
-    @Test func theAppLogKeepsItsKeyAndWritesTheRustRecords() throws {
+    @Test func theLogKeepsItsKeyAndWritesTheRustRecords() async throws {
         let suite = "IntroWalkSplitTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -88,9 +87,13 @@ import Testing
         #expect(bundle == "wb1-000000")
         log.record(bundle: bundle, ending: .started, screen: 0)
         log.record(bundle: bundle, ending: .completed, screen: 3)
-        #expect(log.records() == [
-            .init(version: 1, bundle: bundle, ending: .started, screen: 0),
-            .init(version: 1, bundle: bundle, ending: .completed, screen: 3),
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await log.file.records().count < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await log.file.records() == [
+            IntroWalkOutcome(version: 1, bundle: bundle, ending: .started, screen: 0),
+            IntroWalkOutcome(version: 1, bundle: bundle, ending: .completed, screen: 3),
         ])
     }
 }
