@@ -1974,4 +1974,23 @@ pub enum ExecCmd {
         #[arg(long, default_value_t = 20)]
         last: usize,
     },
+    /// The identical-result rule (`placement/exec_conformance.rs`): run a fixed corpus of
+    /// commands (a tiny cargo build and test, file writes, a failing exit, stdout and stderr
+    /// order, creates, deletes, renames and a symlink, ...) in fresh copies of a fixture
+    /// checkout, once with CMUX_EXEC_ROUTE=local and once routed, and compare exit code, output
+    /// and the resulting file tree. One row per case, then `identical N/M`; exits 1 unless every
+    /// case was routed and none differed beyond its documented divergence. Run it in a Cloud
+    /// machine session with run VMs on: elsewhere the routed side runs here and proves nothing.
+    Conformance {
+        /// Only these cases (repeatable); default every case.
+        #[arg(long = "case", value_name = "NAME")]
+        cases: Vec<String>,
+        /// Where the work copies go (default `$ACPMUX_HOME/exec-conformance/run-*`, removed
+        /// after a passing run). Must be on the disk a fork copies.
+        #[arg(long, value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
+        /// Keep the work copies after a passing run too.
+        #[arg(long)]
+        keep: bool,
+    },
 }
