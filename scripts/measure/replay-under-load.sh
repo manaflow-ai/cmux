@@ -112,7 +112,7 @@ if [ -n "$trace" ] && [ -s "$trace" ]; then
   python3 -I "$root/scripts/measure/replay-attribution.py" "$trace" --json "$trace.attribution.json" || status=1
   gzip -f -1 "$trace"
 fi
-if [ "$profile" -eq 1 ]; then
+if [ "$profile" -eq 1 ] || [ "${RENDERS:-}" = 1 ]; then
   cat "$work/bench.log"
 else
   # A failed build's log ends on stack frames (a Babel error ends on gensync frames, 2026-11-26), so its cause line,
