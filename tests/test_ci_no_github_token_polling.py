@@ -136,7 +136,8 @@ ALLOWED: dict[str, str] = {
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
     'cmux-next-hot-verify.yml: Dispatch the look':
         'retry only (#45104): a look dispatch that failed for a reason other than a rate limit is tried again, at '
-        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once',
+        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once and '
+        'waits at most 120 s when every pool is spent',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
