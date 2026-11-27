@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.failedMark" : {
-      "comment" : "Agent pane: a failed turn's mark in its footer row (an icon's label, or one muted word); short",
+    "share.roleForWho" : {
+      "comment" : "Agent pane: Share dialog: accessible name of a request row's role picker. {account} is their email or @handle",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "فشل"
+            "value" : "دور {account}"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Neuspješno"
+            "value" : "Uloga za {account}"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mislykkedes"
+            "value" : "Rolle for {account}"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Fehlgeschlagen"
+            "value" : "Rolle für {account}"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Failed"
+            "value" : "Role for {account}"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Falló"
+            "value" : "Rol para {account}"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Échec"
+            "value" : "Rôle pour {account}"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Non riuscito"
+            "value" : "Ruolo per {account}"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "失敗"
+            "value" : "{account} の役割"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បរាជ័យ"
+            "value" : "តួនាទីសម្រាប់ {account}"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "실패"
+            "value" : "{account}의 역할"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mislyktes"
+            "value" : "Rolle for {account}"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Niepowodzenie"
+            "value" : "Rola dla {account}"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Falhou"
+            "value" : "Função para {account}"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ошибка"
+            "value" : "Роль для {account}"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ล้มเหลว"
+            "value" : "บทบาทของ {account}"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Başarısız"
+            "value" : "{account} için rol"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Помилка"
+            "value" : "Роль для {account}"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thất bại"
+            "value" : "Vai trò cho {account}"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "失败"
+            "value" : "{account} 的角色"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "失敗"
+            "value" : "{account} 的角色"
           }
         }
       }
