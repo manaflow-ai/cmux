@@ -233,7 +233,17 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
 /// a shell and the agent a person runs in it were SIGTERMed (exit 143) hours
 /// later, after a relaunch adopted them. A terminal lives as long as the person
 /// keeps it, never to a call's bound.
-pub const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+/// One command's wait cap (a caller exports it on a foreground wait it wants back
+/// within a prompt cache's life) is bound to that call the same way: a terminal that
+/// inherited it would cap every `cmux-gh wait` and `task-wait` run there at 150 s
+/// (acpmux `TURN_SCOPED_ENV`).
+pub const CALL_BOUND_ENV: [&str; 5] = [
+    "CMUX_DEADLINE",
+    "CMUX_DEADLINE_OWNER",
+    "GLAEDA_WAIT_CACHE_WARM_S",
+    "TASK_WAIT_MAX_S",
+    "TASK_WAIT_DEADLINE",
+];
 
 /// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
 /// the incognito markers a launch with environment `env` must not inherit, and
