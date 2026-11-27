@@ -33,7 +33,7 @@ import type { CloudStartPick } from "../newtab/draftFolder";
 import { configurationSessionMatches, pickEffort } from "../configurationActions";
 import { rememberRecentFolders } from "../newtab/recentProject";
 import { publishWarmNewTab } from "../newtab/warmSnapshot";
-import { drawPaneSnapshot, drawsAtOnce, type PendingPaneDraw } from "../paneSnapshotLane";
+import { drawPaneSnapshot, type PendingPaneDraw } from "../paneSnapshotLane";
 import { setBookmarkTransport } from "../threadMinimap/bookmarks";
 import { setSavedPromptsTransport } from "../savedPrompts";
 import { setStashTab, setStashTransport } from "../composer/draftStash";
@@ -925,15 +925,6 @@ export function paneSnapshotEffect({
   /// another chat (paneSnapshotLane.ts), or the live line ran ahead of a pass that drew the pane's
   /// older rows (`urgent`, liveCallLine.ts `flush`).
   const redrawPane = (next: AcpmuxSnapshot, urgent: boolean) => {
-    // A draw still pending, and this one need not draw at once: the newest owed draws once it
-    // commits (paneSnapshotLane.ts `PendingPaneDraw`), so records under load don't restart it.
-    const pendingDraw = drawnSnapshot.current;
-    if (!urgent && pendingPaneDraw.pending && pendingDraw && !drawsAtOnce(pendingDraw, next)) {
-      pendingPaneDraw.owe(() => {
-        if (!cancelled) redrawPane(receivedSnapshot.current ?? next, false);
-      });
-      return;
-    }
     streamingRow.clear();
     liveSummary.clear();
     toolOutputEpoch.current = liveToolOutput.redraw();
@@ -3223,7 +3214,6 @@ export function paneSnapshotEffect({
   return () => {
     cancelled = true;
     unregisterLineFlush();
-    pendingPaneDraw.forget();
     unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
