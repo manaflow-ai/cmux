@@ -1,9 +1,11 @@
-import CmuxNextFileGrid
+import CCmuxScreenshots
 public import Foundation
 
 /// Finds the folders the Screenshots pane lists: macOS's screenshot folder,
 /// macOS's floating-preview folder, every installed tool's save folder and
-/// history (``ScreenshotTool``), and the person's own folders.
+/// history (``ScreenshotTool``), and the person's own folders. The finding is
+/// Rust's (cmux-screenshots `detect.rs`, `tools.rs`); this answers its questions
+/// from the ``ScreenshotEnvironment`` and names the sources.
 ///
 /// Pure over its ``ScreenshotEnvironment``: no folder is listed here, and a
 /// folder shows only when it exists. Two sources never share a folder (the
@@ -16,11 +18,6 @@ public import Foundation
 /// ```
 public nonisolated struct ScreenshotSourceDetector: Sendable {
     private let environment: any ScreenshotEnvironment
-
-    /// The macOS screenshot preferences domain.
-    public static let systemDomain = "com.apple.screencapture"
-    /// The prefix of the folders macOS writes a screenshot into while its preview shows.
-    public static let previewFolderPrefix = "NSIRD_screencaptureui_"
 
     /// Makes a detector.
     ///
@@ -38,105 +35,102 @@ public nonisolated struct ScreenshotSourceDetector: Sendable {
     ///   - extraFolders: the person's folders (`screenshots.folders`): absolute or `~/` paths.
     /// - Returns: the sources whose folders exist, without duplicate folders.
     public func detect(findTools: Bool, extraFolders: [String]) -> [ScreenshotSource] {
-        var sources: [ScreenshotSource] = []
-        var seen: Set<String> = []
-        func add(_ source: ScreenshotSource) {
-            guard environment.isDirectory(source.folder) else { return }
-            // FSEvents reports real paths (/private/var/..., not /var/...): the folder is kept that way
-            // so a reported path matches its source.
-            var source = source
-            source.folder = Self.realFolder(source.folder)
-            guard seen.insert(source.folder.path).inserted else { return }
-            sources.append(source)
-        }
-        add(ScreenshotSource(id: "system", label: ScreenshotsStrings.systemSource, folder: systemFolder(), origin: .system,
-                             rule: ScreenshotScanRule()))
-        add(ScreenshotSource(id: "system.preview", label: ScreenshotsStrings.previewSource,
-                             folder: environment.temporaryDirectory.appendingPathComponent("TemporaryItems", isDirectory: true),
-                             origin: .systemPreview, rule: ScreenshotScanRule(depth: 1, folderPrefix: Self.previewFolderPrefix)))
-        if findTools {
-            for tool in ScreenshotTool.allCases {
-                if let folder = saveFolder(of: tool) {
-                    add(ScreenshotSource(id: "tool.\(tool.rawValue)", label: tool.displayName, folder: folder, origin: .tool(tool), rule: tool.rule))
-                }
-                for fixed in tool.fixedFolders {
-                    let folder = environment.homeDirectory.appendingPathComponent(fixed.path, isDirectory: true)
-                    let id = fixed.history ? "tool.\(tool.rawValue).history" : "tool.\(tool.rawValue)"
-                    let label = fixed.history ? ScreenshotsStrings.history(of: tool.displayName) : tool.displayName
-                    add(ScreenshotSource(id: id, label: label, folder: folder, origin: fixed.history ? .toolHistory(tool) : .tool(tool), rule: fixed.rule))
+        let json = ask { env, home in
+            ScreenshotsFFI.bytes(environment.temporaryDirectory.path) { temporary, temporaryCount in
+                ScreenshotsFFI.bytes(ScreenshotsFFI.json(extraFolders)) { extra, extraCount in
+                    cmux_screenshots_detect(env, home.0, home.1, temporary, temporaryCount, findTools, extra, extraCount)
                 }
             }
         }
-        for path in extraFolders {
-            guard let folder = expand(path) else { continue }
-            add(ScreenshotSource(id: "custom.\(folder.path)", label: FileManager().displayName(atPath: folder.path), folder: folder,
-                                 origin: .custom, rule: ScreenshotScanRule()))
-        }
-        return sources
+        let found = json.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [[String: Any]] } ?? []
+        return found.compactMap(Self.source)
     }
 
     /// macOS's screenshot folder: the `location` preference, else the Desktop.
     public func systemFolder() -> URL {
-        if let location = environment.preference("location", domain: Self.systemDomain), let folder = expand(location),
-           environment.isDirectory(folder) {
-            return folder
-        }
-        return environment.homeDirectory.appendingPathComponent("Desktop", isDirectory: true)
-    }
-
-    /// A tool's configured save folder: its exact key, a settings file, else any string preference
-    /// whose key names a folder and whose value is an existing folder.
-    func saveFolder(of tool: ScreenshotTool) -> URL? {
-        for domain in tool.preferenceDomains {
-            for key in tool.folderKeys {
-                if let value = environment.preference(key, domain: domain), let folder = expand(value), environment.isDirectory(folder) {
-                    return folder
-                }
-            }
-        }
-        if let file = tool.settingsFile,
-           let text = environment.text(at: environment.homeDirectory.appendingPathComponent(file.path)),
-           let value = file.format.value(of: file.key, in: text), let folder = expand(value), environment.isDirectory(folder) {
-            return folder
-        }
-        for domain in tool.preferenceDomains {
-            let values = environment.stringPreferences(domain: domain)
-            for key in values.keys.sorted() where Self.looksLikeFolderKey(key) {
-                if let value = values[key], let folder = expand(value), environment.isDirectory(folder) { return folder }
-            }
-        }
-        return nil
+        let path = ask { env, home in cmux_screenshots_system_folder(env, home.0, home.1) }
+        return path.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? environment.homeDirectory.appendingPathComponent("Desktop", isDirectory: true)
     }
 
     /// Whether a preference key names a save folder (`exportPath`, `saveFolder`, `SaveLocation`, ...).
     ///
     /// - Parameter key: the preference key.
     public static func looksLikeFolderKey(_ key: String) -> Bool {
-        let lowered = key.lowercased()
-        guard !lowered.hasPrefix("ns"), !lowered.contains("recent") else { return false }
-        return ["path", "folder", "location", "directory", "savedir", "exportdir"].contains { lowered.contains($0) }
+        ScreenshotsFFI.bytes(key) { cmux_screenshots_looks_like_folder_key($0, $1) }
     }
 
-    /// The folder with every symlink resolved, as the kernel names it (`realpath`); the folder
-    /// itself when it cannot be resolved.
-    ///
-    /// - Parameter folder: a folder URL.
-    public static func realFolder(_ folder: URL) -> URL {
-        let resolved = folder.withUnsafeFileSystemRepresentation { path -> String? in
-            guard let path, let real = realpath(path, nil) else { return nil }
-            defer { free(real) }
-            return String(cString: real)
+    /// A source from one entry of `cmux_screenshots_detect`'s JSON, with its menu label.
+    private static func source(_ json: [String: Any]) -> ScreenshotSource? {
+        guard let id = json["id"] as? String, let folderPath = json["folder"] as? String else { return nil }
+        let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
+        let tool = (json["tool"] as? String).flatMap(ScreenshotTool.init(rawValue:))
+        let toolName = json["toolName"] as? String ?? ""
+        let origin: ScreenshotSourceOrigin
+        let label: String
+        switch (json["origin"] as? String, tool) {
+        case ("system", _): (origin, label) = (.system, ScreenshotsStrings.systemSource)
+        case ("systemPreview", _): (origin, label) = (.systemPreview, ScreenshotsStrings.previewSource)
+        case ("tool", let tool?): (origin, label) = (.tool(tool), toolName)
+        case ("toolHistory", let tool?): (origin, label) = (.toolHistory(tool), ScreenshotsStrings.history(of: toolName))
+        case ("custom", _): (origin, label) = (.custom, FileManager().displayName(atPath: folder.path))
+        default: return nil
         }
-        return resolved.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? folder.standardizedFileURL
+        return ScreenshotSource(id: id, label: label, folder: folder, origin: origin,
+                                rule: ScreenshotScanRule(json: json["rule"] as? [String: Any] ?? [:]))
     }
 
-    /// An absolute path, a `~/` path or a `file://` URL as a folder URL; nil for anything else.
-    func expand(_ value: String) -> URL? {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("file://"), let url = URL(string: text), url.isFileURL { return url.standardizedFileURL }
-        if text == "~" { return environment.homeDirectory }
-        if text.hasPrefix("~/") { return environment.homeDirectory.appendingPathComponent(String(text.dropFirst(2)), isDirectory: true) }
-        if text.hasPrefix("/") { return URL(fileURLWithPath: text, isDirectory: true).standardizedFileURL }
-        return nil
+    /// Runs `call` with this environment as the C ABI's callbacks and the home folder's bytes.
+    private func ask(_ call: (UnsafePointer<CmuxScreenshotsEnvironment>, (UnsafePointer<UInt8>?, Int)) -> UnsafeMutablePointer<CChar>?) -> String? {
+        let box = Unmanaged.passRetained(EnvironmentBox(environment))
+        defer { box.release() }
+        var env = CmuxScreenshotsEnvironment(
+            context: box.toOpaque(),
+            preference: { context, domain, domainCount, key, keyCount, reply in
+                let environment = EnvironmentBox.environment(context)
+                Detector.reply(reply, environment?.preference(Detector.string(key, keyCount), domain: Detector.string(domain, domainCount)))
+            },
+            string_preferences: { context, domain, domainCount, reply in
+                let values = EnvironmentBox.environment(context)?.stringPreferences(domain: Detector.string(domain, domainCount))
+                Detector.reply(reply, values.map { ScreenshotsFFI.json($0) })
+            },
+            text: { context, path, pathCount, reply in
+                Detector.reply(reply, EnvironmentBox.environment(context)?.text(at: URL(fileURLWithPath: Detector.string(path, pathCount))))
+            },
+            is_directory: { context, path, pathCount in
+                EnvironmentBox.environment(context)?.isDirectory(URL(fileURLWithPath: Detector.string(path, pathCount), isDirectory: true)) ?? false
+            },
+            real_path: { _, path, pathCount, reply in
+                // FSEvents reports real paths (/private/var/..., not /var/...): a source's folder is kept that way.
+                guard let real = realpath(Detector.string(path, pathCount), nil) else { return }
+                defer { free(real) }
+                Detector.reply(reply, String(cString: real))
+            })
+        return withUnsafePointer(to: &env) { env in
+            ScreenshotsFFI.bytes(environment.homeDirectory.path) { ScreenshotsFFI.take(call(env, ($0, $1))) }
+        }
+    }
+
+    private typealias Detector = ScreenshotSourceDetector
+
+    private static func string(_ bytes: UnsafePointer<UInt8>?, _ count: Int) -> String {
+        guard let bytes else { return "" }
+        return String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
+    }
+
+    private static func reply(_ reply: OpaquePointer?, _ value: String?) {
+        guard let value else { return }
+        ScreenshotsFFI.bytes(value) { cmux_screenshots_reply_set(reply, $0, $1) }
+    }
+
+    /// Carries the environment through the C ABI's context pointer for one call.
+    private final class EnvironmentBox {
+        let environment: any ScreenshotEnvironment
+        init(_ environment: any ScreenshotEnvironment) { self.environment = environment }
+
+        /// The environment behind a context pointer (the box `ask` retains for the call).
+        static func environment(_ context: UnsafeMutableRawPointer?) -> (any ScreenshotEnvironment)? {
+            context.map { Unmanaged<EnvironmentBox>.fromOpaque($0).takeUnretainedValue().environment }
+        }
     }
 }
