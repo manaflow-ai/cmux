@@ -115,7 +115,13 @@ import UIKit
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(model.connectionLine == nil)
-        try await Task.sleep(for: .milliseconds(300))
+        // Past the bound: wait for the gate itself, not a fixed 300 ms a loaded CI simulator's
+        // main actor overran (the gate had not opened, so the failure below read nothing).
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !model.quietStatus.isShown, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20)) // test: polls the gate until a deadline
+        }
+        try #require(model.quietStatus.isShown, "the quiet bound never passed")
         #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
