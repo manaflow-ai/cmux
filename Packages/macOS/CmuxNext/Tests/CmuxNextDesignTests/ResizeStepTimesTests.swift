@@ -144,4 +144,45 @@ import Testing
         #expect(lean.lines == 1, "a lean log writes only the step's set_frame, not \(lean.lines) lines")
         #expect(lean.detailsBuilt == 1, "a lean log built the detail of a line it does not write")
     }
+
+    /// `=2`'s end pass: a window step runs its end hook after its layout and after its `set_frame` is recorded, in every
+    /// build, timed or not; no step out of a live resize; and a step begun inside a pass is hooked at neither end.
+    @Test func aWindowStepRunsItsEndHookAfterItsLayout() {
+        ResizeStepTimes.live.reset()
+        ResizeStepLog.reset()
+        defer {
+            ResizeStepTimes.live.stepWillLayOut = nil
+            ResizeStepTimes.live.stepDidLayOut = nil
+            ResizeStepTimes.recordingOverride = nil
+            ResizeStepLog.reset()
+            ResizeStepTimes.live.reset()
+        }
+        var order: [String] = []
+        var setFramesAtEnd: [Int] = []
+        ResizeStepTimes.live.stepWillLayOut = { _ in order.append("start") }
+        ResizeStepTimes.live.stepDidLayOut = { kind in
+            order.append("end \(kind.rawValue)")
+            setFramesAtEnd.append(ResizeStepTimes.live.phases["set_frame"]?.count ?? 0)
+        }
+        ResizeStepTimes.recordingOverride = true
+        ResizeStepTimes.windowStep(if: true, input: nil, detail: "") { order.append("layout") }
+        #expect(order == ["start", "layout", "end window"])
+        #expect(setFramesAtEnd == [1], "the end hook ran before the step's set_frame was recorded")
+
+        ResizeStepTimes.recordingOverride = false // a Release build nobody streams
+        order = []
+        ResizeStepTimes.windowStep(if: true, input: nil, detail: "") { order.append("layout") }
+        #expect(order == ["start", "layout", "end window"], "an untimed step is hooked at both ends")
+
+        order = []
+        ResizeStepTimes.windowStep(if: false, input: nil, detail: "") { order.append("layout") }
+        #expect(order == ["layout"], "no live resize: no step and no hook")
+
+        order = []
+        ResizeStepTimes.pass("cef_pump") {
+            ResizeStepTimes.windowStep(if: true, input: nil, detail: "") { order.append("layout") }
+            return nil
+        }
+        #expect(order == ["layout"], "a step inside a pass is hooked at neither end")
+    }
 }
