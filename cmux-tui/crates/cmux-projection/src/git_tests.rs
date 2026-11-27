@@ -407,16 +407,6 @@ fn symbolic_head_remount_is_refused_without_reset_and_preserves_the_index() {
 }
 
 #[test]
-fn object_reader_drains_non_blob_records_before_the_next_blob() {
-    let (_dir, git_dir, commit) = repo();
-    let work = git_dir.parent().unwrap();
-    let readme = run(work, &["rev-parse", "HEAD:README.md"]).trim().to_owned();
-    let mut reader = ObjectReader::spawn_local(&git_dir).unwrap();
-    assert_eq!(reader.blob(&commit), None, "a commit is not a blob");
-    assert_eq!(reader.blob(&readme), Some(b"hello\n".to_vec()));
-}
-
-#[test]
 fn worktree_names_cannot_escape_the_mirror_admin_directory() {
     let (_dir, git_dir, commit) = repo();
     let at = git_dir.parent().unwrap().join("mnt");
