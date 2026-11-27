@@ -182,7 +182,9 @@ cmux-tui/bindings/java/src/com/cmux/raw/WireEnum.java !merge
 cmux-tui/bindings/java/src/com/cmux/raw/WireValue.java !merge
 cmux-tui/bindings/java/src/com/cmux/raw/WorkspaceLease.java !merge
 # The generators generated-files.json lists as committed, and the remaining
-# exports and baseline files a merge host can rebuild
+cmux-tui/spec/api-compat.surface.json merge=text
+# exports and baseline files a merge host can rebuild. The daemon ABI baseline
+# is compared against the baseline at merge time, then rebuilt after landing.
 # (scripts/cmux-next/generated_merge.py REGENERATE, `here`). By name first,
 # then the families whose names do not say so.
 Packages/**/*.generated.swift merge=cmux-generated-v1
