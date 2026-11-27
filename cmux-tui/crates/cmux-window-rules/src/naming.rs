@@ -30,7 +30,7 @@ pub(crate) fn is_newline(c: char) -> bool {
 /// The first `count` grapheme clusters of `text` (Swift's `String.prefix`).
 pub(crate) fn prefix(text: &str, count: usize) -> &str {
     match text.grapheme_indices(true).nth(count) {
-        Some((end, _)) => &text[..end],
+        Some((end, _)) => text.get(..end).unwrap_or(text),
         None => text,
     }
 }
@@ -94,20 +94,19 @@ pub(crate) fn last_path_component(path: &str) -> &str {
 /// The host of `url` as Foundation's `URL(string:)?.host()` reads a well
 /// formed address (no IDNA, no lower-casing); `None` without an authority.
 pub fn url_host(url: &str) -> Option<&str> {
-    let rest = match url.find(':') {
-        Some(colon)
-            if colon > 0
-                && url[..colon].starts_with(|c: char| c.is_ascii_alphabetic())
-                && url[..colon]
+    let rest = match url.split_once(':') {
+        Some((scheme, after))
+            if scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')) =>
         {
-            &url[colon + 1..]
+            after
         }
         _ => url,
     };
     let authority = rest.strip_prefix("//")?;
-    let authority = &authority[..authority.find(['/', '?', '#']).unwrap_or(authority.len())];
+    let authority = authority.split(['/', '?', '#']).next().unwrap_or(authority);
     let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     let host = match host.strip_prefix('[') {
         Some(bracketed) => bracketed.split_once(']').map_or(bracketed, |(inner, _)| inner),

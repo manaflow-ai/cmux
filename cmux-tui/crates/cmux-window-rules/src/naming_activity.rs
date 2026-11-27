@@ -143,10 +143,10 @@ pub fn name_from_reply(reply: &str) -> Option<String> {
         .filter(|line| !line.is_empty())
         .map(|line| line.trim_matches(is_space))
         .find(|line| !line.is_empty())?;
-    if let Some(colon) = line.find(':')
-        && line[..colon].to_lowercase() == "name"
+    if let Some((label, after)) = line.split_once(':')
+        && label.to_lowercase() == "name"
     {
-        line = &line[colon + 1..];
+        line = after;
     }
     let trimmed = line
         .trim_matches(|c: char| "\"'`“”‘’*#".contains(c) || is_space(c))
