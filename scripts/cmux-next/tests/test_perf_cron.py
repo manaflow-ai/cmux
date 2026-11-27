@@ -1097,6 +1097,23 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_hot_swap_part_owns_its_rows_and_stays_due_without_a_p95(self):
+        """Goal hot-swap-fast: the hot_swap.mac.<surface>.p95_ms rows NOW reads come from a Mac part every tick, not a
+        hand-run capture; a run that stored only its red count rows (an invalid swap) leaves the part due."""
+        self.assertIn("hot-swap", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["hot-swap"]
+        self.assertIn("--suite=graceful-swap", part["args"])
+        self.assertIn("--config=bench", part["args"])
+        self.assertEqual(part["goal"], "hot-swap-fast")
+        self.assertEqual(cron.part_for_row("hot_swap.mac.unfocused_pane.p95_ms@cmux20-bench"), "hot-swap")
+        stored = {"at": "2026-11-27T10:00:00Z"}
+        counts = {"part_rows": {"hot_swap.mac.focused_pane.drafts_lost@cmux20-bench": {"at": stored["at"]}}}
+        self.assertTrue(cron.goal_rows_missing(counts, "hot-swap", stored))
+        full = {"part_rows": {"hot_swap.mac.focused_pane.p95_ms@cmux20-bench": {"at": stored["at"]}}}
+        self.assertFalse(cron.goal_rows_missing(full, "hot-swap", stored))
+        split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
+        self.assertIn('"--suite=graceful-swap"', split, "the suite the part names is dispatched")
+
     def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
         """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
         missed) and the frame's commit under half a display frame, from pane-perf-terminal.py --browser's summary."""
@@ -5007,7 +5024,8 @@ class StalePartFirstTests(unittest.TestCase):
             name: {"sha": "0" * 40, "at": cron.iso(now - datetime.timedelta(hours=stored_hours_ago.get(name, 2))), "rows": 1}
             for name in ALL if name != "build"}
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
-        state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"])}
+        state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
+                              "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"])}
         return state, now
 
     def test_a_part_past_the_bound_runs_before_a_yielding_one(self):
