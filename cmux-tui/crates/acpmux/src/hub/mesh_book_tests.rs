@@ -223,6 +223,7 @@ fn heartbeat_roundtrip_preserves_an_optional_stuck_reason() {
             updated_at: None,
         }],
         leaving: false,
+        health: None,
     };
     let wire = serde_json::to_value(&heartbeat).expect("heartbeat JSON");
     assert_eq!(wire["sessions"][0]["stuckReason"], "cannot write .git");
