@@ -110,13 +110,6 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_COMPUTER_USE_MACHINES, Run(json!({}))),
         (
-            method::MUX_WHO_ELSE,
-            Any(
-                json!({"sessionId": "$S"}),
-                "an arm from before this row; any answer is right here",
-            ),
-        ),
-        (
             method::MUX_COMPUTER_USE_STATE,
             Any(
                 json!({}),
