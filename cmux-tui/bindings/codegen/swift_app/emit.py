@@ -536,7 +536,7 @@ class _Renderer:
             raise BindingError(f"{command}: flatten maps a Swift property name to its binding")
         if len(set(order)) != len(order):
             raise BindingError(f"{command}: the order names a field twice")
-        claimed_flatten_wires: set[str] = set()
+        claimed_flatten_wires = set(_MUTATION_WIRE) if mutation else set()
         for name, spec in flatten.items():
             if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
                 raise BindingError(f"{command}.flatten: {name!r} is not a Swift property name")
@@ -552,7 +552,7 @@ class _Renderer:
             overlap = sorted(claimed_flatten_wires & set(wires))
             if overlap:
                 raise BindingError(
-                    f"{command}.flatten.{name}: wire fields overlap an earlier flattened value: {', '.join(overlap)}"
+                    f"{command}.flatten.{name}: wire fields overlap another flattened value: {', '.join(overlap)}"
                 )
             taken = [wire for wire in wires if wire in schema_fields]
             if not taken:

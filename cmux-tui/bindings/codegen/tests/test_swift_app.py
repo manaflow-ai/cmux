@@ -739,6 +739,13 @@ class FlattenAndWhenTrueTests(unittest.TestCase):
         with self.assertRaisesRegex(BindingError, "overlap.*argv"):
             rendered(spawn_document(), bindings)
 
+    def test_flatten_cannot_overwrite_a_mutation_identity_or_cas_guard(self) -> None:
+        for wire in ("origin", "mutation_id", "expected_generation", "expected_revision"):
+            bindings = spawn_bindings()
+            bindings["flatten"]["SpawnOptions"]["wire"].append(wire)
+            with self.subTest(wire), self.assertRaisesRegex(BindingError, f"overlap.*{wire}"):
+                rendered(spawn_document(), bindings)
+
     def test_omit_rejects_unknown_and_required_fields(self) -> None:
         for omitted, message in ((["unknown"], "does not have"), (["pane"], "requires")):
             bindings = spawn_bindings(omit=omitted)
