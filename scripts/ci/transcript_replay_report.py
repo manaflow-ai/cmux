@@ -27,6 +27,10 @@ SIDES = (("before", "base"), ("after", "head"))
 MS_BOUND = 1.0
 MS_SHARE = 0.20
 COUNT_BOUND = 0.05
+# Past this 1-minute load average per core on either side's runs, an ms move reads as "noisy" and not as a
+# regression: a no-op head on a VM at load 38 over 8 cores read token p95 8.6 -> 19.5 ms. Render counts don't move
+# with load, so they still read as regressions.
+LOAD_BOUND = 1.0
 
 
 def side_rows(directory: str, side: str) -> dict[str, dict[str, float]]:
@@ -50,6 +54,20 @@ def side_rows(directory: str, side: str) -> dict[str, dict[str, float]]:
                     if isinstance(row.get(stat), (int, float)):
                         seen.setdefault(row["name"], {}).setdefault(stat, []).append(float(row[stat]))
     return {name: {k: statistics.median(v) for k, v in stats.items()} for name, stats in seen.items()}
+
+
+def side_load(directory: str, side: str) -> float | None:
+    """The highest load per core the side's `<side>-<round>.load` files recorded, or None."""
+    seen = []
+    for name in sorted(os.listdir(directory)):
+        if re.fullmatch(rf"{side}-\d+\.load", name):
+            with open(os.path.join(directory, name), errors="replace") as f:
+                for line in f:
+                    try:
+                        seen.append(float(line))
+                    except ValueError:
+                        pass
+    return max(seen) if seen else None
 
 
 def first_error(directory: str, side: str) -> str:
@@ -101,6 +119,14 @@ def report(directory: str, base: str, head: str, klass: str) -> tuple[list[str],
             why = first_error(directory, side)
             out.append(f"**No {label} rows**" + (f": `{why}`" if why else " (the run crashed or did not run)."))
     regressions = []
+    loads = {label: side_load(directory, side) for side, label in SIDES}
+    busiest = max((v for v in loads.values() if v is not None), default=None)
+    noisy = busiest is not None and busiest > LOAD_BOUND
+    if busiest is not None:
+        out.append("Host load per core over the runs: " + ", ".join(
+            f"{label} {fmt(v)}" for label, v in loads.items() if v is not None)
+            + (f". Past {LOAD_BOUND:g}, so an ms move reads as noisy, not as a regression." if noisy else "."))
+        out.append("")
     ks = kinds(rb, ra)
     if ks:
         out += ["| kind | ms p50 | ms p95 | renders / record | hidden pane renders / record | reads as |",
@@ -111,7 +137,10 @@ def report(directory: str, base: str, head: str, klass: str) -> tuple[list[str],
             # Every counted render per record (pane, transcript, row, frame, content), as `<kind>.renders_per_record`.
             renders, _, _ = cell(rb, ra, f"{PREFIX}{k}.renders_per_record", "p50")
             hidden, bh, ah = cell(rb, ra, f"{PREFIX}{k}.hidden_pane_renders_per_record", "p50")
-            marks = [m for m in (verdict(b95, a95, MS_BOUND, MS_SHARE), verdict(bh, ah, COUNT_BOUND)) if m]
+            ms = verdict(b95, a95, MS_BOUND, MS_SHARE)
+            if ms and noisy:
+                ms = f"noisy (host load {busiest:g} per core)"
+            marks = [m for m in (verdict(bh, ah, COUNT_BOUND), ms) if m]
             word = "**regression**" if "**regression**" in marks else marks[0] if marks else "noise"
             if word == "**regression**":
                 regressions.append(k)
