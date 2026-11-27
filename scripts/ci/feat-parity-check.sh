@@ -419,8 +419,11 @@ if [[ "$mode" == clippy-changed ]]; then
   # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
   [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
   echo "cargo target: $CARGO_TARGET_DIR"
+  # The clippy step writes this when every error it found is in a file the change does not touch (a base red).
+  export CMUX_CLIPPY_BASE_RED_FILE="$tools/clippy-base-red"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
   clippy_rc=$last_rc
+  unset CMUX_CLIPPY_BASE_RED_FILE
   host_identity() {
     local changed log rc=0
     if changed="$(git diff --no-renames --name-only "$base" HEAD)" \
@@ -438,8 +441,12 @@ if [[ "$mode" == clippy-changed ]]; then
   # would lint HEAD and then the base again (a red HEAD lints both) for no verdict: 2026-11-24, in 38 sampled red
   # clippy-changed steps the ratchet after a red clippy step took 12,393 of 28,504 s (43%), and 17 of them ended
   # "the clippy run did not finish successfully" anyway (goal ci-runner-min-per-day-250k). It runs once the
-  # change compiles.
-  if [[ "$clippy_rc" -ne 0 ]]; then
+  # change compiles. A red whose every error is in a file the change does not touch (the base's) still runs it: the
+  # ratchet still checks production lib and bin targets: a base red in test code must not let a change's
+  # own panic sites land unjudged
+  # (2026-11-26: 18 counts over the baseline came in that way while a cmux-tui-core lib test failed to compile on the
+  # base; #55916, #57780, #54990, #59113 and #44357 merged with this step skipped).
+  if [[ "$clippy_rc" -ne 0 && ! -s "$tools/clippy-base-red" ]]; then
     echo "=== step Rust panic ratchet on changed cmux-tui packages: not run (the clippy step is red, exit $clippy_rc: fix its errors first)"
     step_rows+=("Rust panic ratchet on changed cmux-tui packages"$'\t'"skip (clippy red)"$'\t'"0")
   else

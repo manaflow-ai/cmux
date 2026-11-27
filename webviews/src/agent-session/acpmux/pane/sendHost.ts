@@ -47,19 +47,22 @@ export const removeQueued = (promptId: string) =>
 /// is the transcript's), and rejects when it was refused before. One acpmux refused for the folder's
 /// trust that joined the pane's hold (`holdRefused`) counts as taken: it waits in the queue now.
 /// `gesture`: the Enter or click the composer bound to a send it held for its files.
-const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
-  new Promise<void>((resolve, reject) => {
-    callNative("chat.send", {
-      text,
-      attachments,
-      accepted: () => resolve(),
-      steer,
-      ...(gesture ? { gesture } : {}),
-    }).then(
-      () => resolve(),
-      (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
-    );
-  });
+/// `chat`: the chat it must go to; a pane showing another one by then refuses it (`startCancelled`).
+const sendWhenTaken =
+  (steer: boolean, chat?: string) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
+    new Promise<void>((resolve, reject) => {
+      callNative("chat.send", {
+        text,
+        attachments,
+        accepted: () => resolve(),
+        steer,
+        ...(chat ? { expectedSessionId: chat } : {}),
+        ...(gesture ? { gesture } : {}),
+      }).then(
+        () => resolve(),
+        (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+      );
+    });
 
 /// Keeps the current gesture for prompt `promptId`, which the folder's trust holds (trustHeld.ts).
 export const reserveHeldPrompt = (promptId: string) =>
