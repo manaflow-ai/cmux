@@ -97,12 +97,9 @@ export function ShareDialogBody({
       {/* One fixed line under the field: a refusal or a result when there is one, else what "Can
           send" means (each message waits for the owner), so the label stays short. */}
       <p className="share-dialog__status" role={status ? "alert" : undefined} data-hint={status ? undefined : ""}>
-        {status ?? notice ??
-          (role === "drive"
-            ? t("share.role.driveDetail")
-            : role === "talk"
-              ? t("share.role.talkHint")
-              : "")}
+        {status ??
+          notice ??
+          (role === "drive" ? t("share.role.driveDetail") : role === "talk" ? t("share.role.talkHint") : "")}
       </p>
       <section className="share-dialog__section" aria-label={t("share.peopleWithAccess")}>
         <h3 className="share-dialog__heading">{t("share.peopleWithAccess")}</h3>
