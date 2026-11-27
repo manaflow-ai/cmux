@@ -6,7 +6,7 @@
 // own layout. Return presses the primary (not on a repeat, nor when a text field, a focused button
 // or an open popup owns it); Escape skips. While the webview is offline, one line under the title
 // says so (sign-ins and downloads work once it is back); it goes by itself when the network returns.
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import { useConnectionQuiet } from "../../ui/lasting";
@@ -20,13 +20,58 @@ import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep }
 import { OnboardingContext, useOnboarding, useOnline } from "./parts";
 import { useOnboardingReadiness } from "./signInReadiness";
 import type { OnboardingStore } from "./store";
-import { MAKE_IT_YOURS_SCREENS, walkValues, type MakeItYoursScreen, type WalkValues } from "./walk";
+import {
+  EMPTY_HISTORY,
+  MAKE_IT_YOURS_SCREENS,
+  UNDOABLE_OPS,
+  restoreWrites,
+  walkValues,
+  type MakeItYoursScreen,
+  type WalkHistory,
+  type WalkValues,
+} from "./walk";
 import { keyIntent, primaryLabel, primaryLabels, skipLabel, skipLabels, windowTitle } from "./text";
 
 /** The Make cmux Yours walk's own screens: Back and the primary move between them before the host's. */
 interface WalkNav {
   screen: number;
   go: (screen: number) => void;
+  /** Undo and Redo over the walk's clicks (cmux#56827): every pick on any screen, one step each. */
+  canUndo: boolean;
+  canRedo: boolean;
+  step: (direction: "undo" | "redo") => void;
+}
+
+/** The walk's Undo / Redo pair, leading the footer on every screen. Command-Z and Shift-Command-Z are
+ * the page's key handler (a DialogButton's Command key does not tell Shift apart). */
+function UndoRedo({ walk }: { walk: WalkNav }) {
+  const { strings } = useOnboarding();
+  return (
+    <div className="onb-walk-undo">
+      <DialogButton
+        dialogKey={null}
+        className="ui-button ui-btn"
+        data-variant="subtle"
+        data-size="md"
+        aria-keyshortcuts="Meta+Z"
+        disabled={!walk.canUndo}
+        onClick={() => walk.step("undo")}
+      >
+        {strings.t("onboarding.button.undo")}
+      </DialogButton>
+      <DialogButton
+        dialogKey={null}
+        className="ui-button ui-btn"
+        data-variant="subtle"
+        data-size="md"
+        aria-keyshortcuts="Meta+Shift+Z"
+        disabled={!walk.canRedo}
+        onClick={() => walk.step("redo")}
+      >
+        {strings.t("onboarding.button.redo")}
+      </DialogButton>
+    </div>
+  );
 }
 
 function Footer({
@@ -46,6 +91,7 @@ function Footer({
   const back = strings.t("onboarding.button.back");
   return (
     <footer className="onb-footer">
+      {walk != null && <UndoRedo walk={walk} />}
       {leading}
       <div className="onb-footer-buttons">
         {/* The row is trailing-aligned: Back coming and going moves nothing else. */}
@@ -216,9 +262,56 @@ export function OnboardingPage({
   if (state?.step === "makeItYours" && state.makeItYours && opened.current == null)
     opened.current = walkValues(state.makeItYours);
   const step = state?.step;
+  // The walk's Undo / Redo history (cmux#56827): the settings before each click on any of its screens.
+  const [history, setHistory] = useState<WalkHistory>(EMPTY_HISTORY);
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  // Set while Undo or Redo sends its own writes, so they are not recorded as clicks.
+  const replaying = useRef(false);
+  useEffect(() => {
+    store.onGesture = (op, before) => {
+      if (replaying.current || !UNDOABLE_OPS.has(op)) return;
+      const choices = before?.step === "makeItYours" ? before.makeItYours : null;
+      if (choices?.introWalk !== true) return;
+      const snapshot = walkValues(choices);
+      setHistory(({ past }) => ({ past: [...past, snapshot], future: [] }));
+    };
+    return () => {
+      store.onGesture = null;
+    };
+  }, [store]);
+  const stepHistory = useCallback(
+    (direction: "undo" | "redo") => {
+      const choices = store.getSnapshot()?.makeItYours;
+      const { past, future } = historyRef.current;
+      const target = direction === "undo" ? past.at(-1) : future[0];
+      if (choices == null || target == null) return;
+      const now = walkValues(choices);
+      const next =
+        direction === "undo"
+          ? { past: past.slice(0, -1), future: [now, ...future] }
+          : { past: [...past, now], future: future.slice(1) };
+      historyRef.current = next;
+      setHistory(next);
+      const { workStyle, writes } = restoreWrites(target, now);
+      replaying.current = true;
+      try {
+        if (workStyle != null) store.call(OPS.workStyle, { value: workStyle });
+        if (writes.length > 0) store.call(OPS.walk, { writes });
+      } finally {
+        replaying.current = false;
+      }
+    },
+    [store],
+  );
+  const stepHistoryRef = useRef(stepHistory);
+  stepHistoryRef.current = stepHistory;
   useEffect(() => {
     // Leaving the step (Back to the step before) starts the walk over at its first screen when it comes back.
-    if (step !== "makeItYours") setScreen(0);
+    if (step !== "makeItYours") {
+      setScreen(0);
+      setHistory(EMPTY_HISTORY);
+    }
   }, [step]);
   const browserOnline = useOnline();
   const online = onlineOverride ?? browserOnline;
@@ -237,6 +330,20 @@ export function OnboardingPage({
       }
       const current = store.getSnapshot();
       if (!current) return;
+      // Command-Z steps the walk back, Shift-Command-Z forward (not in a text field, which keeps its own).
+      if (
+        event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "z" &&
+        current.step === "makeItYours" &&
+        current.makeItYours?.introWalk === true &&
+        !(event.target instanceof HTMLElement && event.target.closest("input[type=text], textarea, [contenteditable]"))
+      ) {
+        event.preventDefault();
+        stepHistoryRef.current(event.shiftKey ? "redo" : "undo");
+        return;
+      }
       // Return is the window's one primary action; on Computer Use the model picks it (the next
       // row's Allow, Restart for a helper that did not answer, or Done).
       const intent = keyIntent(event, current.footer);
@@ -269,7 +376,13 @@ export function OnboardingPage({
             state={state}
             agentsLook={agentsLook}
             makeItYoursLook={makeItYoursLook}
-            walk={{ screen, go: setScreen }}
+            walk={{
+              screen,
+              go: setScreen,
+              canUndo: history.past.length > 0,
+              canRedo: history.future.length > 0,
+              step: stepHistory,
+            }}
             opened={opened.current}
             readiness={readiness}
             online={online}
