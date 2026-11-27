@@ -1,3 +1,4 @@
+import CmuxNextActions
 public import CmuxNextDesign
 import Foundation
 
@@ -20,6 +21,28 @@ public nonisolated struct SettingOption: Hashable, Sendable {
 
     /// A stable id for the palette row: the compact JSON text, or "reset".
     public var id: String { value?.compactText ?? "reset" }
+
+    /// The value behind an option id (`SettingOption.id`): "reset" is nil.
+    public static func value(_ option: String) -> JSONValue? {
+        guard option != "reset" else { return nil }
+        return (try? JSONValue.parse(Data(option.utf8))) ?? .string(option)
+    }
+
+    /// A theme setting's values (R98): the Ghostty config (reset) first,
+    /// onboarding's themes, then every other theme in `names`, each with its
+    /// swatch strip from `strip`; a current value not listed (a light/dark
+    /// pair, a path) is kept after the config row.
+    public static func themeOptions(current: String?, names: [String], defaultLabel: String,
+                                    strip: (String) -> [ThemeRGB]) -> [SettingOption] {
+        let curated = ActionArgument.curatedThemes.filter(names.contains)
+        let listed = curated + names.filter { !curated.contains($0) }
+        var options = [SettingOption(value: nil, title: defaultLabel, isCurrent: current == nil)]
+        if let current, !listed.contains(current) {
+            options.append(SettingOption(value: .string(current), title: current, swatches: strip(current), isCurrent: true))
+        }
+        options += listed.map { SettingOption(value: .string($0), title: $0, swatches: strip($0), isCurrent: current == $0) }
+        return options
+    }
 }
 
 /// What the palette lists for a row is Rust's (`schema.typed`, `schema.inherited`,

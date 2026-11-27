@@ -31,6 +31,11 @@
 # TOKEN: the push token (unset: the caller's git credentials). RUN_URL: named in a new commit.
 # CMUX_BASE_AUTOFIX_REPAIR: the repair, run as `REPAIR REPO` (default: base-autofix-repair.sh).
 # CMUX_BASE_AUTOFIX_PUSH: the push (default: base-autofix-push.sh beside this one).
+# CMUX_BASE_AUTOFIX_AGAIN_DEADLINE: epoch seconds by which a round on a moved tip must be done (unset: no
+# bound). A round that cannot start CMUX_BASE_AUTOFIX_AGAIN_MIN_S (300) before it, or whose repair is
+# still running at it, leaves the held files to the run the move started, as the last round does. Without
+# it the job's timeout ended the run red: round 2 on 1038830411e3 rebuilt the full workspace from 13:32
+# to the 65-minute cancel at 13:53 (run 45994733335, 2026-11-27), though a newer run repairs that tip.
 set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
@@ -58,6 +63,9 @@ main() {
   # shellcheck source=scripts/cmux-next/lib/origin-net.sh
   source "$here/lib/origin-net.sh"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
+  again_deadline="${CMUX_BASE_AUTOFIX_AGAIN_DEADLINE:-}"
+  again_min_s="${CMUX_BASE_AUTOFIX_AGAIN_MIN_S:-300}"
+  [[ -z "$again_deadline" || "$again_deadline" =~ ^[0-9]+$ ]] || again_deadline=""
   token="${TOKEN:-}"
   unset TOKEN
   # The Swift rewrites' pull request only: the push token may lack pull-requests (its mint asks for
@@ -215,6 +223,16 @@ none" >/dev/null; then
     fi
     exit 0
   }
+  # Out of time for a round on a moved tip: what this job cannot make in time waits for the run the
+  # move started. A held file no round here makes still fails the run (the next run's "since" keeps it).
+  hand_off() {
+    if [[ -n "$waits" ]]; then
+      echo "::error::these wait for repair (their inputs moved, or regeneration was refused):" >&2
+      printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
+      exit 1
+    fi
+    finish
+  }
   split_sources() { # <base>: moves the Swift HEAD rewrote out of HEAD; 1 when nothing is left to push
     local on="$1" paths path message
     # The uniffi bindings (scripts/ios-ffi-bindings.sh, base-autofix.sh 5a) are no rewrite: they are the
@@ -320,13 +338,48 @@ none" >/dev/null; then
       printf '%s' "$again" | sed 's/^/  /' >&2
       finish
     fi
+    left_s=""
+    if [[ -n "$again_deadline" ]]; then
+      left_s=$((again_deadline - $(date +%s)))
+      if ((left_s < again_min_s)); then
+        # No red: the tip moved, so its push started a run, and that run repairs these.
+        echo "::warning title=Base autofix::${left_s}s of this job's time left, under the ${again_min_s}s a round on ${tip:0:12} needs; the run $branch's move started repairs these:" >&2
+        printf '%s' "$again" | sed 's/^/  /' >&2
+        hand_off
+      fi
+    fi
     round=$((round + 1))
-    echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"
-    CMUX_BASE_AUTOFIX_AGAIN=1 CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT="$actions_current" \
-      CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT="$settings_current" "$repair_script" "$root" | tee "$work/repair.txt" || {
+    echo "Making the repair again on ${tip:0:12} (round $round of $rounds${left_s:+, ${left_s}s left}): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"
+    repair_status=0
+    if [[ -n "$left_s" ]]; then
+      CMUX_BASE_AUTOFIX_AGAIN=1 CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT="$actions_current" \
+        CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT="$settings_current" \
+        timeout --kill-after=20 "$left_s" "$repair_script" "$root" | tee "$work/repair.txt" || repair_status=$?
+    else
+      CMUX_BASE_AUTOFIX_AGAIN=1 CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT="$actions_current" \
+        CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT="$settings_current" "$repair_script" "$root" | tee "$work/repair.txt" || repair_status=$?
+    fi
+    if ((repair_status == 124 || repair_status == 137)) && [[ -n "$left_s" ]]; then
+      echo "::warning title=Base autofix::the repair on ${tip:0:12} was still running at this job's deadline; the run $branch's move started repairs these:" >&2
+      printf '%s' "$again" | sed 's/^/  /' >&2
+      git checkout --quiet --force --detach "$tip"
+      git clean --quiet -fd
+      hand_off
+    fi
+    if ((repair_status != 0)); then
       echo "::error::making the repair again on ${tip:0:12} failed" >&2
       exit 1
-    }
+    fi
+    # A successful repair process can leave a held output unchanged because its checker refused
+    # to write (not because the newer tip is current). Keep those paths unresolved; a no-diff
+    # round must not turn an uncovered ABI break into a successful repair.
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      if grep -qF "left: $path " "$work/repair.txt" \
+        || grep -qxF "skipped (frozen): $path" "$work/repair.txt"; then
+        waits+="$path"$'\n'
+      fi
+    done <<<"$again"
     # A submodule the job initialized (ghostty-next, for cargo clippy --fix) stays at the commit it
     # was checked out at, so a tip that moved its gitlink shows it modified: a repair never writes a
     # gitlink, and staging it would undo that move on the branch.
@@ -342,7 +395,11 @@ for meta, path in zip(parts[0::2], parts[1::2]):
         sys.stdout.buffer.write(path + b"\0")
 ')
     if git diff --cached --quiet; then
-      echo "$branch at ${tip:0:12} needs none of it again."
+      if [[ -z "$waits" ]]; then
+        echo "$branch at ${tip:0:12} needs none of it again."
+      else
+        echo "$branch at ${tip:0:12} has no new repair; unresolved outputs remain."
+      fi
       status=0
       break
     fi
@@ -354,7 +411,7 @@ for meta, path in zip(parts[0::2], parts[1::2]):
     push "$tip" || status=$?
   done
   if [[ -n "$waits" ]]; then
-    echo "::error::these wait for the next run (their Mac export, or what they are built from, moved):" >&2
+    echo "::error::these wait for repair (their inputs moved, or regeneration was refused):" >&2
     printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
     exit 1
   fi

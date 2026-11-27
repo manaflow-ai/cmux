@@ -78,17 +78,33 @@
       "kind": "publish",
       "why": "rebakes the Cloud devbox image after its inputs land"
     },
-    "cloud-machine-count-probe.yml": {
+    "cloud-harness-matrix.yml": {
       "kind": "publish",
-      "why": "a probe of live staging machines, not of the change"
+      "why": "a start matrix on live staging machines, run by its request file, not of the change"
     },
-    "cloud-surge-proof.yml": {
+    "cloud-probes.yml": {
       "kind": "publish",
-      "why": "a proof run of Cloud Surge on live development machines, not of the change"
+      "why": "request-file probes of live staging and development machines, not checks of the change"
+    },
+    "cloud-staging-test-sweep.yml": {
+      "kind": "publish",
+      "why": "deletes the staging test account's leftover machines, not a check of the change"
     },
     "cloud-journey-teammate.yml": {
       "kind": "publish",
       "why": "push-only teammate cloud journey publication/probe; no pull-request verdict"
+    },
+    "cmux-machine-channel-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes a Cargo build cache seed from the base"
+    },
+    "cmux-next-hourly-full-tier.yml": {
+      "kind": "publish",
+      "why": "dispatches full-tier suites on merged commits and reports failures to their owners"
+    },
+    "pinned-files-mirror.yml": {
+      "kind": "publish",
+      "why": "publishes the pinned file blobs to the download mirror"
     },
     "platform-fleet-inventory.yml": {
       "kind": "publish",
@@ -128,7 +144,7 @@
     },
     "cmux-next-base-linux.yml": {
       "kind": "check",
-      "why": "reruns the step table's linux job, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391); report-only"
+      "why": "reruns the step table's linux and web-browser jobs, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391) and give base_red_excuse.py their base verdicts; report-only"
     },
     "cmux-next-base-tier-kick.yml": {
       "kind": "publish",
@@ -213,6 +229,10 @@
     "git-mirror-bundle.yml": {
       "kind": "publish",
       "why": "publishes the git mirror bundle the fleet clones from"
+    },
+    "ios-link-ffi-cache-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's CmuxMobileLinkFFI.xcframework Actions cache entry that pull request runs read (Actions caches only flow from the base branch); no verdict on a change: the kit's bindings drift check runs on the pull request (cmux-next-ios-kit.yml kit-tests)"
     },
     "ios-internal-nightly-trigger.yml": {
       "kind": "publish",

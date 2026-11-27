@@ -199,6 +199,11 @@ impl SettingNames {
             if self.leaves.contains(path.as_str()) {
                 continue;
             }
+            // A key no row has that another reader owns (file-keys.json), or anything under it.
+            let segments: Vec<String> = path.split('.').map(str::to_owned).collect();
+            if cmux_config::schema::file_key(&segments).is_some() {
+                continue;
+            }
             if self.prefixes.contains(path.as_str()) {
                 if let Value::Object(inner) = value {
                     self.collect_unknown(inner, &path, out);
@@ -311,7 +316,7 @@ pub(super) fn display_path(logical: &str, roots: &crate::Roots) -> String {
     if logical == SETTINGS { file_name(&roots.settings_file) } else { logical.to_owned() }
 }
 
-/// `~/.config/cmux/themes`, or the path when it is not under home.
+/// `~/.config/cmux-next/themes`, or the path when it is not under home.
 pub(super) fn display_dir(path: &Path, roots: &crate::Roots) -> String {
     if let Ok(rest) = path.strip_prefix(&roots.config_dir)
         && !rest.as_os_str().is_empty()

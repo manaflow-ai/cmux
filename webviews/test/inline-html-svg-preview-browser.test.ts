@@ -7,16 +7,25 @@
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when they cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import {
   inlinePreviewDocument,
   INLINE_PREVIEW_SANDBOX,
 } from "../src/agent-session/acpmux/conversation/previewDocument";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 type Message = { type?: string; result?: Record<string, unknown>; height?: number };
 
 await requireBrowserLane("inline-html-svg-preview-browser.test.ts", async () => {
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("inline-html-svg-preview-browser.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   setDefaultTimeout(60_000);
   const PROBE = "https://inline-preview-probe.invalid/";
   // A document whose script reports what it could do, through the one channel the frame has: first
@@ -35,8 +44,7 @@ parent.postMessage({ type: "probe-ran" }, "*");
 </script><img src="${PROBE}image">`;
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
-    browsers.set("chromium", await chromium.launch({ headless: true }));
-    browsers.set("webkit", await webkit.launch({ headless: true }));
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -109,7 +117,7 @@ parent.postMessage({ type: "probe-ran" }, "*");
     return { page, frame: frame!, requests };
   }
 
-  for (const engine of ["chromium", "webkit"]) {
+  for (const [engine] of engines) {
     test(`${engine}: a passive frame stays on its document: no refresh, no link out, fragments scroll in place`, async () => {
       const { page, frame, requests } = await passiveFrame(engine);
       const result = await frame.evaluate(() => {

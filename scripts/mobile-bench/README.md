@@ -47,8 +47,9 @@ A clip is a folder with `clip.mp4` and `meta.json`:
 ## What the numbers mean
 
 - **Response**: stimulus to the first frame that changes in the flow's region. On the simulator
-  this includes XCUITest's input latency (about one frame); on a Mac-hosted iPhone app, the
-  synthesized event's. Compare like with like: the table's `Source` column says which.
+  the clock starts before the XCTest action call. XCTest may wait for the app to become idle
+  before delivering a touch. A Mac-hosted recording starts at the synthesized input event.
+  Keep the input method with the result when comparing recordings.
 - **Settle**: stimulus to the last change before 300 ms of stillness. **Motion** is settle minus response.
 - **Dropped**: frame slots missed while moving, counted only where the next frame catches up
   (a slow spring tail moving less than a pixel a frame leaves gaps that are not drops).

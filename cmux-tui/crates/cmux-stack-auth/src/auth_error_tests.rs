@@ -20,6 +20,41 @@ fn codes_the_screen_renders_are_left_alone() {
 }
 
 #[test]
+fn a_refused_redirect_names_the_refused_origin() {
+    let refused = StackError::Known {
+        code: "REDIRECT_URL_NOT_WHITELISTED".into(),
+        message: "m".into(),
+        http_status: 400,
+        request_id: None,
+        details: Some(serde_json::json!({
+            "redirect_url": "https://cmux-staging.vercel.app/handler/sign-in?after_auth_return_to=x"
+        })),
+    };
+    let expected =
+        AuthError::RedirectNotAllowed { origin: Some("https://cmux-staging.vercel.app".into()) };
+    assert_eq!(AuthError::display_safe(&refused), Some(expected.clone()));
+    assert_eq!(expected.failure_detail(), "REDIRECT_URL_NOT_WHITELISTED");
+    // An answer without details still reads as the plain refusal, never the generic error.
+    assert_eq!(
+        AuthError::display_safe(&known("redirect_url_not_whitelisted")),
+        Some(AuthError::RedirectNotAllowed { origin: None })
+    );
+    let ported = StackError::Known {
+        code: "REDIRECT_URL_NOT_WHITELISTED".into(),
+        message: "m".into(),
+        http_status: 400,
+        request_id: None,
+        details: Some(serde_json::json!({
+            "redirect_url": "https://cmux-dev-backend-1.tail137216.ts.net:4123/handler/oauth-callback"
+        })),
+    };
+    assert_eq!(
+        rejected_redirect_origin(&ported).as_deref(),
+        Some("https://cmux-dev-backend-1.tail137216.ts.net:4123")
+    );
+}
+
+#[test]
 fn auth_failures_collapse_and_everything_else_is_a_server_error() {
     for code in ["UNAUTHORIZED", "invalid_token", "TOKEN_EXPIRED"] {
         assert_eq!(AuthError::display_safe(&known(code)), Some(AuthError::Unauthorized), "{code}");

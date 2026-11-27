@@ -126,7 +126,10 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         HarnessCmd::Registry { refresh } => {
             super::harness_registry::list_cmd(refresh, json_out).await
         }
-        HarnessCmd::Add { id: Some(id), registry: true, force, icon, .. } => {
+        HarnessCmd::Add { id: Some(id), registry: true, force, icon, args, env, home, .. } => {
+            if !args.is_empty() || !env.is_empty() || home.is_some() {
+                bail!("--arg, --env and --home go with --command or --example, not --registry");
+            }
             check_icon_arg(icon.as_deref())?;
             super::harness_registry::add_cmd(&id, force, json_out).await?;
             if let Some(icon) = icon {
@@ -155,6 +158,9 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             key,
             name,
             icon,
+            args,
+            env,
+            home,
         } if example.as_deref().is_some_and(|e| byo_endpoint::Kind::from_example(e).is_some())
             || base_url.is_some()
             || !model.is_empty()
@@ -162,6 +168,12 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             || key
             || name.is_some() =>
         {
+            if !args.is_empty() || !env.is_empty() || home.is_some() {
+                bail!(
+                    "--arg, --env and --home go with --command or an agent --example; an endpoint \
+                     profile sets its own env"
+                );
+            }
             let p = crate::harness_admin::AddParams {
                 id,
                 display_name: name,
@@ -178,11 +190,22 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             add_endpoint_cmd(&p, key, icon.as_deref(), json_out).await
         }
         HarnessCmd::Add {
-            id, command, protocol, example, force, registry: false, icon, ..
+            id,
+            command,
+            protocol,
+            example,
+            force,
+            registry: false,
+            icon,
+            args,
+            env,
+            home,
+            ..
         } => {
             check_icon_arg(icon.as_deref())?;
             let sources = ProfileSources::current();
-            let req = AddRequest { id, command, protocol, example, force };
+            let launch = LaunchEdits { args, env: parse_env_args(&env)?, home };
+            let req = AddRequest { id, command, protocol, example, force, launch };
             let added = add(&req, &sources)?;
             if let Some(icon) = &icon {
                 set_icon_quiet(&added.id, icon)?;
@@ -570,6 +593,9 @@ pub struct ListRow {
     /// managed, user-file, cmux-json, acpmux-config or discovered.
     pub source: String,
     pub path: Option<String>,
+    /// Its chats call no model (`Config::runs_no_model`): they spend nothing. Always written, so a
+    /// reader tells a daemon that knows the field (the key is there) from one that does not.
+    pub no_model: bool,
 }
 
 pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
@@ -592,6 +618,7 @@ pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
                 kind: kind_name(p.kind).into(),
                 source: source.into(),
                 path: meta.map(|m| m.source_path.clone()),
+                no_model: cfg.runs_no_model(id),
             }
         })
         .collect()
@@ -624,6 +651,97 @@ pub struct AddRequest {
     pub protocol: String,
     pub example: Option<String>,
     pub force: bool,
+    /// Args, env and home written into the profile (`--arg`, `--env`, `--home`).
+    pub launch: LaunchEdits,
+}
+
+/// What `cmux harness add --arg/--env/--home` adds to the profile it writes.
+#[derive(Default)]
+pub struct LaunchEdits {
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub home: Option<String>,
+}
+
+impl LaunchEdits {
+    fn is_empty(&self) -> bool {
+        self.args.is_empty() && self.env.is_empty() && self.home.is_none()
+    }
+}
+
+/// `--env KEY=VALUE` values, checked: a valid name, and never a literal under a secret-looking
+/// one (that goes in the Keychain: `cmux harness secret set`).
+pub fn parse_env_args(values: &[String]) -> Result<Vec<(String, String)>> {
+    values
+        .iter()
+        .map(|item| {
+            let (key, value) =
+                item.split_once('=').ok_or_else(|| anyhow!("--env {item:?}: write KEY=VALUE"))?;
+            let key = key.trim();
+            if !profiles::valid_env_key(key) {
+                bail!("--env {key:?} is not a valid variable name");
+            }
+            if profiles::secret_looking(key) && !value.is_empty() {
+                bail!(
+                    "--env {key}: a secret never goes on the command line; add the profile, then \
+                     `cmux harness secret set ID {key}` stores it in the Keychain"
+                );
+            }
+            Ok((key.to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
+/// `text` (a profile) with `command` (when given) as its program and `launch` added: args
+/// after its own, env entries over its own, and the home folder as the agent's own variable.
+/// Comments and order stay (`toml_edit`).
+fn with_launch(text: &str, command: Option<&str>, launch: &LaunchEdits) -> Result<String> {
+    if command.is_none() && launch.is_empty() {
+        return Ok(text.to_owned());
+    }
+    let mut doc: toml_edit::DocumentMut =
+        text.parse().map_err(|e| anyhow!("the profile does not parse: {e}"))?;
+    if let Some(command) = command {
+        doc.insert("command", toml_edit::value(command));
+    }
+    if !launch.args.is_empty() {
+        let mut args =
+            doc.get("args").and_then(toml_edit::Item::as_array).cloned().unwrap_or_default();
+        for a in &launch.args {
+            args.push(a.as_str());
+        }
+        doc.insert("args", toml_edit::value(args));
+    }
+    let mut env = launch.env.clone();
+    if let Some(home) = &launch.home {
+        let program = doc.get("command").and_then(toml_edit::Item::as_str).unwrap_or("");
+        let protocol = doc.get("protocol").and_then(toml_edit::Item::as_str).unwrap_or("acp");
+        let stem = Path::new(program).file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let provider = if protocol == "claude-stdio" || stem == "claude" {
+            crate::provider_settings::Provider::Claude
+        } else if stem.contains("codex") {
+            crate::provider_settings::Provider::Codex
+        } else {
+            bail!(
+                "--home knows Claude Code (CLAUDE_CONFIG_DIR) and Codex (CODEX_HOME); for \
+                 {program:?} name its own variable: --env ITS_HOME_VAR={home}"
+            );
+        };
+        env.push((provider.home_env().to_owned(), home.clone()));
+    }
+    if !env.is_empty() {
+        if !doc.contains_table("env") {
+            doc.insert("env", toml_edit::table());
+        }
+        let table = doc
+            .get_mut("env")
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| anyhow!("env is not a table"))?;
+        for (k, v) in env {
+            table.insert(&k, toml_edit::value(v));
+        }
+    }
+    Ok(doc.to_string())
 }
 
 pub struct Added {
@@ -661,14 +779,15 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
         bail!("id {id:?} must be 1-40 lowercase letters, digits or '-'");
     }
     let text = match example {
-        Some(text) => with_id(text, &id),
+        // An example with --command runs that program (a Claude Code at another path).
+        Some(text) => with_launch(&with_id(text, &id), req.command.as_deref(), &req.launch)?,
         None => {
             let command = req.command.clone().ok_or_else(|| {
                 anyhow!(
                     "give the program: `cmux harness add {id} --command <program>`, or --example"
                 )
             })?;
-            scaffold(&id, &command, &req.protocol)
+            with_launch(&scaffold(&id, &command, &req.protocol), None, &req.launch)?
         }
     };
     let path = dir.join(format!("{id}.toml"));

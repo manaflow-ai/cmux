@@ -33,7 +33,7 @@
     },
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
-      "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
+      "what": "CEF and Chromium, including libcef_sandbox (SwiftShader and the Vulkan loader are not embedded: scripts/cmux-next/embed-cef.sh)",
       "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
@@ -64,7 +64,7 @@
     },
     {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote",
-      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that Release builds embed (Packages/macOS/CmuxRemote and the Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC and the cmux Computer Use engine are the two dylibs beside it, not linked in",
+      "what": "cmux Remote, the pinned team-signed host, Computer Use and Screen Sharing worker that Release builds embed (Packages/macOS/CmuxRemote and the Swift packages it uses; scripts/cmux-next/build-cmux-remote-dev.sh, cmux-remote-dev.pin.json). WebRTC, the cmux Computer Use engine and the screen stream's rules are the three dylibs beside it, not linked in",
       "notices": ["first-party", "section:manual-swift-package-dependencies", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt"]
     },
     {
@@ -75,6 +75,11 @@
     {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcmux_computer_use.dylib",
       "what": "the cmux Computer Use engine (cmux-tui/crates/cmux-computer-use-ffi over cmux-computer-use, both MIT, Rust, linked with the first-party cmux-process, GPL-3.0-or-later; build-cmux-remote-dev.sh); its crates are in the cmux-tui workspace that bin/cmux links (cmux-tui depends on cmux-computer-use), and its license is in cmux Remote's Contents/Resources/Licenses",
+      "notices": ["first-party", "section:rust-cmux-cli", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
+      "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcmux_rd_screen.dylib",
+      "what": "the screen stream's rules for cmux Remote's Screen Sharing worker (cmux-tui/crates/cmux-rd-screen-ffi over cmux-rd-screen, first-party, GPL-3.0-or-later, Rust; build-cmux-remote-dev.sh); the same cmux-rd-screen bin/cmux links through cmux-layout-reducer-ffi, with its serde, serde_json, base64 and p256 dependencies",
       "notices": ["first-party", "section:rust-cmux-cli", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
@@ -105,6 +110,11 @@
     {
       "path": "Contents/Resources/bin/cmux-holder",
       "what": "the terminal holder that keeps every terminal's PTY (cmux-tui crate cmux-holder, bin cmux-holder): std and libc only, no libghostty-vt",
+      "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
+      "path": "Contents/Resources/bin/cmux-launch-preread",
+      "what": "the login-time pre-read (app.backgroundReady = warmAtLogin, off by default; cmux-tui crate cmux-launch-preread, bin cmux-launch-preread): reads the app's code into the page cache at login and exits, std and libc only",
       "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {

@@ -9,8 +9,8 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 43608103300; 22.1 and 23.9 min from landing to run created.
 
 - With the one job on, a push run and the loop's retry are run-scoped at the workflow level, and nightly-next-one
-  takes nightly-next-one-push-<host> (never cancel-in-progress), host from pick-nightly-next-signer on the attempt
-  that made it, else cmux15 (note-33). With it off, the workflow-level push group is as before.
+  takes one shared nightly-next-one-push group (never cancel-in-progress), including when the two-signer picker is on.
+  With it off, the workflow-level push group is as before.
   The group reads every repository variable decide's one_job reads: with NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1 or
   NIGHTLY_NEXT_NOTARY_PAUSED=1 decide builds the split jobs, which the workflow-level push group alone serializes.
   The test reads decide's oneJob from its script, so a new input there fails it until the group reads it too.
@@ -156,21 +156,16 @@ one_concurrency = ONE.get("concurrency") or {}
 one_group = str(one_concurrency.get("group", ""))
 if one_concurrency.get("cancel-in-progress") is not False:
     failures.append("nightly-next-one's group must never cancel a started build (cancel-in-progress: false)")
-# One slot per signer Mac (docs/ci/nightly-workflow-notes.md#note-33): the pick's host on the attempt that made it,
-# else cmux15 (a failed or skipped pick, or a re-run of failed jobs that kept an older pick).
+# One shared slot, even while the optional signer picker chooses a host for the run.
 PICK = "needs.pick-nightly-next-signer.outputs"
 for name, ctx in (("a push run", context()), ("the loop's retry", context("workflow_dispatch", **RETRY))):
-    for pick_ctx, want in (({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
-                            "nightly-next-one-push-ultra1"),
-                           ({f"{PICK}.host": "cmux15", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
-                            "nightly-next-one-push-cmux15"),
-                           ({f"{PICK}.host": "", f"{PICK}.attempt": "", "github.run_attempt": "1"},
-                            "nightly-next-one-push-cmux15"),
-                           ({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "2"},
-                            "nightly-next-one-push-cmux15")):
+    for pick_ctx in ({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
+                     {f"{PICK}.host": "cmux15", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
+                     {f"{PICK}.host": "", f"{PICK}.attempt": "", "github.run_attempt": "1"},
+                     {f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "2"}):
         group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": "2"})
-        if group != want:
-            failures.append(f"{name}'s nightly-next-one with {pick_ctx} must take the slot {want}, got {group!r}")
+        if group != "nightly-next-one-push":
+            failures.append(f"{name}'s nightly-next-one with {pick_ctx} must take the shared slot, got {group!r}")
         for count, mini in (("", ""), ("1", ""), ("2", "one-mini")):
             group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": count, "vars.CI_NIGHTLY_MINI": mini})
             if group != "nightly-next-one-push":
@@ -266,8 +261,10 @@ else:
     if "-f sha=" in runs:
         failures.append("wake-nightly-next-tick asks with no sha, so the tick applies its rolling rule")
     runs_on = workflow_jobs.single_runs_on(wake)
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("wake-nightly-next-tick runs on the nightly mini, as the other loop control jobs")
+    # Both dispatch jobs hold App keys and now use the dedicated one-job JIT nightly VM.
+    # Keep the route assertion aligned with that isolation boundary, never Blacksmith.
+    if "blacksmith" in runs_on.lower() or "cmux-gcp-nightly-jit-x64" not in runs_on:
+        failures.append("wake-nightly-next-tick runs on the dedicated nightly JIT runner, never Blacksmith")
     # The wait for the promotion moved off the signing Mac: a nightly-next-one that left before nightly-next moved
     # (left_pending) gets the loop's retry of its commit from here, unless nightly-next moved meanwhile.
     retry_step = next((s for s in wake.get("steps", [])
