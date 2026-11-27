@@ -32,6 +32,7 @@
           "scripts/git-hooks/pre-push",
           "tests/workflow_jobs.py",
           "docs/mdm/",
+          "docs/privacy.md",
           "docs/ci/cmux-next-workflow-notes.md",
           "docs/ci/nightly-workflow-notes.md",
           "**/*.xcstrings",
@@ -56,7 +57,11 @@
           "scripts/ci/ci_process_tree.py",
           "scripts/ci/generated-files.json",
           "scripts/ci/generated_files_guard.py",
-          "scripts/ci/ensure-setup-node.sh"
+          "scripts/ci/ensure-setup-node.sh",
+          "agent-chat/bun.lock",
+          "backend/bun.lock",
+          "scripts/ci/fsr-bun-cache.sh",
+          "scripts/react-doctor/bun.lock"
         ],
         "push_cover": [
           ".github/workflows/cmux-next-web-lint.yml",
@@ -109,6 +114,7 @@
           "scripts/ci/ci_process_tree.py",
           "scripts/merge-insertions.py",
           ".gitattributes",
+          "tests/test_sans_io_guard.py",
           "tests/fleet_test_host.py"
         ],
         "not_inputs": {
