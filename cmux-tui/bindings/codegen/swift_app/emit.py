@@ -16,6 +16,9 @@ Wire rules (the same JSON the hand-written types sent):
 - a required field is always encoded (a nil required-nullable field encodes `null`);
 - an optional field is a Swift Optional, nil by default, and encoded only when set, so an unset field
   leaves the daemon's default in force;
+- `encode: if_true` on an optional boolean whose schema default is false makes a plain `Bool`, false by
+  default, encoded (as `true`) only when true: a daemon without the field's capability sees the request it
+  always saw;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
@@ -82,6 +85,7 @@ _REQUEST_KEYS = frozenset({
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update"})
 _ENCODE_MODES = {"always": True, "if_present": False}
+IF_TRUE = "if_true"
 MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
@@ -211,6 +215,8 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
+    # Encoded only when true (`encode: if_true`): a plain Bool, false by default.
+    if_true: bool = False
 
     @property
     def custom_read(self) -> bool:
@@ -231,6 +237,8 @@ class _Field:
     def encode_line(self) -> str:
         if self.mutation:
             return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
+        if self.if_true:
+            return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
         return f"        try container.{method}({self.name}, forKey: .{_bare(self.name)})"
 
@@ -344,6 +352,7 @@ class _Renderer:
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
             )
             required = spec["presence"] == "required"
+            if_true = False
             # A JSONValue carries null itself, so a required nullable JSON field is not an Optional.
             optional = not required or (spec["nullable"] and swift_type != JSON_VALUE)
             if read:
@@ -363,15 +372,26 @@ class _Renderer:
                         raise BindingError(f"{where}.{wire}: optional is true or false, and not with update")
                     optional = override["optional"]
                 always = required
-                if "encode" in override:
+                if_true = override.get("encode") == IF_TRUE
+                if if_true:
+                    if (spec["type"] != {"kind": "scalar", "name": "boolean"} or required or update
+                            or spec.get("default") is not False or "optional" in override or "type" in override
+                            or override.get("default", "false") != "false"):
+                        raise BindingError(
+                            f"{where}.{wire}: encode if_true is for an optional boolean whose schema default is false"
+                        )
+                    optional, always, swift_type = False, False, "Bool"
+                elif "encode" in override:
                     if override["encode"] not in _ENCODE_MODES or update:
                         raise BindingError(f"{where}.{wire}: encode is always or if_present, and not with update")
                     always = _ENCODE_MODES[override["encode"]]
-                if not optional and not always:
+                if not optional and not always and not if_true:
                     raise BindingError(f"{where}.{wire}: a field that is not Optional is always encoded")
                 default = override.get("default")
                 if default is not None and (not isinstance(default, str) or not default):
                     raise BindingError(f"{where}.{wire}: default is a Swift expression")
+                if if_true:
+                    default = "false"
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
             if spec.get("capability") and read:
@@ -382,8 +402,9 @@ class _Renderer:
                         f"{where}.{wire}: a required field gated by {spec['capability']} has no Swift shape"
                     )
                 since = f" (protocol {spec['since']})" if spec.get("since") is not None else ""
+                unset = "false" if if_true else "nil"
                 doc.append(
-                    f"Needs `{spec['capability']}`{since}; leave it nil for a daemon that does not serve it."
+                    f"Needs `{spec['capability']}`{since}; leave it {unset} for a daemon that does not serve it."
                 )
             result.append(_Field(
                 wire=wire,
@@ -397,6 +418,7 @@ class _Renderer:
                 when=override.get("when"),
                 prefer=override.get("prefer"),
                 update=update,
+                if_true=if_true,
             ))
             made = result[-1]
             if made.lenient and not made.optional and made.default is None:
