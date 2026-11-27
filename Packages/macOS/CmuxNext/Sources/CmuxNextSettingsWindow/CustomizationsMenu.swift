@@ -83,7 +83,7 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
             do {
                 try await settings.turnAllOff(in: groups)
             } catch {
-                registry.refuse(thrown: error)
+                registry.refuse(error.localizedDescription)
             }
         }
     }

@@ -2,7 +2,7 @@
   "sourceLanguage": "en",
   "strings": {
     "customizationsMenu.turnAllOff": {
-      "comment": "App menu > Customizations: the row that turns every Experiments and Labs switch back to its default (off for each opt-in one). Native, so it works when a customization broke the Settings page.",
+      "comment": "App menu > Customizations: explicitly turns off enabled opt-in Experiments and Labs switches, preserving managed and default-on switches. Native, so it works when a customization broke the Settings page.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
