@@ -16,17 +16,17 @@ public nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
 
     /// The bundled tool, or nil when the build has none (Release, RC).
     public static func bundled(bin: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> BundledChiefMemoryTool? {
-        guard let path = bin?.appendingPathComponent(HomeBrainHost.bundledChiefName),
-              FileManager.default.isExecutableFile(atPath: path.path) else { return nil }
-        return BundledChiefMemoryTool(executable: path)
+        let reply: Path = welcomeRule("welcome.memoryToolPath", ["bin": bin?.path], fallback: Path(path: nil))
+        guard let path = reply.path, FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        return BundledChiefMemoryTool(executable: URL(fileURLWithPath: path))
     }
 
     public func exportText(muxHome: URL, to directory: URL) async throws {
-        try await run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path])
+        try await run(Self.arguments(.export, muxHome: muxHome, directory: directory))
     }
 
     public func importText(muxHome: URL, from directory: URL) async throws {
-        try await run(["memory", "import", "--mux-home", muxHome.path, directory.path])
+        try await run(Self.arguments(.import, muxHome: muxHome, directory: directory))
     }
 
     /// Runs the tool to its exit without blocking a thread: the exit
@@ -50,7 +50,24 @@ public nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
         guard process.terminationStatus == 0 else {
             // concurrency-allow: @concurrent: runs on the global executor, never the main actor
             let text = (try? String(contentsOf: errors, encoding: .utf8)) ?? ""
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "optchat-chief \(arguments.prefix(2).joined(separator: " ")): \(text)"])
+            let failure: Failure = welcomeRule("welcome.memoryToolFailure", FailureInput(arguments: arguments, stderr: text),
+                                               fallback: Failure(message: text))
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: failure.message])
         }
     }
+
+    /// The tool's arguments for one direction (the Rust `welcome.memoryToolArgs` op).
+    private static func arguments(_ direction: Direction, muxHome: URL, directory: URL) -> [String] {
+        let reply: Arguments = welcomeRule("welcome.memoryToolArgs",
+                                           ArgsInput(direction: direction, muxHome: muxHome.path, directory: directory.path),
+                                           fallback: Arguments(arguments: []))
+        return reply.arguments
+    }
+
+    private nonisolated enum Direction: String, Encodable { case export, `import` }
+    private nonisolated struct Path: Decodable { let path: String? }
+    private nonisolated struct ArgsInput: Encodable { let direction: Direction; let muxHome: String; let directory: String }
+    private nonisolated struct Arguments: Decodable { let arguments: [String] }
+    private nonisolated struct FailureInput: Encodable { let arguments: [String]; let stderr: String }
+    private nonisolated struct Failure: Decodable { let message: String }
 }
