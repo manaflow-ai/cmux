@@ -1833,6 +1833,14 @@
   --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
+/* A subagent's relay composer draws no + (Composer.tsx `useRelayProps`), so its text starts where +'s
+   glyph would: under the subagent's mark in the header over it, which is centred in +'s box. With
+   the plain lead gap the text stood on the box's edge. */
+.acpmux-composer[data-composer-relay] .acpmux-composer-box[data-composer-grid] {
+  --acpmux-composer-lead-gap: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-glyph)) / 2
+  );
+}
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
    the one inset it draws from, for this look too. */
