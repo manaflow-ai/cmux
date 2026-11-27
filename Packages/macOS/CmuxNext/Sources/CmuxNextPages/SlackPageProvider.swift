@@ -7,13 +7,20 @@ public import Foundation
 public final class SlackPageProvider: PageProvider {
     private let request: @MainActor (String, SlackOwnBot?) async throws -> Data
     private let open: @MainActor (URL) -> Void
+    private let awake: @MainActor (Int??) async throws -> Data
 
-    /// The host supplies a credential-isolated request and the system-browser opener.
+    /// The host supplies a credential-isolated request, the system-browser opener and RFD 0123's awake-time
+    /// read/write for the default Chief (`nil`: read; `.some(nil)`: the default allowance; `.some(n)`: n seconds).
     public init(request: @escaping @MainActor (String, SlackOwnBot?) async throws -> Data,
-         open: @escaping @MainActor (URL) -> Void) {
+         open: @escaping @MainActor (URL) -> Void,
+         awake: @escaping @MainActor (Int??) async throws -> Data = { _ in throw PageError.unavailable("no Chief") }) {
         self.request = request
         self.open = open
+        self.awake = awake
     }
+
+    /// The most a non-owner may keep the Chief awake a day (the API's `SLACK_ALLOWANCE_MAX_SECONDS`).
+    public static let maxAllowanceSeconds = 86_400
 
     /// Relays a fixed Slack operation; the page cannot choose the authenticated request URL.
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -37,6 +44,14 @@ public final class SlackPageProvider: PageProvider {
             }
             open(url)
             return .object([:])
+        case "cmux.settings.slack.awake":
+            // No `allowance_seconds`: read. `null`: the default. A whole number of seconds in 0...max: set it.
+            guard let allowance = params["allowance_seconds"] else { return try JSONValue.parse(await awake(nil)) }
+            if case .null = allowance { return try JSONValue.parse(await awake(.some(nil))) }
+            guard let seconds = allowance.doubleValue, seconds.rounded() == seconds, (0...Double(Self.maxAllowanceSeconds)).contains(seconds) else {
+                throw PageError.invalidParams("allowance_seconds is whole seconds in 0...86400, or null")
+            }
+            return try JSONValue.parse(await awake(.some(Int(seconds))))
         default: throw PageError.unknownOp(op)
         }
     }

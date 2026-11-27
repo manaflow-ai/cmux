@@ -296,6 +296,16 @@ pub enum PeerCmd {
         /// it the newer installed build is kept.
         #[arg(long)]
         allow_downgrade: bool,
+        /// RFD 0060 fast-patch: update now (no wait for the timer or the
+        /// restart window), hand over by restart, health read with rollback,
+        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
+        /// (service acpmux-daemon).
+        #[arg(long)]
+        fast_patch: bool,
+        /// With --fast-patch: the commit expected live; refused when the
+        /// channel names another.
+        #[arg(long, requires = "fast_patch")]
+        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,

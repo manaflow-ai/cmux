@@ -11,28 +11,6 @@ import CmuxNextDevices
 /// lasting states only: a brief outage keeps the last frame up, uncovered, and the pill says Reconnecting
 /// (``MacScreenViewerStyle/quietOutage``). A last frame shows dimmed behind a lasting state. Chrome stays a sibling of
 /// the video view, never inside it. No drag, no collapse timer: the gallery renders it the same every run.
-extension MacScreenViewerStyle {
-    static var lookC: MacScreenViewerStyle {
-        var style = MacScreenViewerStyle.current
-        style.toolbarPlacement = .floating
-        style.toolbarLayout = .pill
-        style.toolbarFilled = false
-        style.toolbarInset = Metrics.space5
-        style.makeToolbarSurface = { MacScreenViewerLookC.pillSurface() }
-        style.backdrop = .chrome
-        style.cardLayout = .fullPane
-        // The state is the pane: no popup surface of its own (`page` is the theme's clear page fill).
-        style.cardFill = \.page
-        style.cardBordered = false
-        style.cardCornerRadius = 0
-        style.cardWidth = MacScreenViewerLookC.stateWidth
-        style.cardVeilOpacity = 0.7
-        // An outage is not an error: the last frame stays up, the pill says Reconnecting.
-        style.quietOutage = true
-        return style
-    }
-}
-
 @MainActor
 enum MacScreenViewerLookC {
     /// The width of a full-pane state's column.

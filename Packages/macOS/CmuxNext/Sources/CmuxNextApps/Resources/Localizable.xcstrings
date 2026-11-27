@@ -5,22 +5,34 @@
       "comment" : "Why an app's overlay did not open: only the person's own click or palette pick in cmux opens one.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An app overlay opens only when you open it in cmux"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "لا تُفتح الطبقة العائمة للتطبيق إلا عندما تفتحها بنفسك في cmux"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prekrivač aplikacije otvara se samo kada ga otvoriš u cmuxu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et app-overlay åbner kun, når du åbner det i cmux"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein App-Overlay öffnet sich nur, wenn du es in cmux öffnest"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An app overlay opens only when you open it in cmux"
           }
         },
         "es" : {
@@ -35,16 +47,76 @@
             "value" : "Une superposition d'app ne s'ouvre que lorsque vous l'ouvrez dans cmux"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una sovrapposizione dell’app si apre solo quando la apri in cmux"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "アプリのオーバーレイは cmux で自分で開いたときだけ開きます"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្រទាប់ពីលើរបស់កម្មវិធីបើកតែនៅពេលអ្នកបើកវានៅក្នុង cmux ប៉ុណ្ណោះ"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "앱 오버레이는 cmux에서 직접 열 때만 열립니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et app-overlegg åpnes bare når du åpner det i cmux"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nakładka aplikacji otwiera się tylko wtedy, gdy otworzysz ją w cmux"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma sobreposição de app só abre quando você a abre no cmux"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оверлей приложения открывается, только когда вы открываете его в cmux"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โอเวอร์เลย์ของแอปจะเปิดเมื่อคุณเปิดใน cmux เท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uygulama katmanı yalnızca onu cmux içinde açtığınızda açılır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оверлей застосунку відкривається, лише коли ви відкриваєте його в cmux"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lớp phủ ứng dụng chỉ mở khi bạn mở nó trong cmux"
           }
         },
         "zh-Hans" : {
@@ -65,22 +137,34 @@
       "comment" : "Why an app's overlay did not open: the app declares no overlay.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This app has no overlay"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "لا يحتوي هذا التطبيق على طبقة عائمة"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ova aplikacija nema prekrivač"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne app har intet overlay"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diese App hat kein Overlay"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This app has no overlay"
           }
         },
         "es" : {
@@ -95,16 +179,76 @@
             "value" : "Cette app n'a pas de superposition"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa app non ha una sovrapposizione"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "このアプリにはオーバーレイがありません"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្មវិធីនេះគ្មានស្រទាប់ពីលើទេ"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "이 앱에는 오버레이가 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne appen har ikke noe overlegg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ta aplikacja nie ma nakładki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este app não tem sobreposição"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У этого приложения нет оверлея"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แอปนี้ไม่มีโอเวอร์เลย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu uygulamanın katmanı yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей застосунок не має оверлея"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ứng dụng này không có lớp phủ"
           }
         },
         "zh-Hans" : {
@@ -125,22 +269,34 @@
       "comment" : "Why an app's overlay did not open: no cmux window is open.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No window to show the overlay in"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "لا توجد نافذة لعرض الطبقة العائمة فيها"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nema prozora za prikaz prekrivača"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intet vindue at vise overlayet i"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kein Fenster, in dem das Overlay angezeigt werden kann"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No window to show the overlay in"
           }
         },
         "es" : {
@@ -155,16 +311,76 @@
             "value" : "Aucune fenêtre pour afficher la superposition"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessuna finestra in cui mostrare la sovrapposizione"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "オーバーレイを表示するウインドウがありません"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គ្មានបង្អួចសម្រាប់បង្ហាញស្រទាប់ពីលើទេ"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "오버레이를 표시할 창이 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen vindu å vise overlegget i"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brak okna, w którym można pokazać nakładkę"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhuma janela para mostrar a sobreposição"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет окна для показа оверлея"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่มีหน้าต่างให้แสดงโอเวอร์เลย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Katmanın gösterileceği pencere yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Немає вікна для показу оверлея"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không có cửa sổ để hiện lớp phủ"
           }
         },
         "zh-Hans" : {
@@ -185,22 +401,34 @@
       "comment" : "Command palette row that opens an app's floating overlay. %@ is the app's name.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open %@ Overlay"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "فتح الطبقة العائمة لـ %@"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otvori prekrivač %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åbn %@-overlay"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@-Overlay öffnen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open %@ Overlay"
           }
         },
         "es" : {
@@ -215,16 +443,76 @@
             "value" : "Ouvrir la superposition %@"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri sovrapposizione di %@"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ のオーバーレイを開く"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើកស្រទាប់ពីលើ %@"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 오버레이 열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne %@-overlegg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwórz nakładkę %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir sobreposição de %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть оверлей %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิดโอเวอร์เลย์ %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Katmanını Aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відкрити оверлей %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mở lớp phủ %@"
           }
         },
         "zh-Hans" : {
@@ -38419,7 +38707,6 @@
     "store.detail.versionHistory" : {"comment":"App Store listing section: every published version of the app.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجل الإصدارات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Historija verzija"}},"da":{"stringUnit":{"state":"needs_review","value":"Versionshistorik"}},"de":{"stringUnit":{"state":"needs_review","value":"Versionsverlauf"}},"en":{"stringUnit":{"state":"translated","value":"Version History"}},"es":{"stringUnit":{"state":"needs_review","value":"Historial de versiones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Historique des versions"}},"it":{"stringUnit":{"state":"needs_review","value":"Cronologia versioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"バージョン履歴"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រវត្តិកំណែ"}},"ko":{"stringUnit":{"state":"needs_review","value":"버전 기록"}},"nb":{"stringUnit":{"state":"needs_review","value":"Versjonshistorikk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Historia wersji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Histórico de versões"}},"ru":{"stringUnit":{"state":"needs_review","value":"История версий"}},"th":{"stringUnit":{"state":"needs_review","value":"ประวัติเวอร์ชัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sürüm Geçmişi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Історія версій"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lịch sử phiên bản"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"版本历史记录"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"版本記錄"}}}},
     "store.updates.updateAll" : {"comment":"App Store Updates tab button: updates every app that has an update.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تحديث الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažuriraj sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdater alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle aktualisieren"}},"en":{"stringUnit":{"state":"translated","value":"Update All"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout mettre à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiorna tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてアップデート"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើបច្ចុប្បន្នភាពទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 업데이트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdater alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uaktualnij wszystko"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновить все"}},"th":{"stringUnit":{"state":"needs_review","value":"อัปเดตทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü Güncelle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновити все"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cập nhật tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部更新"}}}},
     "store.tab.community" : {"comment":"Native App Store tab: extensions and setups people publish.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المجتمع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zajednica"}},"da":{"stringUnit":{"state":"needs_review","value":"Fællesskab"}},"de":{"stringUnit":{"state":"needs_review","value":"Community"}},"en":{"stringUnit":{"state":"translated","value":"Community"}},"es":{"stringUnit":{"state":"needs_review","value":"Comunidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"Communauté"}},"it":{"stringUnit":{"state":"needs_review","value":"Community"}},"ja":{"stringUnit":{"state":"needs_review","value":"コミュニティ"}},"km":{"stringUnit":{"state":"needs_review","value":"សហគមន៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"커뮤니티"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fellesskap"}},"pl":{"stringUnit":{"state":"needs_review","value":"Społeczność"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Comunidade"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сообщество"}},"th":{"stringUnit":{"state":"needs_review","value":"ชุมชน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Topluluk"}},"uk":{"stringUnit":{"state":"needs_review","value":"Спільнота"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cộng đồng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"社区"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"社群"}}}},
-    "store.community.updating" : {"comment":"App Store Community tab: a quiet line while the list refreshes.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ التحديث…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažuriranje…"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdaterer…"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird aktualisiert …"}},"en":{"stringUnit":{"state":"translated","value":"Updating…"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mise à jour…"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiornamento…"}},"ja":{"stringUnit":{"state":"needs_review","value":"更新中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងធ្វើបច្ចុប្បន្នភាព…"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdaterer …"}},"pl":{"stringUnit":{"state":"needs_review","value":"Aktualizowanie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновление…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังอัปเดต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновлення…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang cập nhật…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在更新…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在更新…"}}}},
     "store.community.onOtherDevices" : {"comment":"App Store Community tab: extensions installed on the person's other devices but not this Mac.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"على أجهزتك الأخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Na vašim drugim uređajima"}},"da":{"stringUnit":{"state":"needs_review","value":"På dine andre enheder"}},"de":{"stringUnit":{"state":"needs_review","value":"Auf deinen anderen Geräten"}},"en":{"stringUnit":{"state":"translated","value":"On Your Other Devices"}},"es":{"stringUnit":{"state":"needs_review","value":"En tus otros dispositivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Sur vos autres appareils"}},"it":{"stringUnit":{"state":"needs_review","value":"Sugli altri tuoi dispositivi"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほかのデバイス"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅលើឧបករណ៍ផ្សេងទៀតរបស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 기기에 있음"}},"nb":{"stringUnit":{"state":"needs_review","value":"På de andre enhetene dine"}},"pl":{"stringUnit":{"state":"needs_review","value":"Na innych urządzeniach"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nos seus outros dispositivos"}},"ru":{"stringUnit":{"state":"needs_review","value":"На других ваших устройствах"}},"th":{"stringUnit":{"state":"needs_review","value":"บนอุปกรณ์อื่นของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Diğer Aygıtlarınızda"}},"uk":{"stringUnit":{"state":"needs_review","value":"На інших ваших пристроях"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trên các thiết bị khác của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在你的其他设备上"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在你的其他裝置上"}}}},
     "store.community.installOnThisMac" : {"comment":"App Store Community button: install on this Mac an extension the person has on another device.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تثبيت على هذا الـ Mac"}},"bs":{"stringUnit":{"state":"needs_review","value":"Instaliraj na ovaj Mac"}},"da":{"stringUnit":{"state":"needs_review","value":"Installer på denne Mac"}},"de":{"stringUnit":{"state":"needs_review","value":"Auf diesem Mac installieren"}},"en":{"stringUnit":{"state":"translated","value":"Install on This Mac"}},"es":{"stringUnit":{"state":"needs_review","value":"Instalar en este Mac"}},"fr":{"stringUnit":{"state":"needs_review","value":"Installer sur ce Mac"}},"it":{"stringUnit":{"state":"needs_review","value":"Installa su questo Mac"}},"ja":{"stringUnit":{"state":"needs_review","value":"このMacにインストール"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំឡើងនៅលើ Mac នេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac에 설치"}},"nb":{"stringUnit":{"state":"needs_review","value":"Installer på denne Macen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zainstaluj na tym Macu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Instalar neste Mac"}},"ru":{"stringUnit":{"state":"needs_review","value":"Установить на этот Mac"}},"th":{"stringUnit":{"state":"needs_review","value":"ติดตั้งบน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac’e Yükle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інсталювати на цей Mac"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cài đặt trên máy Mac này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"安装到这台 Mac"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"安裝到這部 Mac"}}}},
     "store.community.kind.extensions" : {"comment":"App Store Community filter: only extensions.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الإضافات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Proširenja"}},"da":{"stringUnit":{"state":"needs_review","value":"Udvidelser"}},"de":{"stringUnit":{"state":"needs_review","value":"Erweiterungen"}},"en":{"stringUnit":{"state":"translated","value":"Extensions"}},"es":{"stringUnit":{"state":"needs_review","value":"Extensiones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Extensions"}},"it":{"stringUnit":{"state":"needs_review","value":"Estensioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"機能拡張"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្នែកបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"확장 프로그램"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utvidelser"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozszerzenia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Extensões"}},"ru":{"stringUnit":{"state":"needs_review","value":"Расширения"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่วนขยาย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uzantılar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Розширення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiện ích mở rộng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"扩展"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延伸功能"}}}},

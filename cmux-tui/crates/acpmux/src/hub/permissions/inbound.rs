@@ -140,6 +140,7 @@ impl Hub {
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update_cache(&session, params.as_ref(), replayed);
                         self.surgery_on_update(&session, params.as_ref(), replayed);
+                        self.spend_burn_on_update(&session, params.as_ref(), replayed);
                         self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
@@ -461,6 +462,9 @@ impl Hub {
                         super::pull_requests::record_closed(&mut m, &url);
                         self.review_index.note_closed(&url);
                         self.asks.note_settled(&url, merged, at);
+                        if !replayed {
+                            super::auto_settle::pr_changed(&url);
+                        }
                     }
                 }
                 super::touched::absorb(session, update, &mut m, replayed);
@@ -505,11 +509,15 @@ impl Hub {
                 // A chat someone named (`titles::NAMED`: a rename, a starter's name) keeps the
                 // title its name gave: a harness title after it put the old name back in every
                 // list (Leo, 2026-11-22: "I DON'T KNOW WHO'S BEEN RENAMED TO WHAT").
+                // A fork keeps its inherited title over one its harness made from the fork's
+                // first prompt alone, which may be acpmux's sender banner (#50098, `titles.rs`).
                 let named = m.title_source.as_deref() == Some(super::titles::NAMED);
                 if let Some(title) = update.get("title").and_then(Value::as_str).filter(|_| !named)
+                    && super::titles::takes_harness_title(m.title_source.as_deref())
                 {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
-                    if !title.is_empty() {
+                    // A title made from acpmux's own mark of who wrote the prompt names nothing.
+                    if !title.is_empty() && !super::prompt_attribution::is_mark_title(title) {
                         retitled = m.title.as_deref() != Some(title);
                         if retitled {
                             super::title_log::record(

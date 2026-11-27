@@ -37,6 +37,23 @@ use crate::rpc::method;
 /// The IR format version. Bump on a change to the IR's own shape.
 pub const IR_VERSION: &str = "1";
 
+/// The wire ABI this build speaks, sent at initialize as `_meta.acpmux.abi` (hq RFD 0178, build 3).
+/// It is the newest revision in `spec/acpmux-abi.compat.json`, the cmux-api-compat gate's file:
+/// it goes up only when a gated break adds a revision there, never for an additive change.
+/// Additive changes are announced by `features` and `capabilities` instead. A peer that sends no
+/// `abi` is read as 0 ([`peer_abi`]): an older build that degrades, never an error.
+/// `protocol::tests::abi_is_the_compat_files_newest_revision` keeps the two equal.
+pub const ABI: u32 = 2;
+
+/// The ABI a peer's initialize reply or hello names in `_meta.acpmux.abi`; 0 when it names none
+/// (a build from before the field), so callers degrade instead of failing.
+pub fn peer_abi(init: &Value) -> u32 {
+    init.pointer("/_meta/acpmux/abi")
+        .and_then(Value::as_u64)
+        .and_then(|abi| u32::try_from(abi).ok())
+        .unwrap_or(0)
+}
+
 /// Who sends a message, and whether it is answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -216,6 +233,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // The app's and webviews' own trace spans, written to the daemon's trace sink (perf_trace.rs).
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
         // The felt-latency histograms (cmux-felt).
@@ -241,6 +261,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<presence::RoomsParams, presence::RoomsResult>(method::MUX_ROOMS),
+        request::<presence::FollowParams, presence::FollowResult>(method::MUX_FOLLOW),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
         request::<here::HereParams, here::HereResult>(method::MUX_HERE),
         request::<sync::SyncPullParams, sync::SyncPullResult>(method::MUX_SYNC_PULL),
@@ -322,6 +343,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
+        untyped(method::MUX_SEND_HOP, Request),
         untyped(method::MUX_MESH_CONTROL, Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
@@ -633,8 +655,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
         untyped("_acpmux/attachments_held", Request),
-        untyped(crate::perf_trace::METHOD_SPANS, Request),
-        untyped(crate::perf_trace::METHOD_STATUS, Request),
         untyped(crate::agent_credentials::UPDATE_METHOD, Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),

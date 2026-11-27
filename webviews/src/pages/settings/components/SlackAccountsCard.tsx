@@ -7,6 +7,8 @@ import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { BOT_NAME_MAX, SlackConnectionController, type SlackState } from "../slackConnection";
 import { t } from "../strings";
+import { SlackAwakeController } from "../slackAwake";
+import { SlackAwakeCard } from "./SlackAwakeCard";
 
 export function SlackAccountsCard() {
   const { accounts } = useSettingsState();
@@ -48,14 +50,68 @@ function SlackAccountConnection() {
     else void controller.refresh(true);
   }, [controller, router, search]);
   return (
-    <SlackConnectionRow
-      state={state}
-      createOwnBot={(name, token) => void controller.createOwnBot(name, token)}
-      openTokenPage={() => void controller.openTokenPage()}
-      connect={() => void controller.connect()}
-      disconnect={() => void controller.disconnect()}
-      refresh={() => void controller.refresh()}
-    />
+    <>
+      <SlackConnectionRow
+        state={state}
+        createOwnBot={(name, token) => void controller.createOwnBot(name, token)}
+        openTokenPage={() => void controller.openTokenPage()}
+        connect={() => void controller.connect()}
+        disconnect={() => void controller.disconnect()}
+        refresh={() => void controller.refresh()}
+      />
+      {state.teams.length > 0 && <SlackAwakeSection />}
+    </>
+  );
+}
+
+/** RFD 0123: the default Chief's Slack allowance, once a Slack team is connected. */
+function SlackAwakeSection() {
+  const store = useStore();
+  const controller = useMemo(() => new SlackAwakeController(store.slackCalls), [store]);
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  useEffect(() => {
+    void controller.refresh();
+    const focused = () => {
+      if (document.visibilityState === "visible") void controller.refresh();
+    };
+    window.addEventListener("focus", focused);
+    document.addEventListener("visibilitychange", focused);
+    return () => {
+      controller.dispose();
+      window.removeEventListener("focus", focused);
+      document.removeEventListener("visibilitychange", focused);
+    };
+  }, [controller]);
+  if (!state.awake) {
+    if (state.phase === "loading" && !state.error) return null;
+    return (
+      <section className="group" data-card="slack-awake">
+        <h3 className="group-title">{t("settingsPage.slack.awake.title")}</h3>
+        <div className="rows">
+          <div className="row">
+            <output className={state.error === "noChief" ? "row-help" : "row-error"}>
+              {t(`settingsPage.slack.awake.${state.error ?? "failed"}`)}
+            </output>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <>
+      <SlackAwakeCard
+        awake={state.awake}
+        names={state.awake.names}
+        today={new Date().toISOString().slice(0, 10)}
+        busy={state.phase === "saving"}
+        setAllowance={(seconds) => void controller.setAllowance(seconds)}
+      />
+      {state.error === "saveFailed" && (
+        <div className="row-error" role="alert" data-slack-awake="save-failed">
+          {t("settingsPage.slack.awake.saveFailed")}
+        </div>
+      )}
+    </>
   );
 }
 
