@@ -11,6 +11,7 @@ workflow's text or YAML read this expansion, so they keep checking those
 steps' commands in place.
 """
 from __future__ import annotations
+# guard-inputs: scripts/ci/nightly-steps/ .github/workflows/nightly.yml
 
 from pathlib import Path
 import re

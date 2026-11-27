@@ -16,6 +16,8 @@
 //!   (session move's history pages): per kind of data, calibrated on the run.
 //! - [`lanes`] schedules frames across priority lanes (manifest, faulted
 //!   reads, hot files, background fill).
+//! - [`prefetch`] ranks what a chat could read (likelihood per byte), plans it over idle
+//!   bandwidth on the fill lane, and measures the first-turn hit rate and bytes held unread.
 
 pub mod cas;
 pub mod cdc;
@@ -29,6 +31,7 @@ pub mod order;
 pub mod params;
 pub mod policy;
 pub mod serial;
+pub mod prefetch;
 
 pub use frame::{Encoding, decode, encode};
 pub use params::Params;

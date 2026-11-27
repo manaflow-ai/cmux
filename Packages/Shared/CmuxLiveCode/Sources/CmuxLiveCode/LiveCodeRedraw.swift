@@ -1,7 +1,9 @@
 // The iPhone app's side of live code, in the iOS Simulator (scripts/live-code/ios-sim.sh): a
 // simulator app is a macOS process, so it watches a live folder on the Mac's disk, named by
 // CMUX_LIVE_CODE_DIR (`simctl launch` passes SIMCTL_CHILD_CMUX_LIVE_CODE_DIR), and loads the ad hoc
-// patches patch.py drops there. Only the app's DEBUG code starts it.
+// patches patch.py drops there. On a device (scripts/live-code/ios-device.sh), cmux Dev watches a
+// folder in its own container that the link fills, and loads only patches its own team signed
+// (DevicePatchSignature.swift). Only the app's DEBUG code starts it.
 //
 // The redraw: SwiftUI calls a view's `body` again only when something it read changed, so a patched
 // `body` would not run until then. After each change the root (`liveCodeRedraw(_:)`) takes a new
@@ -26,12 +28,27 @@ public final class LiveCodeRedraw {
 
     public init() {}
 
-    /// Watches the folder CMUX_LIVE_CODE_DIR names; does nothing without it.
+    /// In the Simulator, watches the folder CMUX_LIVE_CODE_DIR names. On a device, in cmux Dev
+    /// launched with CMUX_LIVE_CODE_LINK=1 (scripts/live-code/ios-device.sh run), watches the app's
+    /// own live folder, which the link feed fills (CmuxMobileLive LiveCodeLinkFeed), and loads only
+    /// patches signed by the app's team. Does nothing otherwise.
     public func startFromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) {
-        guard engine == nil, let path = environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty else { return }
-        let folder = LiveFolder(url: URL(fileURLWithPath: path, isDirectory: true))
-        let engine = LiveEngine(folder: folder) { [weak self] generation in
+        guard engine == nil else { return }
+        let folder: LiveFolder
+        let engine: LiveEngine
+        let redraw: @Sendable (Int) -> Void = { [weak self] generation in
             Task { @MainActor in self?.redraw(generation) }
+        }
+        if let path = environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty {
+            folder = LiveFolder(url: URL(fileURLWithPath: path, isDirectory: true))
+            engine = LiveEngine(folder: folder, redraw: redraw)
+        } else if LiveCodeDeviceGate.allows(bundleID: Bundle.main.bundleIdentifier, environment: environment) {
+            let url = LiveCodeDeviceGate.folder()
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            folder = LiveFolder(url: url)
+            engine = LiveEngine(folder: folder, deviceSigner: .running(), redraw: redraw)
+        } else {
+            return
         }
         self.folder = folder
         self.engine = engine
