@@ -88,7 +88,9 @@ fn auto_reason(reason: AutoReason) -> Option<Reason> {
     match reason {
         AutoReason::Memory => Some(Reason::MacMemoryPressure),
         AutoReason::Sleep => Some(Reason::LidClosed),
-        AutoReason::LowBattery | AutoReason::Disk | AutoReason::LongTurn => Some(Reason::MacBusy),
+        AutoReason::LowBattery | AutoReason::Disk | AutoReason::LongTurn | AutoReason::Busy => {
+            Some(Reason::MacBusy)
+        }
         AutoReason::Away | AutoReason::Back => None,
     }
 }
