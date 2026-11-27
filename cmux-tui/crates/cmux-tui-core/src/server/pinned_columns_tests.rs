@@ -79,6 +79,16 @@ impl Wire {
         response["data"].clone()
     }
 
+    /// Re-docks the pinned Home column at `edge` in `mode` ("docked" or
+    /// "overlay"), keeping it pinned as the agent chat.
+    fn set_dock(&mut self, pane: PaneId, edge: &str, mode: &str) {
+        let data = self.ok(json!({
+            "cmd": "set-column-dock", "pane": pane, "dock": true, "edge": edge,
+            "mode": mode, "role": "agent_chat", "pinned": true,
+        }));
+        assert_eq!(data["dock"]["pinned"], true, "{data}");
+    }
+
     fn tabs(&self, pane: PaneId) -> Vec<SurfaceId> {
         self.mux.with_state(|state| state.panes[&pane].tabs.clone())
     }
