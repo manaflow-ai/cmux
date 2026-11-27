@@ -162,6 +162,8 @@ type ReactProfile = {
   kinds_slow: Named[];
   kinds_all: Named[];
   slowest: { at: number; gap_ms: number; render_ms: number; top: [string, number][]; kinds: string[] }[];
+  /** Whole-pane draws by why every row-local bypass fell through (liveToolOutput.ts `redrawWhy`). */
+  redraw_why?: Record<string, number>;
 };
 
 /// The page half of --react-profile: a DevTools hook React's profiling build reports each commit to, and observers for
@@ -590,6 +592,11 @@ async function run(): Promise<Reading> {
     await page.waitForTimeout(WARM * 1000);
     if (served >= log.events.length) throw new Error(`${log.name}: the log ran out in the warm-up; lower --rate`);
     measuring = true;
+    // Whole-pane draws by reason count from here (debug.ts `renders()` turns counting on and resets it).
+    if (REACT_PROFILE)
+      await page.evaluate(() =>
+        (window as unknown as { cmuxAcpmuxDebug?: { renders?: () => unknown } }).cmuxAcpmuxDebug?.renders?.(),
+      );
     if (TRACE)
       await browser.startTracing(page, {
         categories: [
@@ -633,6 +640,20 @@ async function run(): Promise<Reading> {
         ),
       [pageStart, pageEnd] as const,
     )) as { at: number; ms: number }[];
+    const redrawWhyCounts = REACT_PROFILE
+      ? Object.fromEntries(
+          Object.entries(
+            (await page.evaluate(
+              () =>
+                (
+                  window as unknown as { cmuxAcpmuxDebug?: { renders?: () => Record<string, number> } }
+                ).cmuxAcpmuxDebug?.renders?.() ?? {},
+            )) as Record<string, number>,
+          )
+            .filter(([name]) => name.startsWith("redraw:"))
+            .map(([name, n]) => [name.slice(7), n]),
+        )
+      : undefined;
     const reactProfile = REACT_PROFILE
       ? summarizeReactProfile(
           (await page.evaluate(() => (window as unknown as { __reactProfile: unknown }).__reactProfile)) as Parameters<
@@ -670,7 +691,7 @@ async function run(): Promise<Reading> {
       longest_task_ms: Math.round(Math.max(0, ...long.map((t) => t.ms))),
       chromium: browser.version(),
       at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
-      ...(reactProfile ? { react_profile: reactProfile } : {}),
+      ...(reactProfile ? { react_profile: { ...reactProfile, redraw_why: redrawWhyCounts } } : {}),
     };
   } finally {
     for (const stop of releases.reverse()) {

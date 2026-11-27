@@ -377,6 +377,30 @@ export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolea
   return true;
 }
 
+/// Why a snapshot fell through every row-local bypass to a whole-pane draw, for the replay bench's
+/// redraw table (`acpmuxPerf.render("redraw:<why>")`; counted only while measuring): `pending` (the
+/// pane's own draw had not committed), `blocked` (a streaming row held the pane), `rows` (more than
+/// one row changed, or the client did not record which), `field:<key>` (a snapshot field other than
+/// rows changed), else `row` (one row changed in a way no bypass draws in place).
+export function redrawWhy(
+  received: AcpmuxSnapshot | undefined,
+  next: AcpmuxSnapshot,
+  pending: boolean,
+  blocked: boolean,
+): string {
+  if (!received) return "first";
+  if (pending) return "pending";
+  if (blocked) return "blocked";
+  if (oneRowChangeFrom(next.rows, received.rows) === undefined) return "rows";
+  if (!sameButRows(received, next)) {
+    const before = received as unknown as Record<string, unknown>;
+    const after = next as unknown as Record<string, unknown>;
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)]))
+      if (key !== "rows" && !Object.is(before[key], after[key])) return `field:${key}`;
+  }
+  return "row";
+}
+
 function sameSettled(before: unknown, after: unknown): boolean {
   if (!before || !after || typeof before !== "object" || typeof after !== "object") return false;
   const left = before as { lastSeq?: unknown; forkSeqs?: unknown };
