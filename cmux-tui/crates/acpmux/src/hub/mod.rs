@@ -1,3 +1,4 @@
+// memory-gate demo A: a no-op commit (never merged).
 //! The hub owns every session, its child agent, its event log, and the clients' fan-out channel.
 //! Method groups live in sibling files: `peers` (remote daemons), `lifecycle` (spawn, resume,
 //! fork), `permissions` (agent requests and policy), `turns` (prompt, cancel, config), `transfer`
