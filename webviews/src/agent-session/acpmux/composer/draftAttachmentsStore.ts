@@ -101,7 +101,9 @@ export function draftAttachmentsStore(
   const authorityFor = (sessionId: string) =>
     readAuthority(sessionId) ?? (hostNewer.has(sessionId) ? "host" : undefined);
   const toHost = async (sessionId: string, attachments: ComposerAttachment[]) => {
-    const result = await host.write(sessionId, contents.get(sessionId) ?? attachments);
+    const held = contents.get(sessionId) ?? attachments;
+    const result = await host.write(sessionId, held);
+    if (!holdsInlineContents(result, held)) throw new Error("host did not acknowledge attachment contents");
     hostNewer.add(sessionId);
     rememberAuthority(sessionId, "host");
     return result;
@@ -130,9 +132,15 @@ export function draftAttachmentsStore(
     sessionId: string,
     chips: ComposerAttachment[],
   ): Promise<void> => {
+    let answer: unknown;
     try {
-      await write(sessionId, chips);
+      answer = await write(sessionId, chips);
     } catch {
+      hostNewer.add(sessionId);
+      rememberAuthority(sessionId, "host");
+      return;
+    }
+    if (!holdsInlineContents(answer, chips)) {
       hostNewer.add(sessionId);
       rememberAuthority(sessionId, "host");
       return;
@@ -198,6 +206,7 @@ export function draftAttachmentsStore(
         const sent = authorityFor(sessionId) === "host" ? (contents.get(sessionId) ?? attachments) : attachments;
         try {
           const answer = (await write(sessionId, sent)) as { held?: unknown } | null | undefined;
+          if (!holdsInlineContents(answer, sent)) return toHost(sessionId, attachments);
           const authority = authorityFor(sessionId);
           const hadHost = hostNewer.delete(sessionId);
           rememberAuthority(sessionId, "daemon");
@@ -217,6 +226,15 @@ export function draftAttachmentsStore(
       });
     },
   };
+}
+
+/// A receipt only proves inline bytes landed when it names every chip that carried them. Path-only
+/// chips have no bytes for the daemon or host to acknowledge, so older stores may answer anything.
+function holdsInlineContents(answer: unknown, chips: ComposerAttachment[]): boolean {
+  const required = chips.filter((chip) => chip.data !== undefined || chip.text !== undefined).map((chip) => chip.id);
+  if (!required.length) return true;
+  const held = (answer as { held?: unknown } | null | undefined)?.held;
+  return Array.isArray(held) && required.every((id) => held.includes(id));
 }
 
 /// `chips` in their order, each named without its contents taking them from the same id in `from`.

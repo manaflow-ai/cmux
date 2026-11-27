@@ -79,12 +79,19 @@ class Host implements KeptAttachments {
   }
   async write(sessionId: string, attachments: ComposerAttachment[]) {
     const had = this.chats.get(sessionId) ?? [];
-    const kept = attachments.map((chip) =>
-      chip.data !== undefined ? chip : { ...chip, data: had.find((old) => old.id === chip.id)?.data },
-    );
+    const kept = attachments.map((chip) => {
+      const old = had.find((each) => each.id === chip.id);
+      return {
+        ...chip,
+        ...(chip.data === undefined && old?.data !== undefined ? { data: old.data } : {}),
+        ...(chip.text === undefined && old?.text !== undefined ? { text: old.text } : {}),
+      };
+    });
     if (kept.length) this.chats.set(sessionId, kept);
     else this.chats.delete(sessionId);
-    return { held: kept.filter((chip) => chip.data).map((chip) => chip.id) };
+    return {
+      held: kept.filter((chip) => chip.data !== undefined || chip.text !== undefined).map((chip) => chip.id),
+    };
   }
 }
 
@@ -238,6 +245,52 @@ test("a failed migration after reload sends the host's contents on the next writ
   expect(host.chats.has("chat-a")).toBe(false);
 });
 
+test("a partial migration receipt keeps the host copy for a retry", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  daemon.older = true;
+  await openStore(page(daemon), host).write("chat-a", [shot(1)]);
+  daemon.older = false;
+  const map = page(daemon);
+  const connected = connect(daemon);
+  let partial = true;
+  map.install({
+    ...connected,
+    write: async (sessionId, attachments) => {
+      const answer = await connected.write!(sessionId, attachments);
+      return partial ? { held: ["other-chip"] } : answer;
+    },
+  });
+  const reopened = openStore(map, host);
+  expect((await reopened.read("chat-a")).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(host.chats.has("chat-a")).toBe(true);
+  partial = false;
+  expect((await reopened.read("chat-a")).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(host.chats.has("chat-a")).toBe(false);
+});
+
+test("a malformed daemon receipt falls back to the host and retries with full contents", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  const map = page(daemon);
+  const connected = connect(daemon);
+  let malformed = true;
+  map.install({
+    ...connected,
+    write: async (sessionId, attachments) => {
+      await connected.write!(sessionId, attachments);
+      return malformed ? { held: "not-an-array" } : { held: attachments.map((chip) => chip.id) };
+    },
+  });
+  const store = openStore(map, host);
+  await store.write("chat-a", [shot(1)]);
+  expect(host.chats.has("chat-a")).toBe(true);
+  malformed = false;
+  await store.write("chat-a", [{ ...shot(1), data: undefined }]);
+  expect(host.chats.has("chat-a")).toBe(false);
+  expect(daemon.disk["chat-a"]?.chips[0]?.data).toBe(shot(1).data);
+});
+
 test("(a) an intentional empty host fallback survives a reload", async () => {
   const daemon = new Daemon();
   daemon.older = true;
@@ -353,7 +406,9 @@ test("(d) a refused acpmux write goes to the host, and the next one carries the 
   // The hook names chips acpmux held without their contents: the host gets them in full.
   const stripped = chips.map((chip) => ({ ...chip, data: undefined, text: undefined }));
   const answer = await store.write("chat-a", stripped);
-  expect(answer?.held).toEqual(chips.filter((chip) => chip.data).map((chip) => chip.id));
+  expect(answer?.held).toEqual(
+    chips.filter((chip) => chip.data !== undefined || chip.text !== undefined).map((chip) => chip.id),
+  );
   expect(host.chats.get("chat-a")?.map((chip) => chip.data ?? chip.text)).toEqual(
     chips.map((chip) => chip.data ?? chip.text),
   );
