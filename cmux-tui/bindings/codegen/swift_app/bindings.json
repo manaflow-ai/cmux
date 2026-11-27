@@ -1484,7 +1484,8 @@
           "order": [
             "request",
             "approve"
-          ]
+          ],
+          "response": "hand-written"
         }
       }
     },
