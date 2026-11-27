@@ -5110,137 +5110,6 @@
         }
       }
     },
-    "cookieBackups.explanation": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عندما يمسح وكيل ملفات تعريف الارتباط في علامة تبويب المتصفح، يحتفظ cmux بنسخة مشفّرة على جهاز Mac هذا حتى يتمكن الوكيل من التراجع عن المسح. أنت وحدك يمكنك حذف هذه النسخ."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kada agent obriše kolačiće u kartici preglednika, cmux čuva šifriranu kopiju na ovom Macu kako bi agent mogao poništiti brisanje. Samo vi možete obrisati ove kopije."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når en agent rydder cookies i en browserfane, gemmer cmux en krypteret kopi på denne Mac, så agenten kan fortryde rydningen. Kun du kan slette disse kopier."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wenn ein Agent Cookies in einem Browser-Tab löscht, behält cmux eine verschlüsselte Kopie auf diesem Mac, damit der Agent das Löschen rückgängig machen kann. Nur du kannst diese Kopien löschen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When an agent clears cookies in a browser tab, cmux keeps an encrypted copy on this Mac so the agent can undo the clear. Only you can delete these copies."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuando un agente borra las cookies de una pestaña del navegador, cmux guarda una copia cifrada en este Mac para que el agente pueda deshacer el borrado. Solo tú puedes eliminar estas copias."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quand un agent efface les cookies d’un onglet du navigateur, cmux garde une copie chiffrée sur ce Mac pour que l’agent puisse annuler l’effacement. Vous seul pouvez supprimer ces copies."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando un agente cancella i cookie in una scheda del browser, cmux conserva una copia cifrata su questo Mac così l’agente può annullare la cancellazione. Solo tu puoi eliminare queste copie."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "エージェントがブラウザタブの Cookie を消去すると、cmux はエージェントが消去を取り消せるよう、暗号化したコピーをこの Mac に保管します。このコピーを削除できるのはあなただけです。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅពេលភ្នាក់ងារសម្អាតខូគីក្នុងផ្ទាំងកម្មវិធីរុករក cmux រក្សាច្បាប់ចម្លងដែលបានអ៊ិនគ្រីបនៅលើ Mac នេះ ដើម្បីឱ្យភ្នាក់ងារអាចមិនធ្វើការសម្អាតវិញ។ មានតែអ្នកប៉ុណ្ណោះដែលអាចលុបច្បាប់ចម្លងទាំងនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 브라우저 탭의 쿠키를 지우면 cmux는 에이전트가 지우기를 취소할 수 있도록 이 Mac에 암호화된 사본을 보관합니다. 이 사본은 사용자만 삭제할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når en agent sletter informasjonskapsler i en nettleserfane, beholder cmux en kryptert kopi på denne Macen slik at agenten kan angre slettingen. Bare du kan slette disse kopiene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdy agent wyczyści pliki cookie w karcie przeglądarki, cmux przechowuje zaszyfrowaną kopię na tym Macu, aby agent mógł cofnąć czyszczenie. Tylko ty możesz usunąć te kopie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando um agente limpa os cookies de uma aba do navegador, o cmux guarda uma cópia criptografada neste Mac para que o agente possa desfazer a limpeza. Só você pode apagar essas cópias."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Когда агент очищает cookie во вкладке браузера, cmux хранит зашифрованную копию на этом Mac, чтобы агент мог отменить очистку. Удалить эти копии можете только вы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อเอเจนต์ล้างคุกกี้ในแท็บเบราว์เซอร์ cmux จะเก็บสำเนาที่เข้ารหัสไว้บน Mac เครื่องนี้ เพื่อให้เอเจนต์เลิกทำการล้างได้ มีเพียงคุณเท่านั้นที่ลบสำเนาเหล่านี้ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir ajan bir tarayıcı sekmesindeki çerezleri temizlediğinde cmux, ajanın temizlemeyi geri alabilmesi için bu Mac’te şifreli bir kopya tutar. Bu kopyaları yalnızca siz silebilirsiniz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Коли агент очищає cookie у вкладці браузера, cmux зберігає зашифровану копію на цьому Mac, щоб агент міг скасувати очищення. Видалити ці копії можете лише ви."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi một tác nhân xóa cookie trong một thẻ trình duyệt, cmux giữ một bản sao được mã hóa trên máy Mac này để tác nhân có thể hoàn tác việc xóa. Chỉ bạn mới có thể xóa các bản sao này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "当代理清除浏览器标签页中的 Cookie 时，cmux 会在这台 Mac 上保留一份加密副本，以便代理撤销清除。只有你可以删除这些副本。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "當代理程式清除瀏覽器分頁中的 Cookie 時，cmux 會在這台 Mac 上保留一份加密副本，讓代理程式可以復原清除。只有你可以刪除這些副本。"
-          }
-        }
-      }
-    },
     "cookieBackups.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -6023,6 +5892,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "仍在載入歷史記錄…"
+          }
+        }
+      }
+    },
+    "actor.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زياراتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Moje posjete"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mine besøg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meine Besuche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Visits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mis visitas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mes visites"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le mie visite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分の訪問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលមើលរបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 방문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mine besøk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Moje wizyty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minhas visitas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мои посещения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเข้าชมของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ziyaretlerim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мої відвідування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lượt truy cập của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "我的访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "我的造訪"
+          }
+        }
+      }
+    },
+    "actor.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زيارات الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posjete agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentbesøg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentenbesuche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Visits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visitas de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visites des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visite degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの訪問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលមើលរបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 방문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentbesøk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wizyty agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visitas de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посещения агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเข้าชมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan ziyaretleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відвідування агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lượt truy cập của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理的访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理的造訪"
+          }
+        }
+      }
+    },
+    "actor.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كل الزيارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sve posjete"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle besøg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle Besuche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Visits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todas las visitas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toutes les visites"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tutte le visite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべての訪問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលមើលទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 방문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle besøk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wszystkie wizyty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todas as visitas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Все посещения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเข้าชมทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm ziyaretler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Усі відвідування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tất cả lượt truy cập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有造訪"
           }
         }
       }

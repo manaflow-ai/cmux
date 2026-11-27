@@ -34,10 +34,6 @@ root = "Native/DiffSidecar"
 covered_by = ".github/workflows/ci-web.yml"
 
 [[workspace]]
-root = "coderouter"
-covered_by = ".github/workflows/coderouter-ci.yml"
-
-[[workspace]]
 root = "workers/cmux-vm/cli"
 covered_by = ".github/workflows/cmux-vm-clients.yml"
 
@@ -106,19 +102,18 @@ root = "cmux-tui/crates/cmux-app-ffi"
 run = true
 
 # The bench feature set is the one that builds without x264 (OpenH264 from source),
-# as in scripts/ci/cmux-tui-rust-check.sh rd-host.
+# plus the device hub host (`link`) and the portal handshakes over D-Bus (`portal-dbus`, no
+# libpipewire: its tests run a mock portal on a private dbus-daemon). The rd-host mode of
+# scripts/ci/cmux-tui-rust-check.sh (macOS) keeps bench alone.
 [[workspace]]
 root = "cmux-tui/crates/cmux-rd-host"
 run = true
-args = ["--no-default-features", "--features", "bench"]
+args = ["--no-default-features", "--features", "bench,link,portal-dbus"]
+apt = ["dbus"]
 
 [[workspace]]
 root = "cmux-tui/crates/acpmux-hot/guest"
 skip = "wasm32-wasip2 guest of the dev-only acpmux-hot prototype; built and run by hand on the fleet (crates/acpmux-hot/bench.sh), not linked into any app"
-
-[[workspace]]
-root = "cmux-tui/crates/cmux-cellgrid-bench"
-skip = "measurement tool run by hand (cell grid against video, HQ#7146 G5); not linked into the app"
 
 [[workspace]]
 root = "cmux-tui/crates/cmux-codecs"
@@ -133,6 +128,10 @@ root = "cmux-tui/crates/cmux-remote-browser-testhost"
 run = true
 
 [[workspace]]
+root = "cmux-tui/crates/coord-sim"
+run = true
+
+[[workspace]]
 root = "cmux-tui/vendor/crossterm"
 skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 
@@ -143,3 +142,11 @@ skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 [[workspace]]
 root = "scripts/cmux-next/rust-change-class"
 run = true
+
+[[workspace]]
+root = "scripts/measure/workspace-factory"
+skip = "measure harness (wsfactory, bench workspace-factory): kept out of CI under the 2026-10-23 no-new-CI rule, since lifted; its author runs cargo test through cmux-ci test, and the bench builds it on the measuring Mac"
+
+[[workspace]]
+root = "examples/customize-demo/looks/check"
+skip = "the customize demo's looks check (#47546): run by hand over examples/customize-demo/looks/*.json (cargo run, see its src/main.rs); kept out of CI under the 2026-10-23 no-new-CI rule, since lifted"

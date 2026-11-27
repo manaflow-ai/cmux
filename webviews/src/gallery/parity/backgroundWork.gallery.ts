@@ -3,6 +3,7 @@ import { agentPaneEntry, type AgentPaneVariant } from "../format";
 import { GALLERY_NOW, minutesAgo } from "../clock";
 import { activity, assistant, chat, row, tool, user } from "../fixtures/acpmux";
 import { SUBAGENTS } from "../../agent-session/acpmux/subagents/subagentFold";
+import { RUNNING_TRAY_LINE } from "../../agent-session/acpmux/subagents/subagentSelectors";
 
 const commands = [
   ["sleep 300", "NewInNewGroupRowSlotTests on base"],
@@ -73,9 +74,7 @@ const variant = (mixed: boolean): AgentPaneVariant => ({
     await waitFor(() => document.querySelector(".acpmux-running-tray__head"));
     if (document.querySelector(".acpmux-running-tray__head")!.getAttribute("aria-expanded") !== "true")
       await click({ selector: ".acpmux-running-tray__head" });
-    await waitFor(
-      () => document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === (mixed ? 7 : 5),
-    );
+    await waitFor(() => document.querySelectorAll(RUNNING_TRAY_LINE).length === (mixed ? 7 : 5));
     // Let the real tray observe the commands running before their completion snapshots arrive.
     // Transcript-only task ends have no registry timestamp, so only observed work can linger.
     const bridge = document.defaultView?.cmuxAcpmuxBridge;
@@ -84,9 +83,7 @@ const variant = (mixed: boolean): AgentPaneVariant => ({
     await waitFor(
       () => document.querySelectorAll('.acpmux-running-tray .acpmux-agent-line[data-status="done"]').length === 4,
     );
-    await waitFor(
-      () => document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === (mixed ? 7 : 5),
-    );
+    await waitFor(() => document.querySelectorAll(RUNNING_TRAY_LINE).length === (mixed ? 7 : 5));
     if (document.querySelectorAll('.acpmux-running-tray__stack [data-icon="terminal"]').length !== 1)
       throw new Error("Commands must share one terminal header icon");
     if (mixed && document.querySelectorAll(".acpmux-running-tray__stack .agent-mark").length !== 2)

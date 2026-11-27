@@ -101,11 +101,11 @@ fn at_the_head_the_start_files_carry_work_and_every_tool_still_waits() {
 }
 
 #[test]
-fn a_head_with_start_settings_or_mcp_servers_is_never_marked() {
+fn a_head_with_start_settings_is_never_marked() {
     for (label, path, subpath) in [
         ("settings", ".claude/settings.json", None),
-        ("mcp", ".mcp.json", None),
-        ("submcp", "d/.mcp.json", Some("d")),
+        ("local", ".claude/settings.local.json", None),
+        ("sub", "d/.claude/settings.json", Some("d")),
     ] {
         let world = World::new(&format!("head-{label}"));
         write(&world.mac.join(path), "{}\n");
@@ -179,10 +179,11 @@ fn nothing_reads_a_filling_tree_back_and_a_failed_fill_stays_incomplete() {
     let refused = wait(&restarted, &start(&restarted, &delta).unwrap());
     assert_eq!(refused["error_code"], "seed.filling", "{refused}");
     assert!(matches!(probe(&folder).unwrap(), Probe::Incomplete));
-    // A whole seed again fills it: the clone is there, so it checks out whole.
+    // A whole seed again fills it: the fill was cut short, so it opens at its head again
+    // (as an interrupted download resumes) and downloads only what is still missing.
     let retried = wait(&restarted, &start(&restarted, &params).unwrap());
     assert_eq!(retried["state"], "done", "{retried}");
-    assert!(retried["head_ready"].is_null(), "an existing clone never opens at a head");
+    assert!(!retried["head_ready"].is_null(), "a fill cut short reopens at its head");
     assert_eq!(state(&folder), state(&world.mac));
     whole(&folder);
     assert!(matches!(probe(&folder).unwrap(), Probe::Ready(_)));

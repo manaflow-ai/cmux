@@ -1,13 +1,12 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
-import CmuxNextWakeups
 
 /// What a remote-terminal tab shows while its terminal's session is not
 /// attached (plans/cmux-next/data-model.md 1.4): the machine, its state,
 /// Connect when the user can start it, and the last screen the home
 /// session saved. Never drops the reference.
-final class RemoteTerminalPlaceholderView: NSView {
+final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
     enum State: Equatable {
         /// The session is connecting (or its terminal is being attached).
         case reconnecting
@@ -21,12 +20,10 @@ final class RemoteTerminalPlaceholderView: NSView {
     private let status = ChromeLabel(labelWithString: "")
     private let connect = ThemedBezelButton()
     private let snapshotView = NSTextView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private(set) var state: State = .reconnecting
     private(set) var machine = ""
     var onConnect: (() -> Void)?
-    /// "Reconnecting to {machine}…" waits 10 s, as the agent pane and sidebar do: the daemon redials on its own (Leo, 2026-11-14).
-    var reconnectHold = QuietHold(owner: "remote-terminal-reconnect", delay: .seconds(10))
 
     /// The glyph drawn (tests).
     var glyph: NSImage? { icon.image }
@@ -91,16 +88,16 @@ final class RemoteTerminalPlaceholderView: NSView {
     func show(machine: String, state: State, snapshot: String?) {
         self.machine = machine
         self.state = state
+        // A reattach shows the saved screen alone, however long it takes (Leo, 2026-11-24: "let's just keep optimistically connecting").
         status.stringValue = switch state {
-        case .reconnecting: RemoteStrings.placeholderReconnecting(machine)
+        case .reconnecting: ""
         case .offline: RemoteStrings.placeholderOffline(machine)
         case .unknown: RemoteStrings.placeholderUnknown(machine)
         }
         connect.isHidden = state != .offline || onConnect == nil
         setSnapshot(snapshot)
-        reconnectHold.update(state == .reconnecting) { [weak self] in self?.status.isHidden = false }
-        status.isHidden = reconnectHold.held
-        setAccessibilityLabel(status.stringValue)
+        status.isHidden = state == .reconnecting
+        setAccessibilityLabel(state == .reconnecting ? machine : status.stringValue)
     }
 
     func setSnapshot(_ snapshot: String?) {

@@ -69,7 +69,7 @@ struct CmuxRemoteConfigDeadlineTests {
         let remote = CmuxRemoteService(clock: clock, connection: { nil })
         let file = FileManager.default.temporaryDirectory.appending(path: "config-deadline-\(UUID().uuidString)/screen.json")
         let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
-        let settings = SettingsController(registry: ActionRegistry(), fileURL: file.deletingLastPathComponent().appending(path: "config.json"))
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(), fileURL: file.deletingLastPathComponent().appending(path: "config.json"))
         var appIdentityAttempts = 0
         let hub = DeviceHubService(pages: pages, account: .init(awaitRestored: {}, userID: { "account" },
             accessToken: { throw CancellationError() }), bundleIdentifier: "test.config-deadline", loginKeychain: LoginKeychain(),

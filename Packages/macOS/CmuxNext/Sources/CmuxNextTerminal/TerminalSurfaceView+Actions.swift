@@ -69,6 +69,8 @@ extension TerminalSurfaceView {
             model.scrollbar = scrollbar
             // Output or a mouse scroll moved the viewport under the cursor box.
             copyMode.syncCursor()
+            // ...and under a wrapped link's underlines.
+            linkPointer.viewportMoved()
         case .startSearch(let needle):
             session.find.searchStarted(needle: needle)
         case .endSearch:

@@ -154,9 +154,9 @@ async fn tee_change_samples(count: usize) -> Vec<Vec<u128>> {
             v1.set_status(
                 &session,
                 if (round * 200 + n).is_multiple_of(2) {
-                    crate::store::SessionStatus::Ready
+                    crate::hub::NotWaiting::Ready
                 } else {
-                    crate::store::SessionStatus::Idle
+                    crate::hub::NotWaiting::Idle
                 },
             );
             eventually(|| v2.hub.snapshot().seq() > before).await;
@@ -180,13 +180,28 @@ async fn tee_change_gate() {
     assert_bounds("v2.pr05c.tee_change", measured, Some(200));
 }
 
+/// Untimed chunks to another chat before a stream chunk side's first round. The hub's event
+/// ring (`Events::new(8192)` in `Hub::build`) keeps the last 8,192 events, and each event it
+/// keeps on the way to full is fresh memory: about 550 minor faults per 2,000 chunks until it
+/// holds 8,192, none after (`stream_chunk_first_round_probe`, run 43772431667). Timed, that
+/// fill read about 1,480 ns p95 in round 1 on both sides of every run against 700-900 ns in
+/// rounds 2-5 (cmux#43653's three runs and run 43772431667's three); 20,000 chunks to chat 1
+/// first brought round 1 to 730 ns. It is a fresh hub's first 8,192 events at any session
+/// count, so it is warmed on each side, not timed.
+const STREAM_WARM_CHUNKS: usize = 20_000;
+
 async fn stream_samples(count: usize, tee: bool) -> Vec<Vec<u128>> {
     let v1 = fixture(count);
     let session = session_by_id(&v1, &crate::god_fixture::chat_id(0)).unwrap();
     session.meta.lock().unwrap().status = crate::store::SessionStatus::Running;
+    let warm = session_by_id(&v1, &crate::god_fixture::chat_id(1)).unwrap();
+    warm.meta.lock().unwrap().status = crate::store::SessionStatus::Running;
     let marks = Arc::new(TeeState::default());
     if tee {
         v1.install_v2_tee(Arc::new(TeeHandle { state: marks.clone() }));
+    }
+    for _ in 0..STREAM_WARM_CHUNKS {
+        v1.append(&warm, "in", "agent_message_chunk", json!({"delta":"x"}));
     }
     let mut rounds = Vec::with_capacity(5);
     for _ in 0..5 {
@@ -213,6 +228,59 @@ async fn stream_chunk_gate() {
     assert_bounds("v2.pr05c.stream_chunk", measured, Some(200));
 }
 
+/// The minor page faults this process has taken.
+fn minor_faults() -> u64 {
+    // SAFETY: `usage` is a plain struct of integers, filled by the call.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    // SAFETY: as above; `RUSAGE_SELF` reads this process.
+    assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
+    usage.ru_minflt as u64
+}
+
+/// `rounds` rounds of 20,000 chunks to chat 0 of a fresh 11,000-session fixture, after
+/// `warm` untimed chunks to chat `warm_chat`: each round's p95, and round one's p95 and minor
+/// faults by blocks of 2,000 chunks.
+fn stream_round_profile(label: &str, warm_chat: usize, warm: usize, rounds: usize) {
+    let v1 = fixture(11_000);
+    let session = session_by_id(&v1, &crate::god_fixture::chat_id(0)).unwrap();
+    session.meta.lock().unwrap().status = crate::store::SessionStatus::Running;
+    let warmed = session_by_id(&v1, &crate::god_fixture::chat_id(warm_chat)).unwrap();
+    warmed.meta.lock().unwrap().status = crate::store::SessionStatus::Running;
+    for _ in 0..warm {
+        v1.append(&warmed, "in", "agent_message_chunk", json!({"delta":"x"}));
+    }
+    for round in 1..=rounds {
+        let mut samples = Vec::with_capacity(20_000);
+        let mut blocks = Vec::new();
+        let mut faults = minor_faults();
+        for n in 0..20_000 {
+            let started = Instant::now();
+            v1.append(&session, "in", "agent_message_chunk", json!({"delta":"x"}));
+            samples.push(started.elapsed().as_nanos());
+            if (n + 1) % 2_000 == 0 {
+                let now = minor_faults();
+                blocks.push(format!("{}:{}", p95(&samples[n + 1 - 2_000..=n]), now - faults));
+                faults = now;
+            }
+        }
+        eprintln!(
+            "STREAM_ROUND_PROFILE {label} round={round} p95={} blocks(p95:minflt)={}",
+            p95(&samples),
+            blocks.join(",")
+        );
+    }
+}
+
+/// Where `v2.pr05c.stream_chunk`'s slow first round went ([`STREAM_WARM_CHUNKS`]): a fresh
+/// fixture's first 20,000 chunks to one chat; the same after 20,000 untimed chunks to another
+/// chat; and after 20,000 untimed chunks to the timed chat itself. Judges nothing.
+#[ignore = "Linux release probe of the stream chunk gate's first round"]
+#[tokio::test]
+async fn stream_chunk_first_round_probe() {
+    stream_round_profile("cold", 0, 0, 3);
+    stream_round_profile("other_chat_warm", 1, 20_000, 3);
+    stream_round_profile("same_chat_warm", 0, 20_000, 3);
+}
 fn rss_bytes() -> u128 {
     let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
     let pages: u128 = statm.split_whitespace().nth(1).unwrap().parse().unwrap();
@@ -491,7 +559,9 @@ fn hub_book_session(n: usize, state: &str) -> crate::mesh::BookSession {
         daemon_id: "d-machine-b".into(),
         harness: "claude".into(),
         state: state.into(),
+        stuck_reason: None,
         last_seen_at: 5,
+        ..Default::default()
     }
 }
 

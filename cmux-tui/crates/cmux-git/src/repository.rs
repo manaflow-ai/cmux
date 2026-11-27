@@ -18,6 +18,9 @@ use crate::run::{
 pub struct Repository {
     pub root: PathBuf,
     pub overrides: Vec<Override>,
+    /// The git folder git uses for this work tree (`--absolute-git-dir`): a
+    /// linked worktree's own one, where its `HEAD` and `index` are.
+    git_dir: PathBuf,
     deadline: Option<Instant>,
 }
 
@@ -74,7 +77,8 @@ impl Repository {
         let unfiltered = Self::open_unfiltered(directory, None)?;
         let (overrides, settings) =
             diff_settings_within(&unfiltered.root, remaining(None)).map_err(OpenError::Git)?;
-        Ok((Self { root: unfiltered.root, overrides, deadline: None }, settings))
+        let Self { root, git_dir, .. } = unfiltered;
+        Ok((Self { root, overrides, git_dir, deadline: None }, settings))
     }
 
     /// The repository `directory` is in, with no filter driver blanked: for
@@ -114,23 +118,47 @@ impl Repository {
         if root.to_str().is_none() {
             return Err(OpenError::Git(GitFailure::Exit(TOP_FOLDER_NOT_UTF8.to_string())));
         }
-        let setting = || core_worktree(directory, deadline);
+        let setting = || core_worktree(&git_dir, deadline);
         own_work_tree::check(directory, &root, &git_dir, setting).map_err(OpenError::Git)?;
-        Ok(Self { root, overrides: Vec::new(), deadline })
+        Ok(Self { root, overrides: Vec::new(), git_dir, deadline })
     }
 
     /// This repository with every configured filter driver blanked, as
     /// [`Repository::open`] gives it.
     pub(crate) fn filtered(&self) -> Result<Self, GitFailure> {
         let overrides = filter_overrides_within(&self.root, remaining(self.deadline))?;
-        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
+        Ok(Self {
+            root: self.root.clone(),
+            overrides,
+            git_dir: self.git_dir.clone(),
+            deadline: self.deadline,
+        })
     }
 
     /// This repository with its runs stopped at `deadline` too (the earlier
     /// of the two deadlines wins).
     pub fn within(&self, deadline: Instant) -> Self {
         let deadline = Some(self.deadline.map_or(deadline, |own| own.min(deadline)));
-        Self { root: self.root.clone(), overrides: self.overrides.clone(), deadline }
+        Self {
+            root: self.root.clone(),
+            overrides: self.overrides.clone(),
+            git_dir: self.git_dir.clone(),
+            deadline,
+        }
+    }
+
+    /// The git folder of this work tree, as git named it when it opened: a
+    /// linked worktree's own folder, which holds its `HEAD` and `index`.
+    pub fn git_dir(&self) -> &Path {
+        &self.git_dir
+    }
+
+    /// Whether this repository's untracked files may be listed: not when its
+    /// top level is the person's home folder ([`crate::home`]), where they
+    /// are every file the person has. Its tracked files and refs read as
+    /// for any repository.
+    pub fn lists_untracked(&self) -> bool {
+        !crate::home::is_home_folder(&self.root)
     }
 
     /// Runs `git <arguments>` at the top level with this repository's
@@ -294,21 +322,56 @@ impl Repository {
         let mut overrides = self.overrides.clone();
         blanked.retain(|setting| !overrides.contains(setting));
         overrides.extend(blanked);
-        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
+        Ok(Self {
+            root: self.root.clone(),
+            overrides,
+            git_dir: self.git_dir.clone(),
+            deadline: self.deadline,
+        })
     }
 
     /// The main checkout of a linked worktree (one `git worktree add` made);
     /// `None` in the main checkout itself or a bare repository's.
     pub fn main_checkout(&self) -> Option<PathBuf> {
+        let (common, own) = self.git_folders()?;
+        main_checkout_of(&common, &own)
+    }
+
+    /// The common git directory and this checkout's own one, canonical:
+    /// one `rev-parse` run.
+    pub fn git_folders(&self) -> Option<(PathBuf, PathBuf)> {
         let arguments = ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"];
         let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
         let (common, own) = two_folders(&output.stdout)?;
-        let (common, own) = (std::fs::canonicalize(common).ok()?, std::fs::canonicalize(own).ok()?);
-        if common == own {
-            return None;
-        }
-        main_root(&common).map(Path::to_path_buf)
+        Some((std::fs::canonicalize(common).ok()?, std::fs::canonicalize(own).ok()?))
     }
+}
+
+/// The main checkout of the linked worktree whose git directories are
+/// `common` and `own`; `None` when they are one (a main checkout) or the
+/// common one is a bare repository's.
+pub fn main_checkout_of(common: &Path, own: &Path) -> Option<PathBuf> {
+    if common == own {
+        return None;
+    }
+    main_root(common).map(Path::to_path_buf)
+}
+
+/// State files in a checkout's own git directory that say an operation
+/// stopped partway and waits for the person, and the operation's name.
+const IN_PROGRESS: [(&str, &str); 5] = [
+    ("MERGE_HEAD", "merge"),
+    ("rebase-merge", "rebase"),
+    ("rebase-apply", "rebase"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"),
+    ("REVERT_HEAD", "revert"),
+];
+
+/// The merge, rebase, cherry-pick or revert in progress in the checkout
+/// whose own git directory is `git_dir`, or `None`. Looks only for files:
+/// no run, and no read of the index.
+pub fn in_progress(git_dir: &Path) -> Option<&'static str> {
+    IN_PROGRESS.iter().find(|(file, _)| git_dir.join(file).exists()).map(|(_, state)| *state)
 }
 
 /// Whether git's error text `stderr` is its error for a folder that is in no
@@ -322,24 +385,118 @@ fn says_no_repository(stderr: &str) -> bool {
         .is_some_and(|line| line.starts_with("fatal: not a git repository"))
 }
 
-/// The `core.worktree` setting that git reads for `directory`, when one is
-/// set: the bytes of its value.
-fn core_worktree(
-    directory: &Path,
-    deadline: Option<Instant>,
-) -> Result<Option<Vec<u8>>, GitFailure> {
-    let arguments = ["config", "--null", "--get", "core.worktree"];
-    let left = remaining(deadline);
-    match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left) {
-        // A value that is longer than a path can be: a setting is there,
-        // and it leads to no folder.
-        Ok(output) if output.truncated => Ok(Some(Vec::new())),
-        // `--null` ends the value with one NUL byte.
-        Ok(output) => Ok(output.stdout.strip_suffix(&[0]).map(<[u8]>::to_vec)),
-        // `--get` exits 1, with no text, when the setting is not there.
-        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => Ok(None),
-        Err(failure) => Err(failure),
+/// The `core.worktree` setting that git takes for the git folder `git_dir`,
+/// when one is set: the bytes of its value.
+///
+/// git takes this setting from the file `config` of the git folder and,
+/// with the extension `worktreeConfig`, from the file `config.worktree` of
+/// the git folder after it. It takes it from no other place: not from a
+/// file that one of the two includes, and not from a config file of the
+/// user or of the system. So each of the two files is read alone (`--file`,
+/// `--no-includes`). A read of the whole config (`git config --get`) gives
+/// also a setting that git does not use for the work tree.
+///
+/// For a git folder with no common folder only: [`own_work_tree::check`]
+/// asks for the setting of no other git folder.
+fn core_worktree(git_dir: &Path, deadline: Option<Instant>) -> Result<Option<Vec<u8>>, GitFailure> {
+    let own = file_settings(git_dir, "config", deadline)?;
+    if !own.tree_config {
+        return Ok(own.worktree);
     }
+    let tree = file_settings(git_dir, "config.worktree", deadline)?;
+    Ok(tree.worktree.or(own.worktree))
+}
+
+/// What one config file of a git folder says of the work tree.
+#[derive(Default)]
+struct FileSettings {
+    /// The last `core.worktree` value of the file.
+    worktree: Option<Vec<u8>>,
+    /// Whether the last `extensions.worktreeConfig` value of the file is on.
+    tree_config: bool,
+}
+
+/// What [`core_worktree`] says when the records of the two settings in one
+/// config file are longer than are kept.
+const WORK_TREE_SETTINGS_TOO_LONG: &str =
+    "a config file of the git folder has work tree settings that are longer than are read";
+
+/// The settings of the file `name` of the git folder `git_dir`, and of no
+/// file that it includes. The run is in the git folder and names the file
+/// by `name`, so a git folder whose path is not UTF-8 is read too.
+///
+/// git is asked for the two settings only. A record of another setting is
+/// no part of the output, at any length.
+///
+/// A limit: when the records of the two settings in the file are together
+/// longer than 64 KiB (each record with the byte that ends it), the open is
+/// refused. A part of the records can lack the last value of a setting, and
+/// git takes the last value, so no setting is taken from a part. The
+/// refusal is also for a work tree that git itself opens, when this read is
+/// asked for its git folder.
+fn file_settings(
+    git_dir: &Path,
+    name: &str,
+    deadline: Option<Instant>,
+) -> Result<FileSettings, GitFailure> {
+    // git takes a file that is not there as a file with no setting.
+    let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
+    if std::fs::metadata(git_dir.join(name)).is_err_and(|error| missing(&error)) {
+        return Ok(FileSettings::default());
+    }
+    // `--null --get-regexp` prints each setting whose name the pattern
+    // matches as a record: the name in lower case, a line break and the
+    // value, or the name alone when the file gives it no value.
+    let pattern = r"^(core\.worktree|extensions\.worktreeconfig)$";
+    let arguments = ["config", "--file", name, "--no-includes", "--null", "--get-regexp", pattern];
+    let left = remaining(deadline);
+    let output = match run_git_within(git_dir, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left) {
+        Ok(output) if output.truncated => {
+            return Err(GitFailure::Exit(WORK_TREE_SETTINGS_TOO_LONG.to_string()));
+        }
+        Ok(output) => output,
+        // `--get-regexp` exits 1, with no text, when the file has neither
+        // setting.
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => {
+            return Ok(FileSettings::default());
+        }
+        Err(failure) => return Err(failure),
+    };
+    let mut settings = FileSettings::default();
+    for record in output.stdout.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+        let mut parts = record.splitn(2, |byte| *byte == b'\n');
+        let key = parts.next().unwrap_or_default();
+        let value = parts.next();
+        if key == b"core.worktree" {
+            // A name with no value: a setting is there, and it leads to no
+            // folder.
+            settings.worktree = Some(value.unwrap_or_default().to_vec());
+        } else if key == b"extensions.worktreeconfig" {
+            settings.tree_config = is_on(value);
+        }
+    }
+    Ok(settings)
+}
+
+/// Whether git reads the value of an on-off setting as on: no value,
+/// `true`, `yes`, `on`, or a decimal number that is not zero.
+///
+/// A limit: git reads other forms of a number as on too (a hexadecimal
+/// number, a number with a unit). Such a form is off here, and the file
+/// `config.worktree` is then not read. git gave the top folder with that
+/// file read, so a `core.worktree` setting that is not seen here names the
+/// top folder; the open then reads the git folder as one that names no
+/// work tree.
+fn is_on(value: Option<&[u8]>) -> bool {
+    let Some(value) = value else { return true };
+    let text = String::from_utf8_lossy(value).to_ascii_lowercase();
+    if matches!(text.as_str(), "true" | "yes" | "on") {
+        return true;
+    }
+    let digits = text.strip_prefix(['-', '+']).unwrap_or(&text);
+    !digits.is_empty()
+        && digits.bytes().all(|digit| digit.is_ascii_digit())
+        && digits.bytes().any(|digit| digit != b'0')
 }
 
 /// Whether git's `stderr` says a submodule's `.git` file names no repository.

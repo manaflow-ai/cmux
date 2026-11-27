@@ -122,6 +122,8 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
   /// let a test switch before its own page had read the chat ahead, so the switch waited on the
   /// attach.
   let currentPage = 0;
+  /// The pages' open connections, each tagged with its page, for a test that tells them a chat changed.
+  const sockets = new Set<{ data: unknown; send(message: string): unknown }>();
   let staleReadAheads = 0;
   const readAheadWaiters = new Set<() => void>();
 
@@ -181,18 +183,29 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
           : new Response("acpmux", { status: 426 });
       },
       websocket: {
+        open(ws) {
+          sockets.add(ws);
+        },
+        close(ws) {
+          sockets.delete(ws);
+        },
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           calls.push({ method: message.method, sessionId: message.params?.sessionId });
           const result = answer(message.method, message.params ?? {});
-          const reading = message.method === "_acpmux/events" && typeof message.params?.beforeSeq === "number";
+          // A read ahead: the newest page (`beforeSeq`), or a chat read before asked for the records after its
+          // last read (`afterSeq` with a byte cap, direct.ts readAheadOn).
+          const reading =
+            message.method === "_acpmux/events" &&
+            (typeof message.params?.beforeSeq === "number" ||
+              (typeof message.params?.afterSeq === "number" && typeof message.params?.maxBytes === "number"));
           const readKey = `${(ws.data as { page: number }).page}:${message.id}`;
           if (reading) pendingReadAhead.add(readKey);
           setTimeout(
             () => {
               ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-              // A read ahead: an event page of the newest records, outside any attach.
+              // A read ahead: an event page outside any attach.
               if (reading) {
                 pendingReadAhead.delete(readKey);
                 if ((ws.data as { page: number }).page !== currentPage) {
@@ -348,6 +361,52 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
         .locator(".acpmux-scroll")
         .getByText(fresh)
         .waitFor({ timeout: ATTACH_MS + 5_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Every workspace's pages read the same recent chats ahead, and read each again when it runs on, so
+  // N hidden pages read each chat N times for a switch only the shown page takes (Leo, 2026-11-18:
+  // "And other general perf"). A hidden page reads none ahead until it shows; then it reads them as a
+  // shown page does.
+  test("a hidden page reads no chat ahead until it shows", async () => {
+    const page = await openPage(chats[0]!);
+    try {
+      const recent = chats.slice(1, 1 + RECENT);
+      await readAheadOf(page, recent);
+      // The workspace goes to the background: the document is hidden.
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      // fixed-wait: past the read ahead's refresh floor (direct.ts READ_AHEAD_REFRESH_MS, 5 s), so a run on
+      // would be read again.
+      await new Promise((resolve) => setTimeout(resolve, 5_500));
+      readAhead.clear();
+      // Each recent chat runs on: acpmux lists it changed.
+      for (const entry of recent) {
+        entry.say(`${entry.marker} And then some.`);
+        entry.listed.updatedAt = Date.now();
+        const change = JSON.stringify({
+          jsonrpc: "2.0",
+          method: "_acpmux/session_changed",
+          params: { sessionId: entry.sessionId, kind: "updated", session: entry.listed },
+        });
+        for (const socket of sockets) if ((socket.data as { page: number }).page === currentPage) socket.send(change);
+      }
+      // fixed-wait: three times the idle read ahead's delay (direct.ts READ_AHEAD_DELAY_MS, 600 ms).
+      await new Promise((resolve) => setTimeout(resolve, 1_800));
+      const readWhileHidden = recent.filter((entry) => readAhead.has(entry.sessionId)).length;
+      console.log(`chat-switch-prefetch: a hidden page read ${readWhileHidden} of ${RECENT} recent chats that ran on`);
+      expect(readWhileHidden).toBe(0);
+      await page.evaluate(() => {
+        delete (document as { visibilityState?: unknown }).visibilityState;
+        delete (document as { hidden?: unknown }).hidden;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await readAheadOf(page, recent);
     } finally {
       await page.close();
     }

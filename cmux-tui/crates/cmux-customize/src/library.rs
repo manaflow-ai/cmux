@@ -42,25 +42,39 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
-use crate::store::{Draft, Generation, Kind};
+use crate::store::{Draft, Generation, Kind, LibraryMark};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
+pub mod applies;
 pub mod code;
+mod collection;
+pub mod doctor;
+pub mod expire;
+pub mod keys;
 pub mod overlay;
+mod put;
 pub mod recover;
+pub mod standup;
 mod text;
 
+pub use applies::{NoLongerApplies, Stale};
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
+use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
+pub use standup::{Standup, StandupLine};
 pub use text::thumbnail;
-use text::{one_line, redact_serde, slug, unique_name};
+use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
 /// The most entries one collection or library holds.
+/// Measured: every change rewrites `library.json` whole (each entry carries its profile's
+/// settings and files) and rescans every entry for the keys it references, and an exported
+/// library must import under MAX_COLLECTION_BYTES (8 MiB): about 16 KiB an entry for 500.
+/// Derived from those bounds, not timed; per-entry storage would lift it.
 pub const MAX_ENTRIES: usize = 500;
 /// The largest collection file import reads.
 pub const MAX_COLLECTION_BYTES: usize = 8 * 1024 * 1024;
@@ -98,6 +112,14 @@ pub struct Entry {
     /// The generation it was saved from (local only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u32>,
+    /// When it was last turned on (local only; [`expire`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_ms: Option<u64>,
+    /// A code entry put on with `cmux customize try CODE`: when it goes off
+    /// by itself (local only; [`expire`]). Turning it on or off by hand, or
+    /// `use` again, keeps it and clears this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,8 +141,7 @@ impl Entry {
             }
     }
 
-    /// The layer folder this entry serves while it is on and on top, when it
-    /// has a web part.
+    /// The layer folder this entry serves while it is on and on top, when it has a web part.
     fn web_layer(&self) -> Option<&CodeLayer> {
         self.code.as_ref().filter(|code| code.has_web())
     }
@@ -152,6 +173,58 @@ pub struct Base {
     /// `None` while no code entry is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web: Option<WebBase>,
+    /// Settings objects (by path) that were not in the settings file before
+    /// the library set a key under them: taken out again once empty.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub made_objects: BTreeSet<Vec<String>>,
+    /// The settings file was not there before the library set a key in it:
+    /// it goes again once nothing is left in it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub made_settings_file: bool,
+    /// Folders that were not there before the library (or the apply it
+    /// saved) wrote into them: taken away once empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub made_dirs: Vec<std::path::PathBuf>,
+}
+
+impl Base {
+    /// Adds what a new entry's keys and files were before it, for those the
+    /// library does not manage yet (an older base is the truer one).
+    fn take(&mut self, new: Base) {
+        let first_settings = self.settings.is_empty();
+        for (key, value) in new.settings {
+            self.settings.entry(key).or_insert(value);
+        }
+        for (path, text) in new.files {
+            self.files.entry(path).or_insert(text);
+        }
+        if first_settings && !self.settings.is_empty() {
+            self.made_settings_file = new.made_settings_file;
+        }
+        self.made_objects.extend(new.made_objects);
+    }
+
+    /// Records what a setting the library starts to manage was in `file`
+    /// (`None`: no settings file): its value, the objects on its way that
+    /// were not there, and whether the file was.
+    fn note_setting(&mut self, key: &str, file: Option<&Value>) {
+        let value = file.and_then(|file| setting_value(file, key));
+        if self.settings.is_empty() {
+            self.made_settings_file = file.is_none();
+        }
+        if value.is_none()
+            && let Some(row) = Schema::embedded().row(key)
+        {
+            for parent in (1..row.path.len()).filter_map(|depth| row.path.get(..depth)) {
+                let there =
+                    file.and_then(|file| cmux_config::value::value_at(file, parent)).is_some();
+                if !there {
+                    self.made_objects.insert(parent.to_vec());
+                }
+            }
+        }
+        self.settings.insert(key.to_owned(), value);
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -160,6 +233,23 @@ struct LibraryFile {
     /// Top first.
     entries: Vec<Entry>,
     base: Base,
+    /// The app commit (`CMUXCommit`, as the app stamps it) `refresh` last
+    /// ran on, so the app runs it again at start only after an update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refreshed_on: Option<String>,
+}
+
+/// Whether `refresh` is due on an app at `app` (its `CMUXCommit`) when it
+/// last ran on `recorded`: never on a build with no commit (a DEV build),
+/// always the first time, then only when the commit changed. A NIGHTLY
+/// stamps a short commit, so one that starts the other is the same commit.
+pub fn refresh_due(recorded: Option<&str>, app: Option<&str>) -> bool {
+    let Some(app) = app.map(str::trim).filter(|app| !app.is_empty()) else { return false };
+    let Some(recorded) = recorded.map(str::trim).filter(|recorded| !recorded.is_empty()) else {
+        return true;
+    };
+    let (app, recorded) = (app.to_ascii_lowercase(), recorded.to_ascii_lowercase());
+    !(app.starts_with(&recorded) || recorded.starts_with(&app))
 }
 
 /// One entry as a list shows it.
@@ -183,6 +273,10 @@ pub struct Listed {
     /// reader that does not know it is unaffected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<CodeLayer>,
+    /// A code try (`cmux customize try CODE`) that is on: when it goes off
+    /// by itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until_ms: Option<u64>,
 }
 
 /// Two or more entries that are on set the same key or file.
@@ -267,16 +361,111 @@ impl Customize {
         let (settings, files) = referenced(&library.entries);
         library.base.settings.retain(|key, _| settings.contains(key));
         library.base.files.retain(|path, _| files.contains(path));
+        if library.base.settings.is_empty() {
+            library.base.made_objects.clear();
+            library.base.made_settings_file = false;
+        }
+        library.base.made_dirs.retain(|dir| dir.is_dir());
         library.version = 1;
         let mut text = serde_json::to_string_pretty(library).map_err(std::io::Error::other)?;
         text.push('\n');
         cmux_config::fsio::write_atomic(&self.library_path(), text.as_bytes())?;
+        // The current generation remembers what is on now, so a restore to
+        // it turns the library back to this.
+        let on = on_names(&library.entries);
+        let mut index = self.store().index()?;
+        if let Some(n) = index.current
+            && let Some(row) = index.generations.iter_mut().find(|row| row.n == n)
+            && row.library_on.as_ref() != Some(&on)
+        {
+            row.library_on = Some(on);
+            self.store().put_index(&index)?;
+        }
+        Ok(())
+    }
+
+    /// The library now, as a try-on and a generation remember it. `None`
+    /// when it cannot be read.
+    pub(crate) fn library_mark(&self) -> Option<LibraryMark> {
+        let library = self.read_library().ok()?;
+        Some(LibraryMark {
+            names: library
+                .entries
+                .iter()
+                .filter(|entry| entry.code.is_none())
+                .map(|entry| entry.name().to_owned())
+                .collect(),
+            on: on_names(&library.entries),
+        })
+    }
+
+    /// Turns the library to match a restore: every entry (not code) is on
+    /// exactly when `on` names it. With `names` (the library before a
+    /// try-on), an entry an apply saved since goes and the rest go back to
+    /// their places. Writes nothing when nothing changes. The caller holds
+    /// the store's lock.
+    pub(crate) fn library_follow_locked(
+        &self,
+        on: &[String],
+        names: Option<&[String]>,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        let mut library = self.read_library()?;
+        let before = library.entries.clone();
+        if let Some(names) = names {
+            let had = |entry: &Entry| names.iter().any(|name| name == entry.name());
+            // Only what an apply saved: an import or a code entry came in
+            // by itself and stays.
+            library
+                .entries
+                .retain(|entry| entry.code.is_some() || entry.generation.is_none() || had(entry));
+            library.entries.sort_by_key(|entry| {
+                names.iter().position(|name| name == entry.name()).map_or(0, |at| at + 1)
+            });
+        }
+        for entry in library.entries.iter_mut().filter(|entry| entry.code.is_none()) {
+            let was = entry.on;
+            entry.on = on.iter().any(|name| name == entry.name());
+            if entry.on && !was {
+                entry.on_ms = Some(now_ms);
+            }
+        }
+        if library.entries != before {
+            self.write_library(&mut library)?;
+        }
         Ok(())
     }
 
     /// The entries, top first, and every conflict among those that are on.
     pub fn library(&self) -> Result<Listing, Error> {
         Ok(listing(&self.read_library()?.entries))
+    }
+
+    /// The library as one line per entry for standup ([`standup::standup`]):
+    /// code first, then setup repos, then recipes. A setups file that cannot
+    /// be read names no repo; the lines are still there.
+    pub fn library_standup(&self, now_ms: u64) -> Result<Standup, Error> {
+        let listing = self.library()?;
+        let setups = self.setups().unwrap_or_default();
+        Ok(standup::standup(&listing, &setups, now_ms))
+    }
+
+    /// The app commit `refresh` last ran on ([`refresh_due`]).
+    pub fn library_refreshed_on(&self) -> Result<Option<String>, Error> {
+        Ok(self.read_library()?.refreshed_on)
+    }
+
+    /// Records that `refresh` ran on app commit `commit`. Only that field
+    /// changes: no generation, nothing live. Writes nothing when it is
+    /// already the one recorded.
+    pub fn library_mark_refreshed(&self, commit: &str) -> Result<(), Error> {
+        let _lock = self.store().lock()?;
+        let mut library = self.read_library()?;
+        if library.refreshed_on.as_deref() == Some(commit) {
+            return Ok(());
+        }
+        library.refreshed_on = Some(commit.to_owned());
+        self.write_library(&mut library)
     }
 
     /// Saves what applied generation `generation` changed from its parent as
@@ -305,15 +494,40 @@ impl Customize {
             }
             Some(_) => "ask",
         };
-        self.remember_generation_locked(generation, source, words, now_ms)
+        // What the entry says it is: a profile's own description where an
+        // ask used one, the words of the others.
+        let described: Vec<String> = draft
+            .map(|draft| {
+                draft
+                    .asks
+                    .iter()
+                    .map(|ask| {
+                        ask.description
+                            .as_deref()
+                            .filter(|text| !text.trim().is_empty())
+                            .unwrap_or(&ask.text)
+                            .to_owned()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let description = described
+            .iter()
+            .any(|text| !words.contains(text))
+            .then(|| one_line(&described.join("; ")));
+        let made_dirs = draft.map(|draft| draft.absent_dirs.clone()).unwrap_or_default();
+        self.remember_generation_locked(generation, source, words, description, made_dirs, now_ms)
     }
 
-    /// [`Customize::remember_locked`] with the source and words given.
+    /// [`Customize::remember_locked`] with the source, words, description
+    /// (`None`: the words) and the folders the draft made given.
     pub(crate) fn remember_generation_locked(
         &self,
         generation: &Generation,
         source: &str,
         words: Vec<String>,
+        description: Option<String>,
+        made_dirs: Vec<std::path::PathBuf>,
         now_ms: u64,
     ) -> Result<Option<String>, Error> {
         let new = self.store().tree(generation.n)?;
@@ -331,6 +545,7 @@ impl Customize {
         {
             let mut entry = library.entries.remove(at);
             entry.on = true;
+            entry.on_ms = Some(now_ms);
             let name = entry.name().to_owned();
             library.entries.insert(0, entry);
             self.write_library(&mut library)?;
@@ -341,15 +556,15 @@ impl Customize {
         let name = unique_name(&library.entries, &slug(words.first().map_or("", String::as_str)));
         let profile = Profile {
             name: name.clone(),
-            description: one_line(&words.join("; ")),
+            description: description.unwrap_or_else(|| one_line(&words.join("; "))),
             created_ms: now_ms,
             ..profile
         };
-        for (key, value) in base.settings {
-            library.base.settings.entry(key).or_insert(value);
-        }
-        for (path, text) in base.files {
-            library.base.files.entry(path).or_insert(text);
+        library.base.take(base);
+        for dir in made_dirs.into_iter().filter(|dir| dir.is_dir()) {
+            if !library.base.made_dirs.contains(&dir) {
+                library.base.made_dirs.push(dir);
+            }
         }
         library.entries.insert(
             0,
@@ -361,6 +576,8 @@ impl Customize {
                 profile,
                 added_ms: Some(now_ms),
                 generation: Some(generation.n),
+                on_ms: Some(now_ms),
+                until_ms: None,
                 code: None,
             },
         );
@@ -386,8 +603,45 @@ impl Customize {
                 )));
             }
             entry.on = on;
+            entry.on_ms = if on { Some(now_ms) } else { entry.on_ms };
+            // A hand on or off settles a try: on keeps it, off already ended it.
+            entry.until_ms = None;
             Ok(())
         })
+    }
+
+    /// `cmux customize try CODE --minutes N`: code entry `name`, just put on
+    /// by `use`, goes off by itself at `until_ms` ([`expire`]), the way a
+    /// try-on reverts. `library on NAME` keeps it; `library off NAME` ends it
+    /// now.
+    pub fn library_try_until(
+        &self,
+        name: &str,
+        until_ms: u64,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let label = format!("library: try {name}");
+        self.library_change(&label, origin, now_ms, |library| {
+            let entry = find(&mut library.entries, name)?;
+            if entry.code.is_none() {
+                return Err(Error::Library(format!("{name} is not a code entry")));
+            }
+            entry.until_ms = Some(until_ms);
+            Ok(())
+        })
+    }
+
+    /// The earliest end of a code try that is still on: when the try waiter
+    /// wakes next. `None` when no try is running.
+    pub fn next_try_end(&self) -> Result<Option<u64>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .filter(|entry| entry.on)
+            .filter_map(|entry| entry.until_ms)
+            .min())
     }
 
     /// Puts code layer `layer` on top of the library as entry
@@ -445,6 +699,8 @@ impl Customize {
                     profile,
                     added_ms,
                     generation: None,
+                    on_ms: layer.has_web().then_some(now_ms),
+                    until_ms: None,
                     code: Some(layer),
                 },
             );
@@ -480,6 +736,10 @@ impl Customize {
             entry.thumbnail.keys =
                 if layer.has_web() { vec![WEB_KEY.to_owned()] } else { Vec::new() };
             entry.on = entry.on && layer.has_web();
+            // A watch rebuild is a folder in use: its 24 hours start again.
+            if entry.on && layer.kind == CodeKind::Dir {
+                entry.on_ms = Some(now_ms);
+            }
             entry.code = Some(layer);
             Ok(())
         })
@@ -504,7 +764,11 @@ impl Customize {
                 .ok_or_else(|| Error::Library(format!("{name} is not a code entry")))?;
             code.note = one_line(note);
             if let Some(on) = on {
+                let was_on = entry.on;
                 entry.on = on && entry.code.as_ref().is_some_and(CodeLayer::has_web);
+                if entry.on && !was_on {
+                    entry.on_ms = Some(now_ms);
+                }
             }
             Ok(())
         })
@@ -556,7 +820,13 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, ..entry })
+            .map(|entry| Entry {
+                added_ms: None,
+                generation: None,
+                on_ms: None,
+                until_ms: None,
+                ..entry
+            })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -577,6 +847,13 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Imported, Error> {
+        // A collection kept from an older cmux names some keys the old way:
+        // they come in under their new names (`Profile::migrated`).
+        let mut collection = collection.clone();
+        for entry in &mut collection.entries {
+            entry.profile = entry.profile.migrated().0;
+        }
+        let collection = &collection;
         self.check_collection(collection)?;
         let mut added = Vec::new();
         let mut already = Vec::new();
@@ -605,10 +882,10 @@ impl Customize {
                 let profile = Profile { name: name.clone(), ..entry.profile.clone() };
                 // A key the library does not manage yet starts from what is
                 // live now.
+                let live_file = (!live_settings.is_null()).then_some(&live_settings);
                 for key in profile.settings.keys() {
                     if !library.base.settings.contains_key(key) {
-                        let value = setting_value(&live_settings, key);
-                        library.base.settings.insert(key.clone(), value);
+                        library.base.note_setting(key, live_file);
                     }
                 }
                 for path in profile.files.keys() {
@@ -627,6 +904,8 @@ impl Customize {
                     profile,
                     added_ms: Some(now_ms),
                     generation: None,
+                    on_ms: (turn_on && entry.on).then_some(now_ms),
+                    until_ms: None,
                     code: entry.code.clone(),
                 });
             }
@@ -640,57 +919,6 @@ impl Customize {
             Ok(())
         })?;
         Ok(Imported { added, already, renamed, change })
-    }
-
-    /// Reads a collection from its text, checking only its shape; import
-    /// checks every profile.
-    pub fn parse_collection(text: &str) -> Result<Collection, Error> {
-        if text.len() > MAX_COLLECTION_BYTES {
-            return Err(Error::Library(format!(
-                "a collection is at most {} MiB",
-                MAX_COLLECTION_BYTES / 1024 / 1024
-            )));
-        }
-        let probe: Value = serde_json::from_str(text).map_err(|error| {
-            Error::Library(format!(
-                "not a cmux collection (line {}, column {})",
-                error.line(),
-                error.column()
-            ))
-        })?;
-        // A single profile is a collection of one.
-        if probe.get("cmuxProfile").is_some() {
-            let profile: Profile = serde_json::from_value(probe)
-                .map_err(|_| Error::Library("not a cmux profile".to_owned()))?;
-            return Ok(Collection {
-                version: COLLECTION_VERSION,
-                name: profile.name.clone(),
-                description: String::new(),
-                entries: vec![Entry {
-                    on: true,
-                    source: "import".to_owned(),
-                    words: Vec::new(),
-                    thumbnail: Thumbnail::default(),
-                    profile,
-                    added_ms: None,
-                    generation: None,
-                    code: None,
-                }],
-            });
-        }
-        match probe.get("cmuxCollection").and_then(Value::as_u64) {
-            Some(1) => {}
-            Some(n) => {
-                return Err(Error::Library(format!(
-                    "this collection is format {n}; this cmux reads format {COLLECTION_VERSION}"
-                )));
-            }
-            None => return Err(Error::Library("not a cmux collection".to_owned())),
-        }
-        // Where it stops reading, never what it read there.
-        serde_json::from_value(probe).map_err(|error| {
-            Error::Library(format!("not a cmux collection: {}", redact_serde(&error.to_string())))
-        })
     }
 
     /// Every entry of `collection` is one `use` would take, and the set is
@@ -748,6 +976,18 @@ impl Customize {
     ) -> Result<Changed, Error> {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
+        self.library_change_locked(label, origin, now_ms, edit)
+    }
+
+    /// [`Customize::library_change`] for a caller that holds the store lock
+    /// (and made the baseline): one step of a longer change.
+    fn library_change_locked(
+        &self,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+        edit: impl FnOnce(&mut LibraryFile) -> Result<(), Error>,
+    ) -> Result<Changed, Error> {
         let mut library = self.read_library()?;
         let before = library.entries.clone();
         edit(&mut library)?;
@@ -783,17 +1023,28 @@ impl Customize {
                 }
             }
         }
+        let was_bindings = binding_winners(&before);
         for (path, base) in library.base.files.iter_mut() {
+            let live = || -> Result<Option<String>, Error> {
+                Ok(tree::read(self.roots(), path)?
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
+            };
             if top(&before, |profile| profile.files.get(path)).is_none() {
-                let live = tree::read(self.roots(), path)?
-                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+                let live = live()?;
                 if live != *base {
                     *base = live;
                 }
+            } else if path == KEYBINDINGS {
+                // Bindings the person added or changed by hand in the file
+                // the library composed are theirs: they stay under the stack.
+                let live = live()?;
+                if keys::compose(base.as_deref(), &was_bindings).ok().flatten() != live {
+                    *base = keys::uncompose(live.as_deref(), base.as_deref(), &was_bindings);
+                }
             }
         }
-        let was = stacked(&before, &library.base);
-        let will = stacked(&library.entries, &library.base);
+        let was = stacked(&before, &library.base)?;
+        let will = stacked(&library.entries, &library.base)?;
         let settings: Vec<(&String, &Option<Value>)> = will
             .settings
             .iter()
@@ -832,7 +1083,9 @@ impl Customize {
                     ))
                 })?;
             }
-            writes.insert(SETTINGS.to_owned(), Some(text.into_bytes()));
+            let removed_any = settings.iter().any(|(_, value)| value.is_none());
+            let text = if removed_any { prune_made(text, &library.base) } else { Some(text) };
+            writes.insert(SETTINGS.to_owned(), text.map(String::into_bytes));
         }
         let changed: Vec<String> = settings
             .iter()
@@ -864,9 +1117,10 @@ impl Customize {
         }
         let scan = tree::scan(self.roots())?;
         let mut in_the_way: Vec<_> = writes
-            .iter()
-            .filter(|(_, bytes)| bytes.is_some())
-            .filter_map(|(path, _)| tree::in_the_way(self.roots(), path, &scan.tree))
+            .keys()
+            // A removal too: a file on disk the scan kept no copy of (one
+            // edited past the size limit) is yours, never deleted unseen.
+            .filter_map(|path| tree::in_the_way(self.roots(), path, &scan.tree))
             .collect();
         let written: BTreeMap<String, Vec<u8>> = writes
             .iter()
@@ -888,6 +1142,9 @@ impl Customize {
             .into_iter()
             .filter(|problem| writes.contains_key(&problem.path))
             .collect();
+        // A refused value the person's file already holds stays as written;
+        // only what this change brings stops it.
+        let problems = validate::introduced(problems, &self.live_problems(writes.keys())?);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -915,11 +1172,22 @@ impl Customize {
             .filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)
             .chain(writes.iter().filter(|(path, _)| manifest_last(path)))
             .chain(writes.iter().filter(|(path, _)| *path == SETTINGS));
+        let absent = tree::absent_dirs(self.roots());
         for (path, bytes) in order {
             match bytes {
                 Some(bytes) => tree::write(self.roots(), path, bytes, false)?,
                 None => tree::remove(self.roots(), path)?,
             }
+        }
+        // A folder this made is the library's to take away again, and one it
+        // made before that is empty now goes: off leaves no empty folder.
+        for dir in absent.into_iter().filter(|dir| dir.is_dir()) {
+            if !library.base.made_dirs.contains(&dir) {
+                library.base.made_dirs.push(dir);
+            }
+        }
+        if writes.values().any(Option::is_none) {
+            library.base.made_dirs = tree::remove_empty_dirs(&library.base.made_dirs);
         }
         if web_moves {
             self.move_web(&mut library, web_will.as_deref())?;
@@ -987,10 +1255,11 @@ impl Customize {
             let new_text = read(text(new, SETTINGS)?);
             let (new_settings, _, _) = shareable_settings(&new_text);
             let old_file = jsonc::parse(&old_text).unwrap_or(Value::Null);
+            let had_file = old.contains_key(SETTINGS).then_some(&old_file);
             for (key, value) in new_settings {
                 let before = setting_value(&old_file, &key);
                 if before.as_ref() != Some(&value) {
-                    base.settings.insert(key.clone(), before);
+                    base.note_setting(&key, had_file);
                     profile.settings.insert(key, value);
                 }
             }
@@ -1013,6 +1282,16 @@ impl Customize {
                 },
                 None => None,
             };
+            // Shortcuts are kept one binding at a time: the entry holds the
+            // bindings this apply added or changed, not the person's own.
+            let now = if path == KEYBINDINGS {
+                match keys::added(before.as_deref().unwrap_or_default(), &now) {
+                    Some(added) => added,
+                    None => continue,
+                }
+            } else {
+                now
+            };
             base.files.insert(path.clone(), before);
             profile.files.insert(path.clone(), now);
         }
@@ -1024,6 +1303,27 @@ impl Customize {
 fn setting_value(file: &Value, key: &str) -> Option<Value> {
     let row = Schema::embedded().row(key)?;
     cmux_config::value::value_at(file, &row.path).cloned()
+}
+
+/// Settings text after the library took keys out of it: every object the
+/// library made that is empty now is taken out too, and the file itself
+/// (`None`) when the library made it and nothing of anyone's is left in it.
+fn prune_made(mut text: String, base: &Base) -> Option<String> {
+    let mut made: Vec<&Vec<String>> = base.made_objects.iter().collect();
+    made.sort_by_key(|path| std::cmp::Reverse(path.len()));
+    for path in made {
+        let Ok(file) = jsonc::parse(&text) else { break };
+        let empty = cmux_config::value::value_at(&file, path)
+            .is_some_and(|value| value.as_object().is_some_and(serde_json::Map::is_empty));
+        if empty && let Ok(pruned) = jsonc::remove(&text, path) {
+            text = pruned;
+        }
+    }
+    let solid = |text: &str| text.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let nothing_left = jsonc::parse(&text).is_ok_and(|file| file == Value::Object(Default::default()))
+        // A comment is the person's: the file stays.
+        && jsonc::strip(&text).is_ok_and(|strict| solid(&strict) == solid(&text));
+    if base.made_settings_file && nothing_left { None } else { Some(text) }
 }
 
 /// The highest entry that is on with a web part: the layer web-dev.json serves.
@@ -1075,7 +1375,29 @@ struct Stacked {
     files: BTreeMap<String, Option<String>>,
 }
 
-fn stacked(entries: &[Entry], base: &Base) -> Stacked {
+/// The winning binding of every key the entries that are on bind.
+fn binding_winners(entries: &[Entry]) -> Vec<(String, Value)> {
+    keys::winners(
+        entries
+            .iter()
+            .filter(|entry| entry.on)
+            .filter_map(|entry| entry.profile.files.get(KEYBINDINGS).map(String::as_str))
+            .collect::<Vec<_>>()
+            .into_iter(),
+    )
+}
+
+fn stacked(entries: &[Entry], base: &Base) -> Result<Stacked, Error> {
+    let mut stack = stacked_whole(entries, base);
+    if let Some(under) = base.files.get(KEYBINDINGS) {
+        let file = keys::compose(under.as_deref(), &binding_winners(entries))?;
+        stack.files.insert(KEYBINDINGS.to_owned(), file);
+    }
+    Ok(stack)
+}
+
+/// [`stacked`] with every file whole.
+fn stacked_whole(entries: &[Entry], base: &Base) -> Stacked {
     let settings = base
         .settings
         .iter()
@@ -1111,16 +1433,24 @@ fn referenced(entries: &[Entry]) -> (BTreeSet<String>, BTreeSet<String>) {
 
 fn listing(entries: &[Entry]) -> Listing {
     // Who sets what, among entries that are on, top first.
-    let mut setters: BTreeMap<(&'static str, &str), Vec<&str>> = BTreeMap::new();
+    let mut setters: BTreeMap<(&'static str, String), Vec<&str>> = BTreeMap::new();
     for entry in entries.iter().filter(|entry| entry.on) {
         for key in entry.profile.settings.keys() {
-            setters.entry(("setting", key.as_str())).or_default().push(entry.name());
+            setters.entry(("setting", key.clone())).or_default().push(entry.name());
         }
-        for path in entry.profile.files.keys() {
-            setters.entry(("file", path.as_str())).or_default().push(entry.name());
+        for (path, text) in &entry.profile.files {
+            if path == KEYBINDINGS {
+                // One binding at a time: two entries meet only on a key.
+                for (id, _) in keys::bindings(text) {
+                    let key = format!("{KEYBINDINGS} {id}");
+                    setters.entry(("binding", key)).or_default().push(entry.name());
+                }
+                continue;
+            }
+            setters.entry(("file", path.clone())).or_default().push(entry.name());
         }
         if entry.web_layer().is_some() {
-            setters.entry(("code", WEB_KEY)).or_default().push(entry.name());
+            setters.entry(("code", WEB_KEY.to_owned())).or_default().push(entry.name());
         }
     }
     let conflicts: Vec<Conflict> = setters
@@ -1129,7 +1459,7 @@ fn listing(entries: &[Entry]) -> Listing {
             let (winner, losers) = names.split_first()?;
             (!losers.is_empty()).then(|| Conflict {
                 kind,
-                key: (*key).to_owned(),
+                key: key.clone(),
                 winner: (*winner).to_owned(),
                 losers: losers.iter().map(|name| (*name).to_owned()).collect(),
             })
@@ -1156,6 +1486,7 @@ fn listing(entries: &[Entry]) -> Listing {
                 files: entry.profile.files.keys().cloned().collect(),
                 added_ms: entry.added_ms,
                 overridden,
+                until_ms: entry.until_ms.filter(|_| entry.on),
                 code: entry.code.clone(),
             }
         })
@@ -1173,4 +1504,13 @@ fn find<'a>(entries: &'a mut [Entry], name: &str) -> Result<&'a mut Entry, Error
         };
         Error::Library(format!("there is no library entry {name:?}; {hint}"))
     })
+}
+
+/// The names of the entries that are on (code entries left out).
+fn on_names(entries: &[Entry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|entry| entry.on && entry.code.is_none())
+        .map(|entry| entry.name().to_owned())
+        .collect()
 }

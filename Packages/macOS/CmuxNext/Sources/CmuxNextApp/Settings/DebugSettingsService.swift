@@ -15,6 +15,7 @@ import CmuxNextFloating
 import CmuxNextGitHubViewer
 import CmuxNextHistory
 import CmuxNextHomeModel
+import CmuxNextHostPressureTunables
 import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextMacScreen
@@ -40,7 +41,7 @@ enum TunableCatalog {
             + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
             + TitlebarHistoryTunables.all + CloudTunables.all
-            + HangFileTunables.all + HostPressureTunables.all + BrowserHostTunables.all + MacScreenTunables.all
+            + HangFileTunables.all + FocusLogTunables.all + HostPressureTunables.all + BrowserHostTunables.all + MacScreenTunables.all
     }
 }
 

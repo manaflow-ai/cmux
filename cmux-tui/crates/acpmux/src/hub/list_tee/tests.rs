@@ -578,6 +578,7 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -679,6 +680,7 @@ async fn start_saved_peers_loads_a_cache_file_before_opening_remote_reconciliati
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, dir.path()).unwrap();
@@ -720,6 +722,7 @@ async fn shutdown_before_saved_peers_start_does_not_open_remote_reconciliation()
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -745,14 +748,16 @@ async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
     v1.peers.lock().unwrap().insert("empty".into(), peer);
     let state = Arc::new(TeeState::default());
     v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
-
-    let send = |notice| async {
+    // As a link sends them: its `Connected` follows its `Listed`, which settles nothing.
+    use crate::peer::PeerNotice::{Connected, Disconnected, Listed};
+    let send = |notices: Vec<crate::peer::PeerNotice>| async {
         let mut settled = v1.peer("empty").unwrap().settled();
-        v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        for notice in notices {
+            v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        }
         settled.changed().await.unwrap();
     };
-
-    send(crate::peer::PeerNotice::Disconnected("reset".into())).await;
+    send(vec![Disconnected("reset".into())]).await;
     let first = state.take_origins(1);
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].0, "empty");
@@ -760,32 +765,30 @@ async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
     assert!(state.take_remote(1).is_empty(), "a drop with no rows emits no row mark");
 
     // A flap before the deadline gets a connected record and never a stale record.
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
-    send(crate::peer::PeerNotice::Disconnected("flap".into())).await;
+    send(vec![Disconnected("flap".into())]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
     tokio::time::advance(std::time::Duration::from_secs(9)).await;
     tokio::task::yield_now().await;
     assert!(state.take_origins(1).is_empty(), "a short flap does not become stale");
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
 
     // The next continuous outage emits stale exactly when its grace ends, even without rows.
-    send(crate::peer::PeerNotice::Disconnected("outage".into())).await;
+    send(vec![Disconnected("outage".into())]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
     tokio::time::advance(std::time::Duration::from_secs(10)).await;
     tokio::task::yield_now().await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Stale);
     assert!(state.take_remote(1).is_empty());
-
     // Failed retries after stale do not append another origin record.
     for _ in 0..10 {
-        send(crate::peer::PeerNotice::Disconnected("retry".into())).await;
+        send(vec![Disconnected("retry".into())]).await;
     }
     assert!(state.take_origins(1).is_empty());
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
-
     assert!(!state.has_pending());
 }
 
@@ -960,6 +963,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         admitted: false,
         after_turn: false,
         steer_on_start: false,
+        answer_due: None,
     };
     let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
     let mut waiting = Box::pin(v1.queue_slot(&child, slot, &mut accepted));
@@ -971,7 +975,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
     })
     .await;
     assert!(v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     assert_eq!(event.summary.chat_id, child.id);
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert_eq!(extra.get("waitsForSlot"), Some(&json!(true)));
@@ -982,7 +987,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().is_err()
     );
     assert!(!v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert!(!extra.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false));
     assert!(subscribed.receiver.try_next().is_none());

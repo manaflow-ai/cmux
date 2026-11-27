@@ -335,11 +335,9 @@ class ReuseProducts(TestProductHandoff):
             "agent-chat/server.ts",
             "agent-chat/src/components/Chat.tsx",
             "scripts/git-hooks/pre-commit",
-            "scripts/benchmark-dev-fleet-warm-slots.py",
             "scripts/check-pbxproj-group-membership.py",
             "scripts/check-pbxproj.sh",
             "scripts/check-test-determinism.py",
-            "scripts/dev-fleet-warm-slot.py",
             "scripts/install-git-hooks.sh",
             "scripts/merge-xcstrings.py",
             "scripts/normalize-pbxproj.py",
@@ -351,9 +349,8 @@ class ReuseProducts(TestProductHandoff):
         # Neighbours that the build does read stay product inputs.
         for path in (
             "scripts/build-diff-sidecar.sh",
-            "scripts/build-cmux-cua.sh",
             "scripts/setup.sh",
-            "skills/cmux-cua/SKILL.md",
+            "skills/cmux-computer-use/SKILL.md",
             ".gitattributes",
         ):
             self.assertTrue(identity.reaches_product(path), path)

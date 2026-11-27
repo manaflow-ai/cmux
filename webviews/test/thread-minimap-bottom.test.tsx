@@ -11,9 +11,11 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
-// Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that.
-setDefaultTimeout(60_000);
+// Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that, and
+// 40 to 60 s on a loaded machine. A test past its timeout skips its teardown, failing every one after.
+setDefaultTimeout(180_000);
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -135,6 +137,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
         />,
       ),
     );
+    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const rail = () => document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     const list = () => document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
@@ -208,6 +211,7 @@ for (const how of ["hover", "focus"] as const)
           />,
         ),
       );
+      await railFrame();
       const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
       const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       const rail = () => host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
@@ -287,6 +291,7 @@ async function pointerOnRail(sessionId: string) {
       />,
     ),
   );
+  await railFrame();
   const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
   const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
   const bottom = scroller.scrollTop;
@@ -397,21 +402,28 @@ function maskFades() {
       .filter((px) => px > 0);
   const top = values("--acpmux-fade-top");
   const bottom = values("--acpmux-fade-bottom");
-  return { top: Math.max(...top), bottom: Math.min(...bottom), jump: Math.max(...bottom) };
+  // No bottom band at all (Lucas, 2026-11-17: rows keep full ink down to the composer): 0 px.
+  return {
+    top: Math.max(...top),
+    bottom: bottom.length ? Math.min(...bottom) : 0,
+    jump: bottom.length ? Math.max(...bottom) : 0,
+  };
 }
 
 test("the rail keeps clear of the transcript's widest fades (the model reads the CSS's bands)", () => {
   const fades = maskFades();
   expect(fades.top).toBeGreaterThan(0);
-  expect(fades.bottom).toBeGreaterThan(0);
+  expect(fades.bottom).toBe(0);
   expect(TRANSCRIPT_FADE_TOP).toBeGreaterThanOrEqual(fades.top);
   expect(TRANSCRIPT_FADE_BOTTOM).toBe(fades.jump);
 });
 
-// The rail is inside the transcript, so the transcript's mask fades it too: 18 px under the top once
-// scrolled from the start, and 18 px above the foot while more lies below, including with Jump to latest.
+// The rail is inside the transcript, so the transcript's mask fades it too: 24 px under the top once
+// scrolled from the start. The foot has no band; the mask only cuts the rows under the stack.
 // In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
 // in those fades at every offset short of the chat's two ends.
+// About 590 scroll steps, each moving the list with the band as the app does: past the default
+// timeout on a loaded machine.
 test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
   const document = dom.window.document;
   viewport = 320;
@@ -435,6 +447,7 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
         />,
       ),
     );
+    await railFrame();
     const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
     const end = scroller.scrollTop;
     expect(end).toBeGreaterThan(0);
@@ -464,4 +477,4 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
     viewport = 600;
     scope.innerHeight = windowBefore;
   }
-});
+}, 180_000);

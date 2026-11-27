@@ -1,3 +1,4 @@
+package import CmuxNextBrowserCore
 package import CmuxNextCompat
 
 /// What the page says right before it freezes or hibernates.
@@ -7,8 +8,53 @@ package import CmuxNextCompat
 /// that asks, a WebRTC connection or an open device is never discarded, at any memory pressure. Chrome lets an urgent discard take a page with form
 /// interaction; cmux does not.
 package struct PageProbe: Hashable, Sendable {
+    /// What the tab's own media state says plays: its speaker (sound outside the document too, issue
+    /// 38062), media its mute silences (cx-d0d.24), or a video in Picture in Picture, which plays on in its
+    /// floating window, paused or muted alike.
+    package static func tabPlays(_ media: BrowserMediaState?, muted: Bool) -> Bool {
+        media.map { $0.isSounding || ($0.isPlaying && muted) || $0.isPictureInPicture } ?? false
+    }
+
+    /// A page that did not answer. It used to count as playing, so a page too busy to answer
+    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
+    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
+    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
+    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
+    package static func unanswered(media: BrowserMediaState?, muted: Bool) -> PageProbe {
+        PageProbe(playingMedia: tabPlays(media, muted: muted), mediaSession: resumable(media), mediaPlays: plays(media), answered: false)
+    }
+
+    /// The tab reports media that plays, muted or silent included, in any of its frames (``mediaPlays``).
+    package static func plays(_ media: BrowserMediaState?) -> Bool {
+        media?.isPlaying ?? false
+    }
+
+    /// The tab's media the person resumes from outside the page (``mediaSession``): an element that is not
+    /// muted, or one whose page handles `mediaSession` actions. A muted autoplay or ad video, or sound with no
+    /// element, is no session; while it plays, ``mediaPlays`` keeps the page from a freeze instead.
+    package static func resumable(_ media: BrowserMediaState?) -> Bool {
+        media.map { !$0.isSoundOnly && (!$0.isMuted || !$0.actions.isEmpty) } ?? false
+    }
+
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
     package var playingMedia = false
+    /// The tab reports media it can resume (``resumable(_:)``), paused too: the person resumes it from
+    /// macOS Now Playing, the media keys or the tab's media menu, and each of those runs in the page. A frozen
+    /// page runs none of them, so Play did nothing (https://github.com/manaflow-ai/cmux/issues/51079: a
+    /// paused open.spotify.com tab froze 30 s after it was hidden, and its music never came back). It keeps
+    /// the page from a freeze only; a discard ends the session with the page.
+    package var mediaSession = false
+    /// Media plays, muted or silent included: the tab's report from any of its frames (``plays(_:)``) or a playing
+    /// element in the top document. A freeze would pause it for good in Chromium: Blink pauses each playing media
+    /// element when its frame freezes and, since M140, never plays it again, so a muted live video (a canvas
+    /// `captureStream()`, a camera preview, a dashboard's stream) stayed paused after its tab showed (2026-11-25,
+    /// `scripts/cmux-next/hidden-video-thaw-live.py`). Chrome freezes a hidden tab only for Battery Saver or its
+    /// freezing votes; cmux freezes every hidden page after `browser.freezeHiddenTabs`, so a page whose media plays
+    /// stays awake, as in Chrome. Chromium pauses a hidden video-only or muted file video itself (`WebMediaPlayerImpl`,
+    /// `kPageHidden`) and plays it again when the tab shows, so such a page still freezes once paused; a MediaStream
+    /// video plays on. It keeps the page from a freeze only: a discard may still take it (Chrome's Memory Saver
+    /// keeps audible tabs, not muted ones).
+    package var mediaPlays = false
     /// The person's form edits in the tab's frames (`BrowserPageBusy.editedForm`).
     package var editedForm = false
     /// Camera, microphone or screen capture the page started (`BrowserPageBusy`).
@@ -35,10 +81,12 @@ package struct PageProbe: Hashable, Sendable {
     /// only what the tab reported on its own (`BrowserTabState.media`) is known.
     package var answered = true
 
-    package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
-                 beforeUnload: Bool = false, unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
-                 answered: Bool = true) {
+    package init(playingMedia: Bool = false, mediaSession: Bool = false, editedForm: Bool = false, mediaPlays: Bool = false, capturing: Bool = false,
+                 webAudio: Bool = false, beforeUnload: Bool = false, unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false,
+                 unreadableFrame: Bool = false, answered: Bool = true) {
         self.playingMedia = playingMedia
+        self.mediaSession = mediaSession
+        self.mediaPlays = mediaPlays
         self.editedForm = editedForm
         self.capturing = capturing
         self.webAudio = webAudio
@@ -63,8 +111,9 @@ package struct PageProbe: Hashable, Sendable {
     }
 
     /// The page does something a freeze stops (it keeps memory and state, so form input and a
-    /// `beforeunload` do not count).
-    package var stopsWhenFrozen: Bool { playingMedia || capturing || webAudio || webRTC || connectedDevice }
+    /// `beforeunload` do not count): media that plays, muted included (``mediaPlays``), or a media session the
+    /// person resumes from outside it.
+    package var stopsWhenFrozen: Bool { playingMedia || mediaPlays || mediaSession || capturing || webAudio || webRTC || connectedDevice }
 
     /// Why the probed page stays loaded now, or nil when it may hibernate.
     ///

@@ -10,12 +10,18 @@ started by every push, dispatches one `cmux-next base tier · <tip>` run of cmux
 cmux-next.yml's push paths name changed since the last base tier run. Its tip contains every landing
 before it, so each landing gets a base-tier run within WINDOW of landing.
 
+The checks job (god files, concurrency, crash safety, l10n) moved here too on 2026-11-22: about 9
+runner-minutes a push (workflow note-26). A base tier run checks every commit since the previous base
+tier run's tip, which `previous` prints, so a red still names its commit range.
+
 Never touched: the Release compile and its fleet fast check (nightly-next's input), the DEV landing
 compile, the DEV daily, the fast tier and every nightly, DEV or promote build. They still run per push.
 
     cmux_next_base_tier.py defer ROUTE_OUTPUT [--keep TIER]
                                                    path_route on a feat-cmux-next push: the router's
                                                    key=value outputs with the base tier's tiers off
+    cmux_next_base_tier.py previous --tip SHA      the checks job in a base tier run: the sha the
+                                                   base tier run before TIP's tested, or nothing
     cmux_next_base_tier.py kick [--window S]       cmux-next-base-tier-kick.yml: wait until the window
                                                    opens, then dispatch the base tier at the tip if due
 
@@ -44,6 +50,9 @@ base_red_excuse.py reads the newest base verdict, not a given commit's. With the
 (2026-10-31) base tier runs waited up to two hours and 682 of their 826 Mac minutes in a day started
 after a newer base tier run had been dispatched. A run whose Mac job had started when read is never
 cancelled, nor is anything that is not a base tier run (a nightly, DEV or promote build above all).
+A run whose Mac job waits for a Mac runner keeps its place in the Mac queue and is not cancelled either,
+and while one waits the kick dispatches nothing (KEEP_QUEUED; CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 turns
+that off). With a Mac queue wait longer than the window, cancelling queued runs meant none ever reached a Mac.
 Needs GH_TOKEN with actions: write and contents: read.
 """
 
@@ -70,7 +79,13 @@ WORKFLOW = "cmux-next.yml"
 TITLE = "cmux-next base tier · "
 # The tiers a feat-cmux-next push leaves to the base tier run (path_route outputs).
 TIERS = ("daemon", "scheme", "generated")
+# What a feat-cmux-next push leaves off outright: the scheduled tip Swift suite (tip_swift_suite, about once
+# an hour) runs every CmuxNext Swift target on the tip, which covers the canary's changed targets
+# (cmux-next.yml swift-canary, a Mac job per merge). Leo, 2026-11-21: "whatever we need to cut, we cut."
+TIP_SUITE_COVERED = {"swift_canary": "false", "swift_canary_targets": ""}
 WINDOW_S = 15 * 60
+# How long `previous` (the checks job's "Previous checked tip" step) may spend on its one listing.
+PREVIOUS_S = 60
 # After a dispatch: long enough that the next kick's listing shows the new run.
 SETTLE_S = 20
 # What a dispatch needs before the job's deadline: its POST, which the client ends at REQUEST_TIMEOUT_S
@@ -80,8 +95,9 @@ DISPATCH_RESERVE_S = REQUEST_TIMEOUT_S + SETTLE_S
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
 # The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
-# A base tier run where one of these has started (or finished) is never cancelled.
-MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)")
+# A base tier run where one of these has started (or finished) is never cancelled. generated-files is the
+# Mac fallback; "cmux-next generated files" is now generated-files-linux, a Linux job.
+MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files (Mac fallback)", "cmux app scheme compile (Debug)")
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -93,11 +109,21 @@ MARGIN_S = 2 * 60
 # dispatch, SETTLE_S and the cancels. A window that would leave less is not waited for.
 AFTER_WINDOW_S = DISPATCH_RESERVE_S + 30
 STARTED = time.monotonic()
+# Default on since 2026-11-22: a base tier run whose Mac job waits for a Mac runner keeps its place in the
+# Mac queue. It is never cancelled as superseded, and no run is dispatched while one waits, so a started
+# (or queued) generated-files job runs to its verdict. Before, a Mac queue wait longer than the 15-minute
+# window meant the next kick cancelled a run before any Mac took it (run 45053417691: its generated-files
+# job waited 12 minutes with no runner and the kick cancelled it at 18:25:18Z), and its replacement went
+# to the back of the Mac queue.
+# The repository variable CMUX_NEXT_BASE_TIER_KEEP_QUEUED = '0' (the kick's env) turns it off: queued
+# runs are superseded and cancelled again, as before.
+KEEP_QUEUED = os.environ.get("CMUX_NEXT_BASE_TIER_KEEP_QUEUED", "").strip() != "0"
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def defer(lines: list[str], keep: tuple[str, ...] = ()) -> list[str]:
-    """The router's key=value lines with TIERS (but KEEP) off, and base_tier=deferred when one was on."""
+    """The router's key=value lines with TIERS (but KEEP) and the tip-suite-covered canary off, and
+    base_tier=deferred when one of TIERS was on."""
     out, deferred = [], []
     for line in lines:
         key, sep, value = line.partition("=")
@@ -105,6 +131,8 @@ def defer(lines: list[str], keep: tuple[str, ...] = ()) -> list[str]:
             if value == "true":
                 deferred.append(key)
             line = f"{key}=false"
+        elif sep and key in TIP_SUITE_COVERED:
+            line = f"{key}={TIP_SUITE_COVERED[key]}"
         out.append(line)
     out.append(f"base_tier={'deferred' if deferred else 'none'}")
     out.append(f"base_tier_deferred={','.join(deferred)}")
@@ -129,7 +157,7 @@ def push_paths(workflow_text: str) -> list[str]:
             in_paths = line.strip() == "paths:"
             continue
         if in_paths and line.strip().startswith("- "):
-            out.append(line.strip()[2:].strip().strip("'\""))
+            out.append(re.split(r"\s+#", line.strip()[2:], maxsplit=1)[0].strip().strip("'\""))
     return out
 
 
@@ -184,20 +212,48 @@ def base_tier_runs(api: Api, repo: str) -> dict[str, float]:
     return firsts
 
 
-def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
-    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+def mac_state(api: Api, repo: str, run_id: int) -> str:
+    """Where the base tier run's Mac jobs are: "started" (one is running or has a verdict; anything
+    unreadable counts as started), "queued" (none started, one waits for a Mac runner) or "none" (no Mac
+    job yet, or every one skipped or cancelled)."""
     try:
         listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     except (RuntimeError, TimeoutError):  # TimeoutError: no full answer within the client's request bound
-        return True
+        return "started"
+    queued = False
     for job in listed.get("jobs") or []:
         if job.get("name") not in MAC_JOBS:
             continue
         if job.get("status") == "in_progress":
-            return True
+            return "started"
         if job.get("status") == "completed" and job.get("conclusion") not in ("skipped", "cancelled"):
-            return True
-    return False
+            return "started"
+        if job.get("status") in OPEN:
+            queued = True
+    return "queued" if queued else "none"
+
+
+def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
+    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+    return mac_state(api, repo, run_id) == "started"
+
+
+def waiting_in_mac_queue(api: Api, repo: str) -> tuple[int, str] | None:
+    """The open base tier run (id, sha) whose Mac jobs wait for a Mac runner with none started, or None.
+    A listing or job list that cannot be read holds nothing back (the dispatch goes ahead, as before)."""
+    try:
+        listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
+                         f"&event=workflow_dispatch&per_page=100")
+    except (RuntimeError, TimeoutError):
+        return None
+    for run in listed.get("workflow_runs") or []:
+        title = run.get("display_title") or run.get("name") or ""
+        sha = title[len(TITLE):].strip() if title.startswith(TITLE) else ""
+        run_id = run.get("id")
+        if SHA.match(sha) and isinstance(run_id, int) and run.get("status") in OPEN \
+                and mac_state(api, repo, run_id) == "queued":
+            return run_id, sha
+    return None
 
 
 def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], None] = print) -> list[int]:
@@ -227,8 +283,13 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
         if (sha in keep or at >= latest_at or not isinstance(run_id, int) or run.get("status") not in OPEN
                 or run.get("run_attempt", 1) != 1):
             continue
-        if mac_job_started(api, repo, run_id):
+        state = mac_state(api, repo, run_id)
+        if state == "started":
             log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
+            continue
+        if state == "queued" and KEEP_QUEUED:
+            log(f"base tier run {run_id} ({sha[:12]}) has a Mac job waiting for a Mac runner; it keeps its "
+                f"place in the Mac queue; left alone")
             continue
         # Posted right after that fresh job read. The client never retries a write after a wait (a
         # Mac job may have started by then); a cancel refused on the spent quota is left to the next kick.
@@ -283,6 +344,14 @@ def event_tip(env: dict[str, str]) -> str | None:
 def newest(firsts: dict[str, float]) -> tuple[str | None, float | None]:
     """The newest base tier run's sha and when it was created, or (None, None)."""
     return max(firsts.items(), key=lambda item: item[1]) if firsts else (None, None)
+
+
+def previous(firsts: dict[str, float], tip: str) -> str | None:
+    """The sha of the newest base tier run created before TIP's first one (TIP not listed: the newest other),
+    which is what TIP's base tier checks compare against (cmux-next.yml checks, "Previous checked tip")."""
+    before = firsts.get(tip, float("inf"))
+    earlier = {sha: at for sha, at in firsts.items() if sha != tip and at < before}
+    return newest(earlier)[0]
 
 
 def branch_tip(api: Api, repo: str) -> str:
@@ -394,6 +463,12 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
             continue
         if decided:
             break
+    # A run waiting in the Mac queue keeps its place (KEEP_QUEUED): no run is dispatched to replace it,
+    # so at most one base tier run waits for a Mac while the started ones run to their verdicts.
+    if KEEP_QUEUED and (held := waiting_in_mac_queue(api, repo)):
+        log(f"base tier run {held[0]} ({held[1][:12]}) waits for a Mac runner with no Mac job started; not "
+            f"dispatching {tip[:12]} to replace it; the first push's kick after its Mac jobs start dispatches")
+        return None
     # The settle is reserved before the dispatch, never skipped after it (Codex review of #40471): a
     # dispatch with no settle frees the kick's concurrency slot before GitHub lists the new run, and the
     # next kick, seconds later, finds no run at the tip and dispatches the same Mac work again.
@@ -434,6 +509,9 @@ def main(argv: list[str] | None = None) -> int:
     defer_cmd.add_argument("route_output", type=Path)
     defer_cmd.add_argument("--keep", action="append", choices=TIERS, default=[],
                            help="a tier the push still runs (scheme: it is the DEV landing build)")
+    previous_cmd = sub.add_parser("previous", help="print the tip the previous base tier run tested")
+    previous_cmd.add_argument("--tip", required=True)
+    previous_cmd.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", REPO))
     kick_cmd = sub.add_parser("kick")
     kick_cmd.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", REPO))
     kick_cmd.add_argument("--window", type=float, default=float(os.environ.get("BASE_TIER_WINDOW_S") or WINDOW_S))
@@ -447,6 +525,14 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("error: GH_TOKEN is not set", file=sys.stderr)
         return 2
+    if args.command == "previous":
+        try:
+            sha = previous(base_tier_runs(QuotaGitHub(token, deadline=Deadline(PREVIOUS_S)), args.repo), args.tip)
+        except Exception as error:  # noqa: BLE001  one line, no traceback: the caller runs without a range
+            print(f"error: could not read the previous base tier run: {error}", file=sys.stderr)
+            return 1
+        print(sha or "")
+        return 0
     patterns = push_paths(args.workflow_file.read_text(encoding="utf-8")) if args.workflow_file.is_file() else []
     # The job's one deadline, from when this process started; every wait below reads what is left of it.
     deadline = Deadline(JOB_TIMEOUT_S - MARGIN_S - (time.monotonic() - STARTED))

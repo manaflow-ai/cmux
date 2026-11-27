@@ -1525,7 +1525,8 @@
       "values": [
        "pty",
        "browser",
-       "conversation"
+       "conversation",
+       "remote-terminal"
       ]
      },
      "presence": "required",
@@ -1650,6 +1651,229 @@
      "presence": "optional",
      "nullable": true,
      "since": 12
+    },
+    "tab_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The tab's public id."
+    },
+    "terminal_state": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "running, reconnecting, failed or exited, for a terminal tab."
+    },
+    "host_record_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The record version of a terminal its host has but cannot adopt."
+    },
+    "group": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The tab group the tab is in."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The tab is pinned."
+    },
+    "pinned_url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A pinned browser tab's home URL."
+    },
+    "relaunch": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "How the tab relaunches after a restart."
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The terminal's working directory."
+    },
+    "git_branch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The git branch of cwd."
+    },
+    "git_detached": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "cwd's checkout has a detached HEAD."
+    },
+    "content_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The public id of what the tab shows."
+    },
+    "end": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "terminal-state-v1: why a dead terminal ended."
+    },
+    "attention": {
+     "type": {
+      "kind": "ref",
+      "name": "TabAttention"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "tab-attention-v1: an agent needs the person in this tab."
+    },
+    "conversation": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationTabRecord"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "What a conversation tab shows."
+    },
+    "browser_renderer": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "daemon",
+       "frontend"
+      ]
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Who renders a browser tab."
+    },
+    "browser_engine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A frontend browser's engine."
+    },
+    "favicon_url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A frontend browser's favicon."
+    },
+    "browser_profile_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A frontend browser's profile."
+    },
+    "browser_owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The frontend that owns the browser."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A browser tab's URL."
+    },
+    "app": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "app-screens-v1: the app (and route) an app tab shows."
+    },
+    "remote": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "A remote terminal tab's record."
     }
    },
    "additional_properties": false
@@ -1714,6 +1938,29 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The pane's public id."
+    },
+    "tab_groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TabGroupRun"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The pane's tab group runs."
     }
    },
    "additional_properties": false
@@ -1828,6 +2075,125 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen's public id."
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen color."
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen icon."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The screen is pinned."
+    },
+    "group": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen group the screen is in."
+    },
+    "viewport_splits": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ViewportSplitWidth"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "Viewport widths of splits."
+    },
+    "viewport_base_width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The viewport width the split widths are relative to."
+    },
+    "hidden_dividers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "split-divider-visibility-v1: splits whose divider is hidden."
+    },
+    "columns": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LayoutColumnNode"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The screen's layout columns."
+    },
+    "floating": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "floating-panes-v1: panes above the tiled layout, back to front."
+    },
+    "quick_terminal": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "quick-terminal-v1: the screen's quick terminal."
     }
    },
    "additional_properties": false
@@ -1923,6 +2289,143 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace's public id."
+    },
+    "group": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The sidebar group the workspace is in."
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace color."
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace icon."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace title."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The workspace is pinned."
+    },
+    "marked_unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The person marked the workspace unread."
+    },
+    "keep_awake": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "workspace-keep-awake-v1: the freeing timer never ends this workspace's shells."
+    },
+    "kind": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "normal",
+       "home",
+       "app"
+      ]
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "What the workspace is."
+    },
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The app an app workspace shows."
+    },
+    "recovered": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "workspace-recovered-v1: every tab is a recovered terminal."
+    },
+    "unread_count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "Tabs with an unread notification."
+    },
+    "screen_groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ScreenGroupRun"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The workspace's screen group runs."
     }
    },
    "additional_properties": false
@@ -2027,6 +2530,123 @@
      "constraints": [
       "With limit: the number of workspaces in the session."
      ]
+    },
+    "next": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-page-v1",
+     "constraints": [
+      "With limit: the after of the next page, on every page that is not the last."
+     ]
+    },
+    "delta": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+     ]
+    },
+    "epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+     ]
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "Only in replies to a request with since. Send it back in since."
+     ]
+    },
+    "changed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Workspace"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+     ]
+    },
+    "removed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta: the ids of the workspaces no longer in the tree."
+     ]
+    },
+    "order": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta, when the order of the workspaces changed: every id, in the tree's order."
+     ]
+    },
+    "groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "WorkspaceGroup"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The sidebar workspace groups."
+    },
+    "lines_written_before_read": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks."
     }
    },
    "additional_properties": false
@@ -2089,6 +2709,34 @@
      "default": null,
      "constraints": [
       "Opaque; from the tree_revision of the last whole tree."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ListWorkspacesSince": {
+   "kind": "object",
+   "fields": {
+    "epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Opaque; the epoch of the last reply applied (\"\" when none)."
+     ]
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The seq of the last reply applied (0 when none)."
      ]
     }
    },
@@ -2241,6 +2889,28 @@
       "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
      ]
     },
+    "api_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The newest dated API version this daemon serves (YYYY-MM-DD; cmux-tui/spec/api-versioning.md). Only with identify {revisions: true}."
+     ]
+    },
+    "min_api_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The oldest dated API version this daemon still serves for a client that pins it with set-client-info api_version. Only with identify {revisions: true}."
+     ]
+    },
     "install": {
      "type": {
       "kind": "scalar",
@@ -2384,6 +3054,18 @@
      "default": true,
      "since": 12
     },
+    "restore": {
+     "type": {
+      "kind": "ref",
+      "name": "IdentifyRestore"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "constraints": [
+      "Only with identify {restore_progress: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+     ]
+    },
     "launch_snapshot_path": {
      "type": {
       "kind": "scalar",
@@ -2465,6 +3147,67 @@
      "capability": "machine-identity-v1",
      "constraints": [
       "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "IdentifyRestore": {
+   "kind": "object",
+   "fields": {
+    "phase": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The restore step running now: registry_open, schema, migrations, integrity, snapshot, agent_roster, mux_build, browsers, host_adoption, reconcile or finish. Clients show an unknown name as is."
+     ]
+    },
+    "done": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Units of the phase done (agent_roster: journal rows folded); null when the phase does not count."
+     ]
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Units of the phase in all; null when unknown."
+     ]
+    },
+    "elapsed_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Milliseconds since the owner bound its socket and began the restore."
+     ]
+    },
+    "last_advance_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "When the restore last advanced (a new phase or a new done count), in milliseconds since it began."
      ]
     }
    },
@@ -3777,6 +4520,17 @@
      "nullable": false,
      "since": 12,
      "capability": "terminal-public-ids-v1"
+    },
+    "transaction": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "tab-create-place-v1",
+     "description": "The transaction of a new-tab request, when it sent one."
     }
    },
    "additional_properties": false
@@ -4199,6 +4953,30 @@
      },
      "presence": "required",
      "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ReleaseWorkspaceNamesResult": {
+   "kind": "object",
+   "fields": {
+    "released": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Workspace names this call handed back to the automatic namer."
+    },
+    "still_pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "User-owned names left pinned: a row renamed between the read and its release."
     }
    },
    "additional_properties": false
@@ -5781,6 +6559,16 @@
      "presence": "required",
      "nullable": false
     },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab."
+    },
     "state": {
      "type": {
       "kind": "ref",
@@ -6796,6 +7584,7 @@
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
     "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "disk.checkpoints is present only when the request names both disk and disk_checkpoints in include.",
     "commands is present only when the request names it in include.",
     "journal_followers is present only when the request names it in include."
    ]
@@ -7725,6 +8514,56 @@
     "Sealed journal segments by codec; kinds lists at most 16 kinds by the number of segments that hold them."
    ]
   },
+  "ServerStatsDiskCheckpoints": {
+   "kind": "object",
+   "fields": {
+    "checkpoints": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "largest_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "budget_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "over_budget": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "checkpoints counts the rows of the registry's journal_checkpoints table; bytes sums each row's id, state and content references plus 96 bytes, and largest_bytes is the largest row.",
+    "budget_bytes is the daemon's checkpoint disk budget: the newest 16 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each; over_budget is true when bytes exceeds it."
+   ]
+  },
   "ServerStatsDisk": {
    "kind": "object",
    "fields": {
@@ -7819,6 +8658,15 @@
      "presence": "required",
      "nullable": true
     },
+    "checkpoints": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDiskCheckpoints"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "error": {
      "type": {
       "kind": "scalar",
@@ -7832,7 +8680,8 @@
    "constraints": [
     "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-    "journal and segments are null when the registry could not be read, and error says why.",
+    "journal and segments are null when the registry could not be read, and error says why; so is checkpoints when present.",
+    "checkpoints is present only when the request's include also names disk_checkpoints; older daemons never send it.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
    ]
   },
@@ -7991,6 +8840,20 @@
    "kind": "object",
    "fields": {
     "opened": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "PhoneLinkOfferResult": {
+   "kind": "object",
+   "fields": {
+    "offered": {
      "type": {
       "kind": "scalar",
       "name": "boolean"
@@ -9977,6 +10840,14 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false
@@ -10071,6 +10942,65 @@
     }
    },
    "additional_properties": false
+  },
+  "TabPlace": {
+   "kind": "object",
+   "fields": {
+    "after": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Right after this tab of pane."
+    },
+    "after_creation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet."
+    },
+    "before": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Right before this tab of pane."
+    },
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "true: the first tab after the pinned tabs."
+    },
+    "joins": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Exactly one of after, after_creation, before and start:true."
+   ]
   },
   "ConversationTabRecord": {
    "kind": "object",
@@ -10240,6 +11170,36 @@
      },
      "presence": "required",
      "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "RemoteHostAppPermissions": {
+   "kind": "object",
+   "fields": {
+    "screen_recording": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "CGPreflightScreenCaptureAccess() in the cmux app."
+     ]
+    },
+    "accessibility": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "AXIsProcessTrusted() in the cmux app."
+     ]
     }
    },
    "additional_properties": false
@@ -10446,6 +11406,16 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "tab-group-icon-v1: the group's icon string."
     }
    },
    "additional_properties": true
@@ -10827,6 +11797,30 @@
      },
      "presence": "required",
      "nullable": true
+    },
+    "last_person_attach_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_input_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
     }
    },
    "additional_properties": false,
@@ -10835,6 +11829,8 @@
     "live_agents counts agents whose state is working or blocked.",
     "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
     "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+    "last_person_attach_at_ms is the wall-clock time a person's client (tui, web, mac or frontend) last attached; absent from daemons without the vm-activity-echo-v1 capability, null until the first.",
+    "echo_input_at_ms and echo_at_ms pair the first person input after that attach with the first terminal output that followed it on the same terminal (input-to-echo timing); null until measured, reset by the next person attach.",
     "Times and counts only: no content and no surface ids."
    ]
   },
@@ -11543,6 +12539,291 @@
     }
    },
    "additional_properties": false
+  },
+  "SetClientInfoResult": {
+   "kind": "object",
+   "fields": {
+    "api_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "The dated API version that serves this connection (YYYY-MM-DD). Only when the request sent api_version."
+     ]
+    },
+    "api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "The numbered revision behind api_version. Only when the request sent api_version."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "TabAttention": {
+   "kind": "object",
+   "fields": {
+    "reason": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Why the tab needs the person."
+    },
+    "at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "When it was marked, in Unix milliseconds."
+    }
+   },
+   "additional_properties": false
+  },
+  "ScreenGroupRun": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "saved_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The index of the run's first screen."
+    },
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "screens": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "WorkspaceGroup": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ViewportSplitWidth": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutRowNode": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "height": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "layout": {
+     "type": {
+      "kind": "ref",
+      "name": "Layout"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutColumnNode": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "layout": {
+     "type": {
+      "kind": "ref",
+      "name": "Layout"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "dock": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "dock-columns-v1: the viewport edge the column is pinned to."
+    },
+    "rows": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LayoutRowNode"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "rows-v1: only for a column with two or more rows."
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -11609,7 +12890,20 @@
       "nullable": false,
       "since": 12,
       "constraints": [
-       "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+       "Adds api_revision, min_api_revision, api_version, min_api_version, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
+     },
+     "restore_progress": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "Answered while the owner restores its session too, at once, with lifecycle_ready false, placeholder session fields (registry_id and generation empty, revisions 0) and restore. Without it a restoring owner holds the request until the restore ends. A ready owner ignores it."
       ]
      }
     },
@@ -11767,6 +13061,19 @@
        "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
       ]
      },
+     "api_version": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "A dated API version, YYYY-MM-DD (for example 2026-11-24). The daemon serves the newest revision dated on or before it and answers with api_version and api_revision; a date before min_api_version is refused; with api_revision too, both must name the same revision. Absent: unchanged behaviour. Promise: cmux-tui/spec/api-versioning.md."
+      ]
+     },
      "version": {
       "type": {
        "kind": "scalar",
@@ -11812,7 +13119,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "EmptyResult"
+    "name": "SetClientInfoResult"
    },
    "stream": null,
    "constraints": []
@@ -12103,7 +13410,34 @@
       "since": 12,
       "capability": "list-workspaces-limit-v1",
       "constraints": [
-       "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+       "Only the first limit workspaces in sidebar order, with total, and at most 64 KiB of rows (at least one row). A reply with fewer than total workspaces has no tree_revision."
+      ]
+     },
+     "after": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-page-v1",
+      "constraints": [
+       "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
+      ]
+     },
+     "since": {
+      "type": {
+       "kind": "ref",
+       "name": "ListWorkspacesSince"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-list-delta-v1",
+      "constraints": [
+       "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
       ]
      }
     },
@@ -12269,6 +13603,35 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "flush-launch-snapshot": {
+   "authority": "control",
+   "since": 12,
+   "capability": "launch-snapshot-flush-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "flushed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Writes the launch snapshot (launch-snapshot-v1) now, with no settle, max delay or byte-budget wait, and answers once it landed or after 1 s: flushed is true when the file holds the session's state as of the request (written now, or already the same), false when the session has no launch snapshot writer, the write failed or the wait passed (the write still happens).",
+    "The daemon writes the same way on its own when a connection that wrote a native frontend projection closes (a quit, force quit, crash or kill of the app); a client sends this when it wants the answer. Other changes keep the settled timing."
+   ]
   },
   "export-layout": {
    "authority": "control",
@@ -12458,6 +13821,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-key-v1"
      }
     },
     "additional_properties": false,
@@ -12465,7 +13838,8 @@
      "When both are present, UTF-8 text bytes precede decoded bytes.",
      "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
      "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
-     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
+     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request.",
+     "key (send-key-v1) is 1 to 128 bytes: a send whose key the daemon already applied (within 10 minutes, among its last 1024 keys) returns the same success and writes nothing; a send refused with nothing written forgets its key."
     ]
    },
    "result": {
@@ -12641,6 +14015,107 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only; row indexes are snapshot-relative and not durable."
+   ]
+  },
+  "terminal-find": {
+   "authority": "control",
+   "since": 7,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "query": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Empty matches nothing."
+     },
+     "case_sensitive": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "whole_word": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "regex": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "query is a Rust regex pattern, not a literal."
+     },
+     "before": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Marker the page ends above (exclusive): the previous page's next_before."
+     },
+     "epoch": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The previous page's epoch; a different one restarts at the bottom."
+     },
+     "page_rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "max_matches": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       {
+        "minimum": 1,
+        "maximum": 10000
+       }
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "PTY surfaces only; matches newest first, named by history marker (spec/commands.md terminal-find)."
    ]
   },
   "wait-for": {
@@ -13778,6 +15253,30 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "place": {
+      "type": {
+       "kind": "ref",
+       "name": "TabPlace"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-create-place-v1",
+      "description": "Where the tab goes in the strip of pane. Needs pane."
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-create-place-v1",
+      "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation."
      }
     },
     "additional_properties": false,
@@ -13949,6 +15448,16 @@
       "default": null,
       "capability": "workspace-first-tab-v1",
       "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
+     },
+     "name_source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace."
      },
      "origin": {
       "type": {
@@ -16982,6 +18491,24 @@
     "Provider-managed workspaces reject this ordinary mutation."
    ]
   },
+  "release-workspace-names": {
+   "authority": "control",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ReleaseWorkspaceNamesResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Idempotent: a second call releases nothing."
+   ]
+  },
   "resize-surface": {
    "authority": "control",
    "since": 5,
@@ -18573,6 +20100,26 @@
       "default": null,
       "capability": "attach-output-coalesce-v1"
      },
+     "hybrid_stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "agent-cli-hybrid-v1"
+     },
+     "hybrid_frame": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "agent-cli-hybrid-v1"
+     },
      "snapshot": {
       "type": {
        "kind": "scalar",
@@ -18622,6 +20169,36 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-snapshot-v1"
+     },
+     "resume_offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-v1"
+     },
+     "resume_generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-v1"
+     },
+     "resume_max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-bounded-v1"
      }
     },
     "additional_properties": false,
@@ -18639,6 +20216,8 @@
    "stream": {
     "kind": "attach",
     "event_names": [
+     "agent-cli-frame",
+     "agent-cli-lean",
      "browser-state",
      "colors-changed",
      "detached",
@@ -18656,6 +20235,8 @@
     "modes": {
      "bytes": [
       "vt-state",
+      "agent-cli-frame",
+      "agent-cli-lean",
       "output",
       "resized",
       "colors-changed",
@@ -18687,7 +20268,8 @@
     "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
     "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
     "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
-    "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once."
+    "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once.",
+    "A connection that declared agent-cli-hybrid-v1 in set-client-info gets a bytes attach (no snapshot) of a terminal whose agent report names claude, codex or opencode as colors-changed, then agent-cli-frame events instead of vt-state and output: a keyframe (base null), or with hybrid_stream and hybrid_frame naming a stream the daemon still keeps at the same size, one delta from that frame; then at most one frame per 100 ms while the screen changes. resized becomes a keyframe at the new size. hybrid_stream and hybrid_frame go together; without the capability they are ignored. With agent-cli-hybrid-v2 declared too, each frame goes as an agent-cli-lean event instead (the same frames in the lean form)."
    ]
   },
   "register-browser-provider": {
@@ -18874,6 +20456,20 @@
       "constraints": [
        "true when a replacement daemon follows (`server restart`), false when the session stops (`server stop`). The daemon repeats it as `restart` on the daemon-shutdown event; omit it (or send null) when unknown."
       ]
+     },
+     "if_idle": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "daemon-stop-if-idle-v1",
+      "constraints": [
+       "Stop only while no other client is connected and no terminal is launching, adopting or running; otherwise refuse with error_code daemon_busy, error_details {clients:[{client,name,kind}],terminals}, and keep serving. Checked under the handoff reservation, which refuses new clients, so none can start work between the check and the stop."
+      ]
      }
     },
     "additional_properties": false
@@ -18890,7 +20486,8 @@
     "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
     "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
     "The daemon exits only after the success response is queued.",
-    "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
+    "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop.",
+    "Clients must require daemon-stop-if-idle-v1 before sending if_idle:true: an older daemon ignores the field and stops."
    ]
   },
   "pairing-response": {
@@ -19112,6 +20709,19 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "restore_progress": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "While the owner restores its session: refused at once with error_code server.restoring and error_details {lifecycle_ready: false, restore}, instead of held until the restore ends. A ready owner ignores it."
+      ]
      }
     },
     "additional_properties": false
@@ -19123,7 +20733,26 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers, and disk_checkpoints, which adds checkpoints to disk); unknown names are ignored."
+   ]
+  },
+  "process-census": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "process-census-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; read-only, never journaled.",
+    "Hosts are classified from records, leases and session guards, never from process arguments. See spec/commands.md."
    ]
   },
   "paste-image": {
@@ -19373,6 +21002,41 @@
    "stream": null,
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ]
+  },
+  "offer-link-to-phone": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "PhoneLinkOfferResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Unix connection of this Mac's own app only (never a remote device). HTTP(S) only. Sends one phone-open-link control event to the phone that drives the terminal when its last key into it came from that phone within two minutes, a connection of that phone that declared phone-open-link-v1 is attached to it, and the address is public; otherwise offered is false and nothing happens. No resource or journal mutation; the URL is never logged."
    ]
   },
   "terminal-clipboard-subscribe": {
@@ -19819,6 +21483,17 @@
       "default": null,
       "capability": "conversation-tab-split-v1",
       "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction."
+     },
+     "place": {
+      "type": {
+       "kind": "ref",
+       "name": "TabPlace"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-create-place-v1",
+      "description": "Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split."
      }
     },
     "additional_properties": false
@@ -20097,6 +21772,28 @@
       "default": null,
       "capability": "frontend-browser-tab-split-v1",
       "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after."
+     },
+     "place": {
+      "type": {
+       "kind": "ref",
+       "name": "TabPlace"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-create-place-v1",
+      "description": "Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split."
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-create-place-v1",
+      "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split."
      }
     },
     "additional_properties": false
@@ -21312,6 +23009,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "stats": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "true: the reply also carries agent_notice_stats."
      }
     },
     "additional_properties": false
@@ -21696,6 +23403,17 @@
       "default": null,
       "since": 12,
       "capability": "notification-mark-unread-v1"
+     },
+     "keep_awake": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-keep-awake-v1"
      },
      "origin": {
       "type": {
@@ -24181,6 +25899,14 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "op_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -24236,6 +25962,115 @@
     "Trusted local connections only. op is {kind:\"inbox.pin\", pinned, position?} or {kind:\"inbox.mark_unread\", unread}; it sets the caller's own list state of a conversation it takes part in (not_participant, unknown_conversation), never a conversation op (no rev). position is at most 2^53-2. See spec/commands.md."
    ]
   },
+  "conversation-scheduled-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-scheduled-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "scheduled": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only, never the remote relay. The caller's own Send Later messages (waiting or failed), earliest first; of one conversation when conversation is set. See spec/commands.md."
+   ]
+  },
+  "conversation-scheduled-op": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-scheduled-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "op": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "scheduled": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "removed": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "rev": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "change": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only, never the remote relay. op is {kind:\"scheduled.create\", conversation, send_at_ms, send} (send is a message.send op), {kind:\"scheduled.update\", id, send_at_ms?, parts?}, {kind:\"scheduled.cancel\", id} or {kind:\"scheduled.send_now\", id}, on the caller's own messages only. Rejects use error_code schedule_rejected (unknown_scheduled, too_late, too_many, not_a_send) or conversation_rejected. See spec/commands.md."
+   ]
+  },
   "home-inbox": {
    "authority": "local-admin",
    "since": 12,
@@ -24250,6 +26085,49 @@
         "kind": "scalar",
         "name": "string"
        }
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "since": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
       },
       "presence": "optional",
       "nullable": true
@@ -24285,6 +26163,65 @@
        "name": "string"
       },
       "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "full": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "removed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "total": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "order": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "window": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
       "nullable": false
      }
     },
@@ -25371,6 +27308,163 @@
    "since": 12,
    "stream": null
   },
+  "float-pane": {
+   "authority": "control",
+   "since": 12,
+   "capability": "floating-panes-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mode": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "x": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "y": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "w": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "h": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "mode is \"toggle\", \"on\" or \"off\" (default \"toggle\"). x, y, w and h are the frame as fractions of the screen's pane area: all four or none.",
+    "A screen keeps at least one tiled pane. A pane of a stack, of a docked column or of a column with rows does not float.",
+    "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
+   ]
+  },
+  "quick-terminal": {
+   "authority": "control",
+   "since": 12,
+   "capability": "quick-terminal-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "screen": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mode": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "x": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "y": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "w": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "h": {
+      "type": {
+       "kind": "scalar",
+       "name": "float64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "mode is \"toggle\", \"show\" or \"hide\" (default \"toggle\"). x, y, w and h are the frame of a quick terminal that the request makes, as fractions of the screen's pane area: all four or none.",
+    "A workspace has one quick terminal or none. A hide closes nothing: the pane keeps its terminal and its entry of Screen.floating.",
+    "See spec/commands.md for the result object and error codes."
+   ]
+  },
   "cloud-session-set": {
    "authority": "local-admin",
    "since": 12,
@@ -26377,6 +28471,14 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "app_permissions": {
+      "type": {
+       "kind": "ref",
+       "name": "RemoteHostAppPermissions"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -26388,7 +28490,8 @@
    "stream": null,
    "constraints": [
     "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-    "The verified app connection only; the daemon saves the switches and starts or stops the host."
+    "The verified app connection only; the daemon saves the switches and starts or stops the host.",
+    "app_permissions is the app's own Screen Recording and Accessibility: kept in memory only and shown as remote-host-status app.permissions; a call with no switch set never saves, starts or stops anything."
    ]
   },
   "remote-host-app": {
@@ -26408,6 +28511,164 @@
    "constraints": [
     "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
     "The verified app connection only; the secret admits only that app process and is never logged or journaled."
+   ]
+  },
+  "computer-use-endpoint": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "computer-use-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+    "Answers {state: ready, socket, secret, pid} or {state: starting|off|unavailable, reason}; starts the worker when needed and waits up to 10 s.",
+    "Local Unix connections of this user only (never a page, WebSocket or remote peer); the secret is never logged or journaled."
+   ]
+  },
+  "computer-use-config": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "computer-use-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "config": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+    "config is a Computer Use PolicyConfig (camelCase: mode, deniedApps, allowOwnMachines, pauseOnTakeover, allowForeground, showCursor, cloudVm).",
+    "The verified app connection only (origin.forbidden otherwise); the machine owner's computer-use.json still wins."
+   ]
+  },
+  "computer-use-approvals": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "computer-use-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "action": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "app_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "id": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "answer": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+    "action: list, forget, always, never, revoke_sessions, or answer (id, answer: allow_once, allow_session, always, deny, never).",
+    "Lowering trust (forget, never, revoke_sessions, a deny answer) is open to any local Unix connection; always and allowing answers are the verified app's only. Pending questions are listed only to the verified app."
+   ]
+  },
+  "device-setup": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "device-setup-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "device": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "A device id, name or address, as `cmux device list` shows it."
+     },
+     "verb": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "setup (every step) or start (reach, login item and start)."
+     },
+     "allow_agents": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Turn on the agents permission (the person's click in the app)."
+     },
+     "dry_run": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+    "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
+    "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
    ]
   },
   "subscribe-activity": {
@@ -27446,7 +29707,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+    "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps every step (no count cap). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
    ]
   },
   "conversation-runs": {
@@ -28628,6 +30889,16 @@
       "presence": "required",
       "nullable": false
      },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab."
+     },
      "state": {
       "type": {
        "kind": "ref",
@@ -29039,6 +31310,40 @@
       },
       "presence": "required",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "client-disconnected-by": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "client-disconnected-by"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "by": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeDetachActor"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "The participant that disconnected this client. Absent when the request named nobody."
+      ]
      }
     },
     "additional_properties": false
@@ -29813,6 +32118,146 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "agent-cli-frame": {
+   "since": 12,
+   "capability": "agent-cli-hybrid-v1",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-cli-frame"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "base": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "cols": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cursor_x": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cursor_y": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cursor_visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "agent-cli-lean": {
+   "since": 12,
+   "capability": "agent-cli-hybrid-v2",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-cli-lean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "f": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -31059,6 +33504,16 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1)."
      }
     },
     "additional_properties": false
@@ -31977,6 +34432,106 @@
     "additional_properties": false
    }
   },
+  "phone-open-link": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "phone-open-link"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "device-setup-step": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "device-setup-step"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "device": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "step": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "detail": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "fix": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "terminal-clipboard-read": {
    "since": 12,
    "capability": "terminal-clipboard-read-v1",
@@ -32813,6 +35368,36 @@
     "additional_properties": false
    }
   },
+  "agent-session-share-changed": {
+   "since": 12,
+   "capability": "agent-session-share-events-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-session-share-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "conversation-draft": {
    "since": 12,
    "capability": "conversation-draft-events-v1",
@@ -32915,6 +35500,60 @@
        "name": "boolean"
       },
       "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "conversation-scheduled-changed": {
+   "since": 12,
+   "capability": "conversation-scheduled-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-scheduled-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "scheduled": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "removed": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
       "nullable": false
      }
     },
@@ -33748,6 +36387,59 @@
      }
     },
     "additional_properties": false
+   }
+  },
+  "apps-cloud-machine": {
+   "since": 12,
+   "capability": "apps-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "apps-cloud-machine"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kind": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "record",
+        "live",
+        "lost"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "record": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the verified app connection whose apps-machine-state-watch names this machine; nothing is sent after that connection's list replaces or drops it. record (kind record only) is the platform's machine record. No bearer or raw frame."
+    ]
    }
   }
  }

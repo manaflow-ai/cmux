@@ -39,9 +39,30 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_transcript_page {key, cwd?, before?, metadataOnly?}` reads up to 32 terminal
+//!   agent turns ending at a byte offset (the newest page by default). The response carries
+//!   `pageEnd`, an older `before` cursor or null, and folded tool titles. A metadata-only read
+//!   returns the key and dates without paging. Shortened rows supply UTF-8 offsets in `promptMore`
+//!   or `answerMore`. Pass their `pageEnd` as `before` with `turn`, `role` (user or assistant), and
+//!   `offset` for a bounded continuation `{text, nextOffset}` (null at the end of the message).
+//!   `rawRanges: [{start,end,position}]` covers any complete JSONL source that spans the read cap.
+//!   Positions are before or after the ordinary turns. Send the page's `before` cursor and
+//!   `completeThrough` forward when paging older. To expand a range, send `before: pageEnd`,
+//!   `completeThrough`, `rawStart`, `rawEnd`, and absolute UTF-8 byte `rawOffset`; the result
+//!   is `{text,nextOffset}`, at most 64 KiB. End offsets are exclusive.
+//! - `_acpmux/chat_transcript_find {key, cwd?, query, before?}` searches one bounded slice;
+//!   `hits` supplies a page offset and turn index for each matching row, and `before` continues
+//!   the search through older pages, including after an empty slice. Raw source hits use
+//!   `role: "raw"` and `rawStart,rawEnd,rawOffset,completeThrough` instead of a turn index.
+//!   These search rendered JSONL source literally (ASCII case-insensitive), including across
+//!   chunks. JSON escape sequences are matched as written on disk.
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
+//! - `_acpmux/chats_warm {chat?}`: `cmux chats warm`: every cold log segment of the chat, or of
+//!   every chat, back to a plain `.ndjson` (`hub/cold_segments.rs`). Refused while
+//!   `agents.chats.coldSegments` is on. `{chats, segments, rawBytes, compressedBytes, left,
+//!   skipped}`: `left` names each segment that stays cold and why (nothing is removed).
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
@@ -62,9 +83,15 @@
 
 mod ledger;
 mod offers;
+mod scorecard;
 mod search;
 mod stats;
 mod team_audit;
+mod transcript;
+mod transcript_index;
+mod transcript_preview;
+mod transcript_raw;
+pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -75,12 +102,11 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
-use crate::chats::{
-    ChatQuery, ChatService, activity_change, change_value, changes_activity, transcript_turns,
-};
+use crate::chats::{ChatQuery, ChatService, change_value, changes_activity, transcript_turns};
 use crate::heap_future::heap;
 use crate::hub::Hub;
 use crate::hub::HubEvent;
+use crate::hub::chat_activity::activity_change;
 use crate::rpc::{Message, RpcError};
 
 const PREFIX: &str = "_acpmux/chat";
@@ -97,11 +123,41 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
+    // (`perf_trace.rs`): no store, no peer.
+    if m == crate::perf_trace::METHOD_SPANS {
+        return Ok(crate::perf_trace::record_client_spans(&params));
+    }
+    if m == crate::perf_trace::METHOD_STATUS {
+        return Ok(
+            serde_json::json!({"enabled": crate::perf_trace::enabled(), "now_us": crate::perf_trace::now_us()}),
+        );
+    }
     hub.prepare_store_request(m, &params).await;
+    // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
+    if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
+        return super::remote_guard::owner_phone_changed(hub, conn, &params).await;
+    }
+    // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
+    if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::consent_grant::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // Agent byte channels: listen, unlisten, open (`channels.rs`).
+    if let Some(reply) = super::channels::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
+    if let Some(reply) = super::machine_join_ssh::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     #[cfg(feature = "hub-carrier")]
@@ -109,6 +165,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::vault::dispatch(conn, m).await {
+        return reply;
+    }
+    if let Some(reply) = super::share_host::dispatch(conn, m) {
         return reply;
     }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
@@ -160,11 +219,24 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    // The machine's GitHub poller (`github_prs.rs`, `pr_poller.rs`).
+    if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::surgery::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
     if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = super::agent_home::dispatch(conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
@@ -185,6 +257,11 @@ pub(super) async fn route(
         if conn.origin != Origin::Local {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
+        // A move's finish may carry the owner's login for the chat's agent (`transfer_in.rs`),
+        // taken as `session/new` takes one: never from an agent's own connection.
+        if params.get(crate::agent_credentials::FIELD).is_some() {
+            crate::agent_credentials::admit(true, conn.caller())?;
+        }
         return heap(|| hub.transfer_request(m, &params)).await;
     }
     // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.
@@ -194,6 +271,14 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_SCORECARD {
+        return scorecard::handle(hub, conn.origin, &params).await;
+    }
+    // Replay of recorded logs against RFD 0161's invariants (`scorecard_replay.rs`): local only.
+    if m == crate::rpc::method::MUX_SCORECARD_REPLAY {
+        return scorecard::replay(hub, conn.origin, &params).await;
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
@@ -209,8 +294,11 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TEAM_AUDIT {
         return team_audit::handle(conn.origin, &params).await;
     }
-    // A chat's route (`routes.rs`) is a session method, not the chat index.
-    if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
+    // A chat's route (`routes.rs`) and its move (`auto_gate.rs`) are session methods, not the
+    // chat index.
+    let of_a_session =
+        matches!(m, crate::rpc::method::MUX_CHAT_ROUTE_SET | crate::rpc::method::MUX_CHAT_MOVE);
+    if !m.starts_with(PREFIX) || of_a_session {
         return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {
@@ -231,6 +319,10 @@ pub(super) async fn route(
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
+            // A chats watch hears every chat's activity (`push_activity`), attached or not.
+            if on {
+                conn.interest.hear_activity();
+            }
             if let Some(service) = &service {
                 if !on {
                     service.watch_off(&conn.id);
@@ -262,6 +354,25 @@ pub(super) async fn route(
         }
         // The chats whose prompts or answers hold the words (`chats/search.rs`).
         "_acpmux/chats_search" => search::handle(hub, service, &params).await,
+        "_acpmux/chats_warm" => {
+            // A `chat` that is there but not a string names no chat: refused, never every chat
+            // (#43562 review F2).
+            let chat = match params.get("chat") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(chat)) => Some(chat.clone()),
+                Some(other) => {
+                    return Err(RpcError::invalid_params(format!(
+                        "chat must be a chat id, not {other}"
+                    )));
+                }
+            };
+            let hub = hub.clone();
+            blocking(move || {
+                hub.warm_cold_segments(chat.as_deref())
+                    .map_err(|e| RpcError::invalid_params(format!("{e:#}")))
+            })
+            .await
+        }
         "_acpmux/chat_roots" => match service {
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),
@@ -329,6 +440,9 @@ pub(super) async fn route(
             })
             .await
         }
+        transcript::PAGE | transcript::FIND => {
+            heap(|| transcript::handle(hub, service, m, &params)).await
+        }
         // A chat's past turns from its harness's store, read now and never kept: for a chat with
         // no ACP resume (cx-5esm), and a Claude Code or Codex chat shown before it is adopted.
         "_acpmux/chat_transcript" => {
@@ -384,6 +498,11 @@ pub(super) async fn route(
                 (name.to_owned(), profile.clone())
             };
             let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
+            crate::fork_spec::log(
+                &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::TerminalChat),
+                id,
+                &forked,
+            );
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
@@ -452,6 +571,7 @@ pub(super) async fn route(
             hub.apply_full_access_push(forced).await;
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
+            hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -588,7 +708,7 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
         || {
             hub.resolve(&ev.session_id)
                 .ok()
-                .and_then(|session| crate::chats::session_chat_key(&session))
+                .and_then(|session| crate::hub::chat_activity::session_chat_key(&session))
                 .map(|key| crate::chats::key_text(&key))
         },
         // Read now, after the record: the newest session of the chat decides its fold.
@@ -613,11 +733,46 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     hub.watch_take_over(&s, if_live).await
 }
 
-/// `_acpmux/release_to_watch {sessionId}`: once idle, the chat's harness stops and the chat
-/// watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
-pub(super) async fn release_to_watch(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+/// `_acpmux/release_to_watch {sessionId, terminalPid?}`: once idle, the chat's harness stops and
+/// the chat watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
+/// `terminalPid` is the process that runs the conversation next (`acpmux resume-here`, which
+/// becomes the harness): the chat's prompts go into it. It binds only when it is the caller itself
+/// over this machine's unix socket, by the pid the kernel gave at accept. Any other `terminalPid`
+/// (a pid the kernel did not give: a Windows pipe, a credential read that failed, an in-process
+/// caller; another process's pid; a remote origin) is refused whole (`watch.terminal_unverified`):
+/// nothing is released and nothing bound, so a caller never hands a chat to a process it only names.
+pub(super) async fn release_to_watch(
+    hub: &Arc<Hub>,
+    params: &Value,
+    origin: super::Origin,
+    socket_peer: crate::sender_harness::SocketPeer,
+) -> Result<Value, RpcError> {
+    use crate::sender_harness::SocketPeer;
     let s = hub.resolve(super::session_key(params)?)?;
-    hub.release_to_watch(&s).await
+    // Write to a chat a terminal runs off (the default): `terminalPid` is not read at all, and the
+    // chat becomes a View Only watch as before.
+    let named = params.get("terminalPid").filter(|v| !v.is_null() && hub.terminal_chat_writable());
+    let terminal = match named {
+        None => None,
+        Some(named) => {
+            let named = named.as_u64().and_then(|p| u32::try_from(p).ok());
+            match (named, origin, socket_peer) {
+                (Some(named), super::Origin::Local, SocketPeer::Pid(pid)) if named == pid => {
+                    Some(pid)
+                }
+                _ => return Err(terminal_unverified()),
+            }
+        }
+    };
+    hub.release_to_watch(&s, terminal).await
+}
+
+/// A `terminalPid` the daemon cannot prove is its caller's own (`release_to_watch`).
+fn terminal_unverified() -> RpcError {
+    RpcError::invalid_params(
+        "a chat is handed to a terminal only by that terminal's own process over this machine's unix socket",
+    )
+    .with_data(json!({"reason": "watch.terminal_unverified"}))
 }
 
 #[cfg(test)]

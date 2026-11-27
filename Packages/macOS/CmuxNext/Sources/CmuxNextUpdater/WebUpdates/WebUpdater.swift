@@ -1,3 +1,5 @@
+public import CmuxEgress
+import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 import Observation
@@ -89,10 +91,26 @@ public final class WebUpdater {
     /// reloaded at their safe points (``pruneUnused()``).
     @ObservationIgnored public var served: () -> [URL] = { [] }
     /// Whether cmux is in the front: checks come every ``interval`` there and every
-    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
+    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in). Both are
+    /// a minute today; the split stays so a later cost reading can widen the background one alone.
     @ObservationIgnored public var foreground = true
+    /// A check ended, whatever it took: the app reads the channel's switch file of web pieces
+    /// then (cmux-tui/crates/cmux-web-pieces), with the state the check left.
+    @ObservationIgnored public var onChecked: () -> Void = {}
+    /// Whether the channel's switch file of web pieces refuses an update, asked before a new one
+    /// is downloaded and made active (the app asks `cmux app web-pieces refused`; the decision is
+    /// Rust's). A refused update is never served. Default: none is.
+    @ObservationIgnored public var refuses: @MainActor (WebUpdatePointer) async -> Bool = { _ in false }
+    /// Fetches a new update's tree by `cas/1` (RFD 0166) before the archive: only the chunks the
+    /// kept trees lack, by Range GETs on the published pack (`cmux app web-cas fetch`; every
+    /// decision and id check is Rust's, cmux-tui/crates/cmux-cas). Nil (the default, and while
+    /// `updates.webCas` is off): the archive only. Any miss, failure or tree that does not match
+    /// the signed pointer falls back to the archive in the same check.
+    @ObservationIgnored public var casFetch: CasFetch?
+    /// How the last new update's tree was fetched (`updates.web.status` `last_fetch`).
+    public private(set) var lastFetch: FetchOutcome?
 
-    let store: WebUpdateStore
+    public let store: WebUpdateStore
     public let app: App
     let keys: WebUpdateKeys
     let base: URL
@@ -102,18 +120,24 @@ public final class WebUpdater {
     /// read with its ETag (a 304 while unchanged), the archive is fetched only for a new update.
     let interval: Duration
     /// Between scheduled checks while cmux is behind other apps. A swap there runs once cmux has
-    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets:
-    /// at 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25),
-    /// past the five minutes Leo asked for. Each check is a small pointer read (a 304 while
-    /// unchanged), so every two minutes stays quiet.
+    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets: at
+    /// 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25); at 120 s
+    /// the read alone could add two minutes to merge-to-visible, and cmux sits behind other apps
+    /// most of the day (Leo, 2026-11-22: "this should've been fast"). Each check is one conditional
+    /// GET of an 844-byte pointer (a header-only 304 while unchanged, never the archive), so a
+    /// minute in both states is 60 small reads an hour per running app: a constant cost that does
+    /// not grow with pages, merges or uptime.
     let backgroundInterval: Duration
-    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(120)
+    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(60)
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
+    /// The launch check's removal of the trees it no longer serves, started after its answer;
+    /// every check and channel change waits for it too, so none unpacks or prunes beside it.
+    @ObservationIgnored private var launchPrune: Task<Void, Never>?
     /// The last state write queued (a check keeping its update, a roll back, a channel's return to
     /// the bundled web): each waits for the one before, so none saves over another.
     @ObservationIgnored private var writing: Task<Void, Never>?
@@ -128,7 +152,7 @@ public final class WebUpdater {
     public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(60), backgroundInterval: Duration = WebUpdater.defaultBackgroundInterval,
                 clock: any Clock<Duration> = ContinuousClock(),
-                fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
+                fetch: @escaping Fetch = { try await CmuxEgress.shared(site: "CmuxNextUpdater.WebUpdater").data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
         self.app = app
@@ -152,13 +176,28 @@ public final class WebUpdater {
             let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
             self?.launchVersion = tree == nil ? nil : state.active
+            if tree == nil {
+                // Every page's first request waits for this answer, not for the removal: after an
+                // app update that shipped newer web it is the kept trees, about 900 files each.
+                // task-owner: the launch prune, kept so checks and channel changes await it
+                self?.launchPrune = Task { await Self.prune(store, keeping: state.keptKeys) }
+            }
             return tree
         }
         launch = task
         return await task.value
     }
 
-    /// `channel` is the followed `updates.web` (nil before it is read: any kept update).
+    /// The launch check and the removal it started: a check or a channel change waits for both
+    /// before it unpacks, saves or prunes.
+    func launchSettled() async {
+        _ = await launchTree()
+        await launchPrune?.value
+    }
+
+    /// `channel` is the followed `updates.web` (nil before it is read: any kept update). Forgets the
+    /// kept update it does not serve but leaves its trees on disk: ``launchTree()`` removes them
+    /// after the answer.
     @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App, channel: Channel? = nil) async -> (URL?, WebUpdateState) {
         var state = store.readState()
         guard let active = state.active else { return (nil, state) }
@@ -171,7 +210,6 @@ public final class WebUpdater {
         state.active = nil
         state.previous = nil
         try? store.write(state)
-        store.prune(keeping: [])
         return (nil, state)
     }
 
@@ -186,7 +224,7 @@ public final class WebUpdater {
         nextCheck.cancel()
         // The launch check, then at most one state write, after the writes queued before it.
         _ = enqueue { [weak self] in
-            _ = await self?.launchTree()
+            await self?.launchSettled()
             guard let self, self.channel == channel, let active = state.active,
                   channel == .off || active.channel != channel.rawValue else { return }
             try await serve(nil, refusingActive: false)
@@ -210,7 +248,7 @@ public final class WebUpdater {
         Task { await check() }
     }
 
-    /// cmux went behind other apps: the check booked a minute out moves to ``backgroundInterval``
+    /// cmux went behind other apps: the check booked ``interval`` out moves to ``backgroundInterval``
     /// after the last one.
     public func noteBackground() {
         foreground = false
@@ -229,7 +267,7 @@ public final class WebUpdater {
         await writing?.value
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
-        _ = await launchTree()
+        await launchSettled()
         let channel = channel, follows = follows
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back; a
@@ -239,6 +277,7 @@ public final class WebUpdater {
                 let next = foreground ? interval : backgroundInterval
                 nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
+            onChecked()
         }
         do {
             guard let fresh = try await newPointer() else {
@@ -253,25 +292,44 @@ public final class WebUpdater {
                 if self.channel == channel { etag = tag }
                 throw error
             }
-            phase = .downloading
-            var request = URLRequest(url: pointer.archiveURL(base: base))
-            request.allowsConstrainedNetworkAccess = allowsConstrained
-            request.allowsExpensiveNetworkAccess = allowsExpensive
-            let file: URL
-            do {
-                file = try await download(request)
-            } catch {
-                throw WebUpdateRefusal.transfer(error.localizedDescription)
+            // Refused by the switch file: never downloaded or made active, so no page loads it
+            // before the pieces read would roll it back. Asked again when the pointer changes.
+            if await refuses(pointer) {
+                if self.channel == channel { etag = tag }
+                throw WebUpdateRefusal.refusedBySwitchFile
             }
-            defer { try? FileManager.default.removeItem(at: file) }
+            phase = .downloading
             let tree: URL
-            do {
-                tree = try await store.install(archive: file, pointer: pointer)
-            } catch {
-                // An archive that does not match its signed pointer stays wrong: not again until
-                // the pointer changes.
-                if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
-                throw error
+            let cas = await treeByCas(pointer)
+            if case .tree(let fetched) = cas {
+                tree = fetched
+            } else {
+                // Off or another channel since the cas attempt: no archive for a pointer this check no longer serves.
+                guard self.channel == channel else {
+                    phase = .idle
+                    return
+                }
+                var request = URLRequest(url: pointer.archiveURL(base: base))
+                request.allowsConstrainedNetworkAccess = allowsConstrained
+                request.allowsExpensiveNetworkAccess = allowsExpensive
+                let file: URL
+                do {
+                    file = try await download(request)
+                } catch {
+                    throw WebUpdateRefusal.transfer(error.localizedDescription)
+                }
+                do {
+                    tree = try await store.install(archive: file, pointer: pointer)
+                    await Self.removeStaging([file])
+                } catch {
+                    await Self.removeStaging([file])
+                    // An archive that does not match its signed pointer stays wrong: not again until
+                    // the pointer changes.
+                    if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
+                    throw error
+                }
+                let casMiss: String? = if case .miss(let why) = cas { why } else { nil }
+                lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: casMiss, archiveBytes: pointer.size)
             }
             // Kept after the state writes queued during the download (a channel change).
             try await enqueue { [self] in
@@ -301,7 +359,8 @@ public final class WebUpdater {
             }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
-            phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
+            phase = refusal == .notNewer || refusal == .refusedBySwitchFile || Self.isAppTooOld(refusal)
+                ? .idle : .failed(String(describing: refusal))
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -395,6 +454,108 @@ public final class WebUpdater {
         store.prune(keeping: keys)
     }
 
+    /// One `cas/1` fetch: the pointer's manifest and pack under `base`, the trees already on disk
+    /// to reuse chunks from, a chunk store for this fetch only, and the folder to assemble into
+    /// (which does not exist yet).
+    nonisolated public struct CasRequest: Sendable, Equatable {
+        public var manifest: String
+        public var pack: String
+        public var base: URL
+        public var have: [URL]
+        public var chunks: URL
+        public var out: URL
+        public var allowsConstrained: Bool
+        public var allowsExpensive: Bool
+    }
+
+    /// What `cmux app web-cas fetch` reported (its one JSON line).
+    nonisolated public struct CasReport: Sendable, Equatable, Decodable {
+        public var treeBytes: Int
+        public var chunks: Int
+        public var reused: Int
+        public var ranges: Int
+        public var rangeBytes: Int
+        public var metaBytes: Int
+
+        nonisolated enum CodingKeys: String, CodingKey {
+            case chunks, reused, ranges
+            case treeBytes = "tree_bytes", rangeBytes = "range_bytes", metaBytes = "meta_bytes"
+        }
+
+        public init(treeBytes: Int, chunks: Int, reused: Int, ranges: Int, rangeBytes: Int, metaBytes: Int) {
+            self.treeBytes = treeBytes
+            self.chunks = chunks
+            self.reused = reused
+            self.ranges = ranges
+            self.rangeBytes = rangeBytes
+            self.metaBytes = metaBytes
+        }
+
+        /// The last line of the CLI's output, when it is the report.
+        public static func parse(_ output: Data) -> CasReport? {
+            guard let line = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).last else { return nil }
+            return try? JSONDecoder().decode(CasReport.self, from: Data(line.utf8))
+        }
+    }
+
+    /// Runs one fetch: the report, or why it did not finish (the archive is taken then).
+    public typealias CasFetch = @Sendable (CasRequest) async -> Result<CasReport, CasMiss>
+
+    nonisolated public struct CasMiss: Error, Sendable, Equatable {
+        public var reason: String
+        public init(_ reason: String) { self.reason = reason }
+    }
+
+    /// How a new update's tree came: by `cas/1` (with its report), or the archive (and why `cas/1`
+    /// was not used, when it was tried).
+    nonisolated public struct FetchOutcome: Sendable, Equatable {
+        nonisolated public enum By: String, Sendable { case cas, archive }
+        public var key: String
+        public var by: By
+        public var cas: CasReport?
+        public var casMiss: String?
+        public var archiveBytes: Int
+    }
+
+    /// How a cas/1 attempt ended: a tree, a miss (the archive is fetched; recorded in ``lastFetch``
+    /// only once the archive is installed), or none tried.
+    enum CasAttempt { case tree(URL), miss(String), none }
+
+    /// The tree of `pointer` by `cas/1`, kept as `trees/<key>`, or why not.
+    func treeByCas(_ pointer: WebUpdatePointer) async -> CasAttempt {
+        guard let casFetch, let cas = pointer.cas, let casBase = pointer.casBase(base: base) else { return .none }
+        let casStore = store
+        let held = [state.active, state.previous].compactMap { $0 }.filter { $0.key != pointer.key }
+        let have = await Self.existingTrees(held.map { casStore.tree(for: $0.key).root })
+        let staging = casStore.casStaging()
+        let out = staging.tree, chunks = staging.chunks
+        let request = CasRequest(manifest: cas.manifest, pack: cas.pack, base: casBase, have: have, chunks: chunks, out: out,
+                                 allowsConstrained: allowsConstrained, allowsExpensive: allowsExpensive)
+        let report: CasReport
+        switch await casFetch(request) {
+        case .success(let got): report = got
+        case .failure(let failure):
+            await Self.removeStaging([out, chunks])
+            return .miss(failure.reason)
+        }
+        await Self.removeStaging([chunks])
+        do {
+            let tree = try await casStore.install(tree: out, pointer: pointer)
+            lastFetch = FetchOutcome(key: pointer.key, by: .cas, cas: report, archiveBytes: pointer.size)
+            return .tree(tree)
+        } catch {
+            return .miss("tree: \(error)")
+        }
+    }
+
+    @concurrent nonisolated static func removeStaging(_ folders: [URL]) async {
+        for folder in folders { try? FileManager.checked.removeItem(at: folder) }
+    }
+
+    @concurrent nonisolated static func existingTrees(_ trees: [URL]) async -> [URL] {
+        trees.filter { FileManager.checked.fileExists(atPath: $0.path) }
+    }
+
     /// Whether an install refusal is about the published archive itself (so trying again cannot
     /// help), not this machine (a full disk, an unreadable file).
     static func isLasting(_ refusal: WebUpdateRefusal) -> Bool {
@@ -409,7 +570,7 @@ public final class WebUpdater {
 
     /// Downloads to a temporary file the caller removes.
     @concurrent public nonisolated static func downloadToFile(_ request: URLRequest) async throws -> URL {
-        let (file, response) = try await URLSession.shared.download(for: request)
+        let (file, response) = try await CmuxEgress.shared(site: "CmuxNextUpdater.WebUpdater").download(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             try? FileManager.default.removeItem(at: file)
             throw WebUpdateRefusal.transfer("archive status \((response as? HTTPURLResponse)?.statusCode ?? 0)")

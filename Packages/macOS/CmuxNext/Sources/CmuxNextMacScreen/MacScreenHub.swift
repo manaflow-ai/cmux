@@ -35,8 +35,9 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
     case notFound
     /// This device is not signed in to the hub.
     case notSignedIn
-    /// Anything else (a transport failure, a server error).
-    case other
+    /// Anything else (a transport failure, a server error, a code this build does not know),
+    /// with the hub's own words when it gave any: the card says them, never only "could not start".
+    case other(reason: String?)
 
     /// Whether Try Again makes sense: not for a device that left the user's devices.
     public var canRetry: Bool { self != .notFound }
@@ -51,14 +52,30 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
         case .some(.notFound), .some(.deviceRemoved): self = .notFound
         case .some(.unauthorized): self = .notSignedIn
         default:
-            if case .notSignedIn = error { self = .notSignedIn } else if case .notConfigured = error { self = .notSignedIn } else { self = .other }
+            if case .notSignedIn = error { self = .notSignedIn } else if case .notConfigured = error { self = .notSignedIn } else {
+                self = .other(reason: Self.reason(error))
+            }
         }
+    }
+
+    /// The hub's words for a refusal this build has no card of its own for: the server's
+    /// message (else its code), the HTTP status, or the transport's own error; nil when
+    /// there is nothing to say.
+    public static func reason(_ error: DeviceHubError) -> String? {
+        let text: String = switch error {
+        case let .server(_, code, message): message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? code.rawValue : message
+        case let .http(status): "HTTP \(status)"
+        case let .transport(detail), let .decoding(detail), let .identity(detail): detail
+        case .notConfigured, .notSignedIn: ""
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
 /// A viewer tab's progress with the hub, before and around the stream.
 public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
-    /// Restored, opened by automation, or ended: the Connect card (View / Control).
+    /// Restored, opened by automation that waits for the person, or ended: the Connect card (View / Control).
     case idle
     /// The request is on its way.
     case requesting(SessionScope)
@@ -128,6 +145,10 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
     case expired
     /// The hub could not set up the session the host approved.
     case approveFailed
+    /// The host's join consent did not allow a device the hub did not admit as the person's own.
+    case consentRequired
+    /// The share moved (to another viewer or another host): a new session replaced this one.
+    case moved
     case other
 
     public init(_ reason: String?) {
@@ -141,11 +162,23 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case "viewer_disconnected", "tab_closed": self = .viewerDisconnected
         case let text where text.hasPrefix("signed_out"): self = .signedOut
         case let text where text.hasPrefix("peer_offline"): self = .peerOffline
-        case "failed": self = .failed
+        case let text where Self.failureDetail(text) != nil: self = .failed
         case "expired": self = .expired
         case "approve_failed": self = .approveFailed
+        case "consent_required": self = .consentRequired
+        case "moved": self = .moved
         default: self = .other
         }
+    }
+
+    /// A `failed` end's detail: `""` for a bare `failed`, the host's reason for `failed: <reason>`
+    /// (cmux-hub-host `failed_reason`, which the acpmux share host and the Linux host send, and
+    /// this app's ``MacScreenHubReason/failure(_:)``); nil for every other reason.
+    public static func failureDetail(_ reason: String?) -> String? {
+        guard let reason else { return nil }
+        if reason == "failed" { return "" }
+        guard reason.hasPrefix("failed:") else { return nil }
+        return reason.dropFirst("failed:".count).trimmingCharacters(in: .whitespaces)
     }
 
     /// Whether Connect Again makes sense: not for a device that left the user's devices.
@@ -153,6 +186,18 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         switch self {
         case .hostRemoved, .viewerRemoved, .deviceRemoved: false
         default: true
+        }
+    }
+
+    /// Whether the pane asks again on its own (``MacScreenPaneModel/retriesOnItsOwn(_:)``): the stream failed, the host
+    /// dropped off the hub, quit or signed out, or the hub could not start an approved session. Not a person's own end
+    /// (Disconnect, the host's Stop or Mac Screen off, a share that moved), an expired Ask (asking again prompts the
+    /// host's person), a consent or a removal.
+    var retriesOnItsOwn: Bool {
+        switch self {
+        case .failed, .peerOffline, .signedOut, .approveFailed, .other: true
+        case .permissionRevoked, .accessChanged, .viewerRemoved, .hostRemoved, .deviceRemoved, .sharingOff, .hostStopped,
+             .viewerDisconnected, .expired, .consentRequired, .moved: false
         }
     }
 
@@ -178,8 +223,10 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .signedOut: L.t("macScreen.hub.reason.signedOutOrQuit", "A Mac in this session signed out of cmux or quit it.")
         case .peerOffline: String(format: L.t("macScreen.hub.reason.offline", "%@ went offline."), host)
         case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
-        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start. Try again."), host)
+        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start."), host)
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
+        case .consentRequired: String(format: L.t("macScreen.hub.reason.consentRequired", "%@ hasn’t allowed screen sharing from this device."), host)
+        case .moved: L.t("macScreen.hub.reason.moved", "Screen sharing moved to another device.")
         case .other: L.t("macScreen.hub.reason.other", "The session ended.")
         }
     }
@@ -196,6 +243,28 @@ public nonisolated enum MacScreenHubReason: String, Sendable {
     case replaced
     /// The stream could not start.
     case failed
+    /// This Mac's join consent does not allow the session (a device the hub did not admit as the person's own).
+    case consentRequired = "consent_required"
+
+    /// The hub keeps an `/end` reason up to this many UTF-16 units (it cuts a longer one).
+    static let hubReasonLimit = 100
+
+    /// `failed: <why>` for a session this Mac could not serve as the host, so the viewer's card
+    /// says why (``MacScreenEndReason/failureDetail(_:)``); the same text cmux-hub-host's
+    /// `failed_reason` sends: one line, a leading `failed:` not doubled, cut to the hub's limit.
+    static func failure(_ why: String) -> String {
+        var why = why.components(separatedBy: .newlines).joined(separator: " ")
+            .filter { !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
+            .trimmingCharacters(in: .whitespaces)
+        while why.hasPrefix("failed:") { why = why.dropFirst("failed:".count).trimmingCharacters(in: .whitespaces) }
+        guard !why.isEmpty else { return failed.rawValue }
+        var out = "\(failed.rawValue): "
+        for character in why {
+            guard out.utf16.count + String(character).utf16.count <= hubReasonLimit else { break }
+            out.append(character)
+        }
+        return out.trimmingCharacters(in: .whitespaces)
+    }
 }
 
 /// The host's answers to a request (the approval prompt's buttons).
@@ -281,11 +350,17 @@ extension SessionScope {
     }
 }
 
-/// The device hub as the home page observes it (``MacScreenPages/hub`` is a plain property).
+/// The device hub as views and action reasons observe it (``MacScreenPages/hub`` reads and writes it).
 @MainActor @Observable
 final class MacScreenHubBox {
     var hub: DeviceHub?
-    var configured = false
+    /// The hub address is valid. True until `DeviceHubService` reads an address that is not:
+    /// a launch that has not read it yet, a sign-out or a restore never reads as a bad address.
+    var configured = true
+    /// The saved sign-in is still being restored (``MacScreenPages/hubRestoring``).
+    var restoring = false
+    /// Signed in, and the hub for that account is still starting (``MacScreenPages/hubConnecting``).
+    var connecting = false
     var startupError: String?
     var startupMessage: String? {
         guard startupError != nil else { return nil }

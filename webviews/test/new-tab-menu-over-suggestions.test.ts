@@ -11,6 +11,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -104,8 +105,34 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
               ? null
               : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className} (${hit?.textContent?.trim().slice(0, 24)}; ${height.toFixed(1)}px over)`;
           })
-          .filter(Boolean);
-        return { overlapping: overlapping.length, misses };
+          .filter((miss): miss is string => miss !== null);
+        // Where the menu's box covers the suggestions, a press there lands on the menu, rows or not: the
+        // model menu that opens down (Threads, Cards) heads its lists with its search row, and the
+        // suggestions band, one row tall since the starter rows went (3a3e861f3ef), can end above its
+        // first row.
+        const box = menu.getBoundingClientRect();
+        const cover = {
+          top: Math.max(box.top, suggestions.top),
+          bottom: Math.min(box.bottom, suggestions.bottom),
+          left: Math.max(box.left, suggestions.left),
+          right: Math.min(box.right, suggestions.right),
+        };
+        const covers = cover.bottom > cover.top && cover.right > cover.left;
+        if (covers) {
+          const hit = document.elementFromPoint((cover.left + cover.right) / 2, (cover.top + cover.bottom) / 2);
+          if (!menu.contains(hit))
+            misses.push(
+              `the menu's box over the suggestions -> ${hit?.className} (${hit?.textContent?.trim().slice(0, 24)})`,
+            );
+        }
+        const edges = (box: DOMRect) => [box.top, box.bottom].map(Math.round);
+        // Where each was drawn, so a run with no overlap says why.
+        const where = {
+          menu: edges(menu.getBoundingClientRect()),
+          side: menu.dataset.side,
+          suggestions: edges(suggestions),
+        };
+        return { overlapping: overlapping.length, covers, misses, where };
       },
       { menuSelector, rowSelector },
     );
@@ -116,7 +143,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       name: "model",
       query: "",
       height: 720,
-      button: ".acpmux-model .acpmux-picker-button",
+      button: MODEL_PICKER,
       menu: ".acpmux-cols",
       rows: "[role=option], [role=radio], [role=switch]",
     },
@@ -171,7 +198,15 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
     const page = await openPage("?reported&template=cards", 720);
     await suggest(page);
     const result = await page.evaluate(() => {
-      const foot = document.querySelector(".nt-foot")!.getBoundingClientRect();
+      // Since #44476 the suggestions hang from the chips' drawn labels, not the quiet row's box: the
+      // gap under the labels mirrors the one over them (suggestionsAnchor.ts), so the list may cover
+      // the row's bottom padding but never a label.
+      const labels = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
+        ),
+      ].filter((label) => label.getBoundingClientRect().height > 0 && getComputedStyle(label).visibility === "visible");
+      const foot = { bottom: Math.max(...labels.map((label) => label.getBoundingClientRect().bottom)) };
       const suggestions = document.querySelector(".nt-popover")!.getBoundingClientRect();
       const chips = [...document.querySelectorAll<HTMLElement>(".nt-foot button")].filter(
         (chip) => chip.getBoundingClientRect().width > 0,
@@ -183,10 +218,11 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
           return chip.contains(hit) ? null : `${chip.className} -> ${hit?.className}`;
         })
         .filter(Boolean);
-      return { gap: suggestions.top - foot.bottom, chips: chips.length, hidden };
+      return { gap: suggestions.top - foot.bottom, labels: labels.length, chips: chips.length, hidden };
     });
     console.log("Cards suggestions under the quiet row", JSON.stringify(result));
     expect(result.chips).toBeGreaterThan(0);
+    expect(result.labels).toBeGreaterThan(0);
     expect(result.gap).toBeGreaterThanOrEqual(0);
     expect(result.hidden).toEqual([]);
     await page.close();
@@ -199,7 +235,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       await page.locator(button).first().click();
       const result = await covered(page, menu, rows);
       console.log(`${name} menu over suggestions`, JSON.stringify(result));
-      if (mustOverlap) expect(result.overlapping).toBeGreaterThan(0);
+      if (mustOverlap) expect(result.covers).toBe(true);
       expect(result.misses).toEqual([]);
       await page.close();
     });
@@ -222,7 +258,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       await page.locator(".nt-popover .nt-row").first().waitFor();
       const result = await covered(page, menu, rows);
       console.log(`suggestions under the open ${name} menu`, JSON.stringify(result));
-      if (mustOverlap) expect(result.overlapping).toBeGreaterThan(0);
+      if (mustOverlap) expect(result.covers).toBe(true);
       expect(result.misses).toEqual([]);
       await page.close();
     });

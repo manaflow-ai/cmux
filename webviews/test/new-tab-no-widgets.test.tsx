@@ -1,5 +1,5 @@
-// New Tab has no widgets (Lawrence 2026-11-09: "remove widgets completely"). Minimal is the composer
-// alone, whatever an old host or an old cmux-next.json (`tabs.newTabWidgets.*`, now retired) still
+// New Tab has no widgets (Lawrence 2026-11-09: "remove widgets completely"). Minimal keeps the composer
+// and create buttons, whatever an old host or an old cmux-next.json (`tabs.newTabWidgets.*`, now retired) still
 // sends: no headline, clock, stopwatch, warm greeting, quote, weather, machines, cards or edit mode.
 // The other layouts draw their own parts, with no widget toggles.
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -144,7 +144,7 @@ test("the handshake carries no widget fields, whatever an older host sends", () 
   for (const field of ["pageWidgets", "weather", "widgets", "headlineOff"]) expect(page![field]).toBeUndefined();
 });
 
-test("Minimal is the composer alone, with no widget and no edit mode", async () => {
+test("Minimal shows the composer without fixed create buttons, with no widget and no edit mode", async () => {
   const root = await render("minimal");
   try {
     const screen = host.querySelector<HTMLElement>(".nt-screen")!;
@@ -152,7 +152,8 @@ test("Minimal is the composer alone, with no widget and no edit mode", async () 
     expect(host.querySelector(".nt-field")).not.toBeNull();
     expect(host.querySelectorAll(".acpmux-composer-strip").length).toBe(1);
     expect(host.querySelectorAll(WIDGET_UI).length).toBe(0);
-    expect(host.querySelectorAll(".nt-stage, .nt-env, .nt-suggest, .nt-create, .nt-cards, .nt-all").length).toBe(0);
+    expect(host.querySelectorAll(".nt-stage, .nt-env, .nt-suggest, .nt-cards, .nt-all").length).toBe(0);
+    expect(host.querySelector(".nt-create")).toBeNull();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)|Stopwatch|What should we work on/);
     // A right-click offers no Edit New Tab.
     await act(async () =>

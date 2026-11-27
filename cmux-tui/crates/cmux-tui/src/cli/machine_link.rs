@@ -27,9 +27,27 @@ const USAGE: &str = "usage: cmux machine NAME doctor
 /// name never collides with the Cloud verbs).
 const VERBS: &[&str] = &["doctor"];
 
-/// `Some(exit code)` when `args` is `machine NAME doctor`.
+const TRAFFIC_USAGE: &str = "usage: cmux device traffic [--json]
+  this Mac's bytes in and out per service through its iPhone and machine link host (cmux-mobile-host):
+  totals since it started, and per second over the last 10 s and 60 s";
+
+/// `Some(exit code)` when `args` is `machine NAME doctor` or `device traffic`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
+    if let [noun, verb, rest @ ..] = words.as_slice()
+        && matches!(noun.as_str(), "device" | "machine")
+        && verb == "traffic"
+    {
+        if !rest.is_empty() {
+            return Some(super::app::failure(
+                "usage.invalid",
+                &format!("cmux: {TRAFFIC_USAGE}"),
+                global.output,
+                2,
+            ));
+        }
+        return Some(traffic(&global));
+    }
     let [noun, name, verb, rest @ ..] = words.as_slice() else { return None };
     if noun != "machine"
         || !VERBS.contains(&verb.as_str())
@@ -49,18 +67,18 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(doctor(&global, name))
 }
 
-fn link_socket(daemon: &Path) -> PathBuf {
+pub(super) fn link_socket(daemon: &Path) -> PathBuf {
     let stem = daemon.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     daemon.with_file_name(format!("{stem}.link.sock"))
 }
 
 /// One request line, then one answer line (or `pending` lines first).
-struct Conversation {
+pub(super) struct Conversation {
     reader: BufReader<UnixStream>,
 }
 
 impl Conversation {
-    fn start(socket: &Path, request: &Value) -> Result<Self, (String, String)> {
+    pub(super) fn start(socket: &Path, request: &Value) -> Result<Self, (String, String)> {
         let mut stream = UnixStream::connect(socket).map_err(|error| {
             (
                 "machine.link_unavailable".to_owned(),
@@ -80,7 +98,7 @@ impl Conversation {
         Ok(Self { reader: BufReader::new(stream) })
     }
 
-    fn next(&mut self) -> Result<Value, (String, String)> {
+    pub(super) fn next(&mut self) -> Result<Value, (String, String)> {
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
             Ok(0) => Err(("machine.closed".to_owned(), "the link closed".to_owned())),
@@ -91,15 +109,14 @@ impl Conversation {
     }
 }
 
-fn refused(answer: &Value) -> Option<(String, String)> {
+pub(super) fn refused(answer: &Value) -> Option<(String, String)> {
     let code = answer.get("error").and_then(Value::as_str)?;
     let message = answer.get("message").and_then(Value::as_str).unwrap_or_default();
     let text = match code {
         "denied" => "that Mac's person did not allow this Mac".to_owned(),
         "offline" => "that Mac is offline (asleep, or cmux is not running there)".to_owned(),
         "timeout" => {
-            "nobody answered on that Mac; allow this Mac there or on your phone, then try again"
-                .to_owned()
+            "nobody answered on that Mac in time; allow this Mac there or on your phone".to_owned()
         }
         _ => message.to_owned(),
     };
@@ -107,7 +124,7 @@ fn refused(answer: &Value) -> Option<(String, String)> {
 }
 
 /// The one Mac `name` picks from the hostd list, or why not.
-fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
+pub(super) fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
     let text =
         |m: &Value, key: &str| m.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
     // Not this Mac: neither this build nor another build of the same computer.
@@ -154,6 +171,84 @@ fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
             Err(format!("{name} names several Macs: {}; use a device id", ids.join(", ")))
         }
     }
+}
+
+/// `cmux device traffic`: the link host's `{"op":"traffic"}` answer, as JSON or a table.
+fn traffic(global: &GlobalArgs) -> i32 {
+    let output = global.output;
+    let fail = |(code, message): (String, String)| {
+        super::app::failure(&code, &format!("cmux: {message}"), output, 1)
+    };
+    let daemon = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
+    };
+    let answer = Conversation::start(&link_socket(&daemon), &json!({"op": "traffic"}))
+        .and_then(|mut c| c.next());
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(error) => return fail(error),
+    };
+    if let Some(error) = refused(&answer) {
+        return fail(error);
+    }
+    match output {
+        OutputMode::Human => print!("{}", traffic_table(&answer)),
+        OutputMode::Json | OutputMode::JsonLines => println!("{answer}"),
+        OutputMode::Quiet => {}
+    }
+    0
+}
+
+/// Bytes as B, KB, MB or GB (powers of 1000, one decimal past B).
+fn human_bytes(bytes: u64) -> String {
+    let units = ["KB", "MB", "GB", "TB"];
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / 1000.0;
+    let mut unit = 0;
+    while value >= 1000.0 && unit + 1 < units.len() {
+        value /= 1000.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", units.get(unit).copied().unwrap_or("TB"))
+}
+
+/// One row per service that moved a byte, busiest first, then the total.
+fn traffic_table(answer: &Value) -> String {
+    let number = |row: &Value, key: &str| row.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let mut rows: Vec<&Value> = answer
+        .get("services")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter().filter(|r| number(r, "in_bytes") + number(r, "out_bytes") > 0).collect()
+        })
+        .unwrap_or_default();
+    rows.sort_by_key(|r| std::cmp::Reverse(number(r, "in_per_s_60s") + number(r, "out_per_s_60s")));
+    let mut text = format!(
+        "{:<16} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}\n",
+        "service", "in/s 10s", "out/s 10s", "in/s 60s", "out/s 60s", "in total", "out total"
+    );
+    let total = answer.get("total").cloned().unwrap_or(Value::Null);
+    for row in rows.into_iter().chain(std::iter::once(&total)) {
+        let rate = |key: &str| format!("{}/s", human_bytes(number(row, key)));
+        text.push_str(&format!(
+            "{:<16} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}\n",
+            row.get("service").and_then(Value::as_str).unwrap_or("?"),
+            rate("in_per_s_10s"),
+            rate("out_per_s_10s"),
+            rate("in_per_s_60s"),
+            rate("out_per_s_60s"),
+            human_bytes(number(row, "in_bytes")),
+            human_bytes(number(row, "out_bytes")),
+        ));
+    }
+    let uptime = answer.get("uptime_s").and_then(Value::as_u64).unwrap_or(0);
+    text.push_str(&format!(
+        "since the host started {uptime} s ago; payload bytes, without link framing or encryption\n"
+    ));
+    text
 }
 
 fn doctor(global: &GlobalArgs, name: &str) -> i32 {
@@ -248,49 +343,5 @@ fn doctor(global: &GlobalArgs, name: &str) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn mac(name: &str, id: &str, machine: &str, online: bool, this: bool) -> Value {
-        json!({"name": name, "device_id": id, "machine_id": machine, "online": online, "this": this})
-    }
-
-    #[test]
-    fn a_name_picks_one_mac_and_never_this_one() {
-        let list = vec![
-            mac("Studio", "11111111-1111-1111-1111-111111111111", "aa", true, true),
-            mac("MacBook", "22222222-2222-2222-2222-222222222222", "bb", true, false),
-            mac("MacBook", "33333333-3333-3333-3333-333333333333", "bb", false, false),
-        ];
-        // Two builds of one computer: the online one.
-        assert_eq!(
-            pick(&list, "macbook").unwrap()["device_id"],
-            "22222222-2222-2222-2222-222222222222"
-        );
-        assert_eq!(pick(&list, "33333333-3333-3333-3333-333333333333").unwrap()["online"], false);
-        // This Mac is never a target.
-        assert!(pick(&list, "Studio").unwrap_err().contains("no Mac named Studio"));
-        // Nor is another build of this same computer (same machine id).
-        let mut with_sibling = list.clone();
-        with_sibling.push(mac(
-            "Studio DEV",
-            "44444444-4444-4444-4444-444444444444",
-            "aa",
-            true,
-            false,
-        ));
-        assert!(pick(&with_sibling, "Studio DEV").is_err());
-        assert!(!pick(&with_sibling, "nope").unwrap_err().contains("Studio DEV"));
-        assert!(pick(&list, "nope").unwrap_err().contains("MacBook"));
-    }
-
-    #[test]
-    fn only_selector_first_doctor_is_ours() {
-        let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        // The joined-machine doctor keeps `machine doctor [MACHINE]`.
-        assert_eq!(run_if_requested(&words(&["machine", "doctor"])), None);
-        assert_eq!(run_if_requested(&words(&["machine", "doctor", "x"])), None);
-        assert_eq!(run_if_requested(&words(&["machine", "x", "show"])), None);
-        assert_eq!(link_socket(Path::new("/t/main.sock")), PathBuf::from("/t/main.link.sock"));
-    }
-}
+#[path = "machine_link_tests.rs"]
+mod tests;

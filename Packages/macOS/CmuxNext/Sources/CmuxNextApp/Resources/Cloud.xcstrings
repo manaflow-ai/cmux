@@ -1,6 +1,84 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.folderAdd.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Adding folders to Cloud chats is turned off in Settings."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إضافة المجلدات إلى محادثات Cloud متوقفة في الإعدادات."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dodavanje foldera u Cloud razgovore je isključeno u Postavkama."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Tilføjelse af mapper til Cloud-chats er slået fra i Indstillinger."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Hinzufügen von Ordnern zu Cloud-Chats ist in den Einstellungen deaktiviert."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Añadir carpetas a los chats de Cloud está desactivado en Ajustes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’ajout de dossiers aux discussions Cloud est désactivé dans les Réglages."}},
+        "it": {"stringUnit": {"state": "translated", "value": "L’aggiunta di cartelle alle chat Cloud è disattivata nelle Impostazioni."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud チャットへのフォルダ追加は設定でオフになっています。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការបន្ថែមថតទៅការជជែក Cloud ត្រូវបានបិទនៅក្នុងការកំណត់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 채팅에 폴더 추가가 설정에서 꺼져 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Å legge til mapper i Cloud-chatter er slått av i Innstillinger."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Dodawanie folderów do czatów Cloud jest wyłączone w Ustawieniach."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Adicionar pastas a conversas do Cloud está desativado nos Ajustes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Добавление папок в чаты Cloud отключено в настройках."}},
+        "th": {"stringUnit": {"state": "translated", "value": "การเพิ่มโฟลเดอร์ในแชท Cloud ถูกปิดอยู่ในการตั้งค่า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud sohbetlerine klasör ekleme Ayarlar’da kapalı."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Додавання папок до чатів Cloud вимкнено в налаштуваннях."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thêm thư mục vào cuộc trò chuyện Cloud đang tắt trong Cài đặt."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "已在设置中关闭向 Cloud 聊天添加文件夹。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "已在設定中關閉向 Cloud 聊天加入檔案夾。"}}
+      }
+    },
+    "cloud.folderAdd.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This chat's Cloud machine isn't connected."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Cloud الخاص بهذه المحادثة غير متصل."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Cloud mašina ovog razgovora nije povezana."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Denne chats Cloud-maskine er ikke forbundet."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-Maschine dieses Chats ist nicht verbunden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La máquina de Cloud de este chat no está conectada."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La machine Cloud de cette discussion n’est pas connectée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La macchina Cloud di questa chat non è connessa."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このチャットの Cloud マシンは接続されていません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ម៉ាស៊ីន Cloud របស់ការជជែកនេះមិនបានភ្ជាប់ទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 채팅의 Cloud 머신이 연결되어 있지 않습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Denne chattens Cloud-maskin er ikke tilkoblet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Maszyna Cloud tego czatu nie jest połączona."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A máquina do Cloud desta conversa não está conectada."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Машина Cloud этого чата не подключена."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เครื่อง Cloud ของแชทนี้ไม่ได้เชื่อมต่อ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu sohbetin Cloud makinesi bağlı değil."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Машина Cloud цього чату не під’єднана."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Máy Cloud của cuộc trò chuyện này chưa được kết nối."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此聊天的 Cloud 机器未连接。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此聊天的 Cloud 機器未連線。"}}
+      }
+    },
+    "cloud.folderAdd.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The folder couldn't be added."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّرت إضافة المجلد."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Folder nije moguće dodati."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Mappen kunne ikke tilføjes."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner konnte nicht hinzugefügt werden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo añadir la carpeta."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible d’ajouter le dossier."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile aggiungere la cartella."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "フォルダを追加できませんでした。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចបន្ថែមថតបានទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "폴더를 추가할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Mappen kunne ikke legges til."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie można dodać folderu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível adicionar a pasta."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось добавить папку."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไม่สามารถเพิ่มโฟลเดอร์ได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Klasör eklenemedi."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося додати папку."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Không thể thêm thư mục."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法添加文件夹。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法加入檔案夾。"}}
+      }
+    },
     "cloud.github.confirmTitle": {
       "comment": "Confirmation title before Set Up GitHub runs; %@ is the Cloud machine's name.",
       "extractionState": "manual",
@@ -3093,127 +3171,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud is creating the VM. A new machine usually takes under a minute."
+            "value": "cmux Cloud is creating the VM."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud が VM を作成しています。新しいマシンは通常 1 分以内に作成されます。"
+            "value": "cmux Cloud が VM を作成しています。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُنشئ cmux Cloud الجهاز الافتراضي. يستغرق الجهاز الجديد عادةً أقل من دقيقة."
+            "value": "يُنشئ cmux Cloud الجهاز الافتراضي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud kreira VM. Nova mašina obično traje manje od minute."
+            "value": "cmux Cloud kreira VM."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud opretter VM’en. En ny maskine tager normalt under et minut."
+            "value": "cmux Cloud opretter VM’en."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud erstellt die VM. Eine neue Maschine dauert meist weniger als eine Minute."
+            "value": "cmux Cloud erstellt die VM."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud está creando la VM. Una máquina nueva suele tardar menos de un minuto."
+            "value": "cmux Cloud está creando la VM."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud crée la VM. Une nouvelle machine prend en général moins d’une minute."
+            "value": "cmux Cloud crée la VM."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud sta creando la VM. Una nuova macchina di solito richiede meno di un minuto."
+            "value": "cmux Cloud sta creando la VM."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud កំពុងបង្កើត VM។ ម៉ាស៊ីនថ្មីជាធម្មតាចំណាយពេលតិចជាងមួយនាទី។"
+            "value": "cmux Cloud កំពុងបង្កើត VM។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud가 VM을 만드는 중입니다. 새 머신은 보통 1분 이내에 준비됩니다."
+            "value": "cmux Cloud가 VM을 만드는 중입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud oppretter VM-en. En ny maskin tar vanligvis under ett minutt."
+            "value": "cmux Cloud oppretter VM-en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud tworzy maszynę wirtualną. Nowa maszyna zwykle zajmuje mniej niż minutę."
+            "value": "cmux Cloud tworzy maszynę wirtualną."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux Cloud está criando a VM. Uma máquina nova costuma levar menos de um minuto."
+            "value": "O cmux Cloud está criando a VM."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud создаёт ВМ. Новая машина обычно готова меньше чем за минуту."
+            "value": "cmux Cloud создаёт ВМ."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud กำลังสร้าง VM โดยปกติเครื่องใหม่ใช้เวลาไม่ถึงหนึ่งนาที"
+            "value": "cmux Cloud กำลังสร้าง VM"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud VM’yi oluşturuyor. Yeni bir makine genellikle bir dakikadan kısa sürer."
+            "value": "cmux Cloud VM’yi oluşturuyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud створює ВМ. Нова машина зазвичай готова менш ніж за хвилину."
+            "value": "cmux Cloud створює ВМ."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud đang tạo VM. Máy mới thường mất chưa đến một phút."
+            "value": "cmux Cloud đang tạo VM."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud 正在创建虚拟机。新机器通常不到一分钟。"
+            "value": "cmux Cloud 正在创建虚拟机。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud 正在建立虛擬機器。新機器通常不到一分鐘。"
+            "value": "cmux Cloud 正在建立虛擬機器。"
           }
         }
       }
@@ -4527,137 +4605,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "機器就緒後，終端機會在這裡自動開啟，屆時即可輸入。"
-          }
-        }
-      }
-    },
-    "cloud.button.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riprova"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ព្យាយាមម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ponów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeniden dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повторити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重試"
           }
         }
       }
@@ -8206,530 +8153,6 @@
         }
       }
     },
-    "cloud.machineUpdate.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update Machine"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حدّث الجهاز"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažuriraj mašinu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdater maskine"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maschine aktualisieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualizar máquina"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mettre à jour la machine"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiorna macchina"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンをアップデート"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "머신 업데이트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdater maskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaktualizuj maszynę"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualizar máquina"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновить машину"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อัปเดตเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Makineyi güncelle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оновити машину"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cập nhật máy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新機器"
-          }
-        }
-      }
-    },
-    "cloud.machineUpdate.updating": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Updating cmux on %@…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ تحديث cmux على %@…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažuriranje cmux-a na %@…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdaterer cmux på %@…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux auf %@ wird aktualisiert…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualizando cmux en %@…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mise à jour de cmux sur %@…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiornamento di cmux su %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の cmux をアップデート中…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងធ្វើបច្ចុប្បន្នភាព cmux នៅលើ %@…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@의 cmux 업데이트 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdaterer cmux på %@…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualizowanie cmux na %@…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualizando o cmux em %@…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление cmux на %@…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังอัปเดต cmux บน %@…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ üzerindeki cmux güncelleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оновлення cmux на %@…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang cập nhật cmux trên %@…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在更新 %@ 上的 cmux…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在更新 %@ 上的 cmux…"
-          }
-        }
-      }
-    },
-    "cloud.machineUpdate.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This build of cmux can't update %@. A release build can."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يمكن لهذا الإصدار من cmux تحديث %@. يمكن ذلك لإصدار رسمي."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ova verzija cmux-a ne može ažurirati %@. Izdana verzija može."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne udgave af cmux kan ikke opdatere %@. En udgivet version kan."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser cmux-Build kann %@ nicht aktualisieren. Ein Release-Build kann es."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta compilación de cmux no puede actualizar %@. Una versión publicada sí puede."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette version de cmux ne peut pas mettre à jour %@. Une version publiée le peut."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa build di cmux non può aggiornare %@. Una build di rilascio può farlo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この cmux ビルドでは %@ をアップデートできません。リリースビルドならできます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំណែ cmux នេះមិនអាចធ្វើបច្ចុប្បន្នភាព %@ បានទេ។ កំណែចេញផ្សាយអាចធ្វើបាន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 cmux 빌드는 %@을(를) 업데이트할 수 없습니다. 릴리스 빌드는 가능합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne versjonen av cmux kan ikke oppdatere %@. En utgitt versjon kan."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ta kompilacja cmux nie może zaktualizować %@. Wersja wydana może."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta versão do cmux não pode atualizar %@. Uma versão publicada pode."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Эта сборка cmux не может обновить %@. Релизная сборка может."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บิลด์ cmux นี้อัปเดต %@ ไม่ได้ บิลด์รุ่นเผยแพร่ทำได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu cmux derlemesi %@ makinesini güncelleyemez. Yayın derlemesi güncelleyebilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ця збірка cmux не може оновити %@. Релізна збірка може."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bản dựng cmux này không thể cập nhật %@. Bản phát hành thì có thể."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 cmux 版本无法更新 %@。正式版本可以。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 cmux 版本無法更新 %@。正式版本可以。"
-          }
-        }
-      }
-    },
-    "cloud.machineUpdate.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't update cmux on %1$@: %2$@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحديث cmux على %1$@: %2$@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće ažurirati cmux na %1$@: %2$@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke opdatere cmux på %1$@: %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux auf %1$@ konnte nicht aktualisiert werden: %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo actualizar cmux en %1$@: %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de mettre à jour cmux sur %1$@ : %2$@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile aggiornare cmux su %1$@: %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ の cmux をアップデートできませんでした: %2$@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាព cmux នៅលើ %1$@ បានទេ៖ %2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@의 cmux를 업데이트하지 못했습니다: %2$@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke oppdatere cmux på %1$@: %2$@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się zaktualizować cmux na %1$@: %2$@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível atualizar o cmux em %1$@: %2$@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось обновить cmux на %1$@: %2$@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อัปเดต cmux บน %1$@ ไม่ได้: %2$@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ üzerindeki cmux güncellenemedi: %2$@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося оновити cmux на %1$@: %2$@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể cập nhật cmux trên %1$@: %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法更新 %1$@ 上的 cmux：%2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法更新 %1$@ 上的 cmux：%2$@"
-          }
-        }
-      }
-    },
     "cloud.operationUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -10174,137 +9597,6 @@
         }
       }
     },
-    "cloud.machineUpdate.unsupportedKeepsWorking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يشغّل %@ إصدارًا من cmux أقدم من أن يُحدَّث في مكانه. تستمر محادثاته وطرفياته في العمل، وتبقى الميزات الأحدث من إصدار cmux فيه متوقفة هناك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ koristi cmux prestar za ažuriranje na licu mjesta. Njegovi chatovi i terminali i dalje rade; funkcije novije od njegovog cmuxa tamo ostaju isključene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kører en cmux, der er for gammel til at blive opdateret på stedet. Dens chats og terminaler bliver ved med at virke; funktioner, der er nyere end dens cmux, forbliver slået fra der."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ verwendet ein cmux, das zu alt für ein Update vor Ort ist. Chats und Terminals laufen dort weiter; Funktionen, die neuer als dieses cmux sind, bleiben dort aus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ usa un cmux demasiado antiguo para actualizarse en su sitio. Sus chats y terminales siguen funcionando; las funciones más nuevas que su cmux quedan desactivadas allí."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ utilise un cmux trop ancien pour être mis à jour sur place. Ses discussions et terminaux continuent de fonctionner ; les fonctionnalités plus récentes que son cmux y restent désactivées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ usa un cmux troppo vecchio per essere aggiornato sul posto. Le sue chat e i suoi terminali continuano a funzionare; le funzioni più recenti del suo cmux restano disattivate lì."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ の cmux は古いため、その場で更新できません。チャットとターミナルはそのまま動作します。その cmux より新しい機能はそこではオフのままです。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ដំណើរការ cmux ចាស់ពេកដើម្បីធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង។ ការជជែក និងទែមីណាល់របស់វានៅតែដំណើរការ ហើយមុខងារថ្មីជាង cmux របស់វានៅតែបិទនៅទីនោះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@의 cmux는 너무 오래되어 그 자리에서 업데이트할 수 없습니다. 채팅과 터미널은 계속 작동하며, 그 cmux보다 새로운 기능은 그곳에서 꺼진 상태로 유지됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kjører en cmux som er for gammel til å oppdateres på stedet. Chattene og terminalene fortsetter å virke; funksjoner som er nyere enn dens cmux, forblir av der."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ma cmux zbyt stary, by zaktualizować go na miejscu. Czaty i terminale nadal działają; funkcje nowsze niż ten cmux pozostają tam wyłączone."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ usa um cmux antigo demais para ser atualizado no local. Os chats e terminais continuam funcionando; os recursos mais novos que esse cmux ficam desativados lá."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %@ работает cmux, слишком старый для обновления на месте. Чаты и терминалы продолжают работать; функции новее этого cmux там остаются выключенными."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ใช้ cmux ที่เก่าเกินกว่าจะอัปเดตในที่ได้ แชทและเทอร์มินัลยังทำงานต่อได้ ส่วนฟีเจอร์ที่ใหม่กว่า cmux ของเครื่องนั้นจะยังปิดอยู่ที่นั่น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ yerinde güncellenemeyecek kadar eski bir cmux çalıştırıyor. Sohbetleri ve terminalleri çalışmaya devam eder; cmux sürümünden yeni özellikler orada kapalı kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "На %@ працює cmux, надто старий для оновлення на місці. Чати й термінали працюють далі; функції, новіші за цей cmux, там залишаються вимкненими."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ chạy cmux quá cũ để cập nhật tại chỗ. Các cuộc trò chuyện và terminal vẫn hoạt động; những tính năng mới hơn cmux của máy đó vẫn tắt ở đó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 运行的 cmux 太旧，无法就地更新。它的聊天和终端仍可正常使用；比其 cmux 更新的功能在那里保持关闭。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 執行的 cmux 太舊，無法就地更新。它的聊天和終端機仍可正常使用；比其 cmux 更新的功能在那裡保持關閉。"
-          }
-        }
-      }
-    },
     "cloud.bootstrap.needsGitHub": {
       "comment": "New Cloud Workspace from a repository: the machine's clone needs GitHub access it does not have. %@ is OWNER/NAME.",
       "extractionState": "manual",
@@ -10519,6 +9811,270 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "Kurulum makinede başlatılamadı: %@"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося запустити налаштування на машині: %@"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể bắt đầu thiết lập trên máy: %@"}}
+      }
+    },
+    "cloud.github.connectBody": {
+      "comment": "Set Up GitHub on a Cloud machine when the team has not connected cmux's GitHub App: the dialog offers Connect GitHub instead of the machine's own sign-in.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط تطبيق GitHub الخاص بـ cmux واختر مستودعاته في متصفحك. ثم أعد إعداد GitHub هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite cmux GitHub aplikaciju i odaberite njene repozitorije u pregledniku. Zatim ponovo postavite GitHub ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind cmux' GitHub-app, og vælg dens repositories i din browser. Konfigurer derefter GitHub her igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde die GitHub-App von cmux und wähle ihre Repositorys in deinem Browser. Richte GitHub dann hier erneut ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect cmux's GitHub App and choose its repositories in your browser. Then set up GitHub here again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta la app de GitHub de cmux y elige sus repositorios en tu navegador. Luego vuelve a configurar GitHub aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez l'app GitHub de cmux et choisissez ses dépôts dans votre navigateur. Puis configurez GitHub ici à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega l'app GitHub di cmux e scegli i suoi repository nel browser. Poi configura di nuovo GitHub qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで cmux の GitHub App を接続してリポジトリを選んでから、ここでもう一度 GitHub を設定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់កម្មវិធី GitHub របស់ cmux ហើយជ្រើសឃ្លាំងរបស់វាក្នុងកម្មវិធីរុករក។ បន្ទាប់មករៀបចំ GitHub នៅទីនេះម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 cmux의 GitHub 앱을 연결하고 리포지토리를 선택한 다음 여기에서 GitHub를 다시 설정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til cmux sin GitHub-app og velg repositoriene i nettleseren. Sett deretter opp GitHub her igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz aplikację GitHub cmux i wybierz jej repozytoria w przeglądarce. Potem ponownie skonfiguruj tu GitHub."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte o app do GitHub do cmux e escolha os repositórios no navegador. Depois configure o GitHub aqui novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите приложение GitHub от cmux и выберите его репозитории в браузере. Затем снова настройте GitHub здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อแอป GitHub ของ cmux และเลือกรีโพสิทอรีในเบราว์เซอร์ แล้วตั้งค่า GitHub ที่นี่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'un GitHub uygulamasını bağlayın ve depolarını tarayıcınızda seçin. Ardından GitHub'ı burada yeniden kurun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть застосунок GitHub від cmux і виберіть його репозиторії в браузері. Потім знову налаштуйте GitHub тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ứng dụng GitHub của cmux và chọn các kho lưu trữ trong trình duyệt. Sau đó thiết lập lại GitHub tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在浏览器中连接 cmux 的 GitHub App 并选择其仓库，然后在这里重新设置 GitHub。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在瀏覽器中連接 cmux 的 GitHub App 並選擇其存放庫，然後在這裡重新設定 GitHub。"
+          }
+        }
+      }
+    },
+    "cloud.github.connect": {
+      "comment": "Set Up GitHub's button when the team has not connected cmux's GitHub App.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ربط GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poveži GitHub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect GitHub"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub を接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub'ı bağla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключити GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接 GitHub"
+          }
+        }
       }
     }
   },

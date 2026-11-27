@@ -44,14 +44,24 @@ where
     F: FnOnce(Value) -> Fut,
     Fut: Future<Output = Result<bool, HandError>>,
 {
+    // The hand was paired on this machine by its person, for their own Cloud account: their own
+    // machine reaching it, so joining is the consent and only their Off here refuses it.
     handle_with_consent(ctx, action, p, approve, || {
-        crate::cli::cloud_join::require_joined_consent("control")
-            .map_err(|_| HandError::new("consent_required", "local control consent is required"))
+        crate::machine_record::require_joined_consent_from(
+            "control",
+            crate::machine_record::Requester::OwnMachine,
+        )
+        .map_err(|_| {
+            HandError::new(
+                "consent_required",
+                "Control is turned off on this machine; turn it on in Settings > Devices or with `acpmux host consent grant --control`",
+            )
+        })
     })
     .await
 }
 
-async fn handle_with_consent<F, Fut, C>(
+pub(crate) async fn handle_with_consent<F, Fut, C>(
     ctx: &Ctx<'_>,
     action: &str,
     p: &Value,
@@ -304,45 +314,5 @@ fn apply_patch(files: Vec<Planned>) -> Result<Value, HandError> {
 }
 
 #[cfg(test)]
-mod consent_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    #[tokio::test]
-    async fn revocation_during_owner_approval_prevents_execution() {
-        let root = tempfile::tempdir().unwrap();
-        let destination = root.path().join("must-not-exist");
-        let cfg = HandConfig {
-            api: "https://example.com".into(),
-            hand: "test".into(),
-            key: "test".into(),
-            profile: super::super::config::Profile::Mac,
-            roots: vec![root.path().to_owned()],
-            allow: vec![],
-            agent_policy: "ask".into(),
-        };
-        let agents = Agents::default();
-        let ctx = Ctx { cfg: &cfg, agents: &agents, sink: tokio::sync::mpsc::channel(1).0 };
-        let granted = AtomicBool::new(true);
-        let result = handle_with_consent(
-            &ctx,
-            "fs.write",
-            &json!({"path":destination,"text":"forbidden","_level":"ask"}),
-            |_| async {
-                tokio::task::yield_now().await;
-                granted.store(false, Ordering::SeqCst);
-                Ok(true)
-            },
-            || {
-                if granted.load(Ordering::SeqCst) {
-                    Ok(())
-                } else {
-                    Err(HandError::new("consent_required", "revoked"))
-                }
-            },
-        )
-        .await;
-        assert_eq!(result.unwrap_err().code, "consent_required");
-        assert!(!destination.exists());
-    }
-}
+#[path = "requests_consent_tests.rs"]
+mod consent_tests;

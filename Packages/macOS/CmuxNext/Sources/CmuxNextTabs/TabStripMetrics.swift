@@ -46,6 +46,19 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
+    /// The theme's close button colors (`appearance.tabClose.*`); unset is today's.
+    public var closeColors = ThemeFlourishes.TabClose()
+    /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
+    public var busyUnreadMark: TabBusyUnreadMark?
+    /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
+    public var statusMarkPlacement: TabStatusMarkPlacement?
+    /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
+    /// with the tokens, so a change relays the strip out (`startObservingTokens`).
+    public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (off by default): a terminal agent's tab draws its mark on the soft rounded
+    /// square (`TabIcon.terminalAgentMark`); off, it draws the bare mark as a GUI agent chat does. Read with the tokens,
+    /// so flipping the switch redraws the strip live.
+    public var terminalAgentMarks = false
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -140,6 +153,13 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// top) and below (to the content border), `PaneChromeMetrics`.
     public var stripTopOutset: CGFloat = 0
 
+    /// The gap before the first pill and after the last one (``stripHorizontalPadding``) on `scale`'s pixel grid,
+    /// snapped down as the pill's top is (`tabTop`), so the two are the same to the pixel at 1x and at 2x.
+    public func endGap(scale: CGFloat) -> CGFloat {
+        let pixels = max(scale, 1)
+        return (stripHorizontalPadding * pixels + 0.0001).rounded(.down) / pixels
+    }
+
     /// The tabs' top in a strip `height` points tall, on `scale`'s pixel grid.
     public func tabTop(stripHeight height: CGFloat, scale: CGFloat) -> CGFloat {
         PaneChromeMetrics(stripHeight: height, tabHeight: min(tabHeight, height), panePadding: stripTopOutset).pillTop(scale: scale)
@@ -163,10 +183,11 @@ public struct TabStripMetrics: Equatable, Sendable {
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
         contentTrailingInset = TabTunables.contentTrailingInset.value
-        iconSize = Metrics.iconSize
+        iconSize = Metrics.tabIconSize
         closeButtonSize = TabTunables.closeButtonSize.value
         closeGlyphSize = TabTunables.closeGlyphSize.value
-        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
+        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius")
+            ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
         iconTitleSpacing = TabTunables.iconTitleSpacing.value
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
@@ -195,15 +216,17 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        // The first and last pills keep the gap above them to the strip's ends (the chrome line).
-        stripHorizontalPadding = Metrics.paneChromeInset
+        // The first and last pills keep one gap to the strip's ends at every density (`Metrics.tabStripEndGap`).
+        stripHorizontalPadding = Metrics.tabStripEndGap
         stripTopOutset = Metrics.stripTopOutset
-        // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
-        newTabButtonWidth = TitlebarBandButton.side
+        // The tab bar controls' one square, a tab tall (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
+        newTabButtonWidth = Metrics.tabBarControlSide
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.tabCornerRadius
+        // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
+        cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
+                                                                       tabHeight: Metrics.tabHeight)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
@@ -215,8 +238,24 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        closeColors = DesignSettings.shared.flourishes.tabClose
+        agentBadges = DesignSettings.shared.agentBadges
+        terminalAgentMarks = DesignSettings.shared.terminalAgentMarks
     }
 
     /// Token-derived metrics for the current density.
     public static var standard: TabStripMetrics { TabStripMetrics() }
+}
+
+extension TabStripMetrics {
+    /// Where a titled tab's status mark sits: ``statusMarkPlacement``, else the Debug tunable.
+    var resolvedStatusMarkPlacement: TabStatusMarkPlacement { statusMarkPlacement ?? TabTunables.statusMarkPlacement.value }
+
+    /// The status slot's center in a pill `pillWidth` wide (ask-a8b97f1201, "the spacing is off"): the x's own
+    /// center, or the icon's center mirrored at the trailing end, never nearer the end than the x's.
+    func statusSlotMidX(pillWidth: CGFloat, placement: TabStatusMarkPlacement) -> CGFloat {
+        let closeMidX = pillWidth - contentTrailingInset - closeButtonSize / 2
+        guard placement != .closeSlot else { return closeMidX }
+        return min(closeMidX, pillWidth - contentLeadingInset - iconSize / 2)
+    }
 }

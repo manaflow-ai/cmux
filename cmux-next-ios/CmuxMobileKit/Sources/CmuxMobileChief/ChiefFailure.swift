@@ -168,7 +168,7 @@ public struct ChiefTurnFailure: Equatable, Sendable {
             return .modelBusy
         }
         if has("401", "403", "unauthorized", "forbidden", "authentication", "invalid api key", "invalid x-api-key",
-               "oauth", "not logged in", "please run /login", "credential") {
+               "oauth", "not logged in", "not signed in", "please run /login", "credential") {
             return .modelSignIn
         }
         if has("api error: 5", "status 5", " 500", " 502", " 503", " 504", "server-side issue",
@@ -203,12 +203,14 @@ public enum ChiefEngineProblem: Equatable, Sendable {
     /// Something else failed on the Mac.
     case failed
 
-    /// The sentence the settings page shows for a failed load.
+    /// The sentence the settings page shows for a failed load, beside Try
+    /// Again. A transient one waits out the shared quiet bound there, and
+    /// never narrates the page's own retries.
     public var loadText: String {
         switch self {
-        case .macUnreachable: String(localized: "mobile.chief.macRetrying", defaultValue: "Mac unavailable · Retrying…", bundle: .module)
-        case .chiefBusy: String(localized: "mobile.chief.busyRetrying", defaultValue: "Chief busy · Retrying…", bundle: .module)
-        case .modelsUnavailable: String(localized: "mobile.chief.modelsRetrying", defaultValue: "Models unavailable · Retrying…", bundle: .module)
+        case .macUnreachable: String(localized: "mobile.chief.engineMacUnavailable", defaultValue: "Mac unavailable", bundle: .module)
+        case .chiefBusy: String(localized: "mobile.chief.engineBusy", defaultValue: "Chief busy", bundle: .module)
+        case .modelsUnavailable: String(localized: "mobile.chief.engineModelsUnavailable", defaultValue: "Models unavailable", bundle: .module)
         case .chiefDown(let text), .refused(let text): text
         case .failed: String(localized: "mobile.chief.settingsFailed", defaultValue: "Couldn't load Chief's settings.", bundle: .module)
         }

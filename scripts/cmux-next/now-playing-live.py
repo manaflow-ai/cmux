@@ -41,6 +41,8 @@ parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--engines", default="chromium,webkit")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("now-playing-live")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 
 if not opts.socket and not opts.tag:
@@ -286,7 +288,9 @@ def run_engine(engine, window, url):
         TAB = ((opened.get("created") or [None]) if isinstance(opened, dict) else [None])[0]
     if not wait_for(loaded, f"{engine}: the page loads", 60):
         return
-    time.sleep(1)
+    # The tone is ready to play: the audio element has its metadata (readyState HAVE_METADATA or more).
+    if not quiet_wait(lambda: page("document.getElementById('a').readyState >= 1") is True, 10):
+        print(f"note: {engine}: the tone's metadata did not load in 10 s", flush=True)
 
     # 1. The tone plays; macOS Now Playing names it.
     check(bool(gesture(engine, window, "play")), f"{engine}: the page runs play")
@@ -351,7 +355,9 @@ def run_engine(engine, window, url):
     check(entered == "entered" and page("document.pictureInPictureElement === document.getElementById('v')"),
           f"{engine}: the video enters picture-in-picture ({entered})")
     page("document.pictureInPictureElement && document.exitPictureInPicture(); true")
-    time.sleep(1)
+    # The video left picture-in-picture before the tab closes.
+    if not quiet_wait(lambda: page("document.pictureInPictureElement === null") is True, 10):
+        print(f"note: {engine}: the video is still in picture-in-picture after 10 s", flush=True)
 
     # 4. Closing the tab clears Now Playing.
     playing = page("!document.getElementById('a').paused")

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// Glass bar that asks the first pending prompt of the tab: a permission
-/// request (camera, microphone, location, notifications, downloads), a JavaScript alert, confirm, or text input, HTTP
+/// request (camera, microphone, location, clipboard, notifications, downloads), a JavaScript alert, confirm, or text input, HTTP
 /// authentication (user name and password), or a link to another app
 /// (Open, with "Always allow" for the site).
 final class PromptBarView: NSView {
@@ -48,7 +48,10 @@ final class PromptBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        // promptCornerRadius is Metrics.buttonContainer(padding: overlayPadding).outerRadius in BrowserMetrics.swift,
+        // which the pre-push gate's changed-files tree leaves out.
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.promptCornerRadius, tone: .neutralGlass(.transient)) // concentric-allow: derived from buttonContainer in BrowserMetrics
+
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -82,7 +85,7 @@ final class PromptBarView: NSView {
             buttons.spacing = BrowserMetrics.itemSpacing
             stack.spacing = padding
             stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
-            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+            glass.cornerRadius = BrowserMetrics.promptCornerRadius
         }
         density.start()
     }
@@ -136,10 +139,15 @@ final class PromptBarView: NSView {
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
             case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
+            case .screenShare: Strings.permissionScreenShare(prompt.origin)
+            case .clipboard: Strings.permissionClipboard(prompt.origin)
             case .location: Strings.permissionLocation(prompt.origin)
             case .notifications: Strings.permissionNotifications(prompt.origin)
             }
-            if [.automaticDownloads, .location, .notifications].contains(kind) {
+            if kind == .screenShare {
+                addButton(Strings.screenShareDontAllow, prominent: false, response: .deny)
+                addButton(Strings.screenShareAllow, prominent: true, response: .allowOnce)
+            } else if [.automaticDownloads, .clipboard, .location, .notifications].contains(kind) {
                 // Chrome's question: Block or Allow, remembered for the site.
                 addButton(PageInfoStrings.block, prominent: false, response: .deny)
                 addButton(PageInfoStrings.allow, prominent: true, response: .allow)
@@ -182,6 +190,9 @@ final class PromptBarView: NSView {
             alwaysCheck.isHidden = prompt.origin.isEmpty
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.externalAppOpen, prominent: true, response: nil)
+        case .noAppForScheme(let scheme):
+            messageLabel.stringValue = Strings.externalAppNone(origin: prompt.origin, scheme: scheme)
+            addButton(Strings.ok, prominent: true, response: .accept)
         case .savePassword(let username, let update):
             let question = update ? Strings.passwordUpdatePrompt(prompt.origin) : Strings.passwordSavePrompt(prompt.origin)
             messageLabel.stringValue = username.isEmpty ? question : "\(question)\n\(username)"
@@ -198,9 +209,9 @@ final class PromptBarView: NSView {
             if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         }
         if !inputField.isHidden {
-            window?.makeFirstResponder(inputField)
+            FocusRoute(.system, "a page's prompt").moveKeyboard(in: window, to: inputField)
         } else if !userField.isHidden {
-            window?.makeFirstResponder(userField)
+            FocusRoute(.system, "a page's sign-in prompt").moveKeyboard(in: window, to: userField)
         }
     }
 

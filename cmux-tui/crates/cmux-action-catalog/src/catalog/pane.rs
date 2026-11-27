@@ -41,6 +41,24 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "pane screenshot",
         ..Action::DEFAULT
     },
+    // Insert Photo: an image-only file panel, then the chosen pictures go into the focused pane. An
+    // agent chat takes them into its composer as an unsent draft (as a drop does); a terminal gets
+    // their shell-quoted paths pasted into its input, the form Claude Code and Codex read an image
+    // from. A `path` argument (action.run, MCP) inserts that file without the panel.
+    Action {
+        id: "insertPhoto",
+        group: GROUP,
+        title: t("ActionCatalog", "action.insertPhoto", "Insert Photo…"),
+        keywords: &["photo", "image", "picture", "screenshot", "attach", "insert", "png", "jpeg"],
+        category: "pane",
+        symbol: "photo.badge.plus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH.optional()],
+        targets: &["pane"],
+        cli_name: "pane insert-photo",
+        ..Action::DEFAULT
+    },
     Action {
         id: "newColumn",
         group: GROUP,
@@ -166,6 +184,51 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "pane equalize-splits",
         main_menu: Some("view"),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "toggleFloatingPane",
+        group: GROUP,
+        title: t("ActionCatalog", "action.toggleFloatingPane", "Float Pane"),
+        keywords: &["floating", "float", "tile", "overlay"],
+        default_shortcut: Some(Shortcut { key: "\r", modifiers: OPT | SHIFT | CMD }),
+        category: "pane",
+        symbol: "macwindow.on.rectangle",
+        surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("pane", "layout", 102).folder("layout")], ..SurfacePlan::DEFAULT },
+        targets: &["pane"],
+        cli_name: "pane toggle-floating",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "newFloatingPane",
+        group: GROUP,
+        title: t("ActionCatalog", "action.newFloatingPane", "New Floating Pane"),
+        keywords: &["floating", "float", "overlay", "scratch"],
+        default_shortcut: Some(Shortcut { key: "n", modifiers: CTRL | SHIFT | CMD }),
+        category: "pane",
+        symbol: "macwindow.badge.plus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["pane"],
+        cli_name: "pane new-floating",
+        starts_terminal: true,
+        opens_workspace_content: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "toggleQuickTerminal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.toggleQuickTerminal", "Toggle Quick Terminal"),
+        keywords: &["quick", "terminal", "floating", "scratch", "drop down", "visor"],
+        default_chord: Some(Chord { first: Shortcut { key: "j", modifiers: CMD }, second: Shortcut { key: "t", modifiers: 0 } }),
+        category: "pane",
+        symbol: "terminal",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "pane toggle-quick-terminal",
+        starts_terminal: true,
+        opens_workspace_content: true,
         ..Action::DEFAULT
     },
     Action {
@@ -780,14 +843,16 @@ pub static ACTIONS: &[Action] = &[
         id: "file.open",
         group: GROUP,
         title: t("ActionCatalog", "action.file.open", "Open File…"),
+        description: Some("Opens --path (absolute; none opens the Open File picker). --where tab (the default) shows it in the pane's file pages; --where editor opens it in the app the files.textEditor setting names (an app name, bundle ID or .app path), else this Mac's app for source code, and needs no open window. A local chat citation opens at its line when that app is VS Code, Cursor, Windsurf or Zed. --as-text shows HTML, SVG or Markdown as source. --machine opens --path on that machine (a joined Mac is reached first), reading it there."),
         keywords: &["file", "editor", "preview", "path"],
         category: "pane",
         symbol: "doc",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::PATH.optional(), args::WHERE.optional(), args::AS_TEXT.optional()],
+        arguments: &[args::PATH.optional(), args::WHERE.optional(), args::AS_TEXT.optional(), args::MACHINE.optional()],
         targets: &["pane"],
         cli_name: "file open",
+        waits_for_result: true,
         main_menu: Some("file"),
         ..Action::DEFAULT
     },

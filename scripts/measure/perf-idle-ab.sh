@@ -6,8 +6,17 @@
 #     --script scripts/measure/perf-idle-ab.sh --ref <this script's sha> \
 #     --arg=base=<sha> --arg=head=<sha> [--arg=rounds=5] [--arg=chats=0,1,10] [--arg=measure=60] \
 #     [--arg=trace=10] [--arg=kinds=app,cef-gpu] [--arg=cells=1:small:rest,1:none:rest] [--arg=unfocused=300] \
+#     [--arg=relaunch=1] [--arg=env=NAME=VALUE] \
 #     --artifact .build/perf-idle-ab/report.tgz --timeout 14400
 #   base=SHA, head=SHA  the two commits (40 hex)
+#   dmg=nightly|URL     in the place of base= and head=: no build. The newest DMG the NIGHTLY feed offers
+#                       (files-next.cmux.com/nightly-next/appcast-arm64.xml), or one https DMG, copied once out of
+#                       the DMG into the step's scratch and launched in both arms (base = head = the signed app):
+#                       a published nightly's own footprint, on any Mac with a console session and about 2 cores,
+#                       no Xcode, no checkout of another commit. Each launch is a first install's (bench_memory.py
+#                       shipped_isolation: its own home, keychain and defaults; refused beside another copy of
+#                       the bundle id). Prints IDLE-AB nightly <url> version <v> commit <sha>. A Release app has
+#                       no debug.* methods: the wakeup ledger and live-page rows are empty, the footprint rows not
 #   rounds=N            launches per arm and chat count (default 5, at most 8)
 #   chats=0,1,10        idle chat counts: 0 is one terminal workspace (no chat); N is N agent chats on the
 #                       acpmux test agent, each answered once, plus the launch workspace (no chat)
@@ -15,6 +24,15 @@
 #   trace=S             seconds of System Trace per attributed process after each window: each thread's
 #                       wakeups per second with its name (bench_memory.py --attribute-trace); 0 for none
 #   kinds=K,K           the process kinds to attribute (default app,cef-gpu)
+#   settings_open=N     after the idle rounds, N launches per arm of bench-settings-open.py (Cmd-, 4 times, the first
+#                       cold) on the same builds; prints IDLE-AB settings-open <arm> cold_median .. warm_p90 .. (0: none)
+#   relaunch=1          chats=0: the terminal launch is a returning user's (bench_memory.py --relaunch-restored):
+#                       one terminal workspace opened and shown, the app quit (the session saves), what outlived
+#                       the quit ended, and the app relaunched into the same scratch, checked to show that
+#                       workspace and not Home; that relaunch is settled and sampled. A plain launch shows Home
+#                       (FirstWorkspace.swift). relaunch=warm keeps what outlived the quit; 0 (default) is as before.
+#   env=NAME=VALUE      an environment variable for both arms' app (repeatable; chats=, cells= and home=1 runs), e.g.
+#                       env=CMUX_NEXT_CHIEF_START=visible: a base that does not read it ignores it
 #   cells=C,C           in the place of chats= (the two together are refused): each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
 #                       round. CHATS agent chats at rest (1 or more); REPOSITORY small or large is a visible
 #                       diff tab on a repository of that size with uncommitted changes (bench_memory.py
@@ -28,7 +46,16 @@
 #                       (default 300; its timer is then 30 s, not 4 s). measure=S is its window with the focus.
 #                       With cells=, measure= is a multiple of 4 and unfocused= a multiple of 30 (the page's
 #                       2 timers), so each window holds a whole count of reads.
-# The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
+#   vmmap=0|1           after each window, vmmap --summary of the app, the 2 largest renderers, the acpmux daemons,
+#                       cmux mcp serve and optchat-chief, parsed per region into each process row's `vmmap` and
+#                       printed as VMMAP-BREAKDOWN lines (default 1; each call bounded at 20 s, outside the window)
+#   chief_steady=S      before each window, wait at most S s until the Chief's process count has not changed for
+#                       10 s (default 60, 0 for no wait): a window then measures one launch state, not a start
+#   home=1              after each arm's idle launches of a round, one more fresh launch of that arm
+#                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
+#                       which Home view asked for it; then Home's first open and the first Chief reply after it.
+#                       Prints IDLE-AB home <arm> <round> ... and IDLE-AB home median <metric> base ... head ...
+# The harness (bench_memory.py and its macos_libs.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
 # checkout is put back at this script's commit at the end, and the tagged apps, their daemons and every
@@ -36,6 +63,13 @@
 #   IDLE-AB run <arm> <round> chats <N> kind <K> wakeups_per_s <w> cpu_pct <c>
 #   IDLE-AB median chats <N> kind <K> base <med> [<min>-<max>] head <med> [<min>-<max>] delta <d>
 #   IDLE-AB thread chats <N> kind <K> name '<thread>' base <med> head <med> delta <d>   (wakeups/s by thread)
+#   IDLE-AB footprint chats <N> kind <K> base <med> [<min>-<max>] n <n> head <med> [<min>-<max>] n <n> delta <d>
+#       (MB of the kind's processes in each idle window, a run without the kind counting 0; kind `total`
+#       is every process; `present` is in how many runs of each arm the kind ran)
+#   IDLE-AB footprint state <mode> <label> chief_<up|down>+agent_pages_<n> base <med> [..] n <n> head ..
+#       (total MB per launch state: the Chief up or not, and agent pages on screen; compare A/B within a state)
+#   IDLE-AB vmmap <mode> <label> <why> region '<region>' base <med> head <med> delta <d>
+#       (vmmap=1: dirty+swapped MB of one region type of one picked process, the 40 largest)
 # With cells= the word `chats <N>` of these lines is `cell <C>`, and it also prints:
 #   IDLE-AB window <arm> <round> cell <C> measure_s <s> focus <True|False|None> focus_after <True|False|None>
 #       reads_expected <n> scroll_events <e> scroll_errors <e>
@@ -51,13 +85,14 @@
 # With cells= the first part is the unit test of the diff tab cells and of the summary below
 # (scripts/cmux-next/tests/test_diff_tab_cells.py, at this script's commit): a red ends the step before an arm
 # is built. A run with no cells= does not run it and is as before.
-# The verdict: exit 0 every run passed, 1 a run failed or a cell has a fault, 3 an arm could not be built,
+# The verdict: exit 0 every run passed, 1 a run failed or a cell has a fault, 3 an arm could not be built (dmg=: fetched),
 # 4 the unit test is red.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
-base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 chats_given=false
+base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 settings_open=0 chats_given=false home=0
+relaunch=0 app_env=() vmmap=1 chief_steady=60 dmg=""
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -69,15 +104,37 @@ for arg in "$@"; do
     kinds=*) kinds="${arg#kinds=}" ;;
     cells=*) cells="${arg#cells=}" ;;
     unfocused=*) unfocused="${arg#unfocused=}" ;;
+    settings_open=*) settings_open="${arg#settings_open=}" ;;
+    home=*) home="${arg#home=}" ;;
+    relaunch=*) relaunch="${arg#relaunch=}" ;;
+    env=*) app_env+=(--env "${arg#env=}") ;;
+    vmmap=*) vmmap="${arg#vmmap=}" ;;
+    chief_steady=*) chief_steady="${arg#chief_steady=}" ;;
+    dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits" >&2; exit 2; }
+if [ -n "$dmg" ]; then
+  [ -z "$base$head" ] || { echo "dmg= is in the place of base= and head=: give one of the two" >&2; exit 2; }
+else
+  [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits (or dmg=nightly)" >&2; exit 2; }
+fi
 [[ "$rounds" =~ ^[0-9]+$ ]] && (( rounds >= 1 && rounds <= 8 )) || { echo "rounds= must be 1 to 8" >&2; exit 2; }
 [[ "$chats" =~ ^[0-9]+(,[0-9]+)*$ && "$measure" =~ ^[0-9]+$ && "$trace" =~ ^[0-9]+$ ]] || { echo "bad chats=, measure= or trace=" >&2; exit 2; }
 cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
 [[ -z "$cells" || "$cells" =~ ^$cell_form(,$cell_form)*$ ]] || { echo "cells= must be CHATS:none:rest or CHATS:small|large:rest|scroll, joined by commas" >&2; exit 2; }
 [[ "$unfocused" =~ ^[0-9]+$ ]] || { echo "bad unfocused=" >&2; exit 2; }
+[[ "$vmmap" =~ ^[01]$ && "$chief_steady" =~ ^[0-9]+$ ]] && (( chief_steady <= 300 )) || { echo "vmmap= must be 0 or 1, chief_steady= 0 to 300" >&2; exit 2; }
+[[ "$relaunch" =~ ^(0|1|cold|warm)$ ]] || { echo "relaunch= must be 0, 1 (cold) or warm" >&2; exit 2; }
+for ((k = 1; k < ${#app_env[@]}; k += 2)); do
+  [[ "${app_env[k]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "env= must be NAME=VALUE" >&2; exit 2; }
+done
+relaunch_args=()
+case "$relaunch" in 1|cold) relaunch_args=(--relaunch-restored cold) ;; warm) relaunch_args=(--relaunch-restored warm) ;; esac
+# relaunch= changes only the terminal launch (chats= with 0): refuse it where it would be silently ignored.
+if [ "$relaunch" != 0 ] && { [ -n "$cells" ] || ! [[ ",$chats," == *",0,"* ]]; }; then
+  echo "relaunch= needs chats= with 0 and no cells= (it changes only the terminal launch)" >&2; exit 2
+fi
 if [ -n "$cells" ]; then
   $chats_given && { echo "cells= is in the place of chats=: give one of the two" >&2; exit 2; }
   (( measure >= 4 && measure % 4 == 0 && unfocused >= 30 && unfocused % 30 == 0 )) || {
@@ -92,24 +149,33 @@ disk() { echo "IDLE-AB disk $1 $(df -h "$here" | tail -n 1)"; }
 disk start
 out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
-for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/diff_tab_cells.py \
-         scripts/cmux-next/tag_teardown.py \
+for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/macos_libs.py scripts/cmux-next/thread_wakes.py \
+         scripts/cmux-next/diff_tab_cells.py scripts/cmux-next/vmmap_regions.py \
+         scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py scripts/ci/fresh_home_launch_smoke.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }
 done
 harness="$out/harness"
+[[ "$settings_open" =~ ^[0-9]+$ ]] && (( settings_open <= 10 )) || { echo "settings_open= must be 0 to 10" >&2; exit 2; }
+if (( settings_open )); then
+  # bench-settings-open.py and the modules it loads from its own folder (bench-stalls, bench-startup and theirs).
+  mkdir -p "$harness/next" && cp scripts/cmux-next/*.py "$harness/next/" || { echo "perf-idle-ab: no scripts/cmux-next" >&2; exit 3; }
+fi
 app_base="" app_head=""
-scratch=""
+scratch="" mnt=""
 app_of() { if [ "$1" = base ]; then echo "$app_base"; else echo "$app_head"; fi; }
 cleanup() {
   for arm in base head; do
     a="$(app_of "$arm")"
     [ -n "$a" ] && [ -d "$a" ] && { python3 "$harness/tag_teardown.py" "$a" >/dev/null 2>&1; rm -rf "$a"; }
   done
+  [ -n "$mnt" ] && [ -d "$mnt" ] && { hdiutil detach "$mnt" >/dev/null 2>&1 || hdiutil detach -force "$mnt" >/dev/null 2>&1; }
   [ -n "$scratch" ] && rm -rf "$scratch"
-  # Back to this script's commit, so the warm checkout is left as the step found it.
-  git -C "$here" checkout --quiet --detach -f "$own_sha" >/dev/null 2>&1
-  git -C "$here" submodule update --quiet --init --depth 1 ghostty ghostty-next >/dev/null 2>&1
+  # Back to this script's commit, so the warm checkout is left as the step found it (dmg= checks nothing out).
+  if [ -z "$dmg" ]; then
+    git -C "$here" checkout --quiet --detach -f "$own_sha" >/dev/null 2>&1
+    git -C "$here" submodule update --quiet --init --depth 1 ghostty ghostty-next >/dev/null 2>&1
+  fi
   disk end
 }
 # A cancelled or timed-out step gets SIGTERM, which skips an EXIT trap unless the signal is trapped.
@@ -156,12 +222,27 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   if ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
     echo "IDLE-AB $arm: cmux-tui tree not published, building the client set on this host"
     export CMUX_TUI_CLIENT_TARGET_DIR="${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/perf-idle-ab/cmux-tui-target"
+    # Bounded: each commit's build adds to the target and nothing evicts it (no disk owner counts it). On
+    # 2026-11-21 it held 11 GB of cmux20-bench, which sat under the 44 GiB a measurement needs to start, so the
+    # perf cron ran no Mac part there (cmuxterm-hq#16657). Past the cap the next build starts cold; the step
+    # is exclusive, so no other build is using the folder.
+    local cap_kib=$(( ${CMUX_IDLE_AB_TARGET_CAP_GIB:-6} * 1024 * 1024 )) used_kib
+    used_kib="$(du -sk "$CMUX_TUI_CLIENT_TARGET_DIR" 2>/dev/null | cut -f1)"
+    if [ "${used_kib:-0}" -gt "$cap_kib" ]; then
+      echo "IDLE-AB $arm: cmux-tui target is $(( used_kib / 1024 / 1024 )) GiB, over its ${CMUX_IDLE_AB_TARGET_CAP_GIB:-6} GiB cap: removing it"
+      rm -rf "$CMUX_TUI_CLIENT_TARGET_DIR"
+    fi
     mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" cmux-tui/target
     client_local="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2> >(tee "$out/cmux-tui-$arm.log" >&2))" || return 3
   fi
   # Its progress goes to the step's log as well: a silent step looks hung.
   if [ -n "$client_local" ]; then export CMUX_TUI_CLIENT_LOCAL="$client_local"; else unset CMUX_TUI_CLIENT_LOCAL; fi
-  CMUX_DEV_BACKEND_MODE=local \
+  # The web bundles need the bun this commit's webviews/package.json pins; a host's ~/.bun may hold another.
+  # Each arm gets its own checked copy, first on PATH (as action-signposts.sh and cef-helpers.sh).
+  RUNNER_TEMP="$scratch" GITHUB_PATH="$scratch/bun-path-$arm" ./scripts/cmux-next/private-bun.sh || return 3
+  local bun_path
+  bun_path="$(tail -n 1 "$scratch/bun-path-$arm")"
+  CMUX_DEV_BACKEND_MODE=local PATH="$bun_path:$PATH" \
     ./scripts/reload.sh --tag "idleab-$arm" --config bench --no-global-cli-links 2>&1 | tee "$log" | grep -E '^(==>|error:|App path)' || true
   local app
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$log" | tail -n 1)"
@@ -169,8 +250,34 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   eval "app_$arm=\"\$app\""
   echo "IDLE-AB built $arm $sha $app"
 }
-build_arm base "$base" || exit 3
-build_arm head "$head" || exit 3
+nightly_app() {  # nightly_app: the DMG (dmg=) copied into the scratch, as both arms' app
+  local url="$dmg" found version commit
+  if [ "$url" = nightly ]; then
+    url="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
+  fi
+  [[ "$url" == https://* ]] || { echo "IDLE-AB nightly: no DMG in the NIGHTLY feed" >&2; return 3; }
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-perf-idle-ab/1 -o "$scratch/in.dmg" "$url" \
+    || { echo "IDLE-AB nightly: download of $url failed" >&2; return 3; }
+  mnt="$scratch/mnt"; mkdir -p "$mnt" "$scratch/app"
+  hdiutil attach "$scratch/in.dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null || { echo "IDLE-AB nightly: attach failed" >&2; return 3; }
+  found="$(find "$mnt" -maxdepth 1 -name '*.app' | head -n 1)"
+  [ -n "$found" ] || { echo "IDLE-AB nightly: no app in the DMG" >&2; return 3; }
+  ditto "$found" "$scratch/app/$(basename "$found")" || return 3
+  hdiutil detach "$mnt" >/dev/null 2>&1 || hdiutil detach -force "$mnt" >/dev/null 2>&1
+  mnt=""
+  rm -f "$scratch/in.dmg"
+  app_base="$scratch/app/$(basename "$found")" app_head="$app_base"
+  version="$(plutil -extract CFBundleVersion raw -o - "$app_base/Contents/Info.plist" 2>/dev/null || true)"
+  commit="$(plutil -extract CMUXCommit raw -o - "$app_base/Contents/Info.plist" 2>/dev/null || true)"
+  echo "IDLE-AB nightly $url version ${version:-?} commit ${commit:-?}"
+}
+if [ -n "$dmg" ]; then
+  nightly_app || exit 3
+else
+  build_arm base "$base" || exit 3
+  build_arm head "$head" || exit 3
+fi
 disk built
 
 IFS=, read -r -a chat_counts <<< "$chats"
@@ -187,6 +294,11 @@ if [ -n "$cells" ]; then
   terminal=false agent_counts=""
 fi
 attribute=(--attribute --attribute-kinds "$kinds" --attribute-trace "$trace")
+# After each window (never in it): vmmap --summary of the app, the 2 largest renderers, the acpmux daemons,
+# cmux mcp serve and optchat-chief, parsed per region (vmmap_regions.py); before it, a wait of at most
+# 60 s for the Chief's processes to stop changing, so each window is one launch state (see launch_state).
+(( vmmap )) && attribute+=(--vmmap-breakdown)
+(( chief_steady )) && attribute+=(--chief-steady "$chief_steady")
 status=0
 run_arm() {  # run_arm ARM ROUND
   local arm="$1" i="$2" app rc
@@ -194,14 +306,15 @@ run_arm() {  # run_arm ARM ROUND
   echo "IDLE-AB round $i $arm load $(uptime | sed 's/.*load averages*: //')"
   if $terminal; then
     python3 "$harness/bench_memory.py" --app "$app" --workspaces 1 --mix terminal --settle 20 --measure "$measure" \
-      --top 8 "${attribute[@]}" --out "$out/runs/$arm-$i-terminal.json" > "$out/runs/$arm-$i-terminal.log" 2>&1
+      --top 8 "${attribute[@]}" ${relaunch_args[@]+"${relaunch_args[@]}"} ${app_env[@]+"${app_env[@]}"} \
+      --out "$out/runs/$arm-$i-terminal.json" > "$out/runs/$arm-$i-terminal.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-terminal.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   fi
   if [ -n "$agent_counts" ]; then
     python3 "$harness/bench_memory.py" --app "$app" --workspaces "$agent_counts" --mix terminal+chat \
       --fake-agent "$harness/fake_agent.py" --settle 20 --measure "$measure" --top 8 "${attribute[@]}" \
-      --out "$out/runs/$arm-$i-agents.json" > "$out/runs/$arm-$i-agents.log" 2>&1
+      ${app_env[@]+"${app_env[@]}"} --out "$out/runs/$arm-$i-agents.json" > "$out/runs/$arm-$i-agents.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-agents.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   fi
@@ -215,16 +328,49 @@ run_arm() {  # run_arm ARM ROUND
     # N chats is N+1 workspaces, as above; the diff tab opens in the workspace that is shown last.
     python3 "$harness/bench_memory.py" --app "$app" --workspaces "$((n + 1))" --mix terminal+chat \
       --fake-agent "$harness/fake_agent.py" --settle 20 --measure "$measure" --top 8 "${attribute[@]}" "${extra[@]}" \
+      ${app_env[@]+"${app_env[@]}"} \
       --out "$out/runs/$arm-$i-cell$k.json" > "$out/runs/$arm-$i-cell$k.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-cell$k.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   done
+  if [ "$home" = 1 ]; then
+    # Not a .json: the summary below reads every runs/*.json as a bench_memory report.
+    python3 "$harness/chief-start-probe.py" --app "$app" ${app_env[@]+"${app_env[@]}"} --out "$out/runs/$arm-$i-home.probe" > "$out/runs/$arm-$i-home.log" 2>&1
+    rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-home.log"; }
+    grep -h '^CHIEF-START ' "$out/runs/$arm-$i-home.log" | sed "s/^CHIEF-START /IDLE-AB home $arm $i /"
+    python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
+  fi
   grep -h '^PERF-ATTR .* wakes ' "$out/runs/$arm-$i-"*.log 2>/dev/null | head -n 80 | sed "s/^/IDLE-AB $arm $i /"
 }
 for i in $(seq 1 "$rounds"); do
   # ABBA order: a drift across the step falls on both arms alike.
   if (( i % 2 )); then run_arm base "$i"; run_arm head "$i"; else run_arm head "$i"; run_arm base "$i"; fi
 done
+
+if (( settings_open )); then
+  # Cmd-, on the same builds and host as the idle RAM: settings_open= launches per arm, interleaved by the bench
+  # (base, head, base, ...), 4 opens each; the first open of a launch is cold, the others warm.
+  echo "IDLE-AB settings-open load $(uptime | sed 's/.*load averages*: //')"
+  python3 "$harness/next/bench-settings-open.py" --app "$app_base" --app "$app_head" --runs "$settings_open" \
+    --json "$out/settings-open.json" > "$out/settings-open.log" 2>&1 || status=1
+  sed 's/^/IDLE-AB settings-open /' "$out/settings-open.log"
+  python3 -I - "$out/settings-open.json" "$(basename "$app_base")" "$(basename "$app_head")" <<'PY' || status=1
+import json, statistics, sys
+data = json.load(open(sys.argv[1]))
+def tag(name):
+    return name.removeprefix("cmux DEV ").removesuffix(".app").lower()
+def p90(xs):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(round(0.9 * (len(xs) - 1))))] if xs else None
+for arm, name in (("base", sys.argv[2]), ("head", sys.argv[3])):
+    runs = data.get(tag(name), [])
+    cold = [r[0]["visible_ms"] for r in runs if r and not r[0].get("already_open") and r[0].get("visible_ms") is not None]
+    warm = [o["visible_ms"] for r in runs for o in r[1:] if not o.get("already_open") and o.get("visible_ms") is not None]
+    claims = sorted({str(o.get("claim")) for r in runs for o in r})
+    print(f"IDLE-AB settings-open {arm} cold_median {statistics.median(cold) if cold else None} cold_max {max(cold) if cold else None} "
+          f"n {len(cold)} warm_median {statistics.median(warm) if warm else None} warm_p90 {p90(warm)} n {len(warm)} claims {claims}")
+PY
+fi
 
 python3 -I - "$out/runs" "$rounds" "$cells" <<'PY' || status=1
 import collections, glob, json, os, statistics, sys
@@ -237,6 +383,8 @@ cpu = collections.defaultdict(lambda: collections.defaultdict(list))
 values = collections.defaultdict(lambda: collections.defaultdict(list))
 threads = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
 seen = collections.defaultdict(lambda: collections.defaultdict(int))
+# footprints[chats][arm] = [{kind: MB} per run]: a kind absent from a run counts 0 MB there.
+footprints = collections.defaultdict(lambda: collections.defaultdict(list))
 summary = []
 # With cells=: focus[cell] = each (before, after) of its runs; faults = the cells whose medians are not to be read.
 focus = collections.defaultdict(set)
@@ -280,6 +428,11 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
                         cpu[(chats, name)][arm].append(e[key])
                         total += e[key]
             cpu[(chats, "total")][arm].append(round(total, 3))
+        # Only the footprints the sample measured: one with none (an older sampler) prints no footprint line.
+        run = {kind: e["footprint_mb"] or 0.0 for kind, e in s["kinds"].items() if "footprint_mb" in e}
+        if "total_footprint_mb" in s:
+            run["total"] = s["total_footprint_mb"] or 0.0
+        footprints[chats][arm].append(run)
         for kind, e in s["kinds"].items():
             if e.get("wakeups_per_s") is None:
                 continue
@@ -305,6 +458,16 @@ for (chats, kind) in sorted(values):
     delta = round(h[0] - b[0], 2) if None not in (b[0], h[0]) else None
     print(f"IDLE-AB median {word} {chats} kind {kind} base {b[0]} [{b[1]}-{b[2]}] n {len(values[(chats, kind)]['base'])} "
           f"head {h[0]} [{h[1]}-{h[2]}] n {len(values[(chats, kind)]['head'])} delta {delta}")
+for chats in sorted(footprints, key=str):
+    arms = footprints[chats]
+    for kind in sorted({k for arm in arms.values() for run in arm for k in run}):
+        got = {arm: [run.get(kind, 0.0) for run in arms[arm]] for arm in ("base", "head")}
+        b, h = stat(got["base"], 1), stat(got["head"], 1)
+        delta = round(h[0] - b[0], 1) if None not in (b[0], h[0]) else None
+        present = {arm: sum(1 for run in arms[arm] if kind in run) for arm in ("base", "head")}
+        print(f"IDLE-AB footprint {word} {chats} kind {kind} base {b[0]} [{b[1]}-{b[2]}] n {len(got['base'])} "
+              f"head {h[0]} [{h[1]}-{h[2]}] n {len(got['head'])} delta {delta} "
+              f"present base {present['base']}/{len(got['base'])} head {present['head']}/{len(got['head'])}")
 for (chats, kind) in sorted(threads):
     arms = threads[(chats, kind)]
     rows = []
@@ -330,7 +493,79 @@ for cell, what in faults:
     print(f"IDLE-AB fault cell {cell} {what}")
 sys.exit(1 if faults else 0)
 PY
+# The memory of each sample (phys_footprint summed over the app's processes, bench_memory's
+# total_footprint_mb) and, with home=1, the probe's times: medians per arm.
+python3 -I - "$out/runs" <<'PY' || status=1
+import collections, glob, json, os, statistics, sys
+runs = sys.argv[1]
+mem = collections.defaultdict(lambda: collections.defaultdict(list))
+by_state = collections.defaultdict(lambda: collections.defaultdict(list))
+regions = collections.defaultdict(lambda: collections.defaultdict(list))
+seen_why = collections.defaultdict(lambda: collections.defaultdict(int))
+for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
+    arm, i, mode = os.path.basename(path)[:-5].split("-")
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for s in data.get("samples", []):
+        brains = sum(1 for p in s.get("processes", []) if "optchat-chief" in p.get("command", ""))
+        state = s.get("launch_state") or {}
+        chief_up = state.get("chief_up", brains > 0)
+        visible = state.get("visible_agent_pages")
+        if visible is None:
+            visible = sum(1 for p in (s.get("attribution") or {}).get("pages") or []
+                          if not p.get("hidden") and str(p.get("origin") or "").startswith("cmux-page://cmux.agent"))
+        print(f"IDLE-AB footprint {arm} {i} {mode} {s['label']} total_mb {s.get('total_footprint_mb')} chief_processes {brains} "
+              f"chief_up {chief_up} visible_agent_pages {visible} chief_changed_in_window {state.get('chief_changed_in_window')}")
+        mem[(mode, s["label"])][arm].append(s.get("total_footprint_mb"))
+        # The two launch states an idle launch lands in (the Chief up, about +145 MB; or not, an agent page
+        # often on screen): one median of both is their mix. Per state, A/B deltas compare like with like.
+        key = f"chief_{'up' if chief_up else 'down'}+agent_pages_{visible}"
+        by_state[(mode, s["label"], key)][arm].append(s.get("total_footprint_mb"))
+        for p in s.get("processes", []):
+            for region, r in ((p.get("vmmap") or {}).get("regions") or {}).items():
+                regions[(mode, s["label"], p["vmmap"].get("why"), region)][arm].append(r["dirty_swapped_mb"])
+            if p.get("vmmap"):
+                seen_why[(mode, s["label"], p["vmmap"].get("why"))][arm] += 1
+home = collections.defaultdict(lambda: collections.defaultdict(list))
+for path in sorted(glob.glob(os.path.join(runs, "*-home.probe"))):
+    arm = os.path.basename(path).split("-")[0]
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for key in ("home_open_ms", "brain_after_open_ms", "brain_logged_ms", "typing_ms", "first_text_ms", "reply_ms"):
+        if data.get(key) is not None:
+            home[key][arm].append(data[key])
+    home["brain_at_rest"][arm].append(1 if data.get("brain_at_rest") else 0)
+def med(xs):
+    xs = [x for x in xs if x is not None]
+    return f"{round(statistics.median(xs), 1)} [{min(xs)}-{max(xs)}] n {len(xs)}" if xs else "none"
+for (mode, label), arms in sorted(mem.items()):
+    print(f"IDLE-AB footprint median {mode} {label} base {med(arms['base'])} head {med(arms['head'])}")
+for (mode, label, state), arms in sorted(by_state.items()):
+    print(f"IDLE-AB footprint state {mode} {label} {state} base {med(arms['base'])} head {med(arms['head'])}")
+# Per process (why it was picked) and region: dirty+swapped MB, a run where the region is absent counting 0;
+# the 12 largest by either arm's median, so the A/B says which region a delta is in.
+rows = []
+for (mode, label, why, region), arms in regions.items():
+    got = {arm: arms[arm] + [0.0] * (seen_why[(mode, label, why)][arm] - len(arms[arm])) for arm in ("base", "head")}
+    m = {arm: round(statistics.median(got[arm]), 1) if got[arm] else None for arm in got}
+    rows.append((mode, label, why, region, m["base"], m["head"]))
+for mode, label, why, region, b, h in sorted(rows, key=lambda r: -max(r[4] or 0, r[5] or 0))[:40]:
+    delta = round(h - b, 1) if None not in (b, h) else None
+    print(f"IDLE-AB vmmap {mode} {label} {why} region {region!r} base {b} head {h} delta {delta}")
+for key, arms in home.items():
+    print(f"IDLE-AB home median {key} base {med(arms['base'])} head {med(arms['head'])}")
+PY
 echo "IDLE-AB verdict exit $status base $base head $head rounds $rounds"
 # Packed beside the folder, then moved in: a tar of the folder it writes into reads its own output.
-tar -czf "$out.tgz" -C "$out" runs summary.json build-base.log build-head.log 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+# Only what this run wrote: dmg= builds nothing, so it has no build-*.log, and a missing name fails the whole tar.
+packed=()
+for f in runs summary.json build-base.log build-head.log settings-open.json settings-open.log; do
+  [ -e "$out/$f" ] && packed+=("$f")
+done
+tar -czf "$out.tgz" -C "$out" "${packed[@]}" && mv "$out.tgz" "$out/report.tgz" \
+  || echo "IDLE-AB report.tgz not written (tar of ${packed[*]} failed)" >&2
 exit $status

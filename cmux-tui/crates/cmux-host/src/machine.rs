@@ -66,6 +66,9 @@ pub const HOST_INPUT_IDLE_MS: u64 = 10 * 60 * 1000;
 pub const HOST_MAX_DEFER_MS: u64 = 24 * 60 * 60 * 1000;
 /// How often the agent looks at a deferred old-build host's sessions.
 pub const HOST_LOOK_MS: u64 = 15_000;
+/// Past the session host's restart budget (`config::SESSION_HOST_BUDGET`), a crash restarts it
+/// only after this long: the retry continues behind the `restart-budget-exceeded` state.
+pub const BUDGET_HOLD_RETRY_MS: u64 = 60 * 60 * 1000;
 
 /// One look at the carrier sessions of an adopted session host of an older
 /// build ([`Input::HostLooked`]).
@@ -167,6 +170,10 @@ pub enum Input {
     ResumeSignal,
     /// The supervised session host exited after `lived_ms`.
     DaemonExited { lived_ms: u64 },
+    /// Whether today's session host faults are past the restart budget (the agent counts them
+    /// on the supervisor contract before it hands an exit in). Past it, a crash restarts only
+    /// after [`BUDGET_HOLD_RETRY_MS`].
+    RestartBudget { exceeded: bool },
     /// The session host ignored SIGTERM for the stop grace period.
     StopDeadline,
     /// The restart backoff elapsed.
@@ -335,6 +342,12 @@ pub enum DaemonState {
     Backoff,
 }
 
+/// Periodic announces after a bind, a resume or a (re)start on a bound
+/// machine (each one `announce_interval` after the last, 30 s by default):
+/// two minutes of repeats, then quiet, so an idle VM reaches the provider's
+/// 300 s idle timeout. A resume or a bind announces again.
+pub const ANNOUNCE_REPEATS: u32 = 4;
+
 /// The agent's decision state.
 #[derive(Clone, Debug)]
 pub struct Machine {
@@ -366,10 +379,15 @@ pub struct Machine {
     resume_pending: bool,
     /// The periodic announce timer is armed.
     announce_loop: bool,
+    /// Periodic announces since the last bind, resume or (re)start on a
+    /// bound machine; the loop stops at [`ANNOUNCE_REPEATS`].
+    announce_repeats: u32,
     exiting: bool,
     /// The running session host is of an older build and waits to be
     /// replaced; cleared by any exit of it (every spawn runs the new build).
     old_host: Option<OldHost>,
+    /// Today's session host faults are past the restart budget ([`Input::RestartBudget`]).
+    over_budget: bool,
 }
 
 /// An old-build session host the machine waits to replace.
@@ -406,8 +424,10 @@ impl Machine {
             verify_pending: false,
             resume_pending: false,
             announce_loop: false,
+            announce_repeats: 0,
             exiting: false,
             old_host: None,
+            over_budget: false,
         }
     }
 
@@ -459,6 +479,7 @@ impl Machine {
             Input::RetryElapsed => self.retry_armed = false,
             Input::ResumeSignal => self.resume(&mut out),
             Input::DaemonExited { lived_ms } => self.daemon_exited(lived_ms, &mut out),
+            Input::RestartBudget { exceeded } => self.over_budget = exceeded,
             Input::StopDeadline => {
                 if matches!(self.daemon, DaemonState::Stopping(_)) {
                     out.push(Action::KillDaemon);
@@ -484,6 +505,7 @@ impl Machine {
             Input::AnnounceTick => {
                 self.announce_loop = false;
                 if self.identity_settled() {
+                    self.announce_repeats = self.announce_repeats.saturating_add(1);
                     self.announce(&mut out);
                 }
             }
@@ -593,6 +615,7 @@ impl Machine {
                 self.start_roles(out);
                 // An agent restart or an unpark on a bound machine starts
                 // the periodic announce too, not only a bind or a resume.
+                self.announce_repeats = 0;
                 self.arm_announce_loop(out);
                 if std::mem::take(&mut self.resume_pending) {
                     // The id is confirmed unchanged: deliver the resume.
@@ -602,8 +625,18 @@ impl Machine {
         }
     }
 
+    /// Re-arms the periodic announce, at most [`ANNOUNCE_REPEATS`] times after
+    /// a bind, a resume or a (re)start on a bound machine. A loop with no end
+    /// was outbound traffic every 30 s forever, so an idle VM never reached
+    /// the provider's 300 s idle timeout and never paused (staging,
+    /// 2026-11-27: every running VM's `lastNetworkActivity` under a minute old).
     fn arm_announce_loop(&mut self, out: &mut Vec<Action>) {
-        if !self.parked && self.current_id.is_some() && !self.announcing && !self.announce_loop {
+        if !self.parked
+            && self.current_id.is_some()
+            && !self.announcing
+            && !self.announce_loop
+            && self.announce_repeats < ANNOUNCE_REPEATS
+        {
             self.announce_loop = true;
             out.push(Action::ArmAnnounce);
         }
@@ -645,6 +678,7 @@ impl Machine {
     fn finish_bind(&mut self, id: String, out: &mut Vec<Action>) {
         self.fast_exits = 0;
         self.spawn(out);
+        self.announce_repeats = 0;
         self.announce(out);
         out.push(Action::Rekey(id.clone()));
         out.push(Action::RestartPromptSync);
@@ -728,6 +762,7 @@ impl Machine {
             return;
         }
         self.notify(Lifecycle::Resumed, out);
+        self.announce_repeats = 0;
         self.announce(out);
     }
 
@@ -843,7 +878,14 @@ impl Machine {
                     self.fast_exits = 0;
                 }
                 self.fast_exits = self.fast_exits.saturating_add(1);
-                match backoff_delay_ms(self.fast_exits) {
+                // Past the day's budget the loop is not normal life: hold, and try again hourly
+                // (the status reads `restart-budget-exceeded` with the causes meanwhile).
+                let delay = if self.over_budget {
+                    BUDGET_HOLD_RETRY_MS
+                } else {
+                    backoff_delay_ms(self.fast_exits)
+                };
+                match delay {
                     // Restart through a fresh observation.
                     0 => out.push(Action::Recheck),
                     delay => {
@@ -885,3 +927,7 @@ impl Machine {
 #[cfg(test)]
 #[path = "machine_carrier_tests.rs"]
 mod carrier_tests;
+
+#[cfg(test)]
+#[path = "machine_announce_tests.rs"]
+mod announce_tests;

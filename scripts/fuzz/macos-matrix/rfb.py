@@ -117,7 +117,7 @@ class RFB:
         for s in syms:
             self.key(s, True)
             time.sleep(0.005)
-        time.sleep(hold)
+        time.sleep(hold)  # sleep-ok: the chord's key hold, the gesture's own length
         for s in reversed(syms):
             self.key(s, False)
             time.sleep(0.005)
@@ -153,7 +153,7 @@ class RFB:
         for i in range(1, steps + 1):
             time.sleep(0.015)
             self.move(x0 + (x1 - x0) * i // steps, y0 + (y1 - y0) * i // steps)
-        time.sleep(0.05)
+        time.sleep(0.05)  # sleep-ok: the drag's hold at its end before the release, part of the gesture
         self.button(1, False)
 
     def scroll(self, x: int, y: int, down: bool, clicks: int = 3) -> None:
@@ -166,6 +166,26 @@ class RFB:
     # Framebuffer --------------------------------------------------------
     def screenshot_png(self, timeout: float = 10) -> bytes:
         """Request a full raw frame and return it encoded as PNG."""
+        fb = self.frame(timeout)  # first: a resize in the frame changes width and height
+        return _png(self.width, self.height, fb)
+
+    def settle(self, timeout: float = 5.0, reads: int = 3, interval: float = 0.05) -> bool:
+        """Until the guest's screen is the same `reads` frames in a row (what an input did has drawn), at most
+        `timeout` s; False when it kept changing."""
+        deadline = time.monotonic() + timeout
+        last, same = None, 0
+        while True:
+            digest = zlib.crc32(self.frame())
+            same = same + 1 if digest == last else 1
+            last = digest
+            if same >= reads:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(interval)
+
+    def frame(self, timeout: float = 10) -> bytes:
+        """Request a full raw frame and return its BGRX bytes."""
         self.sock.sendall(struct.pack(">BBHHHH", 3, 0, 0, 0, self.width, self.height))
         fb = bytearray(self.width * self.height * 4)
         deadline = time.time() + timeout
@@ -202,7 +222,7 @@ class RFB:
                 self._recv(struct.unpack(">I", self._recv(4))[0])
             else:
                 raise RuntimeError(f"unknown server message {mtype}")
-        return _png(self.width, self.height, fb)
+        return bytes(fb)
 
     def close(self) -> None:
         try:

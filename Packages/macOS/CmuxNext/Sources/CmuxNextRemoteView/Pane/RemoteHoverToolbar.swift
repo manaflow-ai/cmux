@@ -16,7 +16,7 @@ final class RemoteHoverToolbar: NSView {
     var onUpstream: ((RemoteUpstreamKind) -> Void)?
 
     static let height: CGFloat = 38
-    let surface = Glass.makeOverlayPanel(cornerRadius: RemoteHoverToolbar.height / 2)
+    let surface = Glass.makeOverlayPanel(cornerRadius: RemoteHoverToolbar.height / 2, tone: .neutralGlass(.transient))
     private let icon = RemoteChrome.symbol("display", size: 12)
     private let hostLabel = RemoteChrome.label("", size: 12.5, weight: .semibold)
     private let badge = RemotePathBadgeView()
@@ -88,7 +88,7 @@ final class RemoteHoverToolbar: NSView {
         hostLabel.textColor = colors.textPrimary
         icon.contentTintColor = colors.textSecondary
         badge.isHidden = !settings.showPathBadge
-        badge.update(status: state.status, ended: state.isEnded, colors: colors)
+        badge.update(status: state.status, ended: state.isEnded, connectionQuiet: state.quietConnecting, colors: colors)
         for view in sessionViews { view.isHidden = !state.showsSessionControls }
         let takesOver = state.modeControl == .takeOver
         toggle.isHidden = !state.showsSessionControls || takesOver

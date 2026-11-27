@@ -45,6 +45,11 @@ FRAME_SLACK_MS = 1.0
 QUANT = bytes(v >> 3 for v in range(256))
 SCHEMA = "tab-switch/v1"
 SCENARIOS = ("chat-long-return", "terminal-return", "chromium-return", "new-tab", "close-tab")
+# Beside the defaults (scenarios=all): a WebKit page's return, workspaces opened, switched and closed, and rapid
+# sequences whose animations retarget mid-flight (tab_switch_frames.py's docstring says what each drives).
+MORE_SCENARIOS = ("webkit-return", "new-workspace", "switch-workspace", "close-workspace", "rapid-open-5",
+                  "rapid-close-3", "open-while-close", "browser-split")
+ALL_SCENARIOS = SCENARIOS + MORE_SCENARIOS
 LOADS = ("idle", "cpu", "agents")
 
 
@@ -145,10 +150,12 @@ def judge_switch(frames, mark, w, content, frame_ms, reference=None, strip=None,
             continue
         if is_blank(crops[i], cb, ce, tolerance):
             out["blank_frames"] += n
+            out.setdefault("first_blank_frame", i)
             continue
         out["wrong_frames"] += n
         if first_content is None:
             first_content = i
+    out["first_content_frame"] = first_content
     # Layout shift: the first content frame against the end frame, transcript and composer apart.
     if first_content is not None:
         x0, y0, x1, y1 = content
@@ -166,20 +173,26 @@ def judge_switch(frames, mark, w, content, frame_ms, reference=None, strip=None,
     return out
 
 
-def changed_columns(a, b, width):
-    """The columns where two quantized strip crops of row width `width` differ."""
+def changed_columns(a, b, width, axis="x"):
+    """The columns (axis "x") or rows (axis "y") where two quantized strip crops of row width `width` differ."""
     rows = len(a) // width if width else 0
     columns = set()
     for y in range(rows):
         ra, rb = a[y * width:(y + 1) * width], b[y * width:(y + 1) * width]
         if ra == rb:
             continue
-        columns.update(x for x in range(width) if ra[x] != rb[x])
+        if axis == "y":
+            columns.add(y)
+        else:
+            columns.update(x for x in range(width) if ra[x] != rb[x])
     return columns
 
 
-def judge_strip(frames, mark, w, strip, frame_ms, px_per_point=1.0, tolerance=TOLERANCE, tab_points=60):
-    """insert_ok and anim_end_ok of a new tab or a close (module doc), from the tab strip's pixels."""
+def judge_strip(frames, mark, w, strip, frame_ms, px_per_point=1.0, tolerance=TOLERANCE, tab_points=60, axis="x"):
+    """insert_ok and anim_end_ok of a new tab or a close (module doc), from the tab strip's pixels; axis "y" judges a
+    vertical list (the sidebar's workspace rows) by its changed rows, with `tab_points` one row's slack. Also the frame
+    indexes after the mark where the strip first moved (strip_first_frame) and where its animation went wrong
+    (anim_bad_frame, anim_bad_why)."""
     width = strip[2] - strip[0]
     before_frames = [f for f in frames if f[0] <= mark] or frames[:1]
     after = [f for f in frames if f[0] > mark]
@@ -190,12 +203,14 @@ def judge_strip(frames, mark, w, strip, frame_ms, px_per_point=1.0, tolerance=TO
     sb = crop(before_frames[-1][1], w, strip)
     crops = [crop(f[1], w, strip) for f in after]
     sf = crops[-1]
-    final_cols = changed_columns(sb, sf, width)
+    final_cols = changed_columns(sb, sf, width, axis)
     if diff_share(sb, sf) <= tolerance or not final_cols:
         out["strip_note"] = "the strip did not change"
         return out
-    first = next((c for c in crops if diff_share(c, sb) > tolerance), None)
-    first_cols = changed_columns(sb, first, width) if first is not None else set()
+    first_index = next((i for i, c in enumerate(crops) if diff_share(c, sb) > tolerance), None)
+    first = crops[first_index] if first_index is not None else None
+    out["strip_first_frame"] = first_index
+    first_cols = changed_columns(sb, first, width, axis) if first is not None else set()
     slack = tab_points * px_per_point
     out["insert_ok"] = bool(first_cols) and abs(min(first_cols) - min(final_cols)) <= slack \
         and max(first_cols) <= max(final_cols) + slack
@@ -207,11 +222,16 @@ def judge_strip(frames, mark, w, strip, frame_ms, px_per_point=1.0, tolerance=TO
     # the strip first moved is the switch's lag (to_content_ms), not a rest.
     times = [f[0] for f in after]
     moved = next((i for i, c in enumerate(crops) if diff_share(c, sb) > tolerance), len(crops))
-    rested_off = any(
-        (times[i + 1] - times[i]) * 1000 >= 2 * frame_ms - FRAME_SLACK_MS and distances[i] > tolerance
-        for i in range(moved, len(crops) - 1))
-    went_away = any(distances[i] > distances[i - 1] + 0.02 for i in range(moved + 1, len(distances)))
+    rest = next((i + 1 for i in range(moved, len(crops) - 1)
+                 if (times[i + 1] - times[i]) * 1000 >= 2 * frame_ms - FRAME_SLACK_MS and distances[i] > tolerance), None)
+    away = next((i for i in range(moved + 1, len(distances)) if distances[i] > distances[i - 1] + 0.02), None)
+    rested_off, went_away = rest is not None, away is not None
     out["anim_end_ok"] = not rested_off and not went_away
+    if not out["anim_end_ok"]:
+        bad = min(i for i in (rest, away) if i is not None)
+        out["anim_bad_frame"] = bad
+        out["anim_bad_why"] = ("moved away from its final layout" if bad == away
+                               else "rested off its final layout, then moved on")
     out["strip_distances"] = [round(d, 4) for d in distances[:40]]
     return out
 
@@ -232,6 +252,13 @@ def budget_fails(switch, label):
     if switch.get("error"):
         fails.append(f"{label}: {switch['error']}")
         return fails
+    if switch.get("gate") == "blank-only":
+        # browser-split: the pane's layout moves by design, so only an empty frame in the new pane fails.
+        if (switch.get("blank_frames") or 0) > 0:
+            fails.append(f"{label}: {switch['blank_frames']} blank frames in the new pane")
+        if switch.get("to_content_ms") is None:
+            fails.append(f"{label}: the new pane never showed its page")
+        return fails
     to, frame = switch.get("to_content_ms"), switch.get("display_frame_ms") or 0
     if to is None:
         fails.append(f"{label}: never showed the expected content")
@@ -249,12 +276,19 @@ def budget_fails(switch, label):
 
 
 def scenario_row(name, load, switches, notes=None):
+    """A scenario x load row. A round recorded with another process's window over the app ("foreign_window", set by
+    tab_switch_foreign) is not judged: it moves to row["excluded"], so no stat, budget or table cell counts it."""
+    excluded = [s for s in switches if s.get("foreign_window")]
+    switches = [s for s in switches if not s.get("foreign_window")]
     fails = []
     for index, switch in enumerate(switches):
         fails += budget_fails(switch, f"{name}/{load} switch {index + 1}")
     if not switches:
-        fails.append(f"{name}/{load}: no switch measured" + (f" ({notes})" if notes else ""))
+        fails.append(f"{name}/{load}: no switch measured" + (f" ({notes})" if notes else "")
+                     + (f" ({len(excluded)} excluded: foreign window)" if excluded else ""))
     row = {"name": name, "load": load, "switches": switches, "budget_fail": fails}
+    if excluded:
+        row["excluded"] = [{k: s.get(k) for k in ("label", "foreign_window", "windows")} for s in excluded]
     if notes:
         row["notes"] = notes
     return row
@@ -338,6 +372,13 @@ def content_rect(a, b, w, h, min_share=0.5):
     if len(xs) < w // 8:
         return None
     return (xs[0], y0, xs[-1] + 1, y1)
+
+
+def sidebar_rect(content, px_per_point, h, gap_points=6, min_points=60):
+    """The sidebar: the band left of the content area (and its strip), full height, when it is at least `min_points`
+    wide; None otherwise (a hidden sidebar)."""
+    x1 = content[0] - int(gap_points * px_per_point)
+    return (0, 0, x1, h) if x1 >= min_points * px_per_point else None
 
 
 def strip_rect(content, px_per_point, h, strip_points=44):

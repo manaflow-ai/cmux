@@ -92,9 +92,9 @@ fn own_tree_a_setup_starts_in_the_git_folder_of_a_new_work_tree() {
     );
 }
 
-/// The same with a `worktrees` folder that is a link to a folder of a different place: a
-/// person can keep the folder so, and git then makes the git folder of a new work tree in the
-/// folder that the link names.
+/// The same with a `worktrees` folder that is a link to a folder of a different place. The
+/// folders are made by hand here. git did not make them: with such a link, `git worktree add`
+/// of git 2.43.0 fails and makes no work tree.
 #[cfg(unix)]
 #[test]
 fn own_tree_a_setup_starts_in_a_worktrees_folder_that_is_a_link() {
@@ -300,6 +300,218 @@ fn own_tree_the_check_of_a_setup_folder_is_of_the_folder_that_the_setup_opened()
     assert!(!of_the_repository, "the check was of the folder that the path names later");
 }
 
+/// The record of the git folder of a new work tree is read in the folder that the setup opened.
+/// 2 folders in the repository's `worktrees` folder: the first has the record of a different
+/// work tree, the second has the record of this work tree. The path of a place names the first
+/// when the place opens it, and the second after that. The place is not of the repository. A
+/// place that opened the second is of the repository.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_record_of_a_setup_folder_is_of_the_folder_that_the_setup_opened() {
+    let top = new_folder("setup-opened-record");
+    let (common, root, other) = (top.join("main/.git"), top.join("new"), top.join("other"));
+    let (first, second) = (common.join("worktrees/first"), common.join("worktrees/second"));
+    let named = common.join("worktrees/named");
+    for folder in [&first, &second, &root, &other] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    record_of(&first, &other);
+    record_of(&second, &root);
+    std::os::unix::fs::symlink(&first, &named).unwrap();
+    let opened_first = worktree_setup::Place::new(root.clone(), None, &named, &common);
+    std::fs::remove_file(&named).unwrap();
+    std::os::unix::fs::symlink(&second, &named).unwrap();
+    let opened_second = worktree_setup::Place::new(root, None, &named, &common);
+
+    let of_the_repository = (opened_first.is_of(&common), opened_second.is_of(&common));
+
+    drop((opened_first, opened_second));
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(of_the_repository, (false, true), "the record was of the folder of the path");
+}
+
+/// A git folder that is there and that the place cannot open keeps the kind of the error of its
+/// open. The folder here has the rights to search it and to write to it, and no right to read
+/// it. A user that has each right (root) opens it, and then there is no error to keep. A folder
+/// that is not there keeps that it was not found.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_folder_that_is_not_opened_keeps_the_error_of_its_open() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let top = new_folder("setup-not-opened");
+    let (common, root) = (top.join("main/.git"), top.join("new"));
+    let (closed, none) = (common.join("worktrees/closed"), common.join("worktrees/none"));
+    for folder in [&closed, &root] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o300)).unwrap();
+    let is_read = std::fs::read_dir(&closed).is_ok();
+
+    let kinds = [&closed, &none].map(|git_dir| {
+        worktree_setup::Place::new(root.clone(), None, git_dir, &common).not_opened()
+    });
+
+    // The old rights, before the result is looked at: the folder can be removed.
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::remove_dir_all(top).unwrap();
+    let of_closed = (!is_read).then_some(std::io::ErrorKind::PermissionDenied);
+    assert_eq!(kinds, [of_closed, Some(std::io::ErrorKind::NotFound)]);
+}
+
+/// `git ARGUMENTS` in `folder`, with no configuration of the user or of the system. git starts
+/// no maintenance of its own: a maintenance that a commit starts can write to the git folder
+/// when the test removes it.
+fn git(folder: &Path, arguments: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false"])
+        .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
+        .args(arguments)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "git {arguments:?}: {stderr}");
+}
+
+/// A folder that a run before made is the work tree of a create only when it is a work tree of
+/// the repository of the create. 2 repositories, made by git: each has a work tree on the
+/// branch of the create. For the first repository its own work tree is made, and the work tree
+/// of the second repository is not.
+#[test]
+fn own_tree_a_made_work_tree_is_a_work_tree_of_the_repository_of_the_create() {
+    let top = new_folder("made-place");
+    let (main, other) = (top.join("main"), top.join("other"));
+    let (own, of_other) = (top.join("own"), top.join("of-other"));
+    for (repository, work_tree) in [(&main, &own), (&other, &of_other)] {
+        std::fs::create_dir_all(repository).unwrap();
+        git(repository, &["init", "-q", "-b", "main"]);
+        git(repository, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        let work_tree = work_tree.to_string_lossy();
+        git(repository, &["worktree", "add", "-q", "-b", "cmux/new", &*work_tree]);
+    }
+    let attempt = |root: PathBuf| {
+        let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+        Attempt { root, branch, base, base_commit: String::new() }
+    };
+    let common = main.join(".git");
+
+    let found = (made(&attempt(own), &common), made(&attempt(of_other), &common));
+
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(found, (true, false), "the made work tree is of a different repository");
+}
+
+/// A work tree of the repository of the create that git keeps locked is not a made work tree:
+/// `git worktree add` keeps its lock while it checks the files out. After the unlock, the same
+/// work tree is a made work tree.
+#[test]
+fn own_tree_a_locked_work_tree_is_not_a_made_work_tree() {
+    let top = new_folder("made-locked");
+    let (main, own) = (top.join("main"), top.join("own"));
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let work_tree = own.to_string_lossy();
+    git(&main, &["worktree", "add", "-q", "-b", "cmux/new", &*work_tree]);
+    let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+    let attempt = Attempt { root: own.clone(), branch, base, base_commit: String::new() };
+    let common = main.join(".git");
+
+    git(&main, &["worktree", "lock", &*work_tree]);
+    let locked = made(&attempt, &common);
+    git(&main, &["worktree", "unlock", &*work_tree]);
+    let unlocked = made(&attempt, &common);
+
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!((locked, unlocked), (false, true), "a locked work tree is a made work tree");
+}
+
+/// What a create gives in a repository whose `post-checkout` hook writes, in the new work tree,
+/// a `.git` file that names the git folder of a work tree of a second repository, and then ends
+/// with the code `end`: the path of the new work tree, whether the hook wrote the file, and the
+/// details of the error of the create.
+#[cfg(unix)]
+fn create_with_a_hook_that_writes_the_git_entry(
+    name: &str,
+    end: u8,
+) -> (PathBuf, bool, Option<Value>) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let top = new_folder(name);
+    let (main, other) = (top.join("main"), top.join("other"));
+    let (root, of_other) = (top.join("root"), top.join("of-other"));
+    for repository in [&main, &other] {
+        std::fs::create_dir_all(repository).unwrap();
+        git(repository, &["init", "-q", "-b", "main"]);
+        git(repository, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    }
+    git(&other, &["worktree", "add", "-q", "-b", "cmux/new", &*of_other.to_string_lossy()]);
+    let entry = format!("gitdir: {}", other.join(".git/worktrees/of-other").display());
+    let hooks = top.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let git_entry = root.join(".git");
+    let hook =
+        format!("#!/bin/sh\nprintf '%s\\n' '{entry}' > '{}'\nexit {end}\n", git_entry.display());
+    std::fs::write(hooks.join("post-checkout"), hook).unwrap();
+    let mode = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(hooks.join("post-checkout"), mode).unwrap();
+    git(&main, &["config", "core.hooksPath", &*hooks.to_string_lossy()]);
+    let repository = Repository::open(&main).unwrap();
+    let base_commit = repository.commit("main").unwrap();
+    let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+    let attempt = Attempt { root: root.clone(), branch, base, base_commit };
+    let user_git = UserGit { root: &repository.root, deadline: deadline() };
+
+    let created = create(&repository, &user_git, &attempt, &main.join(".git"), None);
+
+    let written = std::fs::read_to_string(git_entry).unwrap_or_default();
+    std::fs::remove_dir_all(top).unwrap();
+    (root, written.trim_end() == entry, created.err().map(|error| error.details))
+}
+
+/// A create gives a work tree only when the repository of the create keeps it, also when
+/// `git worktree add` ends with a success. The hook of the test ends with a success, so git
+/// does too. The create is refused with `git_failed`, and the whole message is compared: it
+/// names the folder and the branch that git made, each in its place.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
+    let (root, written, details) = create_with_a_hook_that_writes_the_git_entry("create-kept", 0);
+
+    assert!(written, "the hook of the test did not write the `.git` file");
+    let reason = details.as_ref().map(|details| details["reason"].clone());
+    let message = "the create gave a work tree that its repository does not keep";
+    assert_eq!(reason, Some(json!("git_failed")), "{message}");
+    // A failure of `git worktree add` has the same reason: the message says which refusal it
+    // is. The folder and the branch that git made stay: the message names them.
+    let text = details.as_ref().and_then(|details| details["extra"]["message"].as_str());
+    let wanted = format!(
+        "git worktree add ended, and {} is not a worktree that this repository keeps; the \
+         folder and the branch cmux/new stay",
+        root.to_string_lossy()
+    );
+    assert_eq!(text, Some(wanted.as_str()));
+}
+
+/// The same hook, which now ends with a failure: `git worktree add` fails after the hook wrote
+/// the `.git` file. The create is refused with `git_failed` here too. Its message is the one
+/// of a failure of git, not the one of a work tree that the repository does not keep.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_create_whose_git_fails_gives_the_message_of_that_failure() {
+    let (_, written, details) = create_with_a_hook_that_writes_the_git_entry("create-failed", 1);
+
+    assert!(written, "the hook of the test did not write the `.git` file");
+    let reason = details.as_ref().map(|details| details["reason"].clone());
+    assert_eq!(reason, Some(json!("git_failed")), "the create gave a work tree");
+    let text = details.as_ref().and_then(|details| details["extra"]["message"].as_str());
+    assert_eq!(text, Some("git worktree add failed"));
+}
+
 /// No setup starts in a folder that is not directly in the `worktrees` folder of the
 /// repository's git folder: a folder in the `worktrees` folder of a different repository, the
 /// repository's git folder, its `worktrees` folder, a folder below the git folder of a work
@@ -315,6 +527,7 @@ fn own_tree_a_setup_starts_in_no_folder_outside_the_worktrees_folder_of_this_rep
         common.clone(),
         common.join("worktrees"),
         admin.join("below"),
+        // affected-reads: none
         admin.join("../../.."),
     ];
     std::fs::create_dir_all(&root).unwrap();
@@ -409,4 +622,36 @@ fn own_tree_a_new_git_entry_is_read_to_its_limit_and_a_pipe_with_no_end_is_not_w
 
     std::fs::remove_dir_all(top).unwrap();
     assert_eq!((found, joined), ((Some(None), Some(admin), None, None), true));
+}
+
+/// `worktrees.location` and `worktrees.branchPrefix`: a create puts the worktree in the named
+/// shared folder, under the project's name, on a branch with the named prefix; a name whose
+/// branch is taken under that prefix gets the next suffix. Unset, the prefix is `cmux/`.
+#[test]
+fn settings_a_create_uses_the_worktree_folder_and_branch_prefix_of_the_settings() {
+    let top = new_folder("names");
+    let main = top.join("proj");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    git(&main, &["branch", "me/fix"]);
+    let shared = top.join("shared");
+    let names = Names {
+        place: SessionWorktrees::Shared,
+        location: Some(json!(shared.to_string_lossy())),
+        branch_prefix: worktree_names::branch_prefix(Some(&json!("me/"))),
+    };
+    let repository = super::super::open_repository(&main, OPERATION).unwrap();
+    let common = std::fs::canonicalize(main.join(".git")).unwrap();
+
+    let folder = storage_folder(&common, &names).unwrap();
+    let fields = json!({"name": "fix"}).as_object().unwrap().clone();
+    let attempt = plan(&repository, &folder, &names.branch_prefix, &fields).unwrap();
+    let default = plan(&repository, &folder, BRANCH_PREFIX, &fields).unwrap();
+
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(folder, shared.join("proj"));
+    assert_eq!(attempt.root, shared.join("proj").join("fix-2"));
+    assert_eq!(attempt.branch, "me/fix-2");
+    assert_eq!(default.branch, "cmux/fix");
 }

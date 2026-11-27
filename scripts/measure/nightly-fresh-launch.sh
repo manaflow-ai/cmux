@@ -16,8 +16,16 @@
 #   arms=extra   also the pre-warm arms and the unified log around each fresh launch (nightly-fresh-launch.py --arms)
 #   arms=prewarm also only the pre-warm arms (PREWARM_ARMS)
 #   arms=adhoc   also a new copy re-signed ad hoc (ADHOC_ARMS): does a dmg=build app's first launch cost what the DMG's does
+#   arms=update  only the update path's launch (UPDATE_ARMS: prewarm-update-moved, what the nightly dogfood reads as
+#                app_update_launch_ms), none of the base arms
+#   arms=premain also the PREMAIN_ARMS (a new copy warmed one way each) and a log stream of every launch: what a
+#                new copy's pre-main is made of (NFL-PREMAIN, NFL-PREMAIN-LOG and NFL-VERIFY lines)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
+# measure_quiet, before any checkout: a base commit may predate build-progress.sh. From the checkout this file is in
+# (launch-ready.sh sources a copy of it from its scratch folder inside the checkout). A new shell after checkout
+# uses the carrier's saved helper via NFL_BUILD_PROGRESS, as quit-gamut.sh's bounded builds do.
+source "${NFL_BUILD_PROGRESS:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/scripts/measure/build-progress.sh}" || exit 3
 
 # One function, called on the last line: bash has read all of it before a base=SHA checkout changes this file.
 main() {
@@ -29,7 +37,7 @@ main() {
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
       rounds=*) rounds="${arg#rounds=}" ;;
-      arms=base|arms=extra|arms=prewarm|arms=adhoc) arms="${arg#arms=}" ;;
+      arms=base|arms=extra|arms=prewarm|arms=adhoc|arms=premain|arms=update) arms="${arg#arms=}" ;;
       base=*) base="${arg#base=}" ;;
       config=bench|config=release) config="${arg#config=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
@@ -39,11 +47,16 @@ main() {
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "NFL host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   if [[ "$dmg" == build ]]; then
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh. Each side's
+    # Screen Sharing helper phase runs this copy too (NFL_SCREEN_HELPER_PHASE).
+    cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+    cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
+      && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
     build_ab "$out" "$rounds" "$arms" "$base" "$config"
     return $?
   fi
   if [[ "$dmg" == nightly ]]; then
-    dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+    dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
       | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
   fi
   [[ "$dmg" == https://* ]] || { echo "NFL no nightly DMG in the feed"; exit 3; }
@@ -59,24 +72,64 @@ main() {
   exit "$rc"
 }
 
-# Builds the checkout at its current commit into OUT/NAME.dmg (a tagged Release app, the same tag for base and head
-# so both have one bundle id; a fleet measurement step's DerivedData is shared by the checkout's builds, so the second
-# build recompiles only what the two commits change).
+# Builds the checkout at its current commit into OUT/NAME.dmg (a tagged Release app; a fleet measurement step's
+# DerivedData is shared by the checkout's builds, so the second build recompiles only what the two commits change).
+# Each NAME has its own tag, nflab-NAME: the tag names the app's daemon session (cmux-app-<tag>), whose socket is one
+# per user (the account's temporary folder, whatever HOME a launch has). With one tag for base and head, the owner a
+# base launch kept for its terminals held that socket, and the head's `server ensure` refused it as another state
+# dir's, so no head launch ever connected (cmux#47182's A/B, 2026-11-20: head never seeded, front null, 0/19 attached).
 build_dmg() {
   local out="$1" name="$2" config="$3" app configuration=(--release)
   [[ "$config" == bench ]] && configuration=(--config bench)
+  [[ "$config" == debug ]] && configuration=(--config debug) # launch-ready.sh layout=movequit: DEBUG's debug.* commands
+  # Every phase before reload.sh is as quiet as the build (its output goes to the log), and a cold one (a submodule
+  # clone, an acpmux built on this host) ran past the controller's 45-minute silent limit before the first progress
+  # line (the font-smoothing A/B, step 606ea6ca, 2026-11-27, stopped with no "NFL acpmux base" line). measure_quiet
+  # ticks for each.
   for sub in ghostty ghostty-next; do
-    git submodule update --init --depth 1 "$sub" >>"$out/build-$name.log" 2>&1 || { echo "NFL submodule $sub failed" >&2; return 3; }
+    measure_quiet "NFL submodule $name $sub" "$out/build-$name.log" git submodule update --init --depth 1 "$sub" \
+      || { echo "NFL submodule $sub failed" >&2; return 3; }
   done
   if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
     rm -rf GhosttyKit.xcframework
     if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
       export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
     fi
-    ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$name.log" 2>&1 || { echo "NFL GhosttyKit download failed" >&2; return 3; }
+    measure_quiet "NFL GhosttyKit $name" "$out/build-$name.log" ./scripts/download-prebuilt-ghosttykit.sh \
+      || { echo "NFL GhosttyKit download failed" >&2; return 3; }
+  fi
+  # acpmux before reload.sh, for this commit's tree: a fleet measurement Mac never runs Cargo, and an older commit's
+  # reload.sh stops on a cache miss ("no cached acpmux for this checkout"). The copy taken before any checkout
+  # (NFL_RESOLVE_ACPMUX) also resolves a base commit that predates resolve-acpmux.sh; reload.sh takes the path as given.
+  # One Mac's launch: the app and its acpmux for this Mac's architecture, as a fleet measurement step's reload.sh
+  # already builds it, also when this runs outside one (the published acpmux is arm64 only).
+  export CMUX_RELOAD_NATIVE_ARCH="${CMUX_RELOAD_NATIVE_ARCH:-1}"
+  local resolve="${NFL_RESOLVE_ACPMUX:-$PWD/scripts/cmux-next/resolve-acpmux.sh}" acpmux=() arch=()
+  [[ "$CMUX_RELOAD_NATIVE_ARCH" == 1 && -z "${CMUX_NEXT_ACPMUX_ARCHS:-}" ]] \
+    && arch=(CMUX_NEXT_ACPMUX_ARCHS="$([[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] && echo arm64 || uname -m)")
+  if [[ -z "${CMUX_NEXT_ACPMUX_BIN:-}" && -x "$resolve" ]]; then
+    local bin
+    # The path is resolve-acpmux.sh's stdout, kept in a file; its notes go to the log with measure_quiet's.
+    measure_quiet "NFL acpmux $name" "$out/build-$name.log" \
+      bash -c '"$@" >"$0"' "$out/acpmux-$name.path" env ${arch[@]+"${arch[@]}"} "$resolve" --repo "$PWD" \
+      && bin="$(cat "$out/acpmux-$name.path")" && [[ -n "$bin" ]] \
+      || { echo "NFL acpmux for $name: none (build-$name.log)" >&2; return 3; }
+    acpmux=(CMUX_NEXT_ACPMUX_BIN="$bin")
+    echo "NFL acpmux $name $bin"
+  fi
+  # The Screen Sharing helper phase from the copy taken before any checkout (NFL_SCREEN_HELPER_PHASE), on a commit
+  # that has the phase: one from before #45226 named the helper "File Doesn't Exist, Will Create: ..." when this
+  # DerivedData's second build found no Info.plist, and the head build failed (launch-ready A/Bs, 2026-11-17). The
+  # commit's own copy is back before the next checkout.
+  local phase=scripts/cmux-next/bundle-screen-sharing-helper.sh overlaid=0
+  if [[ -n "${NFL_SCREEN_HELPER_PHASE:-}" && -f "$NFL_SCREEN_HELPER_PHASE" && -f "$phase" ]] \
+    && ! cmp -s "$NFL_SCREEN_HELPER_PHASE" "$phase"; then
+    cp "$NFL_SCREEN_HELPER_PHASE" "$phase" && overlaid=1 && echo "NFL $name builds with this checkout's $phase"
   fi
   local started=$SECONDS
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  measure_quiet "NFL build $name" "$out/build-$name.log" \
+    env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "nflab-$name" --no-global-cli-links "${configuration[@]}"
+  [[ "$overlaid" == 0 ]] || git checkout --quiet -- "$phase"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "NFL build $name failed: no app path" >&2

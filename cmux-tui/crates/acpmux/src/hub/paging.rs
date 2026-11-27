@@ -90,6 +90,15 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
     // (`server/host_notice.rs`).
     "host_notice",
+    // A chat moved to another place from the place menu (`server/place_set.rs`).
+    "moved",
+    // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
+    "model_rewrite",
+    "model_reroute",
+    // A sustained overload moved the chat to a smaller model, or back
+    // (`auto_resume/capacity_failover.rs`).
+    "capacity_failover",
+    "capacity_restored",
     "forked",
     "imported",
     "session_offer",
@@ -109,6 +118,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A model race snapshot updates the parent's compare view and must travel with transcript
     // subscriptions, including reconnect paging.
     "race",
+    // The chat's plan usage limits, whole, after a harness report changed them
+    // (`permissions.rs` `USAGE_LIMITS_KIND`): the composer's plan ring. A v1 attach is already at
+    // a remote cmux-tui's 8 kinds, so it reaches an open pane with `transcript`, as `race` does.
+    "usage_limits",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
@@ -324,10 +337,14 @@ fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
     match dir {
         b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
         // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
-        // harness line keeps its `claude.` method and a reply is `response`.
+        // harness line keeps its `claude.` or `codex.` method (`codex_app_server::tap_kind`)
+        // and a reply is `response`. A Codex chat's raw app-server lines (a resumed thread's
+        // `codex.response` is its whole history) were parsed whole and dropped: the newest
+        // page of a long Codex chat parsed 84 to 148 MB of them for 200 records.
         b"in" => {
             !kind.ends_with(b".replay")
                 && !kind.starts_with(b"claude.")
+                && !kind.starts_with(b"codex.")
                 && kind != b"response"
                 && !NON_TRANSCRIPT_UPDATES.iter().any(|k| k.as_bytes() == kind)
         }
@@ -671,7 +688,7 @@ impl Hub {
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let session = self.session_get(id);
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
@@ -800,27 +817,82 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
 }
 
 impl Hub {
-    /// Every prompt (`user_message`) of a session's log before `before`, oldest first, each cut to
-    /// [`prompt_index_msg`]: the thread rail lays out a long chat's every turn from its first frame
-    /// instead of growing as history pages in (Leo, 2026-10-31). It reads the log's copies of its
-    /// prompts (`store/kind_index.rs`, which the log load already made), and the log only past
-    /// them: a scan of the whole log for its prompts took 10 s on a 566 MB chat and held the
-    /// rail's pending ticks blank (Leo, 2026-11-03: "the hover previews ... aren't loading past
-    /// the first bits").
-    pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
-        let before = before.unwrap_or(u64::MAX);
-        let mut out = Vec::new();
-        self.store.scan_kinds(id, &["user_message"], &mut |mut rec| {
-            if rec.seq >= before {
+    /// The newest `user_message` before seq `before` that `opens` takes, among the newest `read`
+    /// of them: the prompt that opened the turn an attach page starts inside
+    /// (`server/requests/turn_opener.rs`). It reads the log's copies of its prompts
+    /// (`store/kind_index.rs`) back from the end and stops at the first one `opens` takes, so it
+    /// costs one turn's records, not `read` turns': a page of the 16 newest prompts read 16
+    /// turns of a long chat on every attach, the whole log of a short one, and the warm attach
+    /// grew with the chat (`chat_size_sweep` `/attachUs/p50`, 1M→100M→1G 5541→8785→8654 us;
+    /// goal infinite-chats, Leo, 2026-11-19: "we need to be able to have infinite chats,
+    /// infinitely long chats").
+    pub fn newest_prompt_where(
+        &self,
+        id: &str,
+        before: u64,
+        read: usize,
+        opens: &dyn Fn(&EventRecord) -> bool,
+    ) -> Result<Option<EventRecord>> {
+        let session = self.session_get(id);
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"user_message";
+        let mut seen = 0usize;
+        let mut found = None;
+        self.store.scan_back_indexed(id, 0, before, &skip, &mut |mut rec| {
+            if rec.seq >= before || rec.dir != "mux" || rec.kind != "user_message" {
+                return true;
+            }
+            seen += 1;
+            if opens(&rec) {
+                self.display_logged(session.as_deref(), &mut rec);
+                found = Some(rec);
                 return false;
             }
-            if rec.dir == "mux" {
-                rec.msg = prompt_index_msg(&rec.msg);
-                out.push(rec);
+            seen < read
+        })?;
+        Ok(found)
+    }
+
+    /// The newest prompts (`user_message`) of a session's log before `before`, oldest first, each
+    /// cut to [`prompt_index_msg`], at most `limit` of them and about `max_bytes` of JSON (always
+    /// one): the thread rail lays out a long chat's every turn from its first frame instead of
+    /// growing as history pages in (Leo, 2026-10-31), and reads the older pages by `hasMore`, each
+    /// from the first prompt it holds (direct.ts `readPromptIndex`). It reads the log's copies of
+    /// its prompts (`store/kind_index.rs`) back from the end, and stops at the page: a scan of the
+    /// whole log for its prompts took 10 s on a 566 MB chat and held the rail's pending ticks
+    /// blank (Leo, 2026-11-03: "the hover previews ... aren't loading past the first bits"), and
+    /// one reply of every prompt cost 113 ms on a 1 GB chat against 0.2 ms on a 1 MB one, a page
+    /// of each from the whole log (goal infinite-chats, `chat_size_sweep`: Leo, 2026-11-19, "we
+    /// need to be able to have infinite chats, infinitely long chats").
+    pub fn prompt_index(
+        &self,
+        id: &str,
+        before: Option<u64>,
+        limit: usize,
+        max_bytes: Option<usize>,
+    ) -> Result<EventPage> {
+        let before = before.unwrap_or(u64::MAX);
+        let limit = limit.max(1);
+        let mut page = EventPage::default();
+        let mut bytes = 0usize;
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"user_message";
+        self.store.scan_back_indexed(id, 0, before, &skip, &mut |mut rec| {
+            if rec.seq >= before || rec.dir != "mux" || rec.kind != "user_message" {
+                return true;
             }
+            rec.msg = prompt_index_msg(&rec.msg);
+            let rec_bytes = record_bytes(&rec);
+            let found = page.events.len();
+            if found == limit || (found > 0 && max_bytes.is_some_and(|max| bytes + rec_bytes > max))
+            {
+                page.has_more = true;
+                return false;
+            }
+            bytes += rec_bytes;
+            page.events.push(rec);
             true
         })?;
-        Ok(out)
+        page.events.reverse();
+        Ok(page)
     }
 }
 
@@ -829,123 +901,5 @@ impl Hub {
 mod paging_tests;
 
 #[cfg(test)]
-mod transcript_kind_tests {
-    use super::*;
-
-    fn mux(kind: &str) -> EventRecord {
-        EventRecord {
-            seq: 1,
-            at: 0,
-            dir: "mux".into(),
-            kind: kind.into(),
-            msg: json!({}),
-            host_seq: None,
-        }
-    }
-
-    /// A chat client that follows `transcript` sees every change to the
-    /// queue it shows: Edit queued prompt (`queue_updated`), Move up / Move
-    /// down (`queue_order`), and a queue held after a failed turn.
-    #[test]
-    fn queue_edits_are_transcript_records() {
-        for kind in [
-            "queued",
-            "dequeued",
-            "queue_removed",
-            "queue_updated",
-            "queue_order",
-            "queue_paused",
-            "queue_resumed",
-            "queue_approved",
-            "queue_declined",
-        ] {
-            assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
-        }
-    }
-
-    /// A chat client reads a subagent nothing will end any more as stopped
-    /// when the agent process behind the chat went away or started again.
-    #[test]
-    fn agent_process_changes_are_transcript_records() {
-        for kind in ["stopped", "exited", "resumed", "reopened", "host_started", "host_ended"] {
-            assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
-        }
-    }
-
-    /// A chat client notes a policy its harness cannot keep where it was
-    /// logged, as it notes a failover.
-    #[test]
-    fn an_unenforced_policy_is_a_transcript_record() {
-        assert!(is_transcript(&mux("policy_unenforced")));
-        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
-        assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
-    }
-
-    /// A suggested next prompt reaches a `transcript` stream live, but no page holds it: pages
-    /// read with `matches` and `surely_skips`, the live stream with `matches_live`.
-    #[test]
-    fn a_prompt_suggestion_is_heard_live_but_never_paged() {
-        let rec = EventRecord {
-            seq: 1,
-            at: 0,
-            dir: "in".into(),
-            kind: "prompt_suggestion".into(),
-            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s", "update": {"sessionUpdate": "prompt_suggestion", "suggestion": "go on"}}}),
-            host_seq: None,
-        };
-        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
-        assert!(!transcript.matches(&rec), "a page must leave it out");
-        assert!(transcript.surely_skips(b"in", b"prompt_suggestion"));
-        assert!(transcript.matches_live(&rec), "the live stream must send it");
-        let usage = EventFilter::parse(Some(&json!(["usage_update"]))).unwrap();
-        assert!(!usage.matches_live(&rec), "only a transcript stream hears it");
-        // A raw harness line of that name is not an agent update.
-        let mut raw = rec.clone();
-        raw.msg = json!({});
-        assert!(!transcript.matches_live(&raw));
-    }
-
-    /// A subagent pane opened on a subagent the chat's page no longer holds reads that subagent's
-    /// records alone: its spawn and end (`subagents[].id`) and its own updates (`subagent`), never
-    /// the chat's own words, another subagent's, or a mux record.
-    #[test]
-    fn a_subagent_filter_keeps_only_that_subagents_records() {
-        let update = |seq: u64, mux: Value, text: &str| EventRecord {
-            seq,
-            at: 0,
-            dir: "in".into(),
-            kind: "agent_message_chunk".into(),
-            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s",
-                "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}},
-                "_meta": {"acpmux": mux}}}),
-            host_seq: None,
-        };
-        let spawn = update(
-            1,
-            json!({"subagents": [{"id": "s/t1", "parent": null, "state": "running"}]}),
-            "",
-        );
-        let own = update(2, json!({"subagent": "s/t1"}), "the child's words");
-        let other = update(3, json!({"subagent": "s/t2"}), "another child's words");
-        let chat = update(4, json!({}), "the chat's own words");
-        let end = update(
-            5,
-            json!({"subagents": [{"id": "s/t1", "parent": null, "state": "completed"}]}),
-            "",
-        );
-        let filter =
-            EventFilter::parse(Some(&json!(["transcript"]))).unwrap().of_subagent(Some("s/t1"));
-        let kept: Vec<u64> = [&spawn, &own, &other, &chat, &end]
-            .iter()
-            .filter(|r| filter.matches(r))
-            .map(|r| r.seq)
-            .collect();
-        assert_eq!(kept, [1, 2, 5]);
-        assert!(!filter.matches(&mux("turn_result")));
-        assert!(filter.surely_skips(b"mux", b"turn_result"));
-        assert!(!filter.surely_skips(b"in", b"agent_message_chunk"));
-        // No id, or a blank one, filters nothing.
-        let all = EventFilter::parse(Some(&json!(["transcript"]))).unwrap().of_subagent(Some(""));
-        assert!(all.matches(&chat));
-    }
-}
+#[path = "paging_transcript_kind_tests.rs"]
+mod transcript_kind_tests;

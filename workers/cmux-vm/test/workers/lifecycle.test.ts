@@ -172,6 +172,20 @@ describe("createVm", () => {
     expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number), budget: "rate" });
     expect((await createVm(t, keyB)).status).toBe(201);
   });
+
+  it("reports provider infrastructure overload as unavailable without exposing its response", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    t.upstream.fail("create", 429, 1, { message: "infrastructure overloaded: VM start capacity queue wait expired" });
+
+    const response = await createVm(t, key);
+
+    expect(response.status).toBe(503);
+    const body = await json(response);
+    expect(body).toMatchObject({ _tag: "ServiceUnavailable" });
+    expect(JSON.stringify(body)).not.toContain("infrastructure overloaded");
+    expect(JSON.stringify(body)).not.toContain("capacity queue wait expired");
+  });
 });
 
 describe("idempotency keys on create", () => {
@@ -290,6 +304,18 @@ describe("start, stop, pause, resume", () => {
     expect(await json(response)).toMatchObject({ id: vmId, state: "running" });
     expect(t.upstreamRequests.map((call) => `${call.method} ${call.path}`)).toEqual([`POST /v5/vms/${upstreamId}/start`]);
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
+    // The provider's share of the request, for the caller's own trace (cmuxterm-hq goals/cloud-resume-gap.md).
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call"$/);
+  });
+
+  it("names no upstream time on an answer that made no upstream call", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:read"]);
+
+    const response = await t.request("/v1/vms", bearer(key));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("server-timing")).toBeNull();
   });
 
   it("resume is start of a paused VM", async () => {
@@ -302,6 +328,8 @@ describe("start, stop, pause, resume", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toMatchObject({ state: "running" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/start$`))).toHaveLength(1);
+    // The state read and the start: both the provider's.
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="2 calls"$/);
   });
 
   it("resume refuses a VM that is not paused", async () => {
@@ -339,8 +367,20 @@ describe("start, stop, pause, resume", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toMatchObject({ id: vmId, state: "stopped" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/exec-await$`)).map((call) => call.json)).toEqual([
-      { command: "poweroff", timeoutMs: 10000 },
+      { command: "poweroff", timeoutMs: 10000, linuxUser: "root" },
     ]);
+  });
+
+  it("stop answers an error, not the running VM as stopped, when the guest refuses the poweroff", async () => {
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A, "running");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    t.upstream.replyToExec("poweroff", () =>
+      Response.json({ statusCode: 1, stdout: "", stderr: "Call to PowerOff failed\n", vmId: "x", node: "n" }));
+
+    const response = await action(t, key, vmId, "stop");
+
+    expect(response.status).toBe(503);
   });
 
   it("stop is a no-op on a stopped VM and refuses a paused one", async () => {

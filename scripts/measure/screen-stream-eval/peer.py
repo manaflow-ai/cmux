@@ -98,12 +98,14 @@ def serve(bind: str, port: int, token: str, folder: Path) -> None:
             if not self.authorized():
                 return
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
-            m = re.fullmatch(r"/(go|result|hello)/([0-9]+)", self.path)
+            m = re.fullmatch(r"/(go|result|hello|bye)/([0-9]+)", self.path)
             if not m:
                 return self.reply(404)
             kind, n = m.group(1), m.group(2)
             if kind == "hello":
                 (folder / "agent.json").write_text(json.dumps(body))
+            elif kind == "bye":  # the viewer Mac's step ended (any exit): the host stops waiting for it
+                put(folder / "bye.json", {"exit": int(body.get("exit", 1))})
             elif kind == "go":
                 cmd = json.loads((folder / f"cmd-{n}.json").read_text())
                 if cmd.get("go_file"):
@@ -145,6 +147,9 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
     result = folder / f"result-{n}.json"
     deadline = time.monotonic() + CALL_WAIT_S
     while not result.exists():
+        if (folder / "bye.json").exists():
+            print(f"peer.py: the viewer Mac's step ended before {verb} answered", file=sys.stderr)
+            return 1
         if time.monotonic() > deadline:
             print(f"peer.py: the viewer Mac did not answer {verb} within {CALL_WAIT_S} s", file=sys.stderr)
             return 1
@@ -253,6 +258,13 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
         target, verb, args = cmd.get("target", ""), cmd.get("verb", ""), cmd.get("args") or []
         if not TARGET.match(target) or verb not in VERBS or not VERBS[verb].match(" ".join(map(str, args))):
             request(f"/result/{cmd['id']}", {"exit": 2, "stderr": f"peer.py agent: refused {verb} {args}\n"})
+            continue
+        # The host names the target, so this Mac checks each one itself: a viewer started for headless
+        # apple-rfb must not open a GUI viewer on a person's Mac because the host asked (person_guard.py).
+        guard = subprocess.run([sys.executable, "-I", str(root / "scripts/measure/screen-stream-eval/person_guard.py"),
+                                "check", target, "viewer"], capture_output=True, text=True, timeout=30)
+        if guard.returncode != 0:
+            request(f"/result/{cmd['id']}", {"exit": 2, "stderr": guard.stderr or f"peer.py agent: refused {target}\n"})
             continue
         nonce = (cmd.get("env") or {}).get("EVAL_SCENE_NONCE", "")
         if not isinstance(nonce, str) or (nonce and (verb != "window-view" or not re.fullmatch(r"[0-9a-f]{32}", nonce))):

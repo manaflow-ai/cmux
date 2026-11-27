@@ -50,9 +50,54 @@ package nonisolated struct AgentPaneUploadBatch: Sendable {
 
 public nonisolated enum AgentPaneUploadStageRequest: Sendable, Equatable {
     case begin(name: String, size: Int, batchToken: String?, batch: [AgentPaneUploadBatchEntry]?)
-    case chunk(token: String, offset: Int, data: Data)
+    case chunk(token: String, offset: Int, data: AgentPaneUploadChunk)
     case finish(token: String)
     case cancel(token: String)
+}
+
+/// A staged upload's chunk (`chat.upload.chunk`): its bytes, or the page's base64 text of them,
+/// decoded only where it is written (``AgentPaneUploadWriter``), off the main thread. Leo,
+/// 2026-11-18: "dragging and dropping attachments of any size should never take time to load".
+public nonisolated struct AgentPaneUploadChunk: Sendable, Equatable {
+    private enum Form: Sendable {
+        case bytes(Data)
+        case base64(String)
+    }
+
+    private let form: Form
+    /// How many bytes it holds, known without decoding.
+    public let count: Int
+
+    public init(_ bytes: Data) {
+        form = .bytes(bytes)
+        count = bytes.count
+    }
+
+    /// The bytes base64 `text` holds, nil when its length is not one of base64 (`=` padded, no
+    /// line breaks). Only its length and last two characters are read here.
+    public init?(base64 text: String) {
+        let units = (text as NSString).length
+        guard units % 4 == 0 else { return nil }
+        let padding = units == 0 ? 0 : (text as NSString).character(at: units - 1) != 61 ? 0
+            : (text as NSString).character(at: units - 2) != 61 ? 1 : 2
+        form = .base64(text)
+        count = units / 4 * 3 - padding
+    }
+
+    /// The bytes, nil when the text is not base64 of ``count`` bytes. Decoding is O(size): call it
+    /// off the main thread.
+    public func bytes() -> Data? {
+        switch form {
+        case .bytes(let data): return data
+        case .base64(let text):
+            guard let data = Data(base64Encoded: text), data.count == count else { return nil }
+            return data
+        }
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.count == rhs.count && lhs.bytes() == rhs.bytes()
+    }
 }
 
 public typealias AgentPaneUploadStager = @MainActor (_ request: AgentPaneUploadStageRequest, _ sessionId: String?) async -> [String: Any]
@@ -102,11 +147,12 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
         }
     }
 
-    /// The reply to the page's upload: only for a chat the App uploads for (asked before the gesture
-    /// is used, so another chat's paste keeps its gesture), then only with a real gesture.
+    /// The reply to the page's upload: only for a chat the App uploads for. It needs no key press or
+    /// click (Leo, 2026-11-17, on "Not sent: it needs your own key press or click": "go remove
+    /// this"); a gesture's upload credit is spent if there is one.
     @MainActor static func respond(_ files: [AgentPaneUpload], in model: AgentPaneModel) async -> [String: Any] {
         guard let uploader = model.onUpload?() else { return AgentPaneModel.unsupported("chat.upload") }
-        guard model.transport.gestures.consumeUpload() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        _ = model.transport.gestures.consumeUpload()
         return await uploader(files)
     }
 }

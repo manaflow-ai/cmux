@@ -3,11 +3,14 @@
 
 #import <AppKit/AppKit.h>
 
+#include "include/base/cef_callback.h"
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
+#include "include/cef_task.h"
+#include "include/wrapper/cef_closure_task.h"
 #include "command_line_apply.h"
 #include "artifact_page.h"
 #include "external_url.h"
@@ -73,6 +76,7 @@
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
     case CMUX_SHIM_STATUS_MESSAGE:
+    case CMUX_SHIM_AUTH_PROMPT:
       return true;
   }
   return false;
@@ -278,7 +282,34 @@ class Client : public CefClient,
     return true;
   }
 
+  // A server's 401 (basic, digest, NTLM): the host asks the person in the tab's own prompt, as for WebKit
+  // (BrowserHTTPAuth), and answers with cmux_shim_auth_continue. Chromium's own dialog needs a toolbar cmux
+  // never shows, so without this the challenge never ended and the page stayed blank. A proxy's challenge keeps
+  // Chromium's default.
+  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser, const CefString& origin_url, bool is_proxy,
+                          const CefString& host, int port, const CefString& realm, const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override {
+    if (is_proxy || !browser) return false;
+    const int token = AddAuthPrompt(callback);
+    std::string shown = host.ToString();
+    const bool secure = origin_url.ToString().rfind("https:", 0) == 0;
+    if (port != 0 && port != (secure ? 443 : 80)) shown += ":" + std::to_string(port);
+    Emit(CMUX_SHIM_AUTH_PROMPT, browser->GetIdentifier(), token, secure ? 1 : 0, 0, shown, realm.ToString());
+    return true;
+  }
+
   // MARK: Remote localhost
+
+  // A report OnBeforeBrowse makes (an external link, a sign-in callback, a local file, a store reroute) goes to the
+  // host once the callback returned, on the next UI task. The callback runs inside Chromium's navigation (a
+  // NavigationThrottle, a redirect's included), and Swift acts on these reports at once: a handoff closes its flow's
+  // tab, a reroute replaces the tab. A close that runs the page's beforeunload (TryCloseBrowser) from in there resets
+  // the very navigation that is calling out, and Chromium's CHECK ends the app: the 2026-11-25 nightly SIGTRAP
+  // (#57470), cmux_shim_try_close under the GitHub install's return to cmux-nightly://integration/complete.
+  static void EmitAfterNavigationCallback(int kind, int browser_id, int64_t a, const std::string& url) {
+    CefPostTask(TID_UI, base::BindOnce([](int kind, int id, int64_t a, std::string url) { Emit(kind, id, 0, a, 0, url); },
+                                       kind, browser_id, a, url));
+  }
 
   // A main-frame navigation that would leave its store (a loopback origin of
   // a remote machine, or the reverse) is cancelled; the host re-creates the
@@ -294,27 +325,27 @@ class Client : public CefClient,
     std::string url = request->GetURL().ToString();
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {
-      Emit(CMUX_SHIM_AUTH_CALLBACK, id, 0, is_redirect ? 1 : 0, 0, url);
+      EmitAfterNavigationCallback(CMUX_SHIM_AUTH_CALLBACK, id, is_redirect ? 1 : 0, url);
       return true;
     }
     // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
     if (NavigationRefusedForAgent(id, url)) return true;
     if (cmux_shim::CEFHandsOffLocalFile(url)) {
-      Emit(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, 0, 0, url);
+      EmitAfterNavigationCallback(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, url);
       return true;
     }
     if (IsExternalAppURL(url)) {
-      Emit(CMUX_SHIM_EXTERNAL_URL, id, 0, user_gesture && !is_redirect ? 1 : 0, 0, url);
+      EmitAfterNavigationCallback(CMUX_SHIM_EXTERNAL_URL, id, user_gesture && !is_redirect ? 1 : 0, url);
       return true;
     }
     if (!NavigationViolatesGuard(id, url)) return false;
-    Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
+    EmitAfterNavigationCallback(CMUX_SHIM_NAVIGATION_REROUTE, id, is_redirect ? 1 : 0, url);
     return true;
   }
 
   // MARK: Chrome Web Store, local file scope
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
@@ -331,7 +362,10 @@ class Client : public CefClient,
       static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
       return refusal;
     }
-    return WebStoreRequestHandler(url);
+    // The page that asks: its top document (the Google bar's promo API gets the store's
+    // headers only from a store page, webstore_headers.h).
+    CefRefPtr<CefFrame> top = browser ? browser->GetMainFrame() : nullptr;
+    return WebStoreRequestHandler(url, top ? top->GetURL().ToString() : (frame ? frame->GetURL().ToString() : std::string()));
   }
 
   // MARK: Certificate errors

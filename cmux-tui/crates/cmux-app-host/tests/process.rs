@@ -150,6 +150,52 @@ mod apps {
         assert_eq!(host.child.wait().expect("wait").code(), Some(70));
     }
 
+    /// Hostile apps against the real binary (main-thread stack, real sandbox): each ends with a
+    /// clean exit or a `fatal` line and exit 70, never a signal (a stack overflow, an abort).
+    #[test]
+    fn hostile_apps_end_the_binary_with_a_fatal_line_never_a_signal() {
+        use std::os::unix::process::ExitStatusExt;
+        let hostile = [
+            "(function f() { f() })()",
+            "(function f() { try { f() } catch (e) { f() } })()",
+            "let p = {}; for (let i = 0; i < 2e5; i++) p = new Proxy(p, {}); p.x",
+            "let f = function () {}; for (let i = 0; i < 2e5; i++) f = f.bind(null); f()",
+            "let a = []; for (let i = 0; i < 1e6; i++) a = [a]; String(a)",
+            "eval('['.repeat(1e6))",
+            "new RegExp('('.repeat(1e5))",
+            "const keep = []; for (;;) keep.push('x'.repeat(1 << 16) + keep.length)",
+            "__cmuxAppNative.call('workspace.list', '[' + '[],'.repeat(2e6) + '[]]', '{}', 1)",
+            "for (let i = 0; i < 1e7; i++) __cmuxAppNative.call('workspace.list', '{}', '{}', i)",
+            "__cmuxAppNative.timer(1e308, false); __cmuxAppNative.timer(Infinity, true)",
+            "for (;;) {}",
+        ];
+        for bad in hostile {
+            let mut host = Host::spawn();
+            host.send(json!({ "t": "init", "app": { "id": "local/hostile", "version": "1.0.0" }, "api_version": "1.0.0",
+                "main": common::app(&format!("return {{ render: () => {{ {bad}; return Text('x') }} }}")) }));
+            let mut seen = Vec::new();
+            host.until("ready", &|_| json!({}), &mut seen);
+            host.send(json!({ "t": "mount", "mount": "m", "export": "render", "ctx": {} }));
+            host.send(json!({ "t": "shutdown" }));
+            // Read fd 3 the whole time, as the supervisor does: a multi-megabyte line would
+            // otherwise fill the socket buffer and block the host's write.
+            let mut read = host.read;
+            let drain = std::thread::spawn(move || {
+                let mut rest = Vec::new();
+                let _ = std::io::Read::read_to_end(&mut read, &mut rest);
+                rest
+            });
+            let status = host.child.wait().expect("wait");
+            drop(host.write);
+            let rest = String::from_utf8_lossy(&drain.join().expect("drain")).into_owned();
+            assert_eq!(status.signal(), None, "{bad}: killed by a signal ({status:?})");
+            assert!(matches!(status.code(), Some(0 | 70)), "{bad}: exit {status:?}");
+            if status.code() == Some(70) {
+                assert!(rest.contains("\"t\":\"fatal\""), "{bad}: exit 70 without fatal");
+            }
+        }
+    }
+
     #[test]
     fn a_malformed_line_ends_the_host_with_a_protocol_error() {
         let mut host = Host::spawn();

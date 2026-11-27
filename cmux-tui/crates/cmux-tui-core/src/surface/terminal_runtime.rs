@@ -120,6 +120,13 @@ impl PtyTerminalRuntime {
         self.input_port.reconnect_ended();
     }
 
+    /// The terminal closes or its owner lets it go: a reader that waits for the PTY fence of its dead host stops
+    /// the wait and starts no replacement host. The handle's lock is a leaf, so it is safe under the runtime lock.
+    pub(super) fn cancel_host_fence_wait(&self) {
+        #[cfg(unix)]
+        self.host_fence_wait.cancel();
+    }
+
     /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
     /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
     /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
@@ -350,12 +357,17 @@ pub struct PtyTerminalRuntime {
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
     pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The reader let go of its first thread's handle when it parked (a
+    /// quiet holder terminal): that thread has ended, and an unjoined
+    /// handle keeps its whole stack mapped for as long as the tab lives.
+    /// Shutdown then waits on `reader_completion` alone.
+    pub(super) reader_detached: AtomicBool,
     pub(super) reader_completion: Arc<ReaderCompletion>,
     /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
-    pub(super) term: RankedMutex<Box<Terminal>>,
+    pub(super) term: TerminalMirror,
     pub(super) stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
@@ -372,6 +384,8 @@ pub struct PtyTerminalRuntime {
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
     pub(super) runtime: RankedMutex<PtyRuntime>,
+    /// A local PTY's paste pacer (`paste_pacing`): taken before `runtime`, never while holding it.
+    pub(super) paste_pacer: Mutex<crate::paste_pacing::PastePacer>,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.
@@ -400,6 +414,11 @@ pub struct PtyTerminalRuntime {
     /// (`restart-tab` on a `failed` tab): its host was ended, so the
     /// reconnect loop stops its wait and retries at once.
     pub(super) recover_requested: AtomicBool,
+    /// The wait of this terminal's reader for the PTY fence of its dead
+    /// host, before it starts the replacement host. Each place that sets
+    /// `owner_detaching` cancels it ([`Self::cancel_host_fence_wait`]).
+    #[cfg(unix)]
+    pub(super) host_fence_wait: crate::terminal_host_runtime::PtyFenceWait,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,

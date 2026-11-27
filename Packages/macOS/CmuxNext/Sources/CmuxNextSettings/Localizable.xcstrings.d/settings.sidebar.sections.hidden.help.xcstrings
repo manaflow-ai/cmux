@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.sections.hidden.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أقسام الشريط الجانبي المراد إخفاؤها، حسب المعرّف. يظهر قسم مساحة العمل المحددة دائمًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekcije bočne trake koje treba sakriti, po ID-u. Sekcija odabranog radnog prostora uvijek se prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sidepanelsektioner, der skal skjules, efter id. Sektionen med det valgte arbejdsområde vises altid."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seitenleistenbereiche, die ausgeblendet werden, nach ID. Der Bereich des ausgewählten Arbeitsbereichs wird immer angezeigt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Secciones de la barra lateral que se ocultan, por ID. La sección del espacio de trabajo seleccionado siempre se muestra."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sections de la barre latérale à masquer, par identifiant. La section de l’espace de travail sélectionné reste toujours visible."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sezioni della barra laterale da nascondere, per ID. La sezione dello spazio di lavoro selezionato è sempre visibile."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "非表示にするサイドバーのセクション（IDで指定）。選択中のワークスペースのセクションは常に表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្នែករបារចំហៀងដែលត្រូវលាក់ តាមលេខសម្គាល់។ ផ្នែកនៃកន្លែងធ្វើការដែលបានជ្រើសរើសតែងតែបង្ហាញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "숨길 사이드바 섹션(ID). 선택한 워크스페이스의 섹션은 항상 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sidefeltseksjoner som skal skjules, etter ID. Seksjonen til det valgte arbeidsområdet vises alltid."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekcje paska bocznego do ukrycia, według identyfikatora. Sekcja wybranego obszaru roboczego jest zawsze widoczna."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seções da barra lateral a ocultar, por ID. A seção do espaço de trabalho selecionado sempre aparece."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Разделы боковой панели, которые нужно скрыть, по идентификатору. Раздел выбранного рабочего пространства показывается всегда."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่วนของแถบด้านข้างที่จะซ่อน ตามรหัส ส่วนของเวิร์กสเปซที่เลือกจะแสดงเสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gizlenecek kenar çubuğu bölümleri, kimliğe göre. Seçili çalışma alanının bölümü her zaman gösterilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розділи бічної панелі, які треба приховати, за ідентифікатором. Розділ вибраного робочого простору показується завжди."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các mục thanh bên cần ẩn, theo ID. Mục chứa không gian làm việc đang chọn luôn hiển thị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "要隐藏的侧边栏分区，按 ID 指定。所选工作区所在的分区始终显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "要隱藏的側邊欄區段，依 ID 指定。所選工作區所在的區段一律顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

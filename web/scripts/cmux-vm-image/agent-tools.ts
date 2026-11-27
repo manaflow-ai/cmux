@@ -10,20 +10,27 @@
  * - `CMUX_AGENT_TOOLS_BIN_DIR` = AGENT_TOOLS_BIN, which holds `cmux` (the store's cmux-tui;
  *   cmux and acpmux are one binary) and `cmux-cua` (a wrapper, below). acpmux's own default
  *   (the folder of its executable) is the cmux-tui store entry, which holds neither.
- * - Computer use: acpmux starts `cmux-cua mcp` with CMUX_CUA_MCP_FORCE_PROXY=1, which on
- *   Linux needs a running `cmux-cua serve`. The wrapper starts CUA_UNIT (and through it
- *   DISPLAY_UNIT, Xvfb on AGENT_DISPLAY) before it execs the real proxy, so the display and
- *   the driver run only once an agent session asks for computer use (the session host of
- *   cloud-automation.md 16 replaces this stand-in; it then owns display.acquire).
+ * - Computer use (cmux-tui since #37003): acpmux attaches `acpmux computer-use-mcp` (server
+ *   `cmux-computer-use`), whose calls go to the worker the cmux-tui daemon starts on the first
+ *   call (cmux-tui-core computer_use_host.rs). The daemon has no display, so the worker launcher
+ *   runs the machine's desktop starter, DESKTOP_STARTER (root-owned: the only one it trusts): it
+ *   starts DISPLAY_UNIT (Xvfb on AGENT_DISPLAY) and A11Y_UNIT (its AT-SPI bus) and names them to
+ *   the worker, with CUA_REFUSE_DIR first on its PATH and no right to gain privileges, so the
+ *   display runs only once an agent asks and nothing the worker starts can install software.
+ *   Images whose cmux-tui predates #37003 attach `cmux-cua mcp` (CMUX_CUA_MCP_FORCE_PROXY=1),
+ *   which on Linux needs a running `cmux-cua serve`: its wrapper starts CUA_UNIT (and through it
+ *   DISPLAY_UNIT) before it execs the real proxy.
  * - Browser: the browser role is installed at bake (its first-use closure and programs, as
  *   browser-probe.ts installs them), and the daemon unit names the host binary and Chrome.
  *   The daemon socket-activates the host on the first agent connect and the host exits
  *   after 5 idle minutes (cmux-tui-core/src/browser_host.rs), so nothing runs while idle.
  *   Every terminal the daemon creates gets CMUX_BROWSER_HOST_SOCKET; an acpmux daemon
  *   started from such a terminal passes it to `cmux mcp serve`.
- * - `cmux mcp serve` runs only when cmux.json sets `"mcp": {"enabled": true}`. The image
- *   writes that for the work user when the file does not exist (the machine has no app to
- *   ask). The Claude Code permission prompts and acpmux permission policies are unchanged.
+ * - `cmux mcp serve` runs only when cmux.json sets `"mcp": {"enabled": true}`, and acpmux
+ *   attaches it only when `agents.cmuxMcp` is `on` (the person's yes to cmux's tools in agents
+ *   cmux starts; a chat started from a Mac follows that Mac's answer instead). The image writes
+ *   both for the work user when the file does not exist (the machine has no app to ask). The
+ *   Claude Code permission prompts and acpmux permission policies are unchanged.
  * - Desktop (role desktop): the person's view of the agent display is `cmux.rd/1` over the owner's
  *   carrier, service `desktop`. The boundary is the carrier's admission: the machine's carrier
  *   server (`cmux carrier serve`, which runs as the work user) admits only the owner's grant
@@ -33,8 +40,11 @@
  *   On the machine the socket is not a boundary against the agent: the agent already reaches
  *   `:99` (its own display) and has sudo. It keeps everyone else out, and keeps the host's files
  *   (cookie copy, state) out of the agent's reach. The host exits when idle.
+ * - Desktop session: the host's unit wants DESKTOP_SESSION_UNIT, openbox and a terminal on the
+ *   agent display (1920x1080), so a viewer sees a desktop, not an empty black root window. Its
+ *   start fails loudly when the display still shows no window (DESKTOP_CHECK_SCRIPT).
  */
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_UID, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_UID, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { firstUseInstallPhases } from "./browser-probe";
 import { CURRENT_BIN, type InputsLock, type RolesManifest, rolesManifest, sq, storeEntry } from "./lock";
 
@@ -58,13 +68,23 @@ export const CUA_SOCKET = `${DEVBOX_WORK_HOME}/.cache/cmux-cua/cmux-cua.sock`;
 export const WORK_USER_CMUX_JSON = `${DEVBOX_WORK_HOME}/.config/cmux/cmux.json`;
 export const AGENT_TOOLS_PROFILE = "/etc/profile.d/cmux-agent-tools.sh";
 /**
- * First on the computer-use driver's PATH: `sudo`, `apt` and `apt-get` that refuse. cmux-cua's
- * install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver; role cua-video
- * (ffmpeg, which pulls libx264) stays off on every machine until Lawrence decides (coordinator
- * legal rule, 2026-10-07). The unit also sets NoNewPrivileges, so no setuid program works there.
+ * First on the computer-use driver's PATH: `sudo`, `apt`, `apt-get`, `ffmpeg` and `ffprobe` that
+ * refuse. cmux-cua's install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver;
+ * role cua-video (screen recording by the driver) stays off on every machine until Lawrence decides
+ * (coordinator legal rule, 2026-10-07). The image itself carries ffmpeg for people's own media
+ * (images/cmux-vm/graduated.json, Leo 2026-11-25), so the driver finds refusing ffmpeg and ffprobe
+ * first instead. The unit also sets NoNewPrivileges, so no setuid program works there.
  */
 export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
-const CUA_REFUSED = ["sudo", "apt", "apt-get"] as const;
+/**
+ * The machine's desktop starter, which cmux-tui's Computer Use worker launcher runs when its daemon
+ * has no display (cmux-tui-core computer_use_host/linux.rs DESKTOP_STARTER). Root owns it and its
+ * folders and nobody else can write them, or the launcher refuses it.
+ */
+export const DESKTOP_STARTER = "/etc/cmux/computer-use-desktop";
+/** The worker's switch that takes away its right to gain privileges (cmux-tui-core NO_NEW_PRIVS_ENV). */
+export const NO_NEW_PRIVS_ENV = "CMUX_CU_NO_NEW_PRIVS";
+const CUA_REFUSED = ["sudo", "apt", "apt-get", "ffmpeg", "ffprobe"] as const;
 
 const BROWSER_ROLE = "browser";
 
@@ -74,6 +94,11 @@ function browserHostPaths(manifest: RolesManifest): { host: string; chromium: st
   const chromium = entry?.env.CMUX_BROWSER_HOST_CHROMIUM;
   if (!entry || !host || !chromium) throw new Error("agent tools need the browser role with cmux-browser-host and Chrome in the lock");
   return { host: `${host.storeEntry}/${host.bin["cmux-browser-host"]}`, chromium };
+}
+
+/** The baked Chrome's binary (the browser role's store entry). */
+export function browserChromiumPath(lock: InputsLock): string {
+  return browserHostPaths(rolesManifest(lock)).chromium;
 }
 
 /**
@@ -119,6 +144,9 @@ function waitForFile(path: string, seconds: number): string {
   return `/bin/sh -c 'for i in $(seq 1 ${seconds * 10}); do [ -s ${path} ] && exit 0; sleep 0.1; done; echo "no ${path}" >&2; exit 1'`;
 }
 
+/** The agent displays' size: a common monitor size, so a person's view of the desktop is not a small box. */
+export const AGENT_DISPLAY_SIZE = "1920x1080";
+
 /** Xvfb as the work user, X11 over its Unix socket only, with a per-start cookie in `xauthority`. */
 function xvfbUnit(description: string, display: string, xauthority: string, extraArgs = ""): string {
   return [
@@ -131,7 +159,7 @@ function xvfbUnit(description: string, display: string, xauthority: string, extr
     `Group=${DEVBOX_WORK_USER}`,
     `Environment=HOME=${DEVBOX_WORK_HOME}`,
     `ExecStartPre=/bin/sh -c 'install -d -m 0700 ${AGENT_DISPLAY_DIR} && rm -f ${xauthority} && xauth -q -f ${xauthority} add ${display} . "$(mcookie)" && chmod 0600 ${xauthority}'`,
-    `ExecStart=/usr/bin/Xvfb ${display} -screen 0 1280x800x24 -nolisten tcp -auth ${xauthority} -s 0 -dpms${extraArgs}`,
+    `ExecStart=/usr/bin/Xvfb ${display} -screen 0 ${AGENT_DISPLAY_SIZE}x24 -nolisten tcp -auth ${xauthority} -s 0 -dpms${extraArgs}`,
     `ExecStartPost=${waitForSocket(`/tmp/.X11-unix/X${display.slice(1)}`)}`,
     "Restart=on-failure",
     "RestartSec=2",
@@ -257,7 +285,26 @@ export function rootPropertyScript(): string {
   return `#!/usr/bin/python3 -I
 # cmux VM agent tools (images/cmux-vm, managed, do not edit): sets one STRING property on the
 # root window of $DISPLAY (Unix socket) with the MIT-MAGIC-COOKIE-1 in $XAUTHORITY.
-import os, socket, struct, sys
+${X11_CLIENT_PY}
+def main():
+    name, value = sys.argv[1].encode(), sys.argv[2].encode()
+    sock, root, _, _ = connect()
+    sock.sendall(struct.pack("<BBHHxx", 16, 0, 2 + len(pad(name)) // 4, len(name)) + pad(name))
+    (atom,) = struct.unpack_from("<I", reply(sock), 8)
+    sock.sendall(struct.pack("<BBHIIIB3xI", 18, 0, 6 + len(pad(value)) // 4, root, atom, 31, 8, len(value)) + pad(value))
+    sock.sendall(struct.pack("<BxH", 43, 1))
+    reply(sock)
+
+main()
+`;
+}
+
+/**
+ * A minimal X11 client for the scripts above and below: `connect()` opens $DISPLAY's Unix socket
+ * with the MIT-MAGIC-COOKIE-1 in $XAUTHORITY and returns the socket, the root window and the
+ * screen's width and height. python3 only: x11-utils is not on every image.
+ */
+const X11_CLIENT_PY = `import os, socket, struct, sys
 
 def pad(b):
     return b + b"\\0" * (-len(b) % 4)
@@ -294,8 +341,7 @@ def reply(sock):
         if head[0] == 1:
             return head + recv(sock, 4 * struct.unpack_from("<I", head, 4)[0])
 
-def main():
-    name, value = sys.argv[1].encode(), sys.argv[2].encode()
+def connect():
     number = os.environ["DISPLAY"].split(":", 1)[1].split(".")[0]
     auth_name, auth_data = cookie(number)
     sock = socket.socket(socket.AF_UNIX)
@@ -306,15 +352,153 @@ def main():
     if head[0] != 1:
         sys.exit("x11: connection refused: " + body[:head[1]].decode(errors="replace"))
     vendor = struct.unpack_from("<H", body, 16)[0]
-    (root,) = struct.unpack_from("<I", body, 32 + len(pad(b"v" * vendor)) + 8 * body[21])
-    sock.sendall(struct.pack("<BBHHxx", 16, 0, 2 + len(pad(name)) // 4, len(name)) + pad(name))
-    (atom,) = struct.unpack_from("<I", reply(sock), 8)
-    sock.sendall(struct.pack("<BBHIIIB3xI", 18, 0, 6 + len(pad(value)) // 4, root, atom, 31, 8, len(value)) + pad(value))
-    sock.sendall(struct.pack("<BxH", 43, 1))
-    reply(sock)
+    screen = 32 + len(pad(b"v" * vendor)) + 8 * body[21]
+    (root,) = struct.unpack_from("<I", body, screen)
+    width, height = struct.unpack_from("<HH", body, screen + 20)
+    return sock, root, width, height
+`;
+
+/**
+ * The person's desktop on the agent display (ask-da398bba67, Leo 2026-11-16): before it, the display
+ * was a bare Xvfb, and a viewer saw its empty black root window. DESKTOP_SESSION_UNIT runs a window
+ * manager (openbox, role display-wm, baked with the agent tools) and a terminal (xterm) on it as the
+ * work user, so the first frame a viewer sees has a window in it. The remote desktop host's unit
+ * wants it, so the first desktop connection starts it; nothing runs while nobody looks.
+ */
+export const DESKTOP_SESSION_UNIT = "cmux-agent-desktop-session.service";
+/** The session's ExecStart (desktopSessionScript). */
+export const DESKTOP_SESSION_SCRIPT = `${AGENT_TOOLS_DIR}/cmux-agent-desktop-session`;
+/** Checks that a display shows something (desktopCheckScript): the session's ExecStartPost and the image probe. */
+export const DESKTOP_CHECK_SCRIPT = `${AGENT_TOOLS_DIR}/cmux-agent-desktop-check`;
+/** How long the session's start waits for a window on the display before it fails. */
+export const DESKTOP_CHECK_SECONDS = 20;
+
+/**
+ * DESKTOP_SESSION_SCRIPT: openbox, then a terminal in the work user's home; it stays in the
+ * foreground with the window manager and exits 1 when that exits, so the unit restarts. Closing
+ * the terminal leaves the desktop (openbox's right-click menu opens another).
+ */
+export function desktopSessionScript(): string {
+  return [
+    "#!/bin/sh",
+    "# cmux VM agent tools (images/cmux-vm, managed, do not edit): the desktop session on the agent display.",
+    "# Run by cmux-agent-desktop-session.service, which sets DISPLAY and XAUTHORITY.",
+    "set -u",
+    'cd "$HOME" || exit 1',
+    "openbox --sm-disable &",
+    "wm=$!",
+    "xterm -title Terminal -geometry 120x36+60+60 -fa Monospace -fs 11 -bg '#1d1f21' -fg '#c5c8c6' &",
+    'wait "$wm"',
+    'echo "<3>cmux-agent-desktop-session: openbox exited on $DISPLAY" >&2',
+    "exit 1",
+    "",
+  ].join("\n");
+}
+
+/**
+ * DESKTOP_CHECK_SCRIPT `[--wait SECONDS]`: prints `windows=N viewable=N nonblack=N` for $DISPLAY
+ * (top-level windows, those mapped and viewable, and how many of a sample of the root's pixels are
+ * not black) and exits 0 when there is a viewable window and a non-black pixel. Otherwise, after
+ * up to SECONDS, it says on stderr at error level that the display is black and exits 1.
+ */
+export function desktopCheckScript(): string {
+  return `#!/usr/bin/python3 -I
+# cmux VM agent tools (images/cmux-vm, managed, do not edit): fails loudly when $DISPLAY shows nothing.
+${X11_CLIENT_PY}
+import time
+
+def look(sock, root, width, height):
+    sock.sendall(struct.pack("<BxHI", 15, 2, root))
+    r = reply(sock)
+    (n,) = struct.unpack_from("<H", r, 16)
+    children = struct.unpack_from("<%dI" % n, r, 32)
+    viewable = 0
+    for w in children:
+        sock.sendall(struct.pack("<BxHI", 3, 2, w))
+        if reply(sock)[26] == 2:
+            viewable += 1
+    nonblack = 0
+    rows = 8
+    for i in range(rows):
+        y = (2 * i + 1) * height // (2 * rows)
+        sock.sendall(struct.pack("<BBHIhhHHI", 73, 2, 5, root, 0, y, width, 1, 0xFFFFFFFF))
+        line = reply(sock)[32:32 + 4 * width]
+        nonblack += sum(1 for (p,) in struct.iter_unpack("<I", line) if p & 0xFFFFFF)
+    return n, viewable, nonblack
+
+def main():
+    wait = float(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[1] == "--wait" else 0.0
+    sock, root, width, height = connect()
+    deadline = time.monotonic() + wait
+    while True:
+        n, viewable, nonblack = look(sock, root, width, height)
+        if (viewable and nonblack) or time.monotonic() >= deadline:
+            break
+        time.sleep(0.5)
+    print("windows=%d viewable=%d nonblack=%d size=%dx%d" % (n, viewable, nonblack, width, height))
+    if not (viewable and nonblack):
+        print("<3>cmux-agent-desktop-check: display %s shows a black screen: %d window(s), %d viewable, no lit pixel after %ds" % (os.environ["DISPLAY"], n, viewable, wait), file=sys.stderr)
+        sys.exit(1)
 
 main()
 `;
+}
+
+/**
+ * DESKTOP_SESSION_SCRIPT as the work user on the agent display. BindsTo the display: it stops with
+ * it, and the next desktop connection starts both again. ExecStartPost is the check: a session that
+ * shows no window within DESKTOP_CHECK_SECONDS fails the unit with an error-level journal line, and
+ * after 5 such starts in 2 minutes the unit stays failed.
+ */
+export function desktopSessionUnit(): string {
+  return [
+    "[Unit]",
+    `Description=cmux agent desktop session (openbox and a terminal) on the agent display ${AGENT_DISPLAY}, started with the remote desktop host`,
+    `BindsTo=${DISPLAY_UNIT}`,
+    `After=${DISPLAY_UNIT}`,
+    "StartLimitIntervalSec=120",
+    "StartLimitBurst=5",
+    "",
+    "[Service]",
+    "Type=simple",
+    `User=${DEVBOX_WORK_USER}`,
+    `Group=${DEVBOX_WORK_USER}`,
+    `Environment=HOME=${DEVBOX_WORK_HOME}`,
+    `Environment=DISPLAY=${AGENT_DISPLAY}`,
+    `Environment=XAUTHORITY=${AGENT_XAUTHORITY}`,
+    `ExecStart=${DESKTOP_SESSION_SCRIPT}`,
+    `ExecStartPost=${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS}`,
+    "Restart=on-failure",
+    "RestartSec=2",
+    "",
+  ].join("\n");
+}
+
+/**
+ * DESKTOP_STARTER: run by the cmux-tui daemon as the work user (who has sudo for the units), with
+ * the daemon's environment. It starts the shared display (required: no display, no desktop) and its
+ * AT-SPI bus (optional: without it the worker still has screenshots and X11 input), then prints the
+ * worker's variables, one KEY=VALUE per line; what it says on stderr is the reason the launcher
+ * gives when it fails.
+ */
+export function desktopStarterScript(x11Dir = "/tmp/.X11-unix"): string {
+  const bus = `${a11yRuntimeDir(AGENT_DISPLAY_NUMBER)}/bus`;
+  return [
+    "#!/bin/sh",
+    "# cmux VM agent tools (images/cmux-vm, managed, do not edit): the agent display for cmux Computer Use.",
+    "# cmux-tui's worker launcher runs this when its daemon has no display; it prints the worker's variables.",
+    `sudo -n systemctl start ${DISPLAY_UNIT} >&2 || { echo "cmux: the agent display did not start (systemctl status ${DISPLAY_UNIT})" >&2; exit 1; }`,
+    `[ -S ${x11Dir}/X${AGENT_DISPLAY_NUMBER} ] || { echo "cmux: the agent display ${AGENT_DISPLAY} has no socket" >&2; exit 1; }`,
+    `echo DISPLAY=${AGENT_DISPLAY}`,
+    `echo XAUTHORITY=${AGENT_XAUTHORITY}`,
+    // Nobody shares this display: the worker never waits for a person's input on it.
+    "echo CMUX_CU_HEADLESS=1",
+    // Role cua-video stays off for the driver: sudo, apt, apt-get, ffmpeg and ffprobe refuse first, and no setuid program works.
+    `echo "PATH=${CUA_REFUSE_DIR}:$PATH"`,
+    `echo ${NO_NEW_PRIVS_ENV}=1`,
+    `if sudo -n systemctl start ${A11Y_UNIT} >&2; then echo DBUS_SESSION_BUS_ADDRESS=unix:path=${bus}; else echo "cmux: the AT-SPI bus did not start (systemctl status ${A11Y_UNIT}); accessibility trees stay empty" >&2; fi`,
+    "",
+  ].join("\n");
 }
 
 /** A refusing stand-in for `name` on the driver's PATH (see CUA_REFUSE_DIR). */
@@ -322,7 +506,7 @@ export function cuaRefuseScript(name: string): string {
   return [
     "#!/bin/sh",
     "# cmux VM agent tools (images/cmux-vm, managed, do not edit).",
-    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video (ffmpeg, libx264) is off on cmux machines, so install_ffmpeg and video recording are not available; screenshots still work." >&2`,
+    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video is off for computer use on cmux machines, so install_ffmpeg and video recording are not available to it; screenshots still work." >&2`,
     "exit 1",
     "",
   ].join("\n");
@@ -571,6 +755,9 @@ export function rdStartScript(
     `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
     `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
     `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
+    // The host streams whatever the display shows; when the desktop session never puts a window on it,
+    // the host's own journal says so at error level (the check's stderr), next to the session unit's failure.
+    `( XAUTHORITY=${sq(xauthority)} DISPLAY=${AGENT_DISPLAY} ${DESKTOP_CHECK_SCRIPT} --wait ${DESKTOP_CHECK_SECONDS + 10} >/dev/null || echo "<3>cmux-rd-start: display ${AGENT_DISPLAY} has no windows; the viewer sees a black screen (systemctl status ${DESKTOP_SESSION_UNIT})" >&2 ) &`,
     `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}`,
     "",
   ].join("\n");
@@ -603,6 +790,10 @@ export function rdUnit(): string {
     `BindsTo=${DISPLAY_UNIT}`,
     // OpenH264 first, but its failure does not fail the start (the marker check in RD_START_SCRIPT).
     `Wants=${RD_OPENH264_UNIT}`,
+    // The person's desktop on the display, so a viewer never streams an empty root window. Wants
+    // without After: the host does not wait for it, and a session that fails its check fails
+    // loudly on its own (desktopSessionUnit) without failing the host's start.
+    `Wants=${DESKTOP_SESSION_UNIT}`,
     `After=${RD_OPENH264_UNIT} ${RD_SOCKET_UNIT}`,
     `Requires=${RD_SOCKET_UNIT}`,
     // Every start takes its connection (RD_START_SCRIPT), so systemd never starts the host again
@@ -642,7 +833,7 @@ export function rdUnit(): string {
  * own), then the socket enabled and listening (in the snapshot too) with the host not running.
  */
 export function rdSetupCommand(): string {
-  const units = [RD_SOCKET_UNIT, RD_UNIT, RD_OPENH264_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
+  const units = [RD_SOCKET_UNIT, RD_UNIT, RD_OPENH264_UNIT, DESKTOP_SESSION_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
   return [
     `{ id -u ${RD_USER} >/dev/null 2>&1 || useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ${RD_USER}; }`,
     `test "$(id -nG ${RD_USER})" = ${RD_USER}`,
@@ -655,6 +846,9 @@ export function rdSetupCommand(): string {
     `test "$(id -u ${DEVBOX_WORK_USER})" = ${RD_PEER_UID}`,
     // The start script's drain runs python3; without it a failed start could not close its connection.
     `sh -n ${RD_START_SCRIPT} && test -x ${RD_START_SCRIPT} && test -x /usr/bin/python3`,
+    // The desktop session's programs (role display-wm, baked by displayWmBakePhases) and its scripts.
+    `command -v openbox >/dev/null && command -v xterm >/dev/null && sh -n ${DESKTOP_SESSION_SCRIPT} && test -x ${DESKTOP_SESSION_SCRIPT}`,
+    `python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${DESKTOP_CHECK_SCRIPT} && test -x ${DESKTOP_CHECK_SCRIPT}`,
     `systemd-analyze verify ${units}`,
     "systemctl daemon-reload",
     `command -v setpriv >/dev/null`,
@@ -662,25 +856,57 @@ export function rdSetupCommand(): string {
     `test -S ${RD_SOCKET} && test "$(stat -c '%a %U %G' ${RD_SOCKET})" = '660 root ${DEVBOX_WORK_USER}'`,
     `! systemctl is-active --quiet ${RD_UNIT}`,
     `! systemctl is-active --quiet ${RD_OPENH264_UNIT}`,
+    `! systemctl is-active --quiet ${DESKTOP_SESSION_UNIT}`,
     `echo agent-desktop-ready`,
   ].join(" && ");
 }
 
 /** Login shells (ssh) get the same lookup dir as daemon terminals. */
-export function agentToolsProfileScript(): string {
-  return `# cmux VM agent tools (images/cmux-vm). Managed, do not edit.\nexport CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}\n`;
+export function agentToolsProfileScript(chromium?: string): string {
+  const lines = ["# cmux VM agent tools (images/cmux-vm). Managed, do not edit.", `export CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}`];
+  // The baked browser is a store path only the daemon env named; agents and Playwright look on PATH or in these variables.
+  if (chromium) lines.push(`export CHROME_BIN=${chromium}`, `export CHROME_PATH=${chromium}`);
+  return `${lines.join("\n")}\n`;
 }
 
-/** The work user's cmux.json when it has none: the cmux MCP server on (browser_repl_* tools). */
-export const WORK_USER_CMUX_JSON_TEXT = `${JSON.stringify({ mcp: { enabled: true } }, null, 2)}\n`;
+/** Names agents, Playwright (channel "chrome") and scripts look for the browser under; each links to the baked Chrome. */
+export const BROWSER_LINKS = ["/usr/local/bin/chromium", "/usr/local/bin/chromium-browser", "/usr/local/bin/chrome", "/usr/local/bin/google-chrome", "/opt/google/chrome/chrome"] as const;
+
+/** Links the browser under BROWSER_LINKS and runs it headless once (as the work user): the image build's browser smoke. */
+export function browserLinkCommand(chromium: string): string {
+  return [
+    `test -x ${sq(chromium)}`,
+    "install -d -m 0755 /opt/google/chrome",
+    ...BROWSER_LINKS.map((l) => `ln -sfn ${sq(chromium)} ${l}`),
+    `sudo -n -u ${DEVBOX_WORK_USER} -H sh -c 'chromium --version && chromium --headless=new --disable-gpu --user-data-dir=$(mktemp -d) --dump-dom "data:text/html,<title>cmux</title><h1>ok</h1>" 2>/dev/null | grep -q "<h1>ok</h1>"'`,
+    "echo browser-linked",
+  ].join(" && ");
+}
+
+/** Build-time smoke of the tools Cloud machines promise: each runs once, so a missing or broken one fails the bake. */
+export function imageToolsSmokeCommand(): string {
+  return [
+    `test "$(echo '2^10 + 1' | bc)" = 1025`,
+    "command -v chromium >/dev/null && chromium --version >/dev/null",
+    "echo image-tools-ok",
+  ].join(" && ");
+}
+
+/**
+ * The work user's cmux.json when it has none: the cmux MCP server on (browser_repl_* tools), and the
+ * machine's yes to it in the agents cmux starts (acpmux agent_tools.rs AGENTS_CMUX_MCP_KEY).
+ */
+export const WORK_USER_CMUX_JSON_TEXT = `${JSON.stringify({ mcp: { enabled: true }, agents: { cmuxMcp: "on" } }, null, 2)}\n`;
 
 /** Links the tool dir and writes cmux.json; the wrapper and units are written as files first (installFiles). */
-export function agentToolsLinkCommand(): string {
+export function agentToolsLinkCommand(chromium?: string): string {
   const configDir = WORK_USER_CMUX_JSON.slice(0, WORK_USER_CMUX_JSON.lastIndexOf("/"));
   return [
+    ...(chromium ? [browserLinkCommand(chromium)] : []),
     `install -d -m 0755 ${AGENT_TOOLS_BIN}`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`,
     `test -x ${AGENT_TOOLS_BIN}/cmux && test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
+    `sh -n ${DESKTOP_STARTER} && test "$(stat -c '%U:%G %a' ${DESKTOP_STARTER} /etc/cmux | tr '\\n' ' ')" = 'root:root 755 root:root 755 '`,
     `bash -n ${A11Y_SCRIPT} && python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${ROOT_PROPERTY_SCRIPT} && test -x ${AT_SPI_BUS_LAUNCHER} && command -v dbus-daemon >/dev/null && command -v dbus-send >/dev/null`,
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.config ${configDir}`,
     `if [ ! -e ${WORK_USER_CMUX_JSON} ]; then printf '%s' ${sq(WORK_USER_CMUX_JSON_TEXT)} > ${WORK_USER_CMUX_JSON} && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${WORK_USER_CMUX_JSON}; fi`,
@@ -696,25 +922,56 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
   const rd = rdHostPath(lock);
   return [
     { path: `${AGENT_TOOLS_BIN}/cmux-cua`, text: cuaWrapperScript(), mode: 0o755 },
+    { path: DESKTOP_STARTER, text: desktopStarterScript(), mode: 0o755 },
     { path: `/etc/systemd/system/${CUA_UNIT}`, text: cuaUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${DISPLAY_TEMPLATE_UNIT}`, text: displayTemplateUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`, text: a11yTemplateUnit(), mode: 0o644 },
     { path: A11Y_SCRIPT, text: a11yScript(), mode: 0o755 },
     { path: ROOT_PROPERTY_SCRIPT, text: rootPropertyScript(), mode: 0o755 },
-    { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(), mode: 0o644 },
+    { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(browserHostPaths(rolesManifest(lock)).chromium), mode: 0o644 },
     { path: RD_TMPFILES, text: rdTmpfiles(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(), mode: 0o644 },
     { path: RD_START_SCRIPT, text: rdStartScript(rd), mode: 0o755 },
     { path: `/etc/systemd/system/${RD_OPENH264_UNIT}`, text: rdOpenh264Unit(rd), mode: 0o644 },
+    { path: `/etc/systemd/system/${DESKTOP_SESSION_UNIT}`, text: desktopSessionUnit(), mode: 0o644 },
+    { path: DESKTOP_SESSION_SCRIPT, text: desktopSessionScript(), mode: 0o755 },
+    { path: DESKTOP_CHECK_SCRIPT, text: desktopCheckScript(), mode: 0o755 },
     ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];
 }
 
-/** The browser role's first-use install at bake (apt closure from the dated snapshot, then programs), then its apt lists go. */
-export function browserRoleBakePhases(lock: InputsLock): Array<{ name: string; command: string }> {
+/** The names an agent types for a headless browser (`chromium --headless`), on every PATH. */
+export const BROWSER_PATH_NAMES = ["chromium", "chromium-browser", "google-chrome"] as const;
+
+/**
+ * Links the baked Chrome for Testing into /usr/local/bin under the names agents look for. Without
+ * them the image carried Chrome only at its store path (the browser host's env), and an agent's
+ * `command -v chromium` found nothing (the AutoCloud proof's missing browser).
+ */
+export function browserPathCommand(chrome: string): string {
   return [
-    ...firstUseInstallPhases(rolesManifest(lock), BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
+    `test -x ${sq(chrome)}`,
+    ...BROWSER_PATH_NAMES.map((name) => `ln -sfn ${sq(chrome)} /usr/local/bin/${name}`),
+    "chromium --version",
+  ].join(" && ");
+}
+
+/** The role whose closure the desktop session runs (openbox, xterm), baked with the agent tools. */
+export const DISPLAY_WM_ROLE = "display-wm";
+/** The first-use roles the agent tools bake in: their closures are installed, not refused (bake.ts refusedFirstUsePackages). */
+export const AGENT_TOOLS_BAKED_ROLES = [BROWSER_ROLE, DISPLAY_WM_ROLE] as const;
+
+/**
+ * The browser role's and role display-wm's first-use installs at bake (each closure's .debs by
+ * content, then programs), then the fetched files go.
+ */
+export function browserRoleBakePhases(lock: InputsLock): Array<{ name: string; command: string }> {
+  const manifest = rolesManifest(lock);
+  return [
+    ...firstUseInstallPhases(manifest, BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
+    ...firstUseInstallPhases(manifest, DISPLAY_WM_ROLE).map((p) => ({ name: `agent-tools-display-wm-${p.name}`, command: p.command })),
+    { name: "agent-tools-browser-path", command: browserPathCommand(browserHostPaths(manifest).chromium) },
     { name: "agent-tools-browser-lists", command: "rm -rf /var/lib/cmux/apt-snapshot && echo browser-role-baked" },
   ];
 }

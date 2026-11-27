@@ -144,11 +144,11 @@ pub fn prepare(file: &RouteFile) -> Result<(), RouteError> {
     if path.is_dir() {
         return Ok(());
     }
-    std::fs::create_dir_all(path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(path).map_err(|e| RouteError::Failed(e.to_string()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     Ok(())
@@ -246,7 +246,7 @@ pub fn spawn_env(
     let home = dirs::home_dir().unwrap_or_default();
     let model = meta.model_request.clone().unwrap_or_default();
     for value in harness_env.values_mut() {
-        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
+        *value = crate::config::expand_env_value(value, &meta.cwd, &home, &model);
     }
     harness_env.extend(meta.session_env.clone());
     harness_env
@@ -266,7 +266,7 @@ pub fn current_home(
     let home = dirs::home_dir().unwrap_or_default();
     let model = meta.model_request.clone().unwrap_or_default();
     for value in env.values_mut() {
-        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
+        *value = crate::config::expand_env_value(value, &meta.cwd, &home, &model);
     }
     env.extend(meta.session_env.clone());
     meta.apply_chat_store(&mut env);

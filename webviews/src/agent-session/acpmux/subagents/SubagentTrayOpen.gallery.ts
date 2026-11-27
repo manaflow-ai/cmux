@@ -11,6 +11,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayOpenLook } from "./trayOpen.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const running = (task: string, minutes: number, action: string): Subagent => ({
   id: `agent-${task.toLowerCase().replaceAll(/[^a-z]+/g, "-")}`,
@@ -86,7 +87,7 @@ const opened = async (ctx: PlayContext) => {
 const expanded = async (ctx: PlayContext) => {
   await folded(ctx);
   await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
 };
 
 export default agentPaneEntry({
@@ -106,31 +107,37 @@ export default agentPaneEntry({
       note: "Folded: the header names what runs (#33104), then its time, the panel button in the lines' Stop column, then the chevron.",
       play: folded,
       snapshot,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     hover: {
       note: "The panel button hovered: its own highlight, never the header row's.",
       play: hovered,
       snapshot,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     expanded: {
       note: "A click on the header still expands the tray in place; the panel button stays on the header.",
       play: expanded,
       snapshot,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     "many-folded": {
       note: "Eight lines, more than the list holds: folded, the header's panel button and chevron sit where they sit open.",
       play: folded,
       snapshot: many,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     "many-expanded": {
       note: "Eight lines open: the list scrolls, and the header's panel button and chevron keep their folded place (Leo, 2026-11-14: \"don't do that for the composer hat\").",
       play: expanded,
       snapshot: many,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     "opens-panel": {
       note: "The panel button opens the full Background tasks panel in the chat's right column, Running and Finished.",
       play: opened,
       snapshot,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
   },
 });

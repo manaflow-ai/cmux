@@ -1122,6 +1122,113 @@ impl Source for DeferredSource {
     }
 }
 
+/// The source ends a sid (an actor that stopped, a chat evicted) while the client's `unsub` and
+/// `credit` for it are on the wire: the client gets `dropped` and no error, since it could not
+/// know the connection got there first. A sid the connection never had stays `unknown_sid`, and
+/// so does a second `unsub` of the ended one.
+#[tokio::test]
+async fn unsub_and_credit_after_the_connection_ended_the_sid_are_not_errors() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
+    hello(&mut client).await;
+    send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // not_ready
+    let sink = source.0.lock().unwrap().clone().unwrap();
+    sink.dropped("s");
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Dropped);
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":1}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"never"}})).await;
+    let unknown = |frame: Frame| {
+        assert_eq!(frame.kind, FrameKind::Error);
+        let value: serde_json::Value = frame.decode_json().unwrap();
+        assert_eq!(value["code"], "unknown_sid", "{value}");
+        value["sid"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(unknown(receive(&mut client).await), "never");
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    assert_eq!(unknown(receive(&mut client).await), "s");
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+/// With no room for a reply (the client reads nothing and other sids filled the budget past one
+/// largest frame), a late `credit` and `unsub` for a sid the connection ended itself are still
+/// taken: they answer nothing, so they wait for no room.
+#[tokio::test]
+async fn late_credit_and_unsub_need_no_reply_room() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
+    hello(&mut client).await;
+    let mut sinks = Vec::new();
+    for sid in ["f", "g", "s"] {
+        send(&mut client, json!({"method":"sub","params":{"sid":sid,"stream":"chat:x"}})).await;
+        assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // not_ready
+        sinks.push(source.0.lock().unwrap().clone().unwrap());
+    }
+    let [f, g, s] = [&sinks[0], &sinks[1], &sinks[2]];
+    // Three frames of nearly MAX_FRAME_BYTES and one of 4 KiB: past three quarters of the
+    // budget, so no request has reply room, and under the whole of it, so nothing drops.
+    assert_eq!(f.offer("f", frame(MAX_FRAME_BYTES - 64), Cursor(1)), Offer::Taken);
+    assert_eq!(f.offer("f", frame(MAX_FRAME_BYTES - 64), Cursor(2)), Offer::Taken);
+    assert_eq!(g.offer("g", frame(MAX_FRAME_BYTES - 64), Cursor(1)), Offer::Taken);
+    assert_eq!(g.offer("g", frame(4096), Cursor(2)), Offer::Taken);
+    s.dropped("s");
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":1}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    let metrics = s.metrics();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while metrics.after_end() < 2 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("the late credit and unsub waited for reply room");
+    assert!(f.metrics().queued_bytes() > 3 * MAX_FRAME_BYTES, "no reply room");
+    // The writer still holds frames the client never reads: end the connection's task.
+    task.abort();
+    drop(client);
+}
+
+/// A connection keeps at most `MAX_SUBSCRIPTIONS` sids it ended itself: the oldest is forgotten,
+/// counted, and a late request for it is `unknown_sid` again. Reusing a sid forgets it too. A
+/// late `credit` leaves the sid kept, for the `unsub` that may follow it.
+#[test]
+fn the_sids_a_connection_ended_itself_are_bounded_and_counted() {
+    let mut state = ConnectionState::default();
+    for n in 0..=MAX_SUBSCRIPTIONS {
+        let sid = format!("s{n}");
+        state.subscribe(sid.as_str(), Cursor(0)).unwrap();
+        let control = state.control(&sid).unwrap();
+        state.drop_from(&sid, &control);
+        while let Some(notice) = state.take() {
+            state.written(&notice);
+        }
+    }
+    assert_eq!(state.metrics.ends_forgotten(), 1);
+    assert!(!state.unsubscribe_ended("s0"));
+    let credit = |sid: &str| Credit { sid: sid.into(), consumed: 1 };
+    assert!(matches!(state.credit(credit("s0")), Err(ConnError::UnknownSubscription(_))));
+    assert_eq!(state.credit(credit("s1")).unwrap(), None);
+    assert!(state.unsubscribe_ended("s1"));
+    state.subscribe("s2", Cursor(0)).unwrap();
+    assert!(state.unsubscribe("s2"));
+    assert!(!state.unsubscribe_ended("s2"));
+    assert_eq!(state.metrics.after_end(), 2);
+}
+
 #[tokio::test]
 async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     let source = Arc::new(DeferredSource::default());
@@ -1726,4 +1833,24 @@ async fn a_local_page_without_a_held_sub_is_refused_as_today() {
     let frame = page_reply(&mut client, &all).await;
     assert_eq!(frame.kind, FrameKind::Error);
     assert_eq!(frame.decode_json::<serde_json::Value>().unwrap()["code"], "unknown_sid");
+}
+
+/// A connection error sorts by variant, io kind and code: a hub's error by
+/// its own class, a code by what it names, bad input as unknown.
+#[test]
+fn conn_error_classes() {
+    use acpmux_list_types::resume::ResumeErrorClass;
+    let refused = ConnError::Io(std::io::ErrorKind::ConnectionRefused.into());
+    assert_eq!(refused.resume_class(), ResumeErrorClass::Transient);
+    let timed_out = ConnError::Io(std::io::ErrorKind::TimedOut.into());
+    assert_eq!(timed_out.resume_class(), ResumeErrorClass::DeadlineExceeded);
+    assert_eq!(ConnError::Hub(HubError::CursorGone).resume_class(), ResumeErrorClass::GapTooOld);
+    let stale = ConnError::coded("stale_edition", "the rowId is from another edition");
+    assert_eq!(stale.resume_class(), ResumeErrorClass::GapTooOld);
+    let full = ConnError::coded("mailbox_full", "the chat's mailbox is full");
+    assert_eq!(full.resume_class(), ResumeErrorClass::Transient);
+    let failed = ConnError::coded("failed", "the chat failed");
+    assert_eq!(failed.resume_class(), ResumeErrorClass::Unknown);
+    assert_eq!(ConnError::TooManySubscriptions.resume_class(), ResumeErrorClass::Unknown);
+    assert_eq!(ConnError::IdentifierTooLong.resume_class(), ResumeErrorClass::Unknown);
 }

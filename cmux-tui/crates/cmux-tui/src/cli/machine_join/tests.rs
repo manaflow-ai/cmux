@@ -274,7 +274,7 @@ fn the_platform_is_https_and_defaults_to_production() {
     assert_eq!(platform_origin(None, &none).unwrap(), DEFAULT_ORIGIN);
     assert_eq!(DEFAULT_ORIGIN, "https://cmux-platform-production.debussy.workers.dev");
     let env = |key: &str| -> Option<String> {
-        (key == PLATFORM_ENV).then(|| "https://platform.example/".to_owned())
+        (key == "CMUX_PLATFORM_URL").then(|| "https://platform.example/".to_owned())
     };
     assert_eq!(platform_origin(None, &env).unwrap(), "https://platform.example");
     assert_eq!(platform_origin(Some("http://127.0.0.1:9"), &env).unwrap(), "http://127.0.0.1:9");
@@ -304,15 +304,21 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
     assert_eq!(value["teamId"], "team_1");
     assert_eq!(value["name"], "lane-vm-3");
     assert_eq!(value["scriptUrl"], format!("{origin}/v1/machines/join.sh"));
+    assert_eq!(
+        value["windowsLine"],
+        format!(" $env:CMUX_JOIN='{TOKEN}'; irm {origin}/v1/machines/join.ps1 | iex")
+    );
+    assert_eq!(value["windowsScriptUrl"], format!("{origin}/v1/machines/join.ps1"));
     assert_eq!(value["joined"], Value::Null, "json does not wait unless asked");
-    let holding: Vec<&String> = value
+    let mut holding: Vec<&String> = value
         .as_object()
         .unwrap()
         .iter()
         .filter(|(_, v)| v.to_string().contains(TOKEN))
         .map(|(k, _)| k)
         .collect();
-    assert_eq!(holding, vec!["line", "token"]);
+    holding.sort();
+    assert_eq!(holding, vec!["line", "token", "windowsLine"]);
     let mint = requests.recv().unwrap();
     let (head, body) = mint.split_once("\r\n\r\n").unwrap();
     assert!(head.starts_with("POST /v1/machines/join-tokens HTTP/1.1"), "{head}");
@@ -343,6 +349,13 @@ fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
     assert_eq!(
         lines.next().unwrap(),
         format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh")
+    );
+    assert_eq!(lines.next(), Some(""));
+    assert_eq!(lines.next(), Some("On a Windows PC, in PowerShell:"));
+    assert_eq!(lines.next(), Some(""));
+    assert_eq!(
+        lines.next().unwrap(),
+        format!(" $env:CMUX_JOIN='{TOKEN}'; irm {origin}/v1/machines/join.ps1 | iex")
     );
     assert!(ran.out.contains("Waiting for it to join…"), "{}", ran.out);
     assert!(
@@ -714,6 +727,48 @@ fn list_rows_merge_into_an_array_or_items_and_fail_open() {
     assert_eq!(note.as_deref(), Some("joining isn't available"));
 }
 
+/// hq#11835 row 2: `cmux machine list` showed this machine and the Cloud VMs but not the
+/// machines added with `acpmux machine add`, which `cmux chat --on NAME` now takes. They are
+/// rows now (`kind: "peer"`), each once: a joined machine with that hostname, or a daemon row
+/// of that name, is the same machine; the hub's own rows are the joined list's.
+#[test]
+fn acpmuxs_own_machines_join_the_machine_list_once() {
+    let peers = vec![
+        json!({"name": "gcp-agent-lane-3", "carrier": "ssh", "connected": true}),
+        json!({"name": "cosmic-gray", "carrier": "ssh", "connected": false}),
+        // Joined too: the joined row lists it.
+        json!({"name": "gcp-agent-lane-6", "carrier": "ssh", "connected": true}),
+        json!({"name": "Box", "carrier": "ssh", "connected": true}),
+        json!({"name": "studio", "via": "hub", "connected": true}),
+        json!({"name": "\u{1b}[31m", "connected": true}),
+        json!({"connected": true}),
+    ];
+    let listed = json!([
+        {"id": "machine_mac", "name": "local", "origin": "local"},
+        {"id": "machine_box", "name": "box", "origin": "ssh"},
+        {"kind": "joined", "id": "m_6", "name": "lane six", "hostname": "gcp-agent-lane-6"},
+    ]);
+    let merged = merge_peer_rows(listed, &peers);
+    let added: Vec<&Value> = merged.as_array().unwrap()[3..].iter().collect();
+    let names: Vec<&str> = added.iter().map(|row| row["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["gcp-agent-lane-3", "cosmic-gray", "[31m"]);
+    assert_eq!(
+        *added[0],
+        json!({"kind": "peer", "id": "gcp-agent-lane-3", "name": "gcp-agent-lane-3",
+               "hostname": "gcp-agent-lane-3", "origin": "acpmux", "status": "connected",
+               "state": "online", "connectable": true, "carrier": "ssh",
+               "target": "gcp-agent-lane-3"})
+    );
+    assert_eq!(
+        (added[1]["status"].as_str(), added[1]["connectable"].as_bool()),
+        (Some("offline"), Some(false))
+    );
+    // `{"items": [...]}` too; anything else is left as it was.
+    let merged = merge_peer_rows(json!({"items": []}), &peers[..1]);
+    assert_eq!(merged["items"][0]["id"], "gcp-agent-lane-3");
+    assert_eq!(merge_peer_rows(json!("x"), &peers), json!("x"));
+}
+
 #[test]
 fn credentials_answers_in_every_list_shape_are_read() {
     let (origin, _requests) =
@@ -849,4 +904,245 @@ fn expires_at_reads_the_platforms_iso_string_with_milliseconds() {
     assert_eq!(epoch_ms(&json!("2026-10-29T03:10:00.250Z")), Some(1_793_243_400_250));
     assert_eq!(epoch_ms(&json!(1_793_243_400_250_u64)), Some(1_793_243_400_250));
     assert_eq!(epoch_ms(&json!("not a time")), None);
+}
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): with only `CMUX_PLATFORM_ORIGIN`
+/// set (the name acpmux reads), acpmux joined the staging hub while this CLI's account read went
+/// to production and got a 401. `CMUX_PLATFORM_ORIGIN` is the name, `CMUX_PLATFORM_URL` its
+/// alias, read the way acpmux reads them.
+#[test]
+fn the_platform_reads_acpmuxs_variable_first_and_the_old_name_as_its_alias() {
+    let staging = "https://cmux-platform-staging.example";
+    let only_origin = |key: &str| -> Option<String> {
+        (key == "CMUX_PLATFORM_ORIGIN").then(|| staging.to_owned())
+    };
+    assert_eq!(platform_origin(None, &only_origin).unwrap(), staging);
+    let both = |key: &str| -> Option<String> {
+        match key {
+            "CMUX_PLATFORM_ORIGIN" => Some(staging.to_owned()),
+            "CMUX_PLATFORM_URL" => Some("https://other.example".to_owned()),
+            _ => None,
+        }
+    };
+    assert_eq!(platform_origin(None, &both).unwrap(), staging);
+    assert_eq!(
+        platform_origin(Some("https://flag.example"), &both).unwrap(),
+        "https://flag.example"
+    );
+}
+
+/// `cmux machine add|revoke|rotate|vault --help` prints the verb's own usage (the Cloud and remote
+/// command matrix); without the flag the verb parses as before.
+#[test]
+fn each_join_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let revoke = verb_help(&words("machine revoke --help")).unwrap();
+    assert!(revoke.starts_with("usage: cmux machine revoke ID|NAME [--yes]\n"), "{revoke}");
+    assert!(revoke.contains("--cloud-token-file PATH"), "{revoke}");
+    assert!(!revoke.contains("rotate") && !revoke.contains("machine add"), "{revoke}");
+    let add = verb_help(&words("machine add -h")).unwrap();
+    assert!(add.starts_with("usage: cmux machine add [--name NAME]"), "{add}");
+    assert!(add.contains("\n       cmux machine add --usb PATH"), "{add}");
+    assert!(add.contains("opens the app's Add Machine card"), "{add}");
+    assert!(!add.contains("revoke"), "{add}");
+    let rotate = verb_help(&words("machine rotate box --help")).unwrap();
+    assert!(rotate.starts_with("usage: cmux machine rotate ID|NAME\n"), "{rotate}");
+    assert_eq!(verb_help(&words("machine vault --help")).unwrap(), vault::USAGE);
+    assert!(verb_help(&words("machine revoke box")).is_none());
+    assert!(verb_help(&words("machine list --help")).is_none());
+}
+
+#[test]
+fn placement_parses_on_off_status_and_nothing_else() {
+    assert_eq!(command(&["machine", "placement", "on"]).verb, Verb::Placement(Some(true)));
+    assert_eq!(command(&["machine", "placement", "off"]).verb, Verb::Placement(Some(false)));
+    assert_eq!(command(&["machine", "placement", "status"]).verb, Verb::Placement(None));
+    for words in [
+        vec!["machine", "placement"],
+        vec!["machine", "placement", "maybe"],
+        vec!["machine", "placement", "on", "off"],
+        vec!["machine", "placement", "on", "--yes"],
+    ] {
+        assert!(parsed(&words).expect("ours").is_err(), "{words:?}");
+    }
+    let flagged = command(&["machine", "placement", "on", "--platform", "https://p.example"]);
+    assert_eq!(flagged.auth.platform.as_deref(), Some("https://p.example"));
+}
+
+/// No credential: a plain `machine add` is still the app's card; `--app-session` and every other
+/// verb sign in with the app's session, so the caller never holds a token.
+#[test]
+fn without_a_credential_only_a_plain_add_opens_the_card() {
+    assert_eq!(command(&["machine", "add"]).without_credential(), NoCredential::Card);
+    assert_eq!(
+        command(&["machine", "add", "--no-wait", "--name", "a"]).without_credential(),
+        NoCredential::Card
+    );
+    for words in [
+        vec!["machine", "add", "--app-session"],
+        vec!["machine", "add", "--app-session", "--no-wait", "--name", "a"],
+        vec!["machine", "placement", "status"],
+        vec!["machine", "placement", "on"],
+        vec!["machine", "revoke", "m_1", "--yes"],
+        vec!["machine", "rotate", "m_1"],
+    ] {
+        assert_eq!(command(&words).without_credential(), NoCredential::AppSession, "{words:?}");
+    }
+    let add = command(&["machine", "add", "--app-session"]);
+    assert!(add.auth.app_session);
+    assert_eq!(add.verb, Verb::Add(AddArgs::default()));
+    for words in [
+        vec!["machine", "add", "--app-session", "--cloud-token-stdin"],
+        vec!["machine", "placement", "on", "--app-session", "--cloud-token-file", "/x"],
+        vec!["machine", "add", "--app-session=yes"],
+    ] {
+        assert!(parsed(&words).expect("ours").is_err(), "{words:?}");
+    }
+}
+
+/// `--app-session` and `--cloud-token-stdin` take no value, so a `--json` after them is the
+/// global output switch.
+#[test]
+fn placement_and_app_session_switches_take_no_value() {
+    let words = strings(&["machine", "placement"]);
+    assert!(own_switch(&words, "--cloud-token-stdin"));
+    assert!(own_switch(&words, "--app-session"));
+    assert!(own_switch(&strings(&["machine", "add"]), "--app-session"));
+    assert!(!own_switch(&strings(&["machine", "list"]), "--app-session"));
+}
+
+fn placement_platform(enabled: bool, status: u16) -> (String, mpsc::Receiver<String>) {
+    fake(Arc::new(move |request: &str| {
+        if status != 200 {
+            return (status, json!({"code": "machine.forbidden", "message": "no"}).to_string());
+        }
+        let on = if request.starts_with("PUT ") {
+            request.contains(r#""enabled":true"#)
+        } else {
+            enabled
+        };
+        (
+            200,
+            json!({"enabled": on, "updated_at": if on { 1_764_000_000_000_u64 } else { 0 }})
+                .to_string(),
+        )
+    }))
+}
+
+#[test]
+fn placement_status_reads_and_on_off_put_the_setting_in_every_output_mode() {
+    let (origin, requests) = placement_platform(false, 200);
+    let ran = run_with(
+        &["machine", "placement", "status"],
+        &origin,
+        OutputMode::Human,
+        false,
+        false,
+        never(),
+    );
+    assert_eq!(ran.code, Ok(0));
+    assert_eq!(ran.out, "joined placement: off (never set)\n");
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(request.starts_with("GET /v1/machines/joined/placement "), "{request}");
+    assert!(request.to_ascii_lowercase().contains(&format!("authorization: bearer {CREDENTIAL}")));
+
+    let ran =
+        run_with(&["machine", "placement", "on"], &origin, OutputMode::Json, false, false, never());
+    assert_eq!(ran.code, Ok(0));
+    let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
+    assert_eq!(value, json!({"enabled": true, "updated_at": 1_764_000_000_000_u64}));
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(request.starts_with("PUT /v1/machines/joined/placement "), "{request}");
+    assert!(request.ends_with(r#"{"enabled":true}"#), "{request}");
+    no_secret(&ran.out);
+
+    let ran = run_with(
+        &["machine", "placement", "off"],
+        &origin,
+        OutputMode::Human,
+        false,
+        false,
+        never(),
+    );
+    assert_eq!(ran.out, "joined placement: off (never set)\n");
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(request.ends_with(r#"{"enabled":false}"#), "{request}");
+
+    let ran = run_with(
+        &["machine", "placement", "on"],
+        &origin,
+        OutputMode::Quiet,
+        false,
+        false,
+        never(),
+    );
+    assert_eq!((ran.code, ran.out.as_str()), (Ok(0), ""));
+}
+
+#[test]
+fn placement_refusals_name_the_role_and_a_404_and_never_a_secret() {
+    let (origin, _requests) = placement_platform(false, 403);
+    let ran = run_with(
+        &["machine", "placement", "on"],
+        &origin,
+        OutputMode::Human,
+        false,
+        false,
+        never(),
+    );
+    let failure = ran.code.unwrap_err();
+    assert_eq!(failure.code, "machine_join.forbidden");
+    assert!(failure.message.contains("owner or admin"), "{}", failure.message);
+    no_secret(&failure.message);
+
+    let (origin, _requests) = placement_platform(false, 404);
+    let failure = run_with(
+        &["machine", "placement", "status"],
+        &origin,
+        OutputMode::Human,
+        false,
+        false,
+        never(),
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_join.unavailable");
+
+    let (origin, _requests) = placement_platform(false, 401);
+    let failure = run_with(
+        &["machine", "placement", "status"],
+        &origin,
+        OutputMode::Human,
+        false,
+        false,
+        never(),
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_join.unauthorized");
+    no_secret(&failure.message);
+
+    let (origin, _requests) = fake(Arc::new(|_| (200, json!({"on": true}).to_string())));
+    let failure = run_with(
+        &["machine", "placement", "status"],
+        &origin,
+        OutputMode::Human,
+        false,
+        false,
+        never(),
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_join.unreadable");
+}
+
+#[test]
+fn placement_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let help = verb_help(&words("machine placement --help")).unwrap();
+    assert!(help.starts_with("usage: cmux machine placement on|off|status\n"), "{help}");
+    assert!(help.contains("owner or admin"), "{help}");
+    assert!(help.contains("--app-session"), "{help}");
+    let revoke = verb_help(&words("machine revoke --help")).unwrap();
+    assert!(!revoke.contains("placement"), "{revoke}");
 }

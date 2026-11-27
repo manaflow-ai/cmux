@@ -44,7 +44,7 @@ struct NativeNewTabTypeAheadTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -70,7 +70,13 @@ struct NativeNewTabTypeAheadTests {
         input.scheduleDeadline = { _, _ in Task {} }
 
         // Cmd-T's open and two keys in the same main-actor turn: the field cannot exist yet.
+        let atTheKey = (shown: pane.currentTabKey, selected: pane.stripModel.selectedID?.rawValue)
         let key = try #require(NewTabPage.openNative(in: pane, reusingShown: false), "the setting is on, but the native page did not open")
+        // The page is in another tab than the one that the pane had at the key: the hold reads a pane that shows the tab of
+        // the key again as `the person went back` (`NewTabHoldByHandOpening`, `theNewTabsPageIsNotInTheTabThatThePaneShowedAtTheKey`).
+        let begun = input.log.last { $0.hasPrefix("begin page opened=") } ?? "no begin in the hold's log"
+        #expect(begun.hasPrefix("begin page opened=\(atTheKey.shown ?? "-") "), "the hold did not begin with the tab that the pane showed at the key (\(atTheKey.shown ?? "no tab")): \(begun)")
+        #expect(key != atTheKey.shown && key != atTheKey.selected, "the native page's open put its page in the tab that the pane had at the key (shown \(atTheKey.shown ?? "no tab"), selected \(atTheKey.selected ?? "no tab")): \(key)")
         let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]
         for event in typed where !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
 

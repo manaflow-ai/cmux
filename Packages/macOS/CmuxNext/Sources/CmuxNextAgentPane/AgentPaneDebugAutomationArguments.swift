@@ -57,10 +57,16 @@ public struct AgentPaneDebugAutomationArguments {
             return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
+        case "reset_typing":
+            // `draft`: characters typed at the prompt's end first, so the measured keys go into a long prompt.
+            return [params["draft"]?.intValue ?? 0]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
         case "send_prompt", "compose_send", "toast":
             return [params["text"]?.stringValue ?? ""]
+        case "select_text":
+            // `selector`, and the characters `from` to `to` of its text (debug.ts selectText).
+            return [params["selector"]?.stringValue ?? "", params["from"]?.intValue ?? 0, params["to"]?.intValue ?? 0]
         case "run_mode":
             return [params["mode"]?.stringValue ?? NSNull()]
         case "new_chat":

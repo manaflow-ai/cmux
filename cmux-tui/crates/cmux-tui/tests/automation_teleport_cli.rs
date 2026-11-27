@@ -489,3 +489,80 @@ fn teleport_slice_cloud_audit_and_team_fields() {
     );
     assert!(update["idempotency_key"].as_str().is_some());
 }
+
+/// `exec:PROGRAM`: the spec on its stdin, its exit code the outcome (0 with an id: moved; 2:
+/// refused, the automation fires here again; anything else: unknown, the fence stays and a
+/// re-run sends the same handoff id).
+#[test]
+fn teleport_to_a_program_moves_on_its_id_and_keeps_the_fence_while_unsure() {
+    let env = Env::new("exec");
+    let mover = env.dir.join("bin/mover");
+    std::fs::write(
+        &mover,
+        "#!/bin/sh\ncat > \"$HOME/spec.json\"\ngrep -o '\"id\":\"tp_[0-9a-f]*\"' \"$HOME/spec.json\" >> \"$HOME/handoffs\"\n\
+         case \"$(cat \"$HOME/mode\")\" in\n\
+         ok) echo '{\"id\":\"rtn_moved1\",\"status\":\"active\"}'; exit 0;;\n\
+         refuse) echo 'Not imported: link your account first' >&2; exit 2;;\n\
+         noid) echo '{}'; exit 0;;\n\
+         *) echo 'This move is in progress' >&2; exit 5;;\n\
+         esac\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&mover, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mode = |m: &str| std::fs::write(env.dir.join("mode"), m).unwrap();
+    let handoffs =
+        || std::fs::read_to_string(env.dir.join("handoffs")).unwrap_or_default().lines().count();
+    let to = "exec:mover --json";
+    let made =
+        env.json(&["automation", "create", "Brief", "--prompt", "Summarize", "--daily", "09:00"]);
+
+    // Refused (exit 2): nothing moved, no fence, the program's words reach the person.
+    mode("refuse");
+    let refused = env.run(&["automation", "teleport", "Brief", "--to", to]);
+    // A refusal exits 1 (4 is only a refusal for a paid plan); an unknown outcome exits 3.
+    assert_eq!(refused.status.code(), Some(1), "{}", text(&refused.stderr));
+    assert!(
+        text(&refused.stderr).contains("Not imported: link your account first"),
+        "{}",
+        text(&refused.stderr)
+    );
+    let list = env.json(&["automation", "list"]);
+    assert!(list["automations"][0]["handoff"].is_null(), "a refusal clears the fence: {list}");
+
+    // Unknown (another exit, or exit 0 with no id): the fence stays, the same handoff id next time.
+    mode("busy");
+    let busy = env.run(&["automation", "teleport", "Brief", "--to", to]);
+    assert_eq!(busy.status.code(), Some(3), "{}", text(&busy.stderr));
+    let fenced = env.json(&["automation", "list"]);
+    let handoff = fenced["automations"][0]["handoff"]["id"].as_str().unwrap().to_string();
+    assert!(is_handoff_id(&handoff), "{fenced}");
+    assert_eq!(fenced["automations"][0]["handoff"]["to"], to);
+    mode("noid");
+    let noid = env.run(&["automation", "teleport", "Brief", "--to", to]);
+    assert_eq!(noid.status.code(), Some(3), "{}", text(&noid.stderr));
+
+    // Accepted (exit 0 with an id): the source becomes a tombstone naming it.
+    mode("ok");
+    let moved = env.json(&["automation", "teleport", "Brief", "--to", to]);
+    assert_eq!(moved["moved_to"], to, "{moved}");
+    assert_eq!(moved["moved_id"], "rtn_moved1");
+    let log = std::fs::read_to_string(env.dir.join("handoffs")).unwrap();
+    let ids: Vec<&str> = log.lines().collect();
+    assert_eq!(handoffs(), 4, "{log}");
+    assert!(
+        ids[1..].iter().all(|l| l.contains(&handoff)),
+        "every re-run sends the same handoff: {log}"
+    );
+    let spec: Value =
+        serde_json::from_str(&std::fs::read_to_string(env.dir.join("spec.json")).unwrap()).unwrap();
+    assert_eq!(spec["name"], "Brief");
+    assert_eq!(spec["body"]["prompt"], "Summarize");
+    assert_eq!(spec["handoff"]["source_id"], made["id"]);
+    assert_eq!(
+        spec["triggers"][0]["tz"], "America/Los_Angeles",
+        "a local cron names this machine's zone"
+    );
+    let here = env.json(&["automation", "list"]);
+    assert_eq!(here["automations"], json!([]));
+    assert_eq!(here["moved"][0]["moved_id"], "rtn_moved1");
+}

@@ -8,15 +8,25 @@ import table from "./generated/strings.json";
 import { FilesPage } from "./FilesPage";
 import { MockFilesProvider, sampleTree, type MockTree } from "./mockProvider";
 import { FilesStore } from "./store";
+import type { RootInfo } from "./types";
 
 const wide: MockTree = Object.fromEntries(
   Array.from({ length: 40 }, (_, index) => [`module-${String(index + 1).padStart(2, "0")}.ts`, null]),
 );
 
-type Props = { tree?: MockTree; expand?: string[]; failure?: { code: string; message: string } };
+/** A home folder of projects in no repository, some of them repositories. */
+const projects: MockTree = {
+  cmux: { src: { "main.rs": null }, "README.md": null },
+  dotfiles: { zshrc: null },
+  experiments: {},
+  "notes.md": null,
+  "todo.txt": null,
+};
 
-function FilesGallery({ tree = sampleTree, expand = [], failure }: Props) {
-  const [store] = useState(() => new FilesStore(new MockFilesProvider(tree, undefined, failure)));
+type Props = { tree?: MockTree; root?: RootInfo; expand?: string[]; failure?: { code: string; message: string } };
+
+function FilesGallery({ tree = sampleTree, root, expand = [], failure }: Props) {
+  const [store] = useState(() => new FilesStore(new MockFilesProvider(tree, root, failure)));
   const [strings] = useState(() => createStrings(table));
   const [opened] = useState(expand);
   useEffect(() => {
@@ -46,9 +56,16 @@ export default componentEntry<Props>({
     },
     long: { note: "Forty files in one folder: the tree scrolls, the header stays.", props: { tree: wide } },
     "not-a-repository": {
-      note: "The chat's folder is in no git repository.",
+      note: "The chat's folder is in no git repository (~/Projects): it lists from the disk, folders first.",
+      props: { tree: projects, root: { folder: "/Users/you/Projects", name: "Projects" }, expand: ["cmux"] },
+    },
+    unavailable: {
+      note: "The listing failed (a folder that can't be read).",
       props: {
-        failure: { code: "cmux.files.not_a_repository", message: "/Users/you/notes is not in a git repository." },
+        failure: {
+          code: "cmux.files.unavailable",
+          message: "The files could not be listed. Choose Refresh from the right-click menu to try again.",
+        },
       },
     },
   },

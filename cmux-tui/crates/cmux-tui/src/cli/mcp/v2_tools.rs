@@ -18,17 +18,15 @@ use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
 
-pub(super) const CATALOG_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
-
 /// A read with an array result and no `limit` of its own answers one page:
 /// `limit` items (default, maximum) from `offset`.
 pub(super) const DEFAULT_PAGE: usize = 100;
 pub(super) const MAX_PAGE: usize = 1000;
 
-/// `terminal_wait` and `terminal_wait_exit` wait at most this long: the
-/// server answers one call at a time, so an unbounded wait would stop every
-/// later call. The daemon waits forever when `timeout_ms` is absent.
+/// `terminal_wait` and `terminal_wait_exit` wait at most this long. A top-level wait runs on
+/// its own thread (`Server::detached_wait`), but one a `cmux_exec` script makes holds the
+/// script, and a forgotten wait holds a thread and a daemon connection. The daemon waits
+/// forever when `timeout_ms` is absent.
 const DEFAULT_WAIT_MS: u64 = 30_000;
 const MAX_WAIT_MS: u64 = 300_000;
 
@@ -37,6 +35,11 @@ const STREAM_REASON: &str =
 const CONNECTION_REASON: &str =
     "Connection control: it applies to one socket connection, which ends with the tool call.";
 const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
+
+/// A review posts under the person's own GitHub account: an agent leaves
+/// drafts (`git_review_comment`) and the person posts them from the diff
+/// viewer.
+const REVIEW_POST_REASON: &str = "Posting a pull request review publishes under the person's GitHub account: agents leave drafts with git_review_comment, and the person posts them from the diff viewer.";
 
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
@@ -71,8 +74,14 @@ const SETTINGS_REASON: &str = "Settings go through cmux settings on the app sock
 /// agent never rebinds the user's keys.
 const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Keyboard Shortcuts page, until daemon keybindings verbs and their MCP policy land (cx-9ce.17, cx-ncc.32).";
 
+/// Settings recovery (`cmux settings history|undo|restore|reset --group`):
+/// agents get the schema-scoped tools instead of the generic ones, which
+/// list only schema keys and always declare origin mcp.
+const SETTINGS_RECOVERY_REASON: &str = "Agents use the schema-scoped settings_history, settings_undo, settings_restore and settings_reset_group tools, which list only schema keys and always declare origin mcp (user-only settings stay refused).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
+    ("git.review.post", REVIEW_POST_REASON),
     ("settings.schema", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),
@@ -97,6 +106,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.automation.list", CHIEF_REASON),
+    ("chief.automation.update", CHIEF_REASON),
     ("chief.continue", CHIEF_REASON),
     ("chief.retry", CHIEF_REASON),
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
@@ -185,6 +196,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("theme.scheme.convert", THEME_SCHEME_REASON),
     ("theme.scheme.export", THEME_SCHEME_REASON),
     ("theme.scheme.from_image", THEME_SCHEME_REASON),
+    ("theme.slots.resolve", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -195,18 +207,31 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("browser_import.read", BROWSER_IMPORT_REASON),
+    ("language_packs.ensure", LANGUAGE_PACKS_REASON),
     ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),
+    ("cloud.machine.chief_start", CLOUD_API_REASON),
+    ("cloud.machine.chief_resize", CLOUD_API_REASON),
+    ("cloud.machine.setup_desktop", CLOUD_API_REASON),
+    ("cloud.machine.fork", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
+    ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.op", CLOUD_API_REASON),
+    ("cloud.owner.github_complete", CLOUD_API_REASON),
+    ("cloud.owner.github_list", CLOUD_API_REASON),
+    ("cloud.owner.github_clone_token", CLOUD_API_REASON),
+    ("cloud.owner.github_repos", CLOUD_API_REASON),
     ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
     ("cloud.owner.handoff_open", CLOUD_API_REASON),
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),
     ("cloud.owner.handoffs", CLOUD_API_REASON),
     ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
+    ("cloud.owner.slack", CLOUD_API_REASON),
+    ("cloud.owner.slack_awake", CLOUD_API_REASON),
     ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
     ("cloud.owner.turn_rewind", CLOUD_API_REASON),
     ("cloud.owner.turns", CLOUD_API_REASON),
@@ -257,6 +282,10 @@ pub(super) const CLI_ONLY: &[(&str, &str)] = &[
         "settings.list",
         "The raw daemon listing stays CLI-only until its MCP read policy for credential-bearing values lands; agents use the schema-scoped settings_list tool.",
     ),
+    ("settings.history", SETTINGS_RECOVERY_REASON),
+    ("settings.undo", SETTINGS_RECOVERY_REASON),
+    ("settings.restore", SETTINGS_RECOVERY_REASON),
+    ("settings.reset_group", SETTINGS_RECOVERY_REASON),
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
@@ -307,7 +336,7 @@ const CHAT_REASON: &str = "The person's chats as their Priority view ranks them,
 const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
      (the Channels page); an agent has no palette to rank, and its tools already search.";
 const THEME_SCHEME_REASON: &str = "Scheme conversion for pages and extensions; an agent runs \
-     `cmux theme import|export|from-image`, which reads and writes files the tools cannot pass.";
+     `cmux theme import|export|from-image|new`, which reads and writes files the tools cannot pass.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
@@ -316,6 +345,8 @@ const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives the
      the plan and records what it made; agents never import.";
 const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
      bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
+const LANGUAGE_PACKS_REASON: &str = "The app downloads the language it shows on first use, \
+     with its own bundle's manifest; only the verified app sends it, agents never do.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
@@ -341,8 +372,8 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
-/// The v2 catalog as an index of raw JSON slices of [`CATALOG_JSON`], which is
-/// embedded in the binary: parsed into one tree, its ~1 MB took ~17 MB of heap,
+/// The v2 catalog as an index of raw JSON slices of the catalog text (plain in the binary,
+/// 1.3 MB, shared by every server): parsed into one tree, its ~1 MB took ~17 MB of heap,
 /// held by every agent's `cmux mcp serve` for its whole life. An operation's
 /// descriptor or a type definition is parsed only while a tool is listed or
 /// called, and dropped after.
@@ -362,7 +393,8 @@ pub(super) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let index: Index<'static> =
-            serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog");
+            serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
+                .expect("the checked-in catalog");
         Catalog { types: index.types, operations: index.operations }
     })
 }

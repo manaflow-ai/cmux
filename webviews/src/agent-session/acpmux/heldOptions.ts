@@ -67,10 +67,13 @@ export function fastValue(value: string, values: readonly string[]): string | un
 /// Undefined when the session offers no such option,
 /// or an effort or Fast option that does not list the value: the pick is the user's, so no other
 /// level stands in for it. A pick of another kind goes as held to an option of its id.
+/// `anyEffortLevel`: the levels `offered` lists are another model's (the switch sets the picked
+/// model first), so an effort goes under the session's effort option whatever it lists.
 export function heldOptionPick(
   configId: string,
   value: string,
   offered: readonly ConfigOption[],
+  { anyEffortLevel = false }: { anyEffortLevel?: boolean } = {},
 ): { configId: string; value: string } | undefined {
   const kind = isEffortOption({ id: configId })
     ? isEffortOption
@@ -81,7 +84,7 @@ export function heldOptionPick(
   if (!option) return undefined;
   if (!kind) return { configId: option.id, value };
   const values = option.options?.map((choice) => choice.value) ?? [];
-  if (values.includes(value)) return { configId: option.id, value };
+  if (values.includes(value) || (kind === isEffortOption && anyEffortLevel)) return { configId: option.id, value };
   if (kind === isEffortOption) return undefined;
   const spelled = fastValue(value, values);
   return spelled === undefined ? undefined : { configId: option.id, value: spelled };

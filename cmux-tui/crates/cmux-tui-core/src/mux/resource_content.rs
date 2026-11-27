@@ -22,6 +22,7 @@ pub(crate) use projection_crosscheck::JournalCheck;
 use published_screens::PublishedScreens;
 pub(crate) use scoped_projection::CHANGED_WORKSPACES_MAX;
 pub(crate) use scoped_projection::WorkspaceRows;
+pub(crate) use scoped_projection::crosscheck_enabled;
 #[cfg(all(test, unix))]
 pub(crate) use scoped_projection::without_crosscheck;
 pub(crate) use split_ids::collect_screen_split_ids;
@@ -522,7 +523,10 @@ impl Mux {
                     .find(|screen| screen.public_id == target_screen_id)
                     .cloned()
                     .context("destination screen is absent from durable topology")?;
-                target_screen.active_pane = target_pane_id.clone();
+                crate::mux::resource_topology::floating_panes::focus_registry_pane(
+                    &mut target_screen,
+                    &target_pane_id,
+                );
                 // The topology after the move, for the screens it restates.
                 let mut after = topology.clone();
                 after.screens.retain(|screen| screen.public_id != target_screen.public_id);
@@ -670,8 +674,8 @@ impl Mux {
                             .expect("destination screen validated before commit");
                         state.active_workspace = workspace_index;
                         state.workspaces[workspace_index].active_screen = screen_index;
-                        state.workspaces[workspace_index].screens[screen_index].active_pane =
-                            session_path.2;
+                        state.workspaces[workspace_index].screens[screen_index]
+                            .set_active_pane(session_path.2);
                     },
                 )
                 .with_metrics(ResourceMutationMetrics {

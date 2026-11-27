@@ -55,9 +55,10 @@ public import CmuxNextDesign
 
     public static func spec(title: String, detail: String, cancel: String, copy: String,
                             check: String, retry: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: title, lines: [detail],
+        CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [detail],
                        buttons: [.cancel(cancel), CmuxDialogButton(id: "copy", title: copy),
                                  CmuxDialogButton(id: "check", title: check),
+                                 // retry-prompt-ok: SSH sign-in that the link does not redial itself (auth, host key, install); another dial repeats a failed sign-in
                                  CmuxDialogButton(id: "retry", title: retry, role: .default)],
                        identifier: "cmux.dialog.remote.connectFailed")
     }

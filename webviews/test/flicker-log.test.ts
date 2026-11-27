@@ -16,22 +16,21 @@ import {
 test("events go out in one batch with their time, and mounts count", () => {
   const sent: FlickerEvent[][] = [];
   let clock = 1_000;
-  const timers: (() => void)[] = [];
+  const ends: (() => void)[] = [];
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => clock,
-    (run) => {
-      timers.push(run);
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    },
+    // The end of the recording task, run when the test says.
+    (run) => ends.push(run),
   );
   log.record("visibility", { state: "hidden" });
   clock = 1_200;
   log.transcriptMounted();
   log.transcriptMounted();
-  expect(timers).toHaveLength(1);
+  // One batch at the end of the task (the log arms no timer).
+  expect(ends).toHaveLength(1);
   expect(sent).toHaveLength(0);
-  timers[0]!();
+  ends[0]!();
   expect(sent).toEqual([
     [
       { kind: "visibility", at: 1_000, state: "hidden" },
@@ -48,7 +47,7 @@ test("a held burst keeps the newest and counts the dropped", () => {
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => 0,
-    () => 0 as unknown as ReturnType<typeof setTimeout>,
+    () => {},
   );
   for (let index = 0; index < 70; index += 1) log.record("long-frame", { ms: index });
   log.flush();
@@ -227,7 +226,7 @@ test("with the engine's long frames, a change at rest costs two frames, and summ
 // Chromium refuses a `setTimeout` called with another receiver ("Illegal invocation"). The log's
 // default timer is called as its own method, so it must not be the bare function: in Chromium the
 // first record threw, and the transcript's mount record then broke the pane's first draw.
-test("the default timer runs with the global receiver, as Chromium requires", () => {
+test("the default timer runs with the global receiver, as Chromium requires", async () => {
   const real = globalThis.setTimeout;
   const receivers: unknown[] = [];
   const strict = function (this: unknown, run: () => void, ms?: number) {
@@ -239,10 +238,16 @@ test("the default timer runs with the global receiver, as Chromium requires", ()
   try {
     const sent: FlickerEvent[][] = [];
     const log = new FlickerLog((events) => sent.push(events));
+    log.transcriptMounted();
+    log.flush();
+    // The batch at the end of that task has run.
+    await Promise.resolve();
+    // A record within a second of that batch goes out at the end of its task too: the log arms no timer
+    // (#60925), so a strict `setTimeout` is never called with any receiver.
     expect(() => log.transcriptMounted()).not.toThrow();
     log.flush();
-    expect(sent).toHaveLength(1);
-    expect(receivers).toHaveLength(1);
+    expect(sent).toHaveLength(2);
+    expect(receivers).toHaveLength(0);
   } finally {
     globalThis.setTimeout = real;
   }

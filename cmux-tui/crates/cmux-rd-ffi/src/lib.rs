@@ -4,19 +4,30 @@
 //! (`scripts/cmux-next/build-rd-ffi.sh`; plans/cmux-next/remote-desktop.md
 //! section 3). The surface is small on purpose: received bytes in, access
 //! units, messages and feedback datagrams out; upstream media frames in,
-//! datagrams out. No I/O, no threads, no async
+//! datagrams out. No I/O (except the one recording file the app names,
+//! `record_ffi.rs`), no threads, no async
 //! runtime. Every entry point catches panics; a panic poisons the receiver
-//! and every later call on it returns `CMUX_RD_ERR_PANIC`.
+//! and every later call on it returns `CMUX_RD_ERR_PANIC`. No handle is
+//! thread-safe: the header has the host call each from one thread or actor at
+//! a time, so an entry point has its handle to itself for the call.
 
 mod bulk_ffi;
+mod clipboard_ffi;
+mod h264;
 mod input;
 mod input_ffi;
 mod line_reader_ffi;
+mod mp4;
 mod rb_client_ffi;
 mod receiver;
+mod record;
+mod record_ffi;
 mod session;
 mod session_ffi;
+pub mod ui;
 mod upstream_ffi;
+pub mod view;
+mod view_ffi;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -24,17 +35,23 @@ use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
 pub use bulk_ffi::*;
+pub use clipboard_ffi::*;
 pub use input::InputChannel;
 pub use input_ffi::*;
 pub use line_reader_ffi::*;
 pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
-pub use session::{MAX_STREAMS, Session, SessionError};
+pub use record_ffi::*;
+pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
+// Keep the shared ScreenKit C ABI reachable from cmux-app-ffi's one Rust
+// static library; build-app-ffi.sh packages and exports this header.
+pub use cmux_rd_core::screen_kit::ffi::*;
 pub use upstream_ffi::*;
+pub use view_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 9;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -80,6 +97,8 @@ pub struct CmuxRdStats {
     pub frames_lost: u64,
     pub acked_frame: u32,
     pub need_recovery: bool,
+    /// Frames a newer keyframe replaced on the ready queue (ABI 9).
+    pub frames_skipped: u64,
 }
 
 /// The opaque receiver handle (`CmuxRdReceiver`).
@@ -95,9 +114,16 @@ pub struct CmuxRdReceiver {
 }
 
 /// Runs `f` on a live receiver; maps NULL, a poisoned receiver and panics to codes.
-fn with_receiver(ptr: *mut CmuxRdReceiver, f: impl FnOnce(&mut CmuxRdReceiver) -> i32) -> i32 {
-    // SAFETY: the caller passes NULL or a pointer from cmux_rd_receiver_new that
-    // it has not freed, and does not call into the same receiver concurrently.
+///
+/// # Safety
+/// `ptr` is NULL or came from [`cmux_rd_receiver_new`] and has not been freed, so a
+/// non-NULL `ptr` is aligned and points to a live receiver. Nothing else reads or
+/// writes that receiver until this returns: `f` gets it as `&mut`.
+unsafe fn with_receiver(
+    ptr: *mut CmuxRdReceiver,
+    f: impl FnOnce(&mut CmuxRdReceiver) -> i32,
+) -> i32 {
+    // SAFETY: NULL or live, aligned and unaliased, by this function's contract.
     let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
     if handle.poisoned {
         return CMUX_RD_ERR_PANIC;
@@ -223,10 +249,13 @@ pub unsafe extern "C" fn cmux_rd_receiver_push_datagram(
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
     let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_receiver(receiver, |h| match h.inner.push_datagram(bytes, now_us) {
+    let run = |h: &mut CmuxRdReceiver| match h.inner.push_datagram(bytes, now_us) {
         Ok(()) => ready_count(h),
         Err(e) => error_code(&e),
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// Adds received stream bytes (stream carrier). Returns the number of ready frames.
@@ -242,10 +271,13 @@ pub unsafe extern "C" fn cmux_rd_receiver_push_stream(
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
     let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_receiver(receiver, |h| match h.inner.push_stream(bytes, now_us) {
+    let run = |h: &mut CmuxRdReceiver| match h.inner.push_stream(bytes, now_us) {
         Ok(()) => ready_count(h),
         Err(e) => error_code(&e),
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// Drops frames past their deadline. Returns the number of ready frames.
@@ -254,10 +286,13 @@ pub unsafe extern "C" fn cmux_rd_receiver_push_stream(
 /// `receiver` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_tick(receiver: *mut CmuxRdReceiver, now_us: u64) -> i32 {
-    with_receiver(receiver, |h| {
+    let run = |h: &mut CmuxRdReceiver| {
         h.inner.tick(now_us);
         ready_count(h)
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// Hands out the oldest ready frame: 1 when `out` was filled, 0 when none is ready.
@@ -272,7 +307,7 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_frame(
     if out.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_receiver(receiver, |h| {
+    let run = |h: &mut CmuxRdReceiver| {
         h.current_frame = h.inner.pop_frame();
         let Some(frame) = h.current_frame.as_ref() else { return 0 };
         let value = CmuxRdFrame {
@@ -286,7 +321,10 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_frame(
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
         1
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// Hands out the oldest queued message: 1 when `out` was filled, 0 when none is queued.
@@ -301,7 +339,7 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
     if out.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_receiver(receiver, |h| {
+    let run = |h: &mut CmuxRdReceiver| {
         h.current_message = h.inner.pop_message();
         let Some(message) = h.current_message.as_ref() else { return 0 };
         let value = CmuxRdMessage {
@@ -312,10 +350,14 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
         1
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
-/// Records one decode time.
+/// Records one decode time, naming no frame: no LTR token is acknowledged
+/// (the app's call before `cmux_rd_receiver_note_frame_decode`).
 ///
 /// # Safety
 /// `receiver` is valid.
@@ -324,10 +366,33 @@ pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
     receiver: *mut CmuxRdReceiver,
     decode_us: u32,
 ) -> i32 {
-    with_receiver(receiver, |h| {
-        h.inner.note_decode(decode_us);
+    let run = |h: &mut CmuxRdReceiver| {
+        h.inner.note_decode(None, decode_us);
         CMUX_RD_OK
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
+}
+
+/// Records one decode time of popped frame `frame`, the frame that decoded:
+/// its LTR token is acknowledged to the host.
+///
+/// # Safety
+/// `receiver` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_receiver_note_frame_decode(
+    receiver: *mut CmuxRdReceiver,
+    frame: u32,
+    decode_us: u32,
+) -> i32 {
+    let run = |h: &mut CmuxRdReceiver| {
+        h.inner.note_decode(Some(frame), decode_us);
+        CMUX_RD_OK
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// Asks the host for a keyframe until one is released.
@@ -336,10 +401,13 @@ pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
 /// `receiver` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_request_keyframe(receiver: *mut CmuxRdReceiver) -> i32 {
-    with_receiver(receiver, |h| {
+    let run = |h: &mut CmuxRdReceiver| {
         h.inner.request_keyframe();
         CMUX_RD_OK
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// Writes the next due feedback datagram: 1 when written, 0 when none is due,
@@ -362,7 +430,7 @@ pub unsafe extern "C" fn cmux_rd_receiver_feedback(
     // SAFETY: checked non-NULL; writable by contract. Every path, including a
     // NULL or unusable receiver, leaves a defined length.
     unsafe { *out_len = 0 };
-    with_receiver(receiver, |h| {
+    let run = |h: &mut CmuxRdReceiver| {
         let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us)) else {
             // SAFETY: checked non-NULL; writable by contract.
             unsafe { *out_len = 0 };
@@ -376,7 +444,10 @@ pub unsafe extern "C" fn cmux_rd_receiver_feedback(
                 code
             }
         }
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
 }
 
 /// The time at which tick and feedback must run next (0 = now); `u64::MAX`
@@ -409,18 +480,23 @@ pub unsafe extern "C" fn cmux_rd_receiver_stats(
     if out.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_receiver(receiver.cast_mut(), |h| {
+    let run = |h: &mut CmuxRdReceiver| {
         let s = h.inner.stats();
         let value = CmuxRdStats {
             frames_released: s.frames_released,
             frames_lost: s.frames_lost,
             acked_frame: s.acked_frame,
             need_recovery: s.need_recovery,
+            frames_skipped: s.frames_skipped,
         };
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
         CMUX_RD_OK
-    })
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    // The C type is `*const`, but the pointer came from `_new` as `*mut`.
+    unsafe { with_receiver(receiver.cast_mut(), run) }
 }
 
 /// Frames a payload for the stream carrier.
@@ -457,14 +533,26 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 #[cfg(test)]
 mod bulk_tests;
 #[cfg(test)]
+mod clipboard_tests;
+#[cfg(test)]
 mod input_tests;
 #[cfg(test)]
 mod line_reader_tests;
 #[cfg(test)]
 mod rb_client_tests;
 #[cfg(test)]
+mod receiver_tests;
+#[cfg(test)]
+mod record_tests;
+#[cfg(test)]
 mod session_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod upstream_tests;
+#[cfg(test)]
+mod view_session_tests;
+#[cfg(test)]
+mod view_tests;
+#[cfg(test)]
+mod view_transport_tests;

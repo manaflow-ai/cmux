@@ -1,4 +1,6 @@
+public import CmuxNextAgentPanePlacement
 import CmuxNextDesign
+public import CmuxNextSettings
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
@@ -53,13 +55,15 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "threads", "console",
-    /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
-    /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "classic" or "terminal"); the settings
+    /// snapshot already reads a retired value (composer, cards, default, threads, console) as
+    /// "minimal", and the web page maps one to Minimal too. nil follows `layout`. The page validates it.
     public var template: String?
-    /// The extension that draws the whole page (`tabs.newTabApp`, an app id with `cmux.newtab/1`); nil
-    /// draws cmux's own page. The page draws its own too when that app is missing, hidden or fails.
+    /// The extension that draws over the composer (`tabs.newTabApp`, an app id with `cmux.newtab/1`);
+    /// nil draws no extension. It never replaces the page; one that is missing, hidden or fails draws nothing.
     public var app: String?
+    /// The New Tab clock over the composer (`tabs.newTabClock.*`); nil draws none (the default).
+    public var clock: AgentPaneNewTabClock?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -69,6 +73,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The project of the chat the person last picked and started (`newTab.remember` `started`):
     /// where a page with no folder of its own starts. nil on another machine or before any start.
     public var startedProject: String?
+    /// The folder or GitHub repository the person last started a Cloud chat in (`newTab.remember` `cloudStarted`):
+    /// where a page with Cloud picked starts (cmux#53226). nil on another machine or before any Cloud start.
+    public var cloudStartedProject: String?
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
@@ -86,6 +93,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
+    /// true: the page's chats start on another machine (it opened beside an SSH or Cloud machine's tab, whose daemon
+    /// is not this Mac's: ``warmedOnThisMac(_:)``); nil: on this Mac. On the first frame, before the page's own
+    /// connection says so: a send that names `@computer-use` decides on that machine, never on this Mac's Computer Use
+    /// Setup (review round 3 of #48024).
+    public var startsRemote: Bool?
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
@@ -118,13 +130,78 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
 }
 
 extension AgentPaneNewTab {
-    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
+    /// The page with `app`'s `cmux.newtab/1` over its composer (`tabs.newTabApp`); nil draws none.
     public func showingApp(_ app: String?) -> AgentPaneNewTab {
         var page = self
         page.app = app
         return page
     }
 
+    /// The page with the New Tab clock over its composer (`tabs.newTabClock.*`); nil draws none.
+    public func showingClock(_ clock: AgentPaneNewTabClock?) -> AgentPaneNewTab {
+        var page = self
+        page.clock = clock
+        return page
+    }
+
+    /// The page with the clock `setting` asks for (`tabs.newTabClock.*`); nil (off, the default) draws none.
+    public func showingClock(_ setting: NewTabClockSetting?) -> AgentPaneNewTab {
+        showingClock(setting.map {
+            AgentPaneNewTabClock(font: $0.font.rawValue, weight: $0.weight.rawValue, color: $0.color.rawValue, date: $0.date)
+        })
+    }
+
+    /// The page with Integrate a harness off when it was dismissed for good.
+    public func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with the project of the chat the person last picked and started, if any.
+    public func startingIn(_ startedProject: String?, cloud cloudStartedProject: String? = nil) -> AgentPaneNewTab {
+        var page = self
+        page.startedProject = startedProject
+        page.cloudStartedProject = cloudStartedProject
+        return page
+    }
+
+    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
+    public func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.allChats = shown ? nil : false
+        return page
+    }
+
+    /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
+    /// whose view is made after its tab opened gets the lists of then. The folders stay
+    /// the page's own, as at a refresh (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``).
+    public func listing(_ lists: NewTabPlaces.Lists?) -> AgentPaneNewTab {
+        guard let lists else { return self }
+        var page = self
+        page.omnibar.tabs = lists.tabs
+        page.omnibar.workspaces = lists.workspaces
+        return page
+    }
+}
+
+/// The New Tab clock's look as the page reads it (`newTab.clock`, webviews newtab/NewTabClock.tsx
+/// `readClockStyle`): the setting's choice values, which the page validates.
+public nonisolated struct AgentPaneNewTabClock: Codable, Sendable, Equatable {
+    public var font: String
+    public var weight: String
+    public var color: String
+    public var date: Bool
+
+    public init(font: String, weight: String, color: String, date: Bool) {
+        self.font = font
+        self.weight = weight
+        self.color = color
+        self.date = date
+    }
+}
+
+extension AgentPaneNewTab {
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.
@@ -143,6 +220,7 @@ extension AgentPaneNewTab {
             // Another machine's page lists its own chats, never the ones this Mac's pages share
             // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
             page.privateChatLists = true
+            page.startsRemote = true
         }
         return page
     }
@@ -206,13 +284,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         public var keywords: [String]
         /// The action's shortcut keycaps (`["⌘", "T"]`); nil without one.
         public var keycaps: [String]?
+        /// The command palette's symbol name.
+        public var symbol: String?
 
-        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [], keycaps: [String]? = nil) {
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [],
+                    keycaps: [String]? = nil, symbol: String? = nil) {
             self.id = id
             self.title = title
             self.detail = detail
             self.keywords = keywords
             self.keycaps = keycaps
+            self.symbol = symbol
         }
     }
 
@@ -248,6 +330,8 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var actions: [Action]
     public var commands: [String]
     public var history: [Page]
+    /// Saved browser bookmarks, newest or tree order as supplied by the host.
+    public var bookmarks: [Page]
     /// The Commands palette's pick history (its `FrecencyStore`) for the rows the bar lists, by the palette's usage
     /// key (`tab:ID`, `workspace:ID`, `action:ID`): each key's decayed use count. The bar orders matches of one kind
     /// by it, so what the person picks often and lately comes first here as in the palette (cmuxterm-hq lenses
@@ -262,7 +346,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var profiles: [Profile]?
 
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
-                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:],
+                actions: [Action] = [], commands: [String] = [], history: [Page] = [], bookmarks: [Page] = [], uses: [String: Double] = [:],
                 profiles: [Profile]? = nil) {
         let cap = Self.maximumEntries
         self.tabs = tabs
@@ -272,13 +356,14 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.actions = Array(actions.prefix(Self.maximumActions))
         self.commands = commands
         self.history = history
+        self.bookmarks = bookmarks
         self.uses = uses.count > Self.maximumUses
             ? Dictionary(uniqueKeysWithValues: uses.sorted { $0.value > $1.value }.prefix(Self.maximumUses).map { ($0.key, $0.value) })
             : uses
         self.profiles = profiles.map { Array($0.prefix(Self.maximumProfiles)) }
     }
 
-    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses, profiles }
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, bookmarks, uses, profiles }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -290,6 +375,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
             commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
             history: try values.decodeIfPresent([Page].self, forKey: .history) ?? [],
+            bookmarks: try values.decodeIfPresent([Page].self, forKey: .bookmarks) ?? [],
             uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:],
             profiles: try values.decodeIfPresent([Profile].self, forKey: .profiles)
         )
@@ -308,12 +394,13 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "folders": folders,
             "projects": projects,
             "actions": actions.map { action in
-                optional([("id", action.id), ("title", action.title), ("detail", action.detail)])
+                optional([("id", action.id), ("title", action.title), ("detail", action.detail), ("symbol", action.symbol)])
                     .merging(["keywords": action.keywords]) { left, _ in left }
                     .merging(action.keycaps.map { ["keycaps": $0] } ?? [:]) { left, _ in left }
             },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
+            "bookmarks": bookmarks.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
             "uses": uses,
         ].merging(profiles.map { ["profiles": $0.map { optional([("id", $0.id), ("name", $0.name), ("color", $0.color)]) }] } ?? [:]) { left, _ in left }
     }

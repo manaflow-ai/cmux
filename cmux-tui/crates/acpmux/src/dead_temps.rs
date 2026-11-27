@@ -9,11 +9,47 @@
 //! [`MAX_NAMES`] names of that one folder, at most once a minute for each file per process, and
 //! removes only a copy whose pid no process runs now and that is a minute old, so a running
 //! writer's copy is never touched.
+//!
+//! A copy is named by its file and its writer's pid alone (`<stem>.tmp-<pid>`,
+//! `.<name>.tmp-<pid>`), never with a counter too: fseventsd keeps what it learns of every path
+//! it is told of until it restarts, and a peer snapshot's `.tmp-<pid>-<n>` minted a new name on
+//! every write, about 400 a minute on a Mac with a few dozen peer chats streaming (#44520). Two
+//! writers in one process take turns on a name ([`hold`]); another process's name differs by its
+//! pid.
 
 use std::collections::HashMap;
+use std::hash::{Hash as _, Hasher as _};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
+
+/// Locks a writer of this process holds on its temporary copy's name, picked by the name's hash:
+/// a fixed number, so they cost the same however many files are written.
+const NAME_LOCKS: usize = 64;
+
+/// Held by a writer of this process from its temporary copy's open to its rename (or removal),
+/// so another writer of the same name (`tmp`) in this process waits and no two fill one copy.
+/// Hold it around the open, the write and the rename only, never around another write: two
+/// names may share a lock.
+pub(crate) fn hold(tmp: &Path) -> MutexGuard<'static, ()> {
+    static LOCKS: [Mutex<()>; NAME_LOCKS] = [const { Mutex::new(()) }; NAME_LOCKS];
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tmp.hash(&mut hasher);
+    let index = hasher
+        .finish()
+        .checked_rem(NAME_LOCKS as u64)
+        .and_then(|i| usize::try_from(i).ok())
+        .unwrap_or(0);
+    // `index` is below NAME_LOCKS, so `get` always finds one; the first stands in otherwise.
+    let lock = LOCKS.get(index).or(LOCKS.first());
+    match lock {
+        Some(lock) => lock.lock().unwrap_or_else(PoisonError::into_inner),
+        None => {
+            static ONE: Mutex<()> = Mutex::new(());
+            ONE.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+    }
+}
 
 /// The names read in a folder per sweep: the cost of a write stays the same however full its
 /// folder is.
@@ -109,20 +145,5 @@ fn running(pid: u32) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::pid_after;
-
-    #[test]
-    fn a_copy_is_named_by_its_writers_pid() {
-        assert_eq!(pid_after("refusal.tmp-123-4", "refusal.tmp-"), Some(123));
-        assert_eq!(pid_after("refusal.tmp-123", "refusal.tmp-"), Some(123));
-        assert_eq!(pid_after("refusal.tmp-123-0192abcd-ef", "refusal.tmp-"), Some(123));
-        assert_eq!(pid_after("refusal.tmp-notes", "refusal.tmp-"), None);
-        assert_eq!(pid_after("refusal.tmp-12a-1", "refusal.tmp-"), None);
-        assert_eq!(pid_after("refusal.tmp-", "refusal.tmp-"), None);
-        assert_eq!(pid_after("refusal.tmp-0-1", "refusal.tmp-"), None);
-        assert_eq!(pid_after("refusal.tmp-4194304-1", "refusal.tmp-"), Some(4_194_304));
-        assert_eq!(pid_after("refusal.tmp-20261115", "refusal.tmp-"), None);
-        assert_eq!(pid_after("consent.tmp-123-4", "refusal.tmp-"), None);
-    }
-}
+#[path = "dead_temps_tests.rs"]
+mod tests;

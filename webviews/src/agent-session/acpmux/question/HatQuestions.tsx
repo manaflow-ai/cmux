@@ -28,7 +28,7 @@
 // (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
 // waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
 // keeps the asker line above to itself, cut only where the pager and the × begin.
-import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useAnswerHold } from "../answerHold";
@@ -38,6 +38,7 @@ import { inlineText } from "./inlineText";
 import { keepShown, type HatAnswer, type HatQuestion, type HatTag } from "./hatModel";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 import "./hatQuestions.css";
+import { focusRoute } from "../../../ui/focusRoute";
 
 const TAG_KEY: Record<HatTag, StringKey> = {
   taste: "hat.tag.taste",
@@ -71,6 +72,18 @@ const REPLY = "\u0000reply";
 /// Whether the band's height transition is still running; with motion off it never starts.
 const moving = (element: HTMLElement | null) =>
   element?.getAnimations().some((animation) => animation.playState === "running") ?? false;
+
+/// The parts of a shown question that are cut to their room until More: the question (two lines),
+/// the line under it, and who asks and what about (the head's room).
+const CUT_TEXT =
+  ".acpmux-hat-questions__prompt, .acpmux-hat-questions__detail, .acpmux-hat-questions__who, .acpmux-hat-questions__about";
+
+/// Whether any of `question`'s cut parts runs past its room.
+export function hasCutText(question: HTMLElement): boolean {
+  return Array.from(question.querySelectorAll<HTMLElement>(CUT_TEXT)).some(
+    (part) => part.scrollHeight > part.clientHeight + 1 || part.scrollWidth > part.clientWidth + 1,
+  );
+}
 
 /// Where a started chat's question puts its reply field (the gallery compares them): on its own line
 /// under the choices (shipped), at the end of the choices' line, or behind a Reply button.
@@ -131,33 +144,47 @@ export function HatQuestions({
   // waits for one.
   const fieldRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (replying) fieldRef.current?.focus({ preventScroll: true });
+    if (replying) focusRoute(fieldRef.current, "system", "a question to reply to", { preventScroll: true });
   }, [replying]);
-  // Whether the question runs past its two lines: only then is there a More to offer.
+  // Whether any of the ask is cut: the question past its two lines, the line under it, or who asks
+  // and what about past the head's room. Only then is there a More to offer, and it opens all of
+  // them, so the whole ask can be read in the hat (the started chat's [irreversible] ask was cut
+  // mid-word in its head and its line under the question).
   const promptRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
   useLayoutEffect(() => {
     const element = promptRef.current;
     if (!element || whole) return;
-    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
+    const question = element.closest<HTMLElement>(".acpmux-hat-questions__question") ?? element;
+    const measure = () => setOverflows(hasCutText(question));
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    observer.observe(question);
     return () => observer.disconnect();
-  }, [shown?.id, shown?.prompt, whole]);
+  }, [shown?.id, shown?.prompt, shown?.detail, shown?.who, shown?.about, whole]);
 
   // The band's height follows its content's, eased; zero while leaving or before it arrives.
-  const outer = useRef<HTMLDivElement>(null);
+  const outer = useRef<HTMLDivElement | null>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   // Questions already waiting when the pane opens (or shows another chat, which mounts it again) are
   // its start state, not a change: the band draws at its height at once, and eases only from the
   // next frame on.
   const [arrived, setArrived] = useState(() => questions.length > 0);
-  const [settled, setSettled] = useState(false);
+  // Settled from the frame after it mounted: the attribute is set on the band itself, never as state,
+  // so a chat switch (which mounts it again) renders nothing more for it before its first paint.
+  const settled = useRef(false);
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setSettled(true));
+    const frame = requestAnimationFrame(() => {
+      settled.current = true;
+      outer.current?.setAttribute("data-settled", "");
+    });
     return () => cancelAnimationFrame(frame);
+  }, []);
+  // A band drawn after that frame (its questions arrived later) is settled from its first commit.
+  const outerRef = useCallback((node: HTMLDivElement | null) => {
+    outer.current = node;
+    if (node && settled.current) node.setAttribute("data-settled", "");
   }, []);
   const present = drawn.length > 0;
   useLayoutEffect(() => {
@@ -369,12 +396,7 @@ export function HatQuestions({
   const asker = look !== "line" && Boolean(shown.who || shown.about);
   const prompt = (
     <span className="acpmux-hat-questions__words">
-      <span
-        ref={promptRef}
-        className="acpmux-hat-questions__prompt"
-        data-whole={whole || undefined}
-        title={shown.prompt}
-      >
+      <span ref={promptRef} className="acpmux-hat-questions__prompt" data-whole={whole || undefined}>
         {inlineText(shown.prompt)}
       </span>
       {look !== "line" && (overflows || whole) && (
@@ -392,12 +414,12 @@ export function HatQuestions({
   );
   return (
     <div
-      ref={outer}
+      ref={outerRef}
       className="acpmux-hat-questions"
       data-look={look}
+      data-whole={whole || undefined}
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
-      data-settled={settled || undefined}
       data-dismiss={dismissLook}
       style={{ "--acpmux-hat-questions-height": `${arrived && !leaving ? height : 0}px` } as CSSProperties}
       onTransitionEnd={(event) => {
@@ -427,15 +449,12 @@ export function HatQuestions({
               className="acpmux-hat-questions__question"
               data-direction={direction}
               data-asker={asker || undefined}
+              data-whole={whole || undefined}
             >
               <div className="acpmux-hat-questions__head">
                 <span className="acpmux-hat-questions__mark" aria-hidden="true" />
                 {shown.tag && <span className="acpmux-hat-questions__tag">{t(TAG_KEY[shown.tag])}</span>}
-                {shown.who && (
-                  <span className="acpmux-hat-questions__who" title={shown.who}>
-                    {shown.who}
-                  </span>
-                )}
+                {shown.who && <span className="acpmux-hat-questions__who">{shown.who}</span>}
                 {shown.about && <span className="acpmux-hat-questions__about">{inlineText(shown.about)}</span>}
                 {!asker && prompt}
                 {look === "line" && answers}
@@ -450,6 +469,7 @@ export function HatQuestions({
               {replyLook !== "inline" && field}
               {failed === shown.id && (
                 <p className="acpmux-hat-questions__failed" role="alert">
+                  {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
                   {t("question.replyFailed")}
                 </p>
               )}

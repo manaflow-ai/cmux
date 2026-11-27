@@ -26,7 +26,10 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio::signal::unix::{SignalKind, signal};
 
-use super::{REMOTE_VALUE_OPTIONS, parse_connect_flags, start_connected, tokio_runtime};
+use super::{
+    REMOTE_VALUE_OPTIONS, credential_free_route_hint, parse_connect_flags, start_connected,
+    tokio_runtime,
+};
 use crate::localization::catalog;
 
 /// The daemon's per-request bound on process input (`MAX_PROCESS_WRITE_BYTES`).
@@ -43,7 +46,7 @@ const READ_WINDOW: usize = 4;
 const UPLOAD_WINDOW: usize = 2;
 /// Ctrl-C presses after which `exec` stops waiting for the command.
 const INTERRUPTS_BEFORE_GIVING_UP: u32 = 3;
-const EXIT_TRANSPORT: i32 = 255;
+pub(super) const EXIT_TRANSPORT: i32 = 255;
 const EXIT_INTERRUPTED: i32 = 130;
 const EXIT_BROKEN_PIPE: i32 = 141;
 const DEFAULT_TERMINAL: (u16, u16) = (80, 24);
@@ -283,7 +286,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-async fn open_root(client: &WorkspaceClient) -> anyhow::Result<WorkspaceId> {
+pub(super) async fn open_root(client: &WorkspaceClient) -> anyhow::Result<WorkspaceId> {
     match client.request(WorkspaceRequest::OpenWorkspace { root: "/".into() }).await? {
         WorkspaceResponse::Workspace { id, .. } => Ok(id),
         _ => Err(unexpected("open-workspace")),
@@ -294,16 +297,56 @@ async fn remote_stat(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
     path: &str,
+    host: &str,
 ) -> anyhow::Result<FileStat> {
     let request = WorkspaceRequest::Stat {
         workspace: workspace.clone(),
         path: workspace_relative(path),
         follow_symlinks: true,
     };
-    match client.request(request).await? {
-        WorkspaceResponse::Stat { stat } => Ok(stat),
-        _ => Err(unexpected("stat")),
+    match client.request(request).await {
+        Ok(WorkspaceResponse::Stat { stat }) => Ok(stat),
+        Ok(_) => Err(unexpected("stat")),
+        Err(error) => Err(remote_path_error(error, host, path)),
     }
+}
+
+/// A daemon refusal about remote `path`, said as which side and which file:
+/// `not-found` becomes "remote file not found on HOST: PATH" instead of the
+/// daemon's own "resolve RELATIVE: os error 2".
+pub(super) fn remote_path_error(
+    error: cmux_remote_protocol::RpcError,
+    host: &str,
+    path: &str,
+) -> anyhow::Error {
+    if error.code == "not-found" {
+        return anyhow!(catalog().remote_client.cp_remote_not_found(host, path));
+    }
+    error.into()
+}
+
+/// The machine a route names, for messages: its host when it has one
+/// (`ssh://leo@box:22` is `box`), else the route without credentials.
+pub(super) fn route_host(route: &str) -> String {
+    match url::Url::parse(route) {
+        Ok(url) => match url.host_str() {
+            Some(host) if !host.is_empty() => host.to_owned(),
+            _ => credential_free_route_hint(route).unwrap_or_else(|_| url.scheme().to_owned()),
+        },
+        Err(_) => catalog().remote_client.cp_remote_machine.to_owned(),
+    }
+}
+
+/// The local source's metadata; a missing file says it is the local side.
+pub(super) fn local_source_metadata(local: &Path) -> anyhow::Result<std::fs::Metadata> {
+    let name = local.display().to_string();
+    std::fs::metadata(local).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            anyhow!(catalog().remote_client.cp_local_not_found(&name))
+        } else {
+            anyhow::Error::new(error).context(format!("could not read {name}"))
+        }
+    })
 }
 
 // ---------------------------------------------------------------- exec
@@ -323,7 +366,7 @@ fn exec(args: &[String]) -> anyhow::Result<i32> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
-        exec_on(client, parsed).await
+        exec_on(client, parsed, None).await
     });
     // The command's status is the answer; a slow or failed teardown after it
     // does not change what the command did.
@@ -357,7 +400,14 @@ impl Drop for RawMode {
     }
 }
 
-async fn exec_on(client: Arc<WorkspaceClient>, parsed: ExecArgs) -> anyhow::Result<i32> {
+/// Runs `parsed` on `client`'s machine with its output streamed here.
+/// `first_output` (`cmux spill --timings`) is set when the first byte of
+/// stdout or stderr arrives.
+pub(super) async fn exec_on(
+    client: Arc<WorkspaceClient>,
+    parsed: ExecArgs,
+    first_output: Option<&std::sync::OnceLock<Instant>>,
+) -> anyhow::Result<i32> {
     let workspace = open_root(&client).await?;
     let io = if parsed.tty {
         let (cols, rows) = local_terminal_size();
@@ -396,12 +446,12 @@ async fn exec_on(client: Arc<WorkspaceClient>, parsed: ExecArgs) -> anyhow::Resu
         std::future::pending::<anyhow::Result<i32>>().await
     };
     tokio::select! {
-        status = stream_process(&client, spawned, parsed.tty) => status,
+        status = stream_process(&client, spawned, parsed.tty, first_output) => status,
         status = input => status,
     }
 }
 
-enum StdinChunk {
+pub(super) enum StdinChunk {
     Data(Vec<u8>),
     End,
 }
@@ -431,21 +481,93 @@ fn spawn_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<StdinChunk
     Ok(receiver)
 }
 
-/// Sends local stdin to the process in order, one acknowledged write at a
-/// time, and EOF at local EOF. It runs beside the output loop so a command
-/// blocked on a full stdout can never stall its own input. A write the
-/// daemon refuses (the command closed stdin or exited) stops forwarding.
+/// How many stdin writes may be unacknowledged at once: 16 writes of
+/// PROCESS_WRITE_BYTES, 512 KiB in flight. One write per round trip moved
+/// 27 KiB per RTT (0.26 MiB/s at 100 ms; cmuxterm-hq#34078) while stdout
+/// streams. The daemon still applies writes one at a time in receive order on
+/// the process-input stream and blocks on a full pipe, so the window bounds
+/// buffering without reordering input.
+const STDIN_WRITES_IN_FLIGHT: usize = 16;
+
+/// A write's acknowledgement: true when the daemon accepted it.
+type StdinAck<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = bool> + 'a>>;
+
+/// Sends local stdin to the process in order, with up to
+/// STDIN_WRITES_IN_FLIGHT writes unacknowledged, and EOF at local EOF. It runs
+/// beside the output loop so a command blocked on a full stdout can never
+/// stall its own input. A write the daemon refuses (the command closed stdin
+/// or exited) stops forwarding.
 ///
 /// On a PTY, EOF is the daemon's one Control-D, which ends input only at the
 /// start of a line: after an unterminated line it just hands that line to
 /// the reader. So when the last byte sent was not a newline, an extra
 /// Control-D goes first to release the line (`printf foo | ... --tty -- cat`).
 async fn forward_stdin(client: &WorkspaceClient, process: ProcessId, tty: bool) {
-    let Ok(mut input) = spawn_stdin_reader() else { return };
+    let Ok(input) = spawn_stdin_reader() else { return };
+    forward_stdin_chunks(input, tty, STDIN_WRITES_IN_FLIGHT, |write_id, data, eof| {
+        let request = WorkspaceRequest::WriteProcess {
+            process,
+            write_id,
+            data: ByteString::from_bytes(&data),
+            eof,
+        };
+        Box::pin(async move {
+            let pending = client.begin_request(request).await.ok()?;
+            Some(Box::pin(async move { pending.receive().await.is_ok() }) as StdinAck<'_>)
+        })
+    })
+    .await;
+}
+
+/// The order and window of [`forward_stdin`]: `send` starts write `write_id`
+/// (None when it could not be sent) and returns its acknowledgement. Returns
+/// once EOF is acknowledged or a write fails.
+pub(super) async fn forward_stdin_chunks<'a, S>(
+    mut input: tokio::sync::mpsc::Receiver<StdinChunk>,
+    tty: bool,
+    window: usize,
+    mut send: S,
+) where
+    S: FnMut(
+        u64,
+        Vec<u8>,
+        bool,
+    )
+        -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<StdinAck<'a>>> + 'a>>,
+{
+    let window = window.max(1);
+    let mut in_flight: VecDeque<StdinAck<'a>> = VecDeque::new();
     let mut write_id = 0_u64;
     let mut last_sent = None;
     loop {
-        let (data, eof) = match input.recv().await {
+        let next = if in_flight.len() >= window {
+            None
+        } else {
+            tokio::select! {
+                biased;
+                accepted = async {
+                    match in_flight.front_mut() {
+                        Some(oldest) => oldest.await,
+                        None => std::future::pending().await,
+                    }
+                }, if !in_flight.is_empty() => {
+                    in_flight.pop_front();
+                    if !accepted {
+                        return;
+                    }
+                    continue;
+                }
+                chunk = input.recv() => Some(chunk),
+            }
+        };
+        let Some(chunk) = next else {
+            let Some(oldest) = in_flight.pop_front() else { continue };
+            if !oldest.await {
+                return;
+            }
+            continue;
+        };
+        let (data, eof) = match chunk {
             Some(StdinChunk::Data(data)) => (data, false),
             Some(StdinChunk::End) | None if tty && pty_line_open(last_sent) => {
                 (vec![CONTROL_D], false)
@@ -456,13 +578,14 @@ async fn forward_stdin(client: &WorkspaceClient, process: ProcessId, tty: bool) 
             last_sent = Some(*last);
         }
         write_id += 1;
-        let request = WorkspaceRequest::WriteProcess {
-            process,
-            write_id,
-            data: ByteString::from_bytes(&data),
-            eof,
-        };
-        if client.request(request).await.is_err() || eof {
+        let Some(ack) = send(write_id, data, eof).await else { return };
+        in_flight.push_back(ack);
+        if eof {
+            while let Some(ack) = in_flight.pop_front() {
+                if !ack.await {
+                    return;
+                }
+            }
             return;
         }
     }
@@ -485,6 +608,7 @@ async fn stream_process(
     client: &WorkspaceClient,
     spawned: SpawnedProcess,
     tty: bool,
+    first_output: Option<&std::sync::OnceLock<Instant>>,
 ) -> anyhow::Result<i32> {
     let process = spawned.process;
     let mut interrupt = signal(SignalKind::interrupt())?;
@@ -500,6 +624,11 @@ async fn stream_process(
                     Some(RpcEvent { event, .. }) => event,
                     None => return final_status(wait_exit(client, process).await?, lost),
                 };
+                if let (Some(first), ProcessEvent::Stdout { .. } | ProcessEvent::Stderr { .. }) =
+                    (first_output, &event)
+                {
+                    let _ = first.set(Instant::now());
+                }
                 let written = match &event {
                     ProcessEvent::Stdout { data, .. } => write_output(&mut stdout.lock(), data),
                     ProcessEvent::Stderr { data, .. } => write_output(&mut stderr.lock(), data),
@@ -572,7 +701,7 @@ async fn wait_exit(client: &WorkspaceClient, process: ProcessId) -> anyhow::Resu
 
 /// Runs a short helper command (stdin closed) to completion and returns its
 /// status and stderr. Stdout is dropped, or written to `stdout` when given.
-async fn run_remote(
+pub(super) async fn run_remote(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
     argv: Vec<String>,
@@ -635,19 +764,22 @@ fn check_step(step: &str, (status, stderr): (i32, String)) -> anyhow::Result<()>
 
 pub(super) fn run_cp(args: &[String]) -> anyhow::Result<()> {
     let parsed = parse_cp_args(args)?;
-    let flags = parse_connect_flags(&parsed.connect)?;
+    let mut flags = parse_connect_flags(&parsed.connect)?;
+    // A refusal that ends the connect is a JSON line too.
+    flags.json |= parsed.json;
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
         let workspace = open_root(&client).await?;
+        let host = route_host(&connected.route);
         let started = Instant::now();
         let bytes = match (&parsed.source, &parsed.destination) {
             (CopyEndpoint::Remote(remote), CopyEndpoint::Local(local)) => {
-                download(&client, &workspace, remote, local).await?
+                download(&client, &workspace, remote, local, &host).await?
             }
             (CopyEndpoint::Local(local), CopyEndpoint::Remote(remote)) => {
-                upload(&client, &workspace, local, remote).await?
+                upload(&client, &workspace, local, remote, &host).await?
             }
             _ => return Err(anyhow!(catalog().remote_client.cp_one_remote)),
         };
@@ -706,9 +838,10 @@ async fn download(
     workspace: &WorkspaceId,
     remote: &str,
     local: &Path,
+    host: &str,
 ) -> anyhow::Result<u64> {
     let messages = &catalog().remote_client;
-    let stat = remote_stat(client, workspace, remote).await?;
+    let stat = remote_stat(client, workspace, remote, host).await?;
     match stat.kind {
         FileKind::File => {}
         FileKind::Directory => return Err(anyhow!(messages.cp_directory(remote))),
@@ -803,11 +936,11 @@ async fn upload(
     workspace: &WorkspaceId,
     local: &Path,
     remote: &str,
+    host: &str,
 ) -> anyhow::Result<u64> {
     let messages = &catalog().remote_client;
     let local_name = local.display().to_string();
-    let metadata =
-        std::fs::metadata(local).with_context(|| format!("could not read {local_name}"))?;
+    let metadata = local_source_metadata(local)?;
     if metadata.is_dir() {
         return Err(anyhow!(messages.cp_directory(&local_name)));
     }
@@ -815,7 +948,7 @@ async fn upload(
         return Err(anyhow!(messages.cp_not_a_file(&local_name)));
     }
     let into_directory = remote.ends_with('/')
-        || remote_stat(client, workspace, remote)
+        || remote_stat(client, workspace, remote, host)
             .await
             .is_ok_and(|stat| stat.kind == FileKind::Directory);
     let remote = if into_directory {
@@ -938,3 +1071,7 @@ async fn upload_parts(
     }
     Ok(index)
 }
+
+#[cfg(test)]
+#[path = "exec_cp_stdin_tests.rs"]
+mod stdin_tests;

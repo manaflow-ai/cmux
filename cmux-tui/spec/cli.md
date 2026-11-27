@@ -96,9 +96,12 @@ dropped and the attempt asks; any line that is not an answer is `bad_request` (6
 
 `carrier key --public` prints this device's carrier Noise static public key on stdout as
 one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
-request, and exits 0. It is the key dial and serve use: on a Mac the login Keychain item
-`com.cmuxterm.app.next.carrier-noise-key` (account `device`), made the same way when
-missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
+request, and exits 0. It is the key dial and serve use: on a Mac, for a Team-signed build,
+the login Keychain item `com.cmuxterm.app.next.carrier-noise-key` (account `device`, read
+with prompts off, so a locked or foreign item fails at once); for a build with no Team ID
+(an ad-hoc DEV build), never the Keychain but the 0600 file
+`~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`, one per
+build and tag. Either is made the same way when missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
 nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
 `bad_request` (64).
 
@@ -313,7 +316,7 @@ cmux daemon start [START OPTIONS]
 cmux daemon status [--session <name>] [--socket <path>]
 cmux daemon stats [--session <name>] [--socket <path>] [--json]
 cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]
-  [--restore-wait-seconds <n>]
+  [--if-idle] [--restore-wait-seconds <n>]
 cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
@@ -328,27 +331,68 @@ Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 The owner binds its local socket before it restores its session (registry,
 terminal host adoption). While it restores, the socket accepts connections
-and holds them unanswered; when the restore ends, every held connection is
-served by the normal protocol handler. `identify` then reports
-`lifecycle_ready: false` until the owner finishes startup. `daemon stop` waits
+and answers an `identify` with `restore_progress: true` at once:
+`lifecycle_ready: false`, empty `registry_id` and `generation`, and
+`restore`: `phase` (`registry_open`, `schema`,
+`migrations`, `integrity`, `snapshot`, `agent_roster`, `mux_build`,
+`browsers`, `host_adoption`, `reconcile`, `finish`), `done` and `total` (null
+when the phase does not count; `agent_roster` counts journal rows),
+`elapsed_ms` and `last_advance_ms` (when the restore last moved, in ms since it
+began: a restore that hangs keeps it while `elapsed_ms` grows). A
+`server-stats` with `restore_progress: true` fails with `server.restoring`
+and the same `restore` in `error_details`. A connection's first other
+request (an `identify` without the flag included) is held unanswered; when the restore ends,
+every held connection is served by the normal protocol handler, from that
+request on. `identify` then reports `lifecycle_ready: false` until the owner
+finishes startup. `server ensure --restore-progress` adds the owner's
+`restore` to its progress lines when the owner reports one. `daemon stop` waits
 for a restoring owner, through both phases, and then stops it: up to
 `--restore-wait-seconds` (1 to 3600, default 120, the bound `server ensure`
 gives a restore). While it waits it prints a progress line on stderr after the
 first second and then every 5 s (with `--json`, one JSON object per line:
-`progress: "restoring"`, `session`, `phase` (`restoring`: the owner holds the
-connection unanswered; `starting`: it restored and reports
-`lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
+`progress: "restoring"`, `session`, `phase` (`restoring`: the owner restores
+its session (it reports its `restore`, or an older owner holds the connection
+unanswered); `starting`: it restored and reports `lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
 bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 `reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
 longer wait, also named in the message) and leaves the owner running. Other
 lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
-retried after the owner is ready. `server ensure` waits for a restoring
+retried after the owner is ready. `daemon stop --if-idle` stops the owner only
+while no other client is connected (the owner's own journal plugin aside) and
+no terminal is launching, adopting or running; otherwise it fails with
+`server.in_use` (exit 1; `details`: `clients`, each `client`, `name` and
+`kind`, and `terminals`, the live count), names them in the message and leaves
+the owner running. A client that connects meanwhile is refused, and no
+terminal may start between the check and the stop. An owner without
+`daemon-stop-if-idle-v1` (an older build) is left running: the stop fails with
+`server.if_idle_unsupported` (exit 4). `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another. An owner at its connection limit refuses each new connection with a
+another. Its `status` is `started` only for an owner this call
+spawned, that announced itself on its ready pipe (Unix) and that answers with
+the pid this call spawned (a DEV build that runs the owner under its launcher
+checks only the announcement). When that owner lost the bind to a racing
+ensure's owner, or a successor replaced it, the owner that answers is reported
+as `running` (this call started none). An owner at its connection limit refuses each new connection with a
 `type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
 capacity instead of starting another owner and fails with `server.busy` after
 10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
-owner that refuses every connection for that long.
+owner that refuses every connection for that long. This is the explicit **Restart
+cmux-tui** action, including when healthy clients hold every connection: it closes
+their live connections. Terminal hosts survive and the new owner adopts them;
+clients must reconnect. To keep those connections, release an unused client and
+retry normal ensure instead.
+
+The refusal is emitted before reading any request, so neither `identify` nor
+`server-stats` can check a full owner's health through a new connection. The
+accept loop can keep refusing while request workers are wedged; conversely,
+healthy idle clients need not make progress or release a permit. CPU or I/O
+activity also does not prove those workers can serve requests. There is no
+reliable bounded progress signal in this protocol that distinguishes both cases,
+so explicit Restart retains recovery of a wedged full owner. Automatic ensure
+keeps reporting `server.busy` without replacing it. The
+`replace_unresponsive_owner` integration tests cover both healthy and wedged
+saturation and normal ensure adopting the original owner once capacity is available.
+
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
 extra page origins, a comma-separated list: the app passes every first-party page origin
@@ -738,8 +782,20 @@ agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
-agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook emit --source <provider> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
 agent hook install|uninstall|status [provider...]
+
+agent ls [--all] [--json]
+agent send [--no-wait] SESSION MESSAGE
+agent history SESSION [-n COUNT]
+agent search QUERY... [-n COUNT]
+agent resolve NAME|ID|LINK
+agent register NAME [--code CODE]
+agent open SESSION_ID
+agent open-tab SESSION_ID [--target PANE_OR_TAB]
+agent bg start [--cwd DIR] [--description TEXT] COMMAND
+agent bg list [--all]
+agent notices [SESSION] [--thread THREAD [--mark-read]]
 
 client list
 client <selector> show|detach
@@ -747,7 +803,7 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
 workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
@@ -837,9 +893,14 @@ git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
+git review start [TARGET] <pull-request-url>
+git review comment [TARGET] --file <path> --line <n> [--start-line <n>] [--side new|old] --message <text>
 git comments list [--root <path>]
 git comments save [--root <path>] --comment <json-object>
 git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+git comments send [--root <path>] <comment-id>... --threads --acp-session <id> [--text <note>]
+git comments reply [--root <path>] <comment-id> --text <answer> [--author agent|reviewer]
+git comments resolve [--root <path>] <comment-id> [--reopen]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -1071,6 +1132,9 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+While a merge, rebase, cherry-pick or revert is stopped partway in the
+checkout, `git status` adds `in_progress` (`merge`, `rebase`, `cherry-pick` or
+`revert`), read from the checkout's own git directory with no extra run.
 `git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
 64 hex digits that stay equal while the scope's `git diff` stays equal, for a
 view that asks often if its diff is still current. It runs no patch: the
@@ -1103,7 +1167,9 @@ for a file explorer: each candidate `git files` would rank folds into its
 first path component, a `directory` when paths sit below it or it is a
 submodule, else a `file`. Directories come first, then names
 case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
-and sets `truncated` when more exist.
+and sets `truncated` when more exist. A folder in no repository lists too, from
+one read of the folder on disk: its children only, names
+that start with `.` left out, a symlink a `file`.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 
@@ -1228,6 +1294,31 @@ uncommitted changes are untouched. The result is the worktree's `root`,
 worktree the first attempt made. A failing post-checkout hook does not undo
 the worktree, so it is reported as made.
 
+`git review start <url>` (`git.review.start`, capability `git-review-v1`)
+checks a GitHub pull request out for review, only on this machine. `gh pr view`
+reads the pull request and `git fetch` brings its head and base branch from the
+remote of TARGET's repository that is `OWNER/REPO` on github.com, both in the
+user's environment. The worktree is `git worktree create`'s, named
+`review-<number>`, at the head, and the merge-base with the base branch is
+recorded as its `cmuxBase`, so the diff viewer's branch scope shows exactly the
+pull request's change. The result is the worktree's `root`, `branch`, `head`,
+`base` (the merge-base), the pull request's `url`, `repo`, `number` and
+`title`, and `diff`, the git command that prints its diff. A worktree an
+earlier review made on the same head is reused with its drafts (`reused`). It
+refuses with `no_remote`, `gh_unavailable`, `gh_failed`, `fetch_failed`,
+`pull_request_moved` or `git_failed`.
+
+`git review comment` (`git.review.comment`), run in such a worktree, saves one
+draft review comment on lines `--start-line` to `--line` of `--file`, on the
+pull request's version (`--side new`, default) or the base's (`--side old`).
+The diff viewer shows it with its other comments. The lines must lie in one
+hunk of the pull request's diff as GitHub shows it (three lines of context);
+otherwise it refuses with `not_in_diff`, whose `extra.new_lines` or
+`extra.old_lines` lists the lines that side shows. `not_a_review` names a
+worktree `review start` did not make. Nothing here posts: the person posts the
+drafts as one review from the diff viewer (`git.review.post`, which is not a
+`cmux` verb or an MCP tool).
+
 `git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
 run in a worktree whose branch `git worktree create` recorded a base for, brings
 its work back to the main checkout, in the user's environment and only on this
@@ -1301,6 +1392,15 @@ session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
 
+`git comments send --threads` (`diff.comments.send` with `threads`, capability
+`diff-comments-threads-v1`) hands the named comments to the acpmux session
+`--acp-session` as review threads: one prompt the session host writes from
+what each thread holds that the agent has not read (a new comment, reviewer
+replies, a resolve), `--text` an optional note at its top. Nothing is
+removed. The agent answers each thread with `git comments reply <id> --text`
+(author `agent` by default) and closes one with `git comments resolve <id>`
+(`--reopen` undoes it); both are `diff.comments.thread`.
+
 ## Waiting for one event
 
 `cmux events` (the app's event stream) and `cmux agents events` (the
@@ -1352,6 +1452,26 @@ takes `until` and `match` (an object of path to value) within its 60 s bound.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Agent sessions
+
+`cmux agent ls` lists named sessions on this host and its peers. Use a session
+name or `HOST/NAME` with `cmux agent history` to read its turns or with
+`cmux agent send` to message it. `cmux agent resolve` accepts a name, an ID or
+a session link.
+
+`cmux agent search "failing test"` finds prompts and replies in the session
+history on this host and its peers. Results include the session, host, UTC turn
+time ending in `Z`, and a one-line preview. Open a result by passing its session
+ID to `cmux agent open` or `cmux agent open-tab`. Include `--host HOST` for
+a session on a peer.
+
+From inside a session, `cmux agent bg start 'make test'` starts a background
+shell command owned by that session. `cmux agent bg list` shows its tasks.
+`cmux agent notices` shows the session's inbox threads. Pass a thread ID
+with `--thread` to read its messages.
+
+The engine, acpmux, also accepts its existing standalone commands.
 
 ## Agent list
 

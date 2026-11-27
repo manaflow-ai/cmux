@@ -56,6 +56,14 @@ public final class ConversationStore {
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
     public private(set) var connection: ConversationConnectionState = .connecting
+    /// The connection has been down for ``connectionQuietDelay`` or more: a header may say so.
+    /// Under it nothing is said, so a blip or the reconnect after the app comes back stays
+    /// silent over the kept rows (Leo, 2026-11-16: "it said "Not connected" at the top but i
+    /// dont think it shoildve said anything").
+    public private(set) var connectionNoticeDue = false
+    /// How long a drop stays unsaid; the iPhone's one connection quiet bound (`QuietStatusGate.threshold`).
+    public var connectionQuietDelay: Duration = .seconds(10)
+    private var connectionNoticeTask: Task<Void, Never>?
     /// Everything from others at or below this seq has been read.
     public private(set) var lastReadSeq = 0
     /// Messages from others after `lastReadSeq` (including ones above the loaded window).
@@ -369,7 +377,29 @@ public final class ConversationStore {
         newestTask?.cancel()
         localTypingTask?.cancel()
         typingExpiry.values.forEach { $0.cancel() }
+        connectionNoticeTask?.cancel()
         backend.close()
+    }
+
+    /// Starts the quiet wait of a drop; a second drop before it ends keeps the first instant.
+    private func armConnectionNotice() {
+        guard connectionNoticeTask == nil, !connectionNoticeDue else { return }
+        let delay = connectionQuietDelay
+        let clock = clock
+        // An intentional, bounded UI delay on the injected clock; `.connected` cancels it.
+        connectionNoticeTask = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, let self, self.connection != .connected else { return }
+            self.connectionNoticeTask = nil
+            self.connectionNoticeDue = true
+            self.notify(.connection)
+        }
+    }
+
+    private func endConnectionNotice() {
+        connectionNoticeTask?.cancel()
+        connectionNoticeTask = nil
+        connectionNoticeDue = false
     }
 
     public var me: ConversationParticipant? { meID.flatMap { info?.participant($0) } }
@@ -398,6 +428,7 @@ public final class ConversationStore {
             if self.info?.background != previousBackground { notify(.background) }
             self.meID = meID
             connection = .connected
+            endConnectionNotice()
             // Unconfirmed reads from the dropped session may never have
             // arrived; the read state that follows hello is authoritative.
             pendingReadSeq = 0
@@ -424,6 +455,7 @@ public final class ConversationStore {
             removeScheduledRow(id: id, clientMessageID: clientMessageID)
         case .disconnected:
             connection = .reconnecting
+            armConnectionNotice()
             notify(.connection)
         case let .readState(state):
             serverRead = state
@@ -1220,6 +1252,7 @@ public final class ConversationStore {
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
         messages[index].delivery = .sending
+        messages[index].uploadProgress = nil
         // Try Again is a send made now: the row leaves its failed place for
         // the bottom, with the other sends in flight.
         messages[index].sentAt = Date()
@@ -1282,16 +1315,28 @@ public final class ConversationStore {
             guard let self else { return }
             do {
                 var attachmentIDs: [String] = []
+                // The row's "Uploading N%" counts every attachment's bytes, in send order.
+                let total = (audio?.data.count ?? 0) + images.reduce(0) { $0 + $1.data.count } + files.reduce(0) { $0 + $1.data.count }
+                var done = 0
                 if let audio {
-                    let uploaded = try await self.backend.uploadAudio(audio.data, mimeType: audio.mimeType, info: audio.info)
+                    let uploaded = try await self.uploading(clientID, from: done, bytes: audio.data.count, of: total) {
+                        try await self.backend.uploadAudio(audio.data, mimeType: audio.mimeType, info: audio.info)
+                    }
+                    done += audio.data.count
                     attachmentIDs.append(uploaded.id)
                 }
                 for image in images {
-                    let uploaded = try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
+                    let uploaded = try await self.uploading(clientID, from: done, bytes: image.data.count, of: total) {
+                        try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
+                    }
+                    done += image.data.count
                     attachmentIDs.append(uploaded.id)
                 }
                 for file in files {
-                    let uploaded = try await self.backend.uploadFile(file.data, info: file.info)
+                    let uploaded = try await self.uploading(clientID, from: done, bytes: file.data.count, of: total) {
+                        try await self.backend.uploadFile(file.data, info: file.info)
+                    }
+                    done += file.data.count
                     attachmentIDs.append(uploaded.id)
                 }
                 guard let current = self.message(id: "local:\(clientID)") ?? self.messages.first(where: { $0.clientMessageID == clientID }) else { return }
@@ -1320,10 +1365,35 @@ public final class ConversationStore {
         }
     }
 
+    /// Runs one attachment's upload with ``ConversationUploadProgress`` bound to the sending row:
+    /// the attachment's `bytes` start at `from` of the send's `total`.
+    private func uploading(_ clientID: String, from start: Int, bytes: Int, of total: Int,
+                           _ upload: () async throws -> ConversationAttachment) async throws -> ConversationAttachment {
+        let report: @Sendable (Double) -> Void = { [weak self] fraction in
+            let overall = total > 0 ? (Double(start) + fraction * Double(bytes)) / Double(total) : fraction
+            Task { @MainActor in self?.setUploadProgress(clientID: clientID, overall) }
+        }
+        return try await ConversationUploadProgress.$report.withValue(report) { try await upload() }
+    }
+
+    /// A sending row's upload progress, redrawn per whole percent; it only moves forward
+    /// (reports hop to the main actor in any order) and stops once the row is sent or failed.
+    func setUploadProgress(clientID: String, _ fraction: Double) {
+        guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID && $0.seq == nil }),
+              messages[index].delivery == .sending else { return }
+        let percent = (min(1, max(0, fraction)) * 100).rounded(.down) / 100
+        guard percent > (messages[index].uploadProgress ?? -1) else { return }
+        changingMessages(from: index) { messages[index].uploadProgress = percent }
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+    }
+
     private func markFailed(clientID: String, reason: String) {
         guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID }),
               messages[index].seq == nil else { return }
-        changingMessages(from: index) { messages[index].delivery = .failed(reason) }
+        changingMessages(from: index) {
+            messages[index].delivery = .failed(reason)
+            messages[index].uploadProgress = nil
+        }
         failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
     }

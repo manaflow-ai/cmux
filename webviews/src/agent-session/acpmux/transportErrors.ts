@@ -7,6 +7,9 @@ import { translate, type StringKey } from "./i18n";
 const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.gesture_required": "transport.gestureRequired",
   "transport.path_outside_roots": "transport.pathOutsideRoots",
+  // A folder or file that is not there: never the generic "The app refused this request."
+  // (a Codex start after a reboot named a wiped folder and read as a dead end).
+  "transport.path_invalid": "transport.pathInvalid",
   "transport.person_required": "transport.personRequired",
   "transport.session_not_in_pane": "transport.sessionNotInPane",
   "transport.intent_invalid": "transport.intentInvalid",
@@ -28,6 +31,19 @@ function refusalCode(error: unknown): unknown {
   const { code, reason } = error as { code?: unknown; reason?: unknown };
   if (typeof code === "string" && code.startsWith("transport.")) return code;
   return (typeof reason === "string" ? DAEMON_REASON_CODE[reason] : undefined) ?? code;
+}
+
+/// The folder a `transport.path_invalid` names as gone (reason `path.missing`, AcpmuxPathPolicy):
+/// the relay's refusal carries it as `detail`, a native reply (`workspace.useFolder`) in `details.path`.
+export function missingFolder(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const typed = error as { code?: unknown; reason?: unknown; detail?: unknown; details?: unknown };
+  if (typed.code !== "transport.path_invalid") return undefined;
+  if (typed.reason === "path.missing" && typeof typed.detail === "string" && typed.detail) return typed.detail;
+  const details = typed.details as { reason?: unknown; path?: unknown } | undefined;
+  return details?.reason === "path.missing" && typeof details.path === "string" && details.path
+    ? details.path
+    : undefined;
 }
 
 /// Whether the pane's host or acpmux refused the request with a reason the user should see.
@@ -52,6 +68,30 @@ const DAEMON_REASON_TEXT: Record<string, StringKey> = {
   "remote.cwd_outside_roots": "error.cwdOutsideRoots",
 };
 
+// What a malformed-request refusal blocked, by the method the host names (`data.method`): the
+// line says that much ("cmux blocked opening this chat"), not just "Something went wrong" (#42460:
+// every chat typed on New Tab failed with the generic line, and nothing said the chat's open was
+// what the app refused). Any other method keeps the generic text.
+const INTENT_INVALID_TEXT: Record<string, StringKey> = {
+  // Only the chat's own open: `_acpmux/watch` (the session list) and `_acpmux/events` (an older
+  // page) are no chat the person opened, and keep the generic line.
+  "_acpmux/attach": "transport.intentInvalidOpen",
+  "session/new": "transport.intentInvalidStart",
+  "session/load": "transport.intentInvalidStart",
+  "session/resume": "transport.intentInvalidStart",
+  "session/prompt": "transport.intentInvalidSend",
+  "session/set_mode": "transport.intentInvalidSetting",
+  "session/set_config_option": "transport.intentInvalidSetting",
+  "session/set_model": "transport.intentInvalidSetting",
+};
+
+function intentInvalidKey(error: unknown, fallback: StringKey): StringKey {
+  const method = typeof error === "object" && error !== null ? (error as { method?: unknown }).method : undefined;
+  return typeof method === "string" && Object.hasOwn(INTENT_INVALID_TEXT, method)
+    ? INTENT_INVALID_TEXT[method]!
+    : fallback;
+}
+
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
 /// generic refusal, never the host's English message), acpmux's worded reasons, else the error's
 /// message.
@@ -62,7 +102,10 @@ export function errorMessage(error: unknown): string {
 /// The pane's own words for a refusal it knows (a transport code, an acpmux reason it words), else
 /// undefined: the text a notice may say after "Couldn't …". Any other failure's message is the
 /// daemon's, the bridge's or the browser's ("Failed to fetch"), for the log or Details, never the line.
-export function knownRefusalText(error: unknown): string | undefined {
+export function knownRefusalText(
+  error: unknown,
+  intentInvalid: StringKey = "transport.intentInvalid",
+): string | undefined {
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
   if (reasonKey) return translate(reasonKey);
@@ -73,10 +116,25 @@ export function knownRefusalText(error: unknown): string | undefined {
       : undefined;
   if (key) {
     // A malformed request is the pane's bug, not the user's: log it, show the generic text.
-    if (code === "transport.intent_invalid") console.error("agent pane: the host refused a request", error);
+    if (code === "transport.intent_invalid") {
+      console.error("agent pane: the host refused a request", error);
+      return translate(intentInvalidKey(error, intentInvalid));
+    }
+    const missing = missingFolder(error);
+    if (missing) return translate("transport.pathMissing", { path: missing });
     return translate(key);
   }
   return undefined;
+}
+
+/// The text for a failed chat start (harnessSwitch.ts): as `errorMessage`, but a malformed-request
+/// refusal of a method the line does not name (a gesture ticket, a request with no `method`) still
+/// says the start was blocked, never "Something went wrong, so that didn't go through." (#44964).
+export function startErrorMessage(error: unknown): string {
+  return (
+    knownRefusalText(error, "transport.intentInvalidStart") ??
+    (error instanceof Error ? error.message : typeof error === "string" ? error : "")
+  );
 }
 
 /// "Couldn't switch to {mode}." (or model) for a pick the agent or acpmux refused, with the pane's

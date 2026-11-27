@@ -105,6 +105,9 @@ package final class AgentRenderWindows {
         }
     }
 
+    /// The parked render window of `tabID`, for tests.
+    package func panel(for tabID: String) -> AgentRenderPanel? { parked[tabID] }
+
     /// The frame of a render window of `size`: left of and below every
     /// screen, with a margin, so a screen added later at the old edge does
     /// not overlap it at once.
@@ -154,6 +157,27 @@ package final class AgentRenderPanel: NSPanel {
         contentView = content
     }
 
+    /// The parked page's input window sits with this panel, off every screen: out of Mission Control (cmux#48535).
+    package override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        ChromiumPageWindowMissionControl.keepOut(childWin)
+        super.addChildWindow(childWin, ordered: place)
+    }
+
+    /// Off every screen, always. A render window on a screen showed its page over the person's
+    /// windows, the other apps' too: the panel draws nothing, but the Chromium page window it
+    /// carries draws the page (cmux#56429: a chat's question card, "Answered in chat", over Slack).
+    /// AppKit's constraint pulls a window that lies on no screen back onto one when it orders it,
+    /// and a display change (an external display waking, a lid opening) moves it with a new frame:
+    /// the constraint keeps the frame, and every frame set keeps its size and goes off the screens
+    /// there are now.
+    package override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+
+    package override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(AgentRenderWindows.frame(for: frameRect.size, screens: NSScreen.screens.map(\.frame)), display: flag)
+    }
+
+    package override func setFrameOrigin(_ point: NSPoint) { setFrame(NSRect(origin: point, size: frame.size), display: false) }
+
     // WebKit reads these from framework callbacks; the panel stays main-thread owned.
     package nonisolated override var canBecomeKey: Bool { false }
     package nonisolated override var canBecomeMain: Bool { false }
@@ -172,6 +196,7 @@ package final class AgentRenderPanel: NSPanel {
         // Parked hidden in a pane until now: it shows here (a Chromium tab
         // presents on unhide).
         chrome.isHidden = false
+        // focus-route: an agent render window, never a person's window; BrowserHost sits below the route
         if let webView { makeFirstResponder(webView) }
         content.layoutSubtreeIfNeeded()
     }

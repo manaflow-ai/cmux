@@ -82,7 +82,6 @@ NOT_MERGE_GATES = {
     ("nightly.yml", "prepare-nightly-variant"): "nightly, not a merge gate",
     ("nightly.yml", "publish-nightly"): "nightly, not a merge gate",
     ("nightly.yml", "report-nightly-failure"): "nightly report, not a merge gate",
-    ("sdk-release-cut.yml", "summarize"): "release cut, not a merge gate",
     ("stable-next.yml", "report"): "stable release report, not a merge gate",
 }
 
@@ -98,6 +97,9 @@ MARKER_STEPS = {
 JOB_IF_READS = {
     ("cmux-next.yml", "crash-ends-app"): "a skipped compile is a route that asked for no app build; the compile's own "
                                          "check says so",
+    ("backend-migrations.yml", "gate"): "skipped only when the plan succeeded with no migration change, the one result "
+                                        "that is a pass; a failed or cancelled plan still runs it and fails (main's "
+                                        "copy since #48999)",
 }
 
 
@@ -249,7 +251,7 @@ def rule_jobs():
 
 
 WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
-    "db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")}}
+    "db", "diff_sidecar", "instant", "production_build", "react_apps", "agent_pane", "typecheck", "unit_tests")}}
 # For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
 MIXED = {
     ("ios-reliability-matrix.yml", "report", "Matrix table"): {"PROTOCOL_RESULT": "abandoned", "IOS_RESULT": "failure"},
@@ -259,7 +261,7 @@ MIXED = {
         "BACKEND_RESULT": "failure", "MAC_IOS_RESULT": "skipped"},
     ("test-ios.yml", "ios-tests", "Check iOS test routing"): {"IOS_NEEDS": json.dumps({
         "detect-ios-changes": {"result": "abandoned"}, "runner": {"result": "failure"},
-        "package-conventions-lint": {"result": "skipped"}, "mobile-core-package": {"result": "skipped"},
+        "package-conventions-lint": {"result": "skipped"}, "mobile-core-linux": {"result": "skipped"},
         "ios-simulator-build": {"result": "skipped"}})},
     ("ci-guards.yml", "guard-status", "Check routed guard jobs"): {
         "GUARD_INPUTS": json.dumps({"submodule_forward_only": "true", "linux_guard_tests": "true",
@@ -271,15 +273,16 @@ MIXED = {
                                        "workflow-guard-history", "workflow-guard-cli-scripts",
                                        "workflow-guard-source-lints")}})},
     ("ci-web.yml", "react-apps-check", "Check webview test shards"): {
-        "WEB_INPUTS": json.dumps({"web": "true"}),
+        "WEB_INPUTS": json.dumps({"web": "true"}), "GITHUB_EVENT_NAME": "pull_request",
         "WEB_NEEDS": json.dumps({"web-subarea-scope": WEB_SCOPE, "react-apps-check-shard": {"result": "abandoned"},
-                                 "react-doctor": {"result": "failure"}, "react-apps-base-check": {"result": "skipped"}})},
+                                 "react-apps-base-check": {"result": "failure"}})},
     ("ci-web.yml", "web-status", "Check routed web jobs"): {
         "WEB_INPUTS": json.dumps({"web": "true", "macos": "false", "agent_session_web": "false"}),
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
                                  **{job: {"result": "skipped"} for job in (
-                                     "web-typecheck", "web-production-build", "web-instant-navigation",
-                                     "react-apps-check", "diff-sidecar-check", "web-db-migrations")}})},
+                                     "web-typecheck", "webviews-typecheck", "web-production-build", "web-instant-navigation",
+                                     "react-apps-check", "agent-pane-real-acpmux", "diff-sidecar-check",
+                                     "web-db-migrations")}})},
 }
 # Rule jobs that judge one result, so no two can disagree.
 SINGLE_RESULT = {

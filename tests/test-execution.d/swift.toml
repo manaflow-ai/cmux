@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "tests/test_swift_cloud_http.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
 lane = "linux-guard"
 
@@ -10,7 +14,19 @@ path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_linux_reach.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_targets.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_package_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_test_coverage.py"
 lane = "linux-guard"
 
 [[test]]
