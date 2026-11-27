@@ -156,6 +156,9 @@ final class CEFRuntime {
     /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
     /// browser closes or quit begins (the caller then gets `closed`).
     var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
+    /// The DevTools sends whose shim call held the main thread past ``CEFRuntime/slowDevToolsSend`` (newest last, at
+    /// most ``CEFRuntime/slowDevToolsSendLimit``).
+    var slowDevToolsSends: [CEFDevToolsSlowSend] = []
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()
