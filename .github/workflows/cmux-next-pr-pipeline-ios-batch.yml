@@ -129,6 +129,9 @@ jobs:
   # kit-sim-pool).
   ios:
     name: ios
+    # The batch is this commit's only run of the `alone` steps (nothing re-runs it): they run on a red job too.
+    env:
+      CI_RUN_ALONE_ON_RED: "1"
     needs: [ios-runner]
     if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
@@ -257,7 +260,7 @@ jobs:
   ios-macos:
     name: ios macos
     if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     # pr-pipeline.yml's bound for the same job.
     timeout-minutes: 70
     permissions:

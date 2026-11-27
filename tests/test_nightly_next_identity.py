@@ -58,9 +58,7 @@ def test_it_signs_with_the_nightly_profile_and_keychain_group():
         keys = plistlib.load(handle)
     assert keys["com.apple.application-identifier"] == "7WLXT3NR37.com.cmuxterm.app.nightly"
     assert keys["keychain-access-groups"] == [
-        "7WLXT3NR37.com.cmuxterm.app.nightly",
-        "7WLXT3NR37.com.cmuxterm.app.shared",
-    ]
+        "7WLXT3NR37.com.cmuxterm.app.nightly", "7WLXT3NR37.com.cmuxterm.app.shared"]  # one shared group (#46910)
     assert keys["com.apple.developer.web-browser.public-key-credential"] is True
     assert ("core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : "
             "track === 'nightly-next' ? 'NIGHTLY' :") in WORKFLOW
