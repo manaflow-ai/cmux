@@ -62,6 +62,14 @@ class LaunchTTIUITests: XCTestCase {
             guard !values.isEmpty else { continue }
             print(#"LAUNCHTTI_SUMMARY {"flow":"\#(flow.rawValue)","phase":"\#(phase)","metric":"\#(key)","n":\#(values.count),"p50":\#(Self.round(values[values.count / 2])),"min":\#(Self.round(values[0])),"max":\#(Self.round(values[values.count - 1]))}"#)
         }
+        // Measure only (not for merge): surface every mark's p50 in the failure text, which the
+        // CI summary keeps (its artifact download is unreliable).
+        let keys = Set(results.flatMap { $0.keys }).sorted()
+        let p50s = keys.map { key -> String in
+            let v = results.compactMap { $0[key] }.sorted()
+            return "\(key)=\(Self.round(v[v.count / 2]))"
+        }
+        XCTFail("MARKS \(flow.rawValue) \(phase) n=\(results.count) " + p50s.joined(separator: " "))
     }
 
     /// One flow on a launched app: the marks, printed and returned with the spans.
