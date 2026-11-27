@@ -10,8 +10,8 @@ import {
   guestMessageRecords,
   joinFrames,
   memoryStorage,
-  queuedRecords,
   workingRecords,
+  queuedRecords,
 } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
 
@@ -103,8 +103,9 @@ export default componentEntry<GuestPageProps>({
         ...live(joinFrames(workingRecords())),
         role: "view",
         loadTranscript: () => Promise.reject(new Error("offline")),
+        reloadPage: () => undefined,
       },
-      note: "The transcript's chunk could not load (a dropped connection): the page says so with Retry, and keeps trying.",
+      note: "The transcript's chunk could not load (a dropped connection): the page keeps trying on its own (and reloads once, since a browser may keep the failed fetch), with no Retry; past 25 s one quiet line, Still loading the chat… (Leo, 2026-11-22).",
     },
     "view-only": {
       props: { ...live(joinFrames(workingRecords())), role: "view" },

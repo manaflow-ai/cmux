@@ -6,7 +6,7 @@ import table from "./generated/strings.json";
 import { ChiefWorkPanel, type ChiefWorkPanelProps } from "./ChiefWorkPanel";
 import type { HomeChiefWork } from "./chiefWorkTypes";
 
-type Props = Pick<ChiefWorkPanelProps, "snapshot" | "loading" | "error">;
+type Props = Pick<ChiefWorkPanelProps, "snapshot" | "loading" | "stillTrying">;
 function WorkGallery(props: Props) {
   const [strings] = useState(() => createStrings(table));
   return (
@@ -129,7 +129,8 @@ export default componentEntry<Props>({
     },
     empty: { props: { snapshot: { agents: [], tasks: [], truncated: false }, loading: false } },
     loading: { props: { loading: true } },
-    error: { props: { loading: false, error: "chief.work_unavailable" } },
+    // A read that kept failing past the deadline: one quiet line, no button (it is asked again on its own).
+    "still-loading": { props: { loading: false, stillTrying: true } },
     refreshing: { props: { snapshot: active, loading: true } },
     partial: { props: { snapshot: { ...active, truncated: true }, loading: false } },
     failed: {
