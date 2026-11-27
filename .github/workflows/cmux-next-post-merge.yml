@@ -63,6 +63,14 @@ on:
         description: "probe: flake-aware confirm run (red-N at the culprit, green-N at its parent) before a revert."
         type: string
         default: ""
+      step:
+        description: "probe: the origin red's failing step names (|-joined); a probe failing on other steps is a different red."
+        type: string
+        default: ""
+      reuse:
+        description: "probe: an earlier run of this same probe whose verdict this run reads instead of running the suite again (empty: the plan looks for one)."
+        type: string
+        default: ""
   push:
     branches:
       - lane/post-merge-drill-*
@@ -87,6 +95,9 @@ jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: read
       contents: read
@@ -95,6 +106,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      reuse: ${{ steps.plan.outputs.reuse }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
@@ -159,13 +171,18 @@ jobs:
           GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           SUITE: ${{ inputs.suite }}
+          JOB: ${{ inputs.job }}
           ONLY: ${{ inputs.only }}
           PROBE_SHA: ${{ inputs.sha }}
           GOOD: ${{ inputs.good }}
+          PIECES: ${{ inputs.pieces }}
+          CONFIRM: ${{ inputs.confirm }}
+          REUSE: ${{ inputs.reuse }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
-            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD"
+            --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD" --pieces "$PIECES" --confirm "$CONFIRM" \
+            --reuse "$REUSE"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -250,7 +267,8 @@ jobs:
       contents: read
       issues: write
 
-  # The fast tier's full run (note-559): a pull request runs only the entries its change reaches.
+  # The fast tier's full run of its cargo and script entries (note-559): a pull request runs only the entries its
+  # change reaches. Its Swift entries run in pr-pipeline-mac (ci/steps.toml mac-fast-tier).
   fast-tier:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' fast-tier ')
@@ -281,6 +299,35 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
+  # pr-pipeline.yml's mac job (the fast tier's Swift suites, every one once routed) and ios job (the kit and the
+  # reliability matrix's phone cells), which pull requests no longer route: each runs the steps the window's changed
+  # paths reach (base..sha), on pr-pipeline.yml's machines. They replace the push runs of cmux-next-ios-kit.yml and
+  # ios-reliability-matrix.yml and the fast-tier suite's Swift leg.
+  pr-pipeline-mac:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-mac ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-mac-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+      id-token: write
+
+  pr-pipeline-ios:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-ios ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-ios-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
     permissions:
       contents: read
       id-token: write
@@ -347,12 +394,15 @@ jobs:
       statuses: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
+    # finds no key and the reads fall back to GITHUB_TOKEN.
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
     permissions:
       actions: write
       contents: read
@@ -437,10 +487,14 @@ jobs:
           TRIES: ${{ inputs.tries }}
           PIECES: ${{ inputs.pieces }}
           CONFIRM: ${{ inputs.confirm }}
+          STEP: ${{ inputs.step }}
+          # The plan's pick (an earlier run of this probe with a verdict), else the dispatch's own.
+          REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
-            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM"
+            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM" \
+            --step "$STEP" --reuse "$REUSE"
       # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
       # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
       # judge only, and never fails it: a red here would make this batch read as untested.
