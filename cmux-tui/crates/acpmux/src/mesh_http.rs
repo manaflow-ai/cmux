@@ -402,6 +402,30 @@ fn hub_code(code: &str) -> bool {
         && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
 }
 
+/// Only this part of a ticket callback's error may reach the journal. Other ticket sources
+/// can return arbitrary strings, including credentials. Keep HTTP status and a code of the hub's shape (`hub_code`).
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn ticket_failure_reason(reason: &str) -> &str {
+    match reason {
+        "the hub: error sending request"
+        | "the hub: operation timed out"
+        | "the hub: error decoding response body"
+        | "machine credential is unavailable"
+        | "revoked: run machine add again"
+        | "the hub's answer is too large"
+        | "the hub's answer is not the shape its contract gives" => return reason,
+        _ => {}
+    }
+    const PREFIX: &str = "the hub answered ";
+    if let Some(rest) = reason.strip_prefix(PREFIX) {
+        let (status, code) = rest.split_once(' ').unwrap_or((rest, ""));
+        if matches!(status.as_bytes(), [b'1'..=b'5', b'0'..=b'9', b'0'..=b'9']) {
+            return if hub_code(code) { reason } else { &reason[..PREFIX.len() + status.len()] };
+        }
+    }
+    "ticket source failed"
+}
+
 /// The hub's answer as a value, or the error it names.
 fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
     let body: Value = serde_json::from_slice(bytes).unwrap_or(Value::Null);
