@@ -65,7 +65,7 @@ runs:
           # A gateway Mac carries its own installed client; use it when the fetched one cannot start there.
           installed="$HOME/.local/bin/cmux-ci"
           if [[ -x "$installed" ]] && "$installed" --help >/dev/null 2>&1; then
-            echo "::warning title=fleet client::fetched client could not start; using this runner's installed client"
+            echo "fleet client: the fetched client could not start; using this runner's installed client ($installed)"
             printf '%s=%s\n' "$env_name" "$installed" >> "$GITHUB_ENV"
           else
             echo "::error title=fleet client::installed client could not start: $client"
