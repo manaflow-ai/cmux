@@ -104,16 +104,12 @@ cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_engine
 cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_tools_list
 cmux-tui/crates/cmux-cookie-sync/include/cmux_cookie_sync.h	cmux_cookie_sync_abi_version
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_conn_abi_version
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_conn_bytes_free
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_conn_call
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_latency_bucket_count
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_latency_free
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_latency_new
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_latency_record
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_latency_snapshot
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_call
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_free
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_new
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_busy_cap_ns
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed_at
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed_while_missing
