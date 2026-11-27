@@ -153,6 +153,9 @@ final class TypingMainStallTests: XCTestCase {
 
         XCTAssertEqual(echo.keys, typed, "every key reached the session")
         XCTAssertGreaterThan(warm.outputCounts.batches - warmBatchesBefore, 0, "the warm tab fed no batch")
+        // The Linux pool's run.log and junit keep a skip's message but drop stdout and attachments, so the row
+        // rides out as one. A failed assertion above still fails the test.
+        throw XCTSkip(report)
     }
 
     // MARK: Harness
