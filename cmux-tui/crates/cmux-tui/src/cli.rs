@@ -63,6 +63,8 @@ mod caller_browser;
 mod caller_scope;
 mod capability_cache;
 #[cfg(unix)]
+mod device_login;
+#[cfg(unix)]
 mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -667,6 +669,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
     "board",
+    "care",
     "harness",
     "remote",
     "script",
@@ -774,7 +777,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// acpmux's (`--json` is a global clap option there).
 /// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
 /// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "send", "inbox"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "care", "send", "inbox"];
 
 /// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
 /// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
@@ -1039,6 +1042,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `login` with no cmux app to answer (or `--device`): sign in by link, print a CMUX_TOKEN.
+    #[cfg(unix)]
+    if let Some(code) = device_login::run_if_requested(args) {
+        return code;
+    }
     // `login` and `logout` are `vm sign-in` and `vm sign-out`, which the Cloud alias below runs.
     #[cfg(unix)]
     let account_args;
