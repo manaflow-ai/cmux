@@ -42,7 +42,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("an offline chat uses a neutral status spinner", async () => {
+test("an offline chat says Offline as a status, with no spinner", async () => {
   const container = installDom();
   root = createRoot(container);
   await act(async () => {
@@ -61,11 +61,12 @@ test("an offline chat uses a neutral status spinner", async () => {
   });
   expect(container.querySelector('[role="status"]')).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
-  expect(container.querySelector(".cv-spinner")).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  expect(container.textContent).toContain("Offline");
+  expect(container.textContent).not.toContain("Reconnecting…");
 });
 
-test("an offline chat shows nothing until the drop has lasted past the threshold, then Reconnecting…", async () => {
+test("an offline chat shows nothing until the drop has lasted past the threshold, then Offline", async () => {
   jest.useFakeTimers();
   const container = installDom();
   root = createRoot(container);
@@ -86,10 +87,10 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
   expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).toContain("Offline");
 });
 
-test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Reconnecting… once", async () => {
+test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Offline once", async () => {
   // Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". Before, the state
   // showed 1.5 s into any drop, which a redial after a dead ssh link (6 s to notice, then a login)
   // always outlasts.
@@ -111,7 +112,7 @@ test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, t
   expect(container.textContent).toBe("");
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).toContain("Offline");
 });
 
 test("a chat still connecting shows nothing: no spinner, no text, no buttons", async () => {
@@ -214,56 +215,84 @@ test("a resume keeps its spinner's slot from the first frame and fills it only p
   expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
 });
 
-test("the loading layout tells the pane in the commit that draws it, and stops telling it when it goes", async () => {
+test("an offline chat reads the machines and the chat list again on its own, with no Reconnect button", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
   jest.useFakeTimers();
   const container = installDom();
   root = createRoot(container);
-  const seen: boolean[] = [];
-  const onLoadingLayout = (loading: boolean) => void seen.push(loading);
-  const render = (reason: "offline" | "deleted") =>
+  let asks = 0;
+  await act(async () => {
     root!.render(
       <ChatUnavailableState
-        unavailable={{ reason, machine: "remote" }}
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => asks++}
+        noteDelayMs={0}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-action="reconnect"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1_000));
+  expect(asks).toBe(1);
+  await act(async () => void jest.advanceTimersByTime(2_000));
+  expect(asks).toBe(2);
+});
+
+test("a resume past the slow bound says it is taking longer and enables Resume machine again", async () => {
+  const container = installDom();
+  let clicks = 0;
+  const render = (resumeLong: boolean) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <ChatUnavailableState
+          unavailable={{ reason: "paused", machine: "remote" }}
+          machine="remote"
+          onRemove={() => undefined}
+          onReconnect={() => undefined}
+          onResumeMachine={() => void clicks++}
+          onResume={() => undefined}
+          resuming
+          resumeLong={resumeLong}
+          noteDelayMs={0}
+        />,
+      );
+    });
+  await render(false);
+  const button = () => container.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]')!;
+  expect(button().disabled).toBe(true);
+  expect(container.textContent).not.toContain("taking longer than usual");
+  await render(true);
+  expect(button().disabled).toBe(false);
+  expect(container.textContent).toContain("This is taking longer than usual.");
+  expect(container.querySelector('[data-action="resume"]')).not.toBeNull();
+  // Still resuming: the spinner stays.
+  expect(container.querySelector(".acpmux-unavailable-progress .cv-spinner")).not.toBeNull();
+  await act(async () => button().click());
+  expect(clicks).toBe(1);
+});
+
+test("the loading area marks its pane with data-connecting while up, not through a :has() over the pane", async () => {
+  const container = installDom();
+  container.className = "acpmux-main";
+  const stage = container.ownerDocument.createElement("div");
+  container.append(stage);
+  root = createRoot(stage);
+  const render = (reason: "connecting" | "deleted") =>
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason, machine: "remote" } as never}
+        session="session-id"
         machine="remote"
         onRemove={() => undefined}
         onReconnect={() => undefined}
-        offlineDelayMs={40}
-        onLoadingLayout={onLoadingLayout}
+        onResume={() => undefined}
+        onClose={() => undefined}
       />,
     );
-  // A drop under the threshold draws the loading layout (styles.css `data-stage-loading`).
-  await act(async () => render("offline"));
-  expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
-  expect(seen.at(-1)).toBe(true);
-  // Past it, the Reconnecting… card: no loading layout.
-  await act(async () => void jest.advanceTimersByTime(40));
-  expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(seen.at(-1)).toBe(false);
+  await act(async () => render("connecting"));
+  expect(container.hasAttribute("data-connecting")).toBe(true);
   await act(async () => render("deleted"));
-  expect(seen.at(-1)).toBe(false);
-  // A new drop draws the loading layout again; gone from the stage, the pane drops the mark.
-  await act(async () => render("offline"));
-  expect(seen.at(-1)).toBe(true);
-  await act(async () => root!.unmount());
-  root = undefined;
-  expect(seen.at(-1)).toBe(false);
-});
-
-test("a line under the header never claims the stage's loading layout", async () => {
-  const container = installDom();
-  root = createRoot(container);
-  const seen: boolean[] = [];
-  await act(async () =>
-    root!.render(
-      <ChatUnavailableState
-        line
-        unavailable={{ reason: "connecting" }}
-        onRemove={() => undefined}
-        onReconnect={() => undefined}
-        onLoadingLayout={(loading) => void seen.push(loading)}
-      />,
-    ),
-  );
-  expect(container.textContent).toBe("");
-  expect(seen.includes(true)).toBe(false);
+  expect(container.hasAttribute("data-connecting")).toBe(false);
 });

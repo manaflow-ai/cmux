@@ -54,7 +54,6 @@ fn a_json_before_the_verb_still_routes_to_the_share_host() {
 }
 
 #[test]
-#[test]
 fn revoke_and_kick_name_their_ids() {
     assert_eq!(
         action(&words("share revoke s1 --json")),

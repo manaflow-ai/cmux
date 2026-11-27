@@ -162,6 +162,18 @@ impl Ledger {
         self.entry(send).map(|entry| entry.machine_id.clone())
     }
 
+    /// The machines `account`'s sends ran on, the most recent first, each once.
+    pub(crate) fn recent_machines(&self, account: &str) -> Vec<String> {
+        let account = account.to_lowercase();
+        let mut machines: Vec<String> = Vec::new();
+        for entry in self.entries.iter().rev().filter(|entry| entry.account == account) {
+            if !machines.contains(&entry.machine_id) {
+                machines.push(entry.machine_id.clone());
+            }
+        }
+        machines
+    }
+
     pub(crate) fn pending_create(&self, send: &Send) -> Option<PendingCreate> {
         self.pending_creates.iter().rev().find(|pending| pending.is(send)).cloned()
     }

@@ -50,7 +50,7 @@ test("a Codex goal keeps its Pause and Clear, gains Edit, and its line is one fo
   expect(html).toContain('aria-label="Edit goal"');
   expect(html).toContain('aria-label="Clear"');
   expect(html).toContain('aria-expanded="false"');
-  expect(new JSDOM(html).window.document.querySelector(".acpmux-goal-state")?.textContent).toBe("Goal running");
+  expect(new JSDOM(html).window.document.querySelector(".acpmux-goal-state")?.textContent).toBe("Goal");
 });
 
 // Leo, 2026-11-09, on a reference goal pill: "that rapid click togle on/of fand its speed too", and

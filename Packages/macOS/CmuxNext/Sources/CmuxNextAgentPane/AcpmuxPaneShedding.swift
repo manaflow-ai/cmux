@@ -1,10 +1,13 @@
 import CmuxNextCompat
 import Foundation
+import CmuxPagePushBound
 
 /// What the pane's transport does when its page falls a full queue behind the daemon
-/// (``AgentPaneTransport/Limits``), as acpmux does for any slow reader (server/outbound.rs):
-/// stream notifications are left out, replies and requests are never, and once the page caught up
-/// it gets one `_acpmux/lagged` and reads again from its last record (direct.ts `resyncAfterLag`).
+/// (``AgentPaneTransport/Limits``), or is held (nobody sees it, or it stopped draining), as acpmux
+/// does for any slow reader (server/outbound.rs): stream notifications are left out, replies,
+/// requests, prompts and permission asks never are (``PageStreamShedding`` lists them), and once
+/// the page caught up it gets one `_acpmux/lagged` and reads again from its last record (direct.ts
+/// `resyncAfterLag`).
 ///
 /// Before, the transport closed the socket instead (`transport.inbound_overflow`). The page then
 /// connected again and read its chat and the list anew, which filled the queue again: Leo's chat
@@ -12,16 +15,18 @@ import Foundation
 /// 2026-11-11), redrawing between a kept tail and the live chat each time. One ~31 MB list reply
 /// alone took 31 of the queue's 32 MB.
 nonisolated enum AcpmuxPaneShedding {
+    private static let rules = PageStreamShedding()
+
     /// The notice the page gets once a shed episode ends: `watch` because list notices may be
     /// among the shed ones, so the page reads the list again too.
-    static func lagMarker(dropped: Int) -> String {
-        #"{"jsonrpc":"2.0","method":"_acpmux/lagged","params":{"dropped":\#(dropped),"reason":"host_queue_full","watch":true}}"#
-    }
+    static func lagMarker(dropped: Int) -> String { rules.lagMarker(dropped: dropped) }
 
     /// The notices a frozen page hears nothing of (``AcpmuxPaneSocket/setAsleep(_:)``): other chats'
     /// rows and machines, which the page reads again from its list cursor once it wakes. Never its own
     /// chat's stream, a reply, a request or a notice a host observer reads.
-    static let listNotices: Set<String> = ["_acpmux/session_changed", "_acpmux/peer_state_changed"]
+    /// `_acpmux/session_patch` is a row change in compact form (direct.ts chatDeltas.ts): left out with the whole
+    /// rows it patches, which the page reads again when it wakes.
+    static let listNotices: Set<String> = ["_acpmux/session_changed", "_acpmux/session_patch", "_acpmux/peer_state_changed"]
 
     /// The notice a page that slept gets when it wakes, after list notices were left out: the list
     /// and machines are read again (`watch`), its own chat is not (`sessionIds` names none: its stream
@@ -36,8 +41,9 @@ nonisolated enum AcpmuxPaneShedding {
     }
 
     /// Whether `text` is a notification the page can read again after a lag: a top-level `method`
-    /// and no top-level `id` (not a reply, not a request that waits on an answer), and not one a host
-    /// observer reads (a permission, a prompt's acceptance), which ``AcpmuxRequestIds`` must see.
+    /// and no top-level `id` (not a reply, not a request that waits on an answer), not one a host
+    /// observer reads (a permission, a prompt's acceptance), which ``AcpmuxRequestIds`` must see,
+    /// and not a prompt the person sent or a permission ask (``PageStreamShedding``).
     /// Anything it cannot read plainly (an escaped key or method) is kept.
     static func sheddable(_ text: String) -> Bool {
         sheddable(text, method: notificationMethod(text))
@@ -47,72 +53,17 @@ nonisolated enum AcpmuxPaneShedding {
     static func sheddable(_ text: String, method: String?) -> Bool {
         guard let method else { return false }
         if method == "_acpmux/event" {
-            return !text.utf8ContainsAny(AcpmuxRequestIds.eventObserverMarkers)
+            guard !text.utf8ContainsAny(AcpmuxRequestIds.eventObserverMarkers) else { return false }
+        } else if AcpmuxRequestIds.observedNotificationMethods.contains(method) {
+            return false
         }
-        return !AcpmuxRequestIds.observedNotificationMethods.contains(method)
+        return rules.sheddable(text, method: method)
     }
+
+    /// Whether `text` is a transcript record, whose seq the page's cursor follows.
+    static func transcriptRecord(_ text: String) -> Bool { rules.transcriptRecord(text) }
 
     /// The top-level `method` of a frame with no top-level `id`; nil for a reply, a request, or a
     /// frame whose keys or method it cannot read without unescaping.
-    static func notificationMethod(_ text: String) -> String? {
-        var text = text
-        return text.withUTF8 { bytes -> String? in
-            guard let base = bytes.baseAddress else { return nil }
-            let count = bytes.count
-            var depth = 0
-            var i = 0
-            var method: String?
-            func skipSpace(_ from: Int) -> Int {
-                var at = from
-                while at < count, base[at] == 0x20 || base[at] == 0x09 || base[at] == 0x0A || base[at] == 0x0D { at += 1 }
-                return at
-            }
-            /// The end quote of the string whose content starts at `from`, and whether it had an escape.
-            func stringEnd(_ from: Int) -> (end: Int, escaped: Bool) {
-                var at = from
-                var escaped = false
-                var any = false
-                while at < count {
-                    let byte = base[at]
-                    if escaped { escaped = false }
-                    else if byte == 0x5C { escaped = true; any = true }
-                    else if byte == 0x22 { break }
-                    at += 1
-                }
-                return (at, any)
-            }
-            while i < count {
-                switch base[i] {
-                case 0x22:
-                    let start = i + 1
-                    let (end, escaped) = stringEnd(start)
-                    guard end < count else { return nil }
-                    i = end + 1
-                    guard depth == 1 else { continue }
-                    let colon = skipSpace(i)
-                    guard colon < count, base[colon] == 0x3A else { continue }
-                    // A key of the top-level object.
-                    if escaped { return nil }
-                    let length = end - start
-                    if length == 2, base[start] == 0x69, base[start + 1] == 0x64 { return nil } // "id"
-                    if length == 6, base[start] == 0x6D, base[start + 1] == 0x65, base[start + 2] == 0x74,
-                       base[start + 3] == 0x68, base[start + 4] == 0x6F, base[start + 5] == 0x64 { // "method"
-                        let value = skipSpace(colon + 1)
-                        guard value < count, base[value] == 0x22 else { return nil }
-                        let (valueEnd, valueEscaped) = stringEnd(value + 1)
-                        guard valueEnd < count, !valueEscaped else { return nil }
-                        method = String(decoding: UnsafeBufferPointer(start: base + value + 1, count: valueEnd - value - 1),
-                                        as: UTF8.self)
-                        i = valueEnd + 1
-                    } else {
-                        i = colon + 1
-                    }
-                case 0x7B, 0x5B: depth += 1; i += 1
-                case 0x7D, 0x5D: depth -= 1; i += 1
-                default: i += 1
-                }
-            }
-            return method
-        }
-    }
+    static func notificationMethod(_ text: String) -> String? { rules.notificationMethod(text) }
 }

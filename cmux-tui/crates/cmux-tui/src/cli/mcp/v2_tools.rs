@@ -23,9 +23,10 @@ use super::transport::{self, Prefix};
 pub(super) const DEFAULT_PAGE: usize = 100;
 pub(super) const MAX_PAGE: usize = 1000;
 
-/// `terminal_wait` and `terminal_wait_exit` wait at most this long: the
-/// server answers one call at a time, so an unbounded wait would stop every
-/// later call. The daemon waits forever when `timeout_ms` is absent.
+/// `terminal_wait` and `terminal_wait_exit` wait at most this long. A top-level wait runs on
+/// its own thread (`Server::detached_wait`), but one a `cmux_exec` script makes holds the
+/// script, and a forgotten wait holds a thread and a daemon connection. The daemon waits
+/// forever when `timeout_ms` is absent.
 const DEFAULT_WAIT_MS: u64 = 30_000;
 const MAX_WAIT_MS: u64 = 300_000;
 
@@ -34,6 +35,11 @@ const STREAM_REASON: &str =
 const CONNECTION_REASON: &str =
     "Connection control: it applies to one socket connection, which ends with the tool call.";
 const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
+
+/// A review posts under the person's own GitHub account: an agent leaves
+/// drafts (`git_review_comment`) and the person posts them from the diff
+/// viewer.
+const REVIEW_POST_REASON: &str = "Posting a pull request review publishes under the person's GitHub account: agents leave drafts with git_review_comment, and the person posts them from the diff viewer.";
 
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
@@ -68,8 +74,14 @@ const SETTINGS_REASON: &str = "Settings go through cmux settings on the app sock
 /// agent never rebinds the user's keys.
 const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Keyboard Shortcuts page, until daemon keybindings verbs and their MCP policy land (cx-9ce.17, cx-ncc.32).";
 
+/// Settings recovery (`cmux settings history|undo|restore|reset --group`):
+/// agents get the schema-scoped tools instead of the generic ones, which
+/// list only schema keys and always declare origin mcp.
+const SETTINGS_RECOVERY_REASON: &str = "Agents use the schema-scoped settings_history, settings_undo, settings_restore and settings_reset_group tools, which list only schema keys and always declare origin mcp (user-only settings stay refused).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
+    ("git.review.post", REVIEW_POST_REASON),
     ("settings.schema", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),
@@ -184,6 +196,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("theme.scheme.convert", THEME_SCHEME_REASON),
     ("theme.scheme.export", THEME_SCHEME_REASON),
     ("theme.scheme.from_image", THEME_SCHEME_REASON),
+    ("theme.slots.resolve", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -200,17 +213,25 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.machine.share_chat", CLOUD_API_REASON),
     ("cloud.machine.chief_start", CLOUD_API_REASON),
     ("cloud.machine.chief_resize", CLOUD_API_REASON),
+    ("cloud.machine.setup_desktop", CLOUD_API_REASON),
+    ("cloud.machine.fork", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
     ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.op", CLOUD_API_REASON),
+    ("cloud.owner.github_complete", CLOUD_API_REASON),
+    ("cloud.owner.github_list", CLOUD_API_REASON),
+    ("cloud.owner.github_clone_token", CLOUD_API_REASON),
     ("cloud.owner.github_repos", CLOUD_API_REASON),
     ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
     ("cloud.owner.handoff_open", CLOUD_API_REASON),
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),
     ("cloud.owner.handoffs", CLOUD_API_REASON),
     ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
+    ("cloud.owner.slack", CLOUD_API_REASON),
+    ("cloud.owner.slack_awake", CLOUD_API_REASON),
     ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
     ("cloud.owner.turn_rewind", CLOUD_API_REASON),
     ("cloud.owner.turns", CLOUD_API_REASON),
@@ -261,6 +282,10 @@ pub(super) const CLI_ONLY: &[(&str, &str)] = &[
         "settings.list",
         "The raw daemon listing stays CLI-only until its MCP read policy for credential-bearing values lands; agents use the schema-scoped settings_list tool.",
     ),
+    ("settings.history", SETTINGS_RECOVERY_REASON),
+    ("settings.undo", SETTINGS_RECOVERY_REASON),
+    ("settings.restore", SETTINGS_RECOVERY_REASON),
+    ("settings.reset_group", SETTINGS_RECOVERY_REASON),
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),

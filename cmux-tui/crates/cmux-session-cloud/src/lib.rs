@@ -9,6 +9,10 @@
 //! stub (`cold.zst.cloud`, [`stub::Stub`]) replaces it ([`offload::commit`]). The first read of the chat
 //! fetches the archive back ([`fetch::fetch_file`]) and acpmux thaws it as before.
 //!
+//! A packed offload ([`offload::upload_pack`]) stores a session-pack tail bundle and the older
+//! chunks separately. [`fetch::open_pack`] opens the tail, and [`fetch::backfill`] adds verified
+//! chunks to the same cache as the caller requests them.
+//!
 //! Opt-in: with no config file ([`config::Config`]) [`Cloud::get_in`] answers None, nothing is offloaded and
 //! nothing leaves the machine.
 
@@ -18,6 +22,7 @@ pub mod offload;
 pub mod seal;
 pub mod store;
 pub mod stub;
+pub mod transcripts;
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};

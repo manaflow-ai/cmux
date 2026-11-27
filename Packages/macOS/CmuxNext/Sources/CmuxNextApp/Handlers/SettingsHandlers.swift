@@ -124,7 +124,7 @@ enum SettingsHandlers {
 
     private static func logsDirectory(_ context: AppActionContext) -> URL {
         context.services.errorJournal?.journal.directory
-            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
+            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next")
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {

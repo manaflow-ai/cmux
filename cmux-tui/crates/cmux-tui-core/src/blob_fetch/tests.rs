@@ -294,7 +294,7 @@ fn only_the_four_ops_are_blob_fetch_frames() {
 }
 
 #[test]
-fn starts_past_the_running_cap_are_refused() {
+fn starts_past_the_old_cap_of_four_all_run_and_a_cancel_frees_a_stuck_one() {
     let home = Home::new("busy");
     // A store that takes connections and never answers: every job stays running.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -308,23 +308,29 @@ fn starts_past_the_running_cap_are_refused() {
     let service = BlobFetchService::new(Roots::new([home.path.clone()]));
     let folder = |index: usize| format!("{}/p{index}", home.path.to_str().unwrap());
     let mut first = String::new();
-    for index in 0..super::MAX_RUNNING {
+    // The old cap was 4 running jobs; 20 is past it and past the 16 shared fetch places.
+    for index in 0..20 {
         let plan = format!("plan {index}").into_bytes();
         let started = start_under(&service, &origin, &plan, &folder(index));
         assert_eq!(started["ok"], true, "{started}");
+        assert_eq!(started["data"]["state"], "running", "{started}");
         if index == 0 {
             first = started["data"]["job"].as_str().unwrap().to_string();
         }
     }
-    let refused = start_under(&service, &origin, b"one more plan", &folder(99));
-    assert_eq!(refused["error_code"], "blob.busy", "{refused}");
-    // A start under a running job's folder cancels it, and its worker, still
-    // waiting on the store, keeps its place under the cap until it ends.
+    // A start under a running job's folder cancels it (its task is aborted, so
+    // its fetch place is free) and runs.
     let again = start_under(&service, &origin, b"plan 0 again", &folder(0));
-    assert_eq!(again["error_code"], "blob.busy", "{again}");
+    assert_eq!(again["ok"], true, "{again}");
     let line = json!({"id": 2, "cmd": "blob.fetch.status", "job": first}).to_string();
     let old = answer_line(Some(&service), true, &line);
     assert_eq!(old["data"]["error_code"], "blob.superseded", "{old}");
+    // 20 jobs wait on the store, but only 16 fetches are in flight; the rest wait for a place.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while service.fetches.available_permits() > 0 {
+        assert!(Instant::now() < deadline, "the jobs never took the fetch places");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[test]

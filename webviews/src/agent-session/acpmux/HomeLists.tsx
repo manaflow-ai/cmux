@@ -66,7 +66,10 @@ export function HomeLists({
           {review.map((session) => (
             <HomeRow
               key={session.sessionId}
-              session={session}
+              sessionId={session.sessionId}
+              sessionTitle={session.displayTitle}
+              cwd={session.cwd}
+              at={activityTime(session)}
               mark={PULL_REQUEST_MARK}
               title={session.pullRequest!.title}
               detail={`#${session.pullRequest!.number}`}
@@ -88,30 +91,36 @@ function HomeList({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-/// One chat. Its own component, drawn again only when its session or its words change.
+/// One chat. Its own component, given the session's values rather than the session: a relist (a
+/// reconnect, a lag) brings every session as a new object, and draws only a row whose words changed.
 const HomeRow = memo(function HomeRow({
-  session,
+  sessionId,
+  sessionTitle,
+  cwd,
+  at,
   mark,
   title,
   detail,
   onSelect,
 }: {
-  session: AcpmuxSessionEntry;
+  sessionId: string;
+  sessionTitle?: string;
+  cwd?: string;
+  at?: number;
   mark: React.ReactNode;
   title?: string;
   detail?: string;
   onSelect: (sessionId: string) => void;
 }) {
-  const project = session.cwd ? projectLabel(session.cwd) : undefined;
-  const at = activityTime(session);
+  const project = cwd ? projectLabel(cwd) : undefined;
   return (
     <li>
-      <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
+      <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(sessionId))}>
         {mark}
-        <span className="acpmux-home-title">{title ?? session.displayTitle}</span>
+        <span className="acpmux-home-title">{title ?? sessionTitle}</span>
         {detail && <span className="acpmux-home-detail">{detail}</span>}
         {project && (
-          <WithFacts facts={[{ value: session.cwd ?? "", code: true }]}>
+          <WithFacts facts={[{ value: cwd ?? "", code: true }]}>
             {(facts) => (
               <span {...facts} className="acpmux-home-meta acpmux-home-project">
                 {project}

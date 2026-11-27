@@ -10,6 +10,7 @@ fn req(action: GithubAction) -> GithubActionParams {
         issue: None,
         title: None,
         body: None,
+        permissions: None,
         deadline_ms: None,
     }
 }

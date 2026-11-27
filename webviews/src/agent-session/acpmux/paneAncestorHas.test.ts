@@ -6,7 +6,7 @@
 // Three such rules made a send in a 1,000-turn chat restyle about 5x the elements (traced style time
 // 122 ms to 25 ms over the 250 ms after Return) and a composer menu open 1,248 elements instead of
 // 333 (pane-has-restyle.browser.test.ts). State attributes on the pane (`data-asks`,
-// `data-home-lists`, `data-stage-loading`, pane/PaneBody.tsx) carry those states instead, or a sibling
+// `data-home-lists`, `data-connecting`, ChatUnavailableState.tsx) carry those states instead, or a sibling
 // combinator finds the small element (`.acpmux-main > .nt-style ~ ...`).
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";

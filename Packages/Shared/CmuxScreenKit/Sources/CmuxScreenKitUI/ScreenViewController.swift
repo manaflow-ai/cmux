@@ -733,7 +733,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         switch recognizer.state {
         case .began:
             syncKeyboardFocus()
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            ScreenKitHaptics.impact(.medium)
             session.movePointer(to: framebufferPoint(recognizer))
             pressButton(.left)
         case .changed:
@@ -864,7 +864,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
             let actions = trackpad.advance(to: ProcessInfo.processInfo.systemUptime)
-            if actions.contains(.press) { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+            if actions.contains(.press) { ScreenKitHaptics.impact(.medium) }
             applyTrackpad(actions)
             scheduleTrackpadDeadline()
         }

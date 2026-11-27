@@ -1,10 +1,7 @@
 // cmux-web-test-timeout: 240
-// The Cloud composer strip at narrow widths: the Environment chip gives way first, to its icon alone
-// (its full name in its tooltip and accessible name), before the Folder, the Where chip or the team
-// tag cut. Coordinator's decision for cmux#39001, on Leo's authority: "at narrow composer widths, the
-// Environment chip collapses to its icon first, with its label moving into its tooltip, before
-// anything else gives way. Nothing changes at full width." Measured in real Chromium on the gallery
-// entry agent-pane.cloud-composer-chips.
+// The Cloud composer strip at every width: no Environment chip (Cloud's image is Settings > Cloud's
+// Default image, cmux#51731) and no chip cut, from full width down to the 400 px a split leaves.
+// Measured in real Chromium on the gallery entry agent-pane.cloud-composer-chips.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -67,22 +64,13 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
     error: string | undefined;
   };
 
-  /// The variant's stage at `width`, its play done and the Environment chip's column settled.
+  /// The variant's stage at `width`, its play done and the strip drawn.
   const open = async (variant: string, width: number): Promise<{ page: Page; strip: Strip }> => {
     const page = await browser!.newPage({ viewport: { width, height: 420 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForFunction(() => {
-      const slot = document.querySelector('.acpmux-cloud-env-slot[data-shown="true"]');
-      const chip = slot?.querySelector(".acpmux-cloud-env");
-      return (
-        !!slot &&
-        !!chip &&
-        getComputedStyle(slot).opacity === "1" &&
-        slot.getBoundingClientRect().width >= chip.scrollWidth - 0.5
-      );
-    });
+    await page.waitForFunction(() => !!document.querySelector(".acpmux-composer-context .acpmux-location-picker"));
     const strip = await page.evaluate(() => {
       const shown = (element: Element | null) =>
         !!element && element.getBoundingClientRect().width > 0 && getComputedStyle(element).display !== "none";
@@ -127,40 +115,23 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
     return { page, strip };
   };
 
-  const environment = (strip: Strip) => strip.chips.find((chip) => chip.kind === "cloud-environment")!;
-
   // The width variants (`<state>-full|760|400`) leave the pane at their width; the stage opens at it,
   // so their plays never resize and what is measured is the strip as it rests there.
   for (const state of ["personal-default", "team-bypass", "removed-team"]) {
     for (const [label, width] of [
       ["full", 1100],
       ["760", 760],
+      ["400", 400],
     ] as const)
-      test(`${state} at ${width} px: every chip shows whole, the Environment chip with its name`, async () => {
+      test(`${state} at ${width} px: no Environment chip, and every chip shows whole`, async () => {
         const { page, strip } = await open(`${state}-${label}`, width);
         try {
           expect(strip.error).toBeUndefined();
+          expect(strip.chips.filter((chip) => chip.kind === "cloud-environment")).toEqual([]);
           expect(strip.chips.filter((chip) => chip.cut)).toEqual([]);
-          expect(environment(strip).labelShown).toBe(true);
         } finally {
           await page.close();
         }
       });
-
-    test(`${state} at 400 px: the Environment chip is its icon alone, named in its tooltip, and nothing else cuts`, async () => {
-      const { page, strip } = await open(`${state}-400`, 400);
-      try {
-        expect(strip.error).toBeUndefined();
-        expect(strip.chips.filter((chip) => chip.cut)).toEqual([]);
-        const chip = environment(strip);
-        expect(chip.labelShown).toBe(false);
-        expect(chip.name).toMatch(/environment: auto/i);
-        expect(chip.tooltip).toMatch(/environment: auto/i);
-        // The other chips keep their names: the Environment chip gave way first.
-        for (const other of strip.chips.filter((each) => each !== chip)) expect(other.labelShown).toBe(true);
-      } finally {
-        await page.close();
-      }
-    });
   }
 });

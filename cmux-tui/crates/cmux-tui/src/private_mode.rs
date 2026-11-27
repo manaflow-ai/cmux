@@ -39,6 +39,10 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // (files_lister.rs).
         #[cfg(unix)]
         Some(crate::files_lister::MODE) => Some(crate::files_lister::run()),
+        // A tagged DEV build's reaper: ends the build's helpers once its app exits
+        // (dev_reaper.rs, issue 55842).
+        #[cfg(unix)]
+        Some(crate::dev_reaper::MODE) => Some(crate::dev_reaper::run(&args[1..])),
         // The machine side of `cmux link machine update` (cx-rppd.13).
         #[cfg(unix)]
         Some(crate::link::machine_update::apply::MODE) => {
@@ -106,7 +110,12 @@ fn install_check(args: &[String]) -> i32 {
         client_log::stderr_log!("startup", "{BIN}: install check: {error}");
         return 1;
     }
-    match cmux_install_check::run(args, &stdin) {
+    #[cfg(unix)]
+    let result = cmux_install_check::run(args, &stdin);
+    // cmux-install-check reads unix install state; Windows has no install to check.
+    #[cfg(not(unix))]
+    let result: Result<String, String> = Err("install check is unix-only".to_owned());
+    match result {
         Ok(json) => {
             println!("{json}");
             0
