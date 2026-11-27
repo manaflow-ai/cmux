@@ -1,0 +1,19 @@
+kind	label	mode	profile	phase	wall_s	down_bytes	up_bytes	asks	git_bytes	tree_bytes	st1_s	st2_s	rss_mb	rc	note	s@github-v4-bad	s@store-v6-1-low	s@store-v6-8
+projection	try4	folder	store-v6-8	serve_start	0.048					235708168					{"entries": 15825, "files": 14102, "bytes": 235708168, "walk_ms": 48.0, "manifest_bytes": 169404, "largest": "cmux-tui/crates/cmux-palette-ranker/tests/corpus/palette-corpus.json", "largest_bytes": 2335987}			
+projection	try4	folder	store-v6-8	mount_rg	0.012	169412	0	0					7.5		{"connect_ms": 0.1, "manifest_fetch_ms": 4.2, "manifest_bytes": 169404, "decode_ms": 4.1, "mount_ms": 3.1, "entries": 15826}			
+projection	try4	folder	store-v6-8	rg_cold	2.158	182895283	69732	1498					24.3	0	out=			
+projection	try4	folder	store-v6-8	rg_warm	0.125	0	0	0					24.3	0	out=			
+projection	try4	folder	store-v6-8	rg_overlay_stats											{"remote_reads": 14055, "remote_bytes": 182813003, "cache_hits": 17783}			
+projection	try4	folder	store-v6-8	mount_gitstatus	0.012	169412	0	0					7.5		{"connect_ms": 0.1, "manifest_fetch_ms": 4.1, "manifest_bytes": 169404, "decode_ms": 4.1, "mount_ms": 3.2, "entries": 15826}			
+projection	try4	folder	store-v6-8	gitstatus_cold	11.49	186087239	69933	1505					24.8	0	out=0			
+projection	try4	folder	store-v6-8	gitstatus_warm	0.047	0	0	0					25.3	0	out=0			
+projection	try4	folder	store-v6-8	gitstatus_overlay_stats											{"remote_reads": 14088, "remote_bytes": 186004754, "cache_hits": 14218}			
+[measure] folder serve_start: 0.048 s down=0 asks=0 rc=0
+[measure] folder mount_rg: 0.012 s down=169412 asks=0 rc=0
+[measure] folder rg_cold: 2.158 s down=182895283 asks=1498 rc=0
+[measure] folder rg_warm: 0.125 s down=0 asks=0 rc=0
+[measure] folder rg_overlay_stats: None s down=0 asks=0 rc=0
+[measure] folder mount_gitstatus: 0.012 s down=169412 asks=0 rc=0
+[measure] folder gitstatus_cold: 11.49 s down=186087239 asks=1505 rc=0
+[measure] folder gitstatus_warm: 0.047 s down=0 asks=0 rc=0
+[measure] folder gitstatus_overlay_stats: None s down=0 asks=0 rc=0

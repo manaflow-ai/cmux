@@ -1,0 +1,19 @@
+kind	label	mode	profile	phase	wall_s	down_bytes	up_bytes	asks	git_bytes	tree_bytes	st1_s	st2_s	rss_mb	rc	note	s@github-v4-bad	s@store-v6-1-low	s@store-v6-8
+projection	try1	folder	store-v6-1-low	serve_start	0.109					243073036					{"entries": 31757, "files": 29778, "bytes": 243073036, "walk_ms": 109.1, "manifest_bytes": 643176, "largest": "cmux-tui/crates/cmux-palette-ranker/tests/corpus/palette-corpus.json", "largest_bytes": 2335987}			
+projection	try1	folder	store-v6-1-low	mount_rg	0.048	643184	0	0					10.7		{"connect_ms": 0.1, "manifest_fetch_ms": 32.6, "manifest_bytes": 643176, "decode_ms": 9.1, "mount_ms": 5.5, "entries": 31758}			
+projection	try1	folder	store-v6-1-low	rg_cold	8.642	182894531	68946	1405					29.1	0	out=			
+projection	try1	folder	store-v6-1-low	rg_warm	0.167	0	0	0					29.1	0	out=			
+projection	try1	folder	store-v6-1-low	rg_overlay_stats											{"remote_reads": 14054, "remote_bytes": 182812944, "cache_hits": 17812}			
+projection	try1	folder	store-v6-1-low	mount_gitstatus	0.048	643184	0	0					10.7		{"connect_ms": 0.1, "manifest_fetch_ms": 32.6, "manifest_bytes": 643176, "decode_ms": 9.3, "mount_ms": 5.2, "entries": 31758}			
+projection	try1	folder	store-v6-1-low	gitstatus_cold	18.273	184656223	70425	1437					28.6	0	out=0			
+projection	try1	folder	store-v6-1-low	gitstatus_warm	0.701	1273	1030	6					28.6	0	out=0			
+projection	try1	folder	store-v6-1-low	gitstatus_overlay_stats											{"remote_reads": 14079, "remote_bytes": 184572857, "cache_hits": 14210}			
+[measure] folder serve_start: 0.109 s down=0 asks=0 rc=0
+[measure] folder mount_rg: 0.048 s down=643184 asks=0 rc=0
+[measure] folder rg_cold: 8.642 s down=182894531 asks=1405 rc=0
+[measure] folder rg_warm: 0.167 s down=0 asks=0 rc=0
+[measure] folder rg_overlay_stats: None s down=0 asks=0 rc=0
+[measure] folder mount_gitstatus: 0.048 s down=643184 asks=0 rc=0
+[measure] folder gitstatus_cold: 18.273 s down=184656223 asks=1437 rc=0
+[measure] folder gitstatus_warm: 0.701 s down=1273 asks=6 rc=0
+[measure] folder gitstatus_overlay_stats: None s down=0 asks=0 rc=0

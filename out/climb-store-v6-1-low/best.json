@@ -1,0 +1,13 @@
+{
+  "best": {
+    "CMUX_PROJECTION_ZSTD_LEVEL": 3,
+    "CMUX_PROJECTION_READAHEAD_FILES": 256,
+    "CMUX_PROJECTION_READAHEAD_BYTES": 16777216
+  },
+  "best_score_s": 26.915,
+  "default_score_s": 26.915,
+  "gain": 0.0,
+  "tries": 7,
+  "profile": "store-v6-1-low",
+  "steps": "rg,gitstatus"
+}
