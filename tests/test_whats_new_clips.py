@@ -200,6 +200,16 @@ class TimelineTests(unittest.TestCase):
             plan = clips.timeline(SPEC, frames, "crop", still=True)
         self.assertEqual(plan, [(Path("f0.png"), clips.MIN_SECONDS)])
 
+    def test_clip_steps_that_wait_past_the_cap_are_refused_before_any_tour_runs(self):
+        long = {**SPEC, "steps": [{"title": "Scene", "wait": 2}, {"title": "Install", "wait": 5, "clip": True},
+                                  {"title": "Set", "wait": 3, "clip": True}]}
+        self.assertTrue(any("clip steps wait 8 s" in p for p in clips.spec_problems(long)))
+        fits = {**long, "steps": [{**s, "wait": min(s["wait"], 3)} for s in long["steps"]]}
+        self.assertFalse(any("clip steps wait" in p for p in clips.spec_problems(fits)))
+        # Every shipped spec fits: theme-flourishes (8 s), living-wallpapers (10 s), share-menu-to-chat (8 s)
+        # and ios-feed-hides-closed-tabs (14 s) never could.
+        self.assertEqual([p for p in clips.check() if "clip steps wait" in p], [])
+
     def test_a_clip_past_eight_seconds_is_refused(self):
         frames = [bytes([i * 7 % 256] * 64) for i in range(40)]
         with self.assertRaisesRegex(clips.ClipError, "at most 8"):

@@ -123,6 +123,8 @@ OPENURL = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
 # Seconds `simctl io recordVideo` has to say it started before the clip is given up.
 RECORD_START_TIMEOUT = 20
 MIN_SECONDS, MAX_SECONDS = 3.0, 8.0
+# The clip steps' waits a spec may add up to: MAX_SECONDS less a second for the commands themselves.
+CLIP_WAITS = MAX_SECONDS - 1
 HOLD, LEAD = 1.2, 0.6
 # ReleaseMediaStore.maxImageBytes: the app drops a larger picture.
 MAX_BYTES = 4 << 20
@@ -190,6 +192,14 @@ def spec_problems(spec: Any) -> list[str]:
         out.append("steps: a list of capture steps")
     elif not any(s.get("clip") is True for s in steps):
         out.append('steps: mark the steps that perform the feature with "clip": true')
+    else:
+        # The clip spans at least its steps' waits, and each command's own time on top: theme-flourishes'
+        # 8 s of waits came to 10.0 s and every run was refused after its whole Mac tour (2026-11-27).
+        waits = sum(s.get("wait", 1) for s in steps if s.get("clip") is True
+                    and isinstance(s.get("wait", 1), (int, float)) and not isinstance(s.get("wait", 1), bool))
+        if waits > CLIP_WAITS:
+            out.append(f"steps: the clip steps wait {waits:g} s; at most {CLIP_WAITS:g}, so the clip fits "
+                       f"{MAX_SECONDS:g} s with its commands' own time")
     crop = spec.get("crop")
     if not (isinstance(crop, list) and len(crop) == 4 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in crop)):
         out.append("crop: [x, y, w, h] as fractions of the window")

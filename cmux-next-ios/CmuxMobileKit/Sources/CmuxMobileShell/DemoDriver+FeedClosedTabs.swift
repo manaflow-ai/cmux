@@ -54,18 +54,20 @@ extension DemoDriver {
             echo(true)
             for item in feed.items where item.needsYou { feed.resolveElsewhere(item.id, text: "Answered") }
         case "feed-closed-tabs":
-            // The recording: everything open, then a tab, a workspace, the rest, the asks answered.
+            // The recording: everything open, then a tab, a workspace, the rest, the asks answered: the
+            // first after the spec's 2 s opening step, the rest 1.5 s apart, so all four fit the clip's 8 s
+            // (ios-feed-hides-closed-tabs.json).
             echo(true)
             await pause(3)
             shell.store.removeTab("t-ios-claude", from: "ws-ios")
             echo(true)
-            await pause(3)
+            await pause(1.5)
             shell.store.removeWorkspace("ws-web")
             echo(true)
-            await pause(3)
+            await pause(1.5)
             shell.store.removeWorkspace("ws-cmux")
             echo(true)
-            await pause(3)
+            await pause(1.5)
             for item in feed.items where item.needsYou { feed.resolveElsewhere(item.id, text: "Answered") }
         default:
             break
