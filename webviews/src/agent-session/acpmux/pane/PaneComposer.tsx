@@ -1168,7 +1168,9 @@ export function drawPaneComposer({
                     ),
                     // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
-                    ...cloudStartModePick(composerSnapshot.summary?.harness),
+                    // With an agent picked for the machine the chip holds it under that agent, which
+                    // cloudSendAgent already sends: another agent's mode never rides its start (cmux#59716).
+                    ...(machinePick ? {} : cloudStartModePick(composerSnapshot.summary?.harness)),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     // A level picked for the machine's agent goes first (cmux#59716).
                     ...cloudPickExtras(composerSnapshot.summary, machinePick),

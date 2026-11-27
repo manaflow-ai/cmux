@@ -9,7 +9,7 @@ import { useSyncExternalStore } from "react";
 
 /// `effort`: the level picked for it (cmux#59716), which the Cloud send carries; it stays with the
 /// agent across a model pick, and a pick of another agent drops it.
-export type CloudAgentPick = { harness: string; model?: string; effort?: string };
+export type CloudAgentPick = { harness: string; model?: string; effort?: string; handed?: true };
 
 let held: CloudAgentPick | undefined;
 const listeners = new Set<() => void>();
@@ -27,8 +27,24 @@ export function holdCloudAgentPick(pick: CloudAgentPick): void {
     harness: pick.harness,
     ...(pick.model ? { model: pick.model } : {}),
     ...(effort ? { effort } : {}),
+    ...(pick.handed ? { handed: true as const } : {}),
   };
   emit();
+}
+
+/** Another tab takes this page (a Cmd-T adoption, a session adoption): the pick an earlier tab made is
+ * dropped, so it never starts this tab's chat (cmux#59716: a page that held Claude for Cloud started
+ * Claude for a tab showing Codex). A pick handed to this tab by its own handshake (New Cloud Chat, a
+ * started Cloud chat's pick of another agent) stays through the first adoption, which the host can
+ * replay right after that handshake; it is this tab's. */
+export function dropCloudAgentPickForAdoption(): void {
+  if (held?.handed) {
+    const { handed: _handed, ...rest } = held;
+    held = rest;
+    emit();
+    return;
+  }
+  clearCloudAgentPick();
 }
 
 /** Holds `effort` for the Cloud start of `harness` (the agent the chips show), keeping its held model,

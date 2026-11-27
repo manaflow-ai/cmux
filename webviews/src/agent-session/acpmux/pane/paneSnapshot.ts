@@ -1050,7 +1050,7 @@ export function paneSnapshotEffect({
       if (received.folder) setHandedFolder(received.folder);
       // A started Cloud chat's pick of another agent: this new Cloud chat's Cloud send starts on it
       // (cloudAgentPick.ts), and this Mac's own remembered pick stays as it was (cmux#51731).
-      if (received.agent) holdCloudAgentPick(received.agent);
+      if (received.agent) holdCloudAgentPick({ ...received.agent, handed: true });
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
       if (typeof host.tab === "string" && host.tab) {
         setSessionInfoTab(host.tab);
