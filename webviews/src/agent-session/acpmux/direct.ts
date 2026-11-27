@@ -5999,15 +5999,21 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  private draftImageRequest() {
+    const socket = this.socket;
+    return (method: string, params: Record<string, unknown>) =>
+      this.socket === socket ? this.request(method, params) : Promise.reject(staleContinuation());
+  }
+
   /// Keeps the chat's unsent composer images in acpmux under this page's surface, so they travel
   /// with the chat when it moves (RFD 0138; composer/carriedDraftImages.ts).
   writeDraftImages(sessionId: string, attachments: ComposerAttachment[]): Promise<void> {
-    return writeCarriedImages((method, params) => this.request(method, params), sessionId, pageSurface(), attachments);
+    return writeCarriedImages(this.draftImageRequest(), sessionId, pageSurface(), attachments);
   }
 
   /// The chips of the unsent images the chat's app drafts hold in acpmux (a moved chat's).
-  readDraftImages(sessionId: string): Promise<ComposerAttachment[]> {
-    return readCarriedImages((method, params) => this.request(method, params), sessionId);
+  readDraftImages(sessionId: string, metadataOnly = false): Promise<ComposerAttachment[]> {
+    return readCarriedImages(this.draftImageRequest(), sessionId, pageSurface(), metadataOnly);
   }
 
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).

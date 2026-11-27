@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import {
   carriedChips,
-  carriedImages,
   forgetHeld,
   MAX_CARRIED_IMAGES,
   noteBytes,
@@ -94,6 +93,26 @@ describe("writing a draft's images", () => {
     expect(calls[2]!.params.images).toEqual([{ type: "image", mimeType: "image/png", data: "QQ==", name: "a.png" }]);
   });
 
+  test("an older write retry finishes before a newer removal", async () => {
+    let rejectId!: (reason: Error) => void;
+    const { calls, request } = daemon((call) => {
+      const images = call.params.images as Record<string, unknown>[];
+      if (images[0]?.id) return new Promise((_, reject) => { rejectId = reject; });
+      return setAnswer(call);
+    });
+    await writeCarriedImages(request, "s1", surface, [image("a", "QQ==")]);
+    const update = writeCarriedImages(request, "s1", surface, [image("a")]);
+    const clear = writeCarriedImages(request, "s1", surface, []);
+    rejectId(new AcpmuxRpcError({ message: "unknown", data: { reason: "composer.image.unknown" } }));
+    await Promise.all([update, clear]);
+    expect(calls.map(({ params }) => params.images)).toEqual([
+      [{ type: "image", mimeType: "image/png", data: "QQ==", name: "a.png" }],
+      [{ id: "sha-0-QQ==" }],
+      [{ type: "image", mimeType: "image/png", data: "QQ==", name: "a.png" }],
+      [],
+    ]);
+  });
+
   test("a removal writes no images, which clears the surface's draft", async () => {
     const { calls, request } = daemon(setAnswer);
     await writeCarriedImages(request, "s1", surface, [image("a", "QQ==")]);
@@ -124,40 +143,29 @@ describe("writing a draft's images", () => {
 });
 
 describe("reading a moved chat's images", () => {
-  test("app drafts' images come back as chips with their bytes, each once", async () => {
-    const { request } = daemon(({ method, params }) => {
-      if (method === "_acpmux/composers")
-        return {
-          composers: [
-            { surfaceId: "x", name: "Mac", kind: "app", images: [{ id: "h1", mimeType: "image/png", name: "a.png" }] },
-            {
-              surfaceId: "y",
-              name: "Mac 2",
-              kind: "app",
-              images: [
-                { id: "h1", mimeType: "image/png" },
-                { id: "h2", mimeType: "image/jpeg" },
-              ],
-            },
-            { surfaceId: "z", name: "iPhone", kind: "phone", images: [{ id: "h3", mimeType: "image/png" }] },
-          ],
-        };
-      if (method === "_acpmux/attachment") return params.id === "h2" ? {} : { mimeType: "image/png", data: "QQ==" };
-      return undefined;
+  test("resumes the page's draft and reads its available bytes in order", async () => {
+    const { calls, request } = daemon(({ method, params }) => {
+      if (method === "_acpmux/composer_set") {
+        return { images: [{ id: "h1", name: "a.png" }, { id: "h2" }] };
+      }
+      return params.id === "h2" ? {} : { mimeType: "image/png", data: "QQ==" };
     });
-    const chips = await readCarriedImages(request, "s1");
+    const chips = await readCarriedImages(request, "s1", surface);
+    expect(calls[0]).toEqual({ method: "_acpmux/composer_set", params: { sessionId: "s1", surface, resume: true } });
     expect(chips.map((chip) => [chip.id, chip.name, chip.data])).toEqual([["carried-h1", "a.png", "QQ=="]]);
   });
 
-  test("a daemon without the method gives none", async () => {
-    const { request } = daemon(() => {
-      throw new Error("method not found");
-    });
-    expect(await readCarriedImages(request, "s1")).toEqual([]);
+  test("a populated native store resumes without redownloading the images", async () => {
+    const { calls, request } = daemon(() => ({ images: [{ id: "h1" }] }));
+    expect(await readCarriedImages(request, "s1", surface, true)).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.params.resume).toBe(true);
   });
 
-  test("a malformed answer gives none", () => {
-    expect(carriedImages(undefined)).toEqual([]);
-    expect(carriedImages({ composers: [{ kind: "app", images: [{ id: 3 }] }] })).toEqual([]);
+  test("an older daemon refusing a resume leaves the draft alone", async () => {
+    const { calls, request } = daemon(() => { throw new Error("text is required"); });
+    expect(await readCarriedImages(request, "s1", surface)).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.params).not.toHaveProperty("text");
   });
 });
