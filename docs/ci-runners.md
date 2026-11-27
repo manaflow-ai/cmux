@@ -2,6 +2,31 @@
 
 > **Fleet route for Manaflow team members:** start at the hq [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md), then return here for CI runner selection, Xcode pins, repository variables, and the Blacksmith overflow switch. External contributors can use this file directly for the public CI policy and runner-selection contract.
 
+## Submit a test from your checkout
+
+From a Mac or Linux checkout, submit a Linux test against the commit at `HEAD`:
+
+```bash
+./scripts/submit-fleet-test -- true
+```
+
+Install GitHub CLI 2.87+ and run `gh auth login` with an account that has **Write**
+access to `manaflow-ai/cmux`. A repository administrator can grant that access.
+Python 3 and Git run locally. The command connects to GitHub with your own login.
+
+A fresh clone can submit immediately after sign-in. For your own changes, commit and
+push them to the repository first. The run uses the printed SHA and omits local edits.
+Commands and logs are visible on the public repository. Open the returned **run URL**
+for the log and test exit status. The local command
+exits when GitHub accepts the run.
+
+For example, from `webviews/`, run `../scripts/submit-fleet-test -- bun test`.
+The checkout command passes your working directory and arguments to Fast checks.
+It selects the Rust setup for `cargo` and the webviews setup for `bun` or `bunx`.
+Use `--setup playwright` before `--` for browser tests. Fleet runners reuse
+downloaded Rust and Bun dependencies across successful runs with matching lockfiles.
+The workflow selects a fleet runner and can use its configured overflow when busy.
+
 ## Rules that must never be broken
 
 - Nightlies use the same pooled capacity as dev builds. Native work goes to an

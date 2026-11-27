@@ -481,3 +481,41 @@ async fn a_dropped_connection_ends_the_command_on_the_other_machine() {
     tokio::time::sleep(Duration::from_secs(9)).await;
     assert!(!late.exists(), "the command ran on after the connection dropped");
 }
+
+#[test]
+fn a_big_fetch_is_named_so_the_chip_can_offer_it_at_once() {
+    for (command, kind) in [
+        ("npm install", "npm"),
+        ("npm ci --no-audit", "npm"),
+        ("cd webviews && bun install", "npm"),
+        ("pnpm i", "npm"),
+        ("yarn", "npm"),
+        ("CI=1 yarn install --frozen-lockfile", "npm"),
+        ("pip install -r requirements.txt", "pip"),
+        ("python3 -m pip install torch", "pip"),
+        ("uv pip install numpy", "pip"),
+        ("uv sync", "pip"),
+        ("cargo build --release", "cargo"),
+        ("time cargo fetch", "cargo"),
+        ("docker pull ubuntu:24.04", "docker"),
+        ("docker build -t app .", "docker"),
+        ("huggingface-cli download meta-llama/Llama-3-8B", "model"),
+        ("ollama pull qwen3", "model"),
+        ("/usr/local/bin/npm install 2>&1 | tail -20", "npm"),
+    ] {
+        assert_eq!(fetch_kind(command), Some(kind), "{command}");
+    }
+    for command in [
+        "npm run build",
+        "npm test",
+        "bun run dev",
+        "yarn lint",
+        "ls node_modules",
+        "cargo fmt",
+        "docker ps",
+        "pip list",
+        "echo npm install",
+    ] {
+        assert_eq!(fetch_kind(command), None, "{command}");
+    }
+}

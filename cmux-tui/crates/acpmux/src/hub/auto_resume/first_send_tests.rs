@@ -180,3 +180,13 @@ async fn a_prompt_during_the_wait_takes_the_chat_instead() {
         "{skipped:?}"
     );
 }
+
+/// A first send whose agent restarts on a model route that was only late goes again, logged as
+/// `model_route`; the plain sign-in explanation does not.
+#[test]
+fn a_late_route_retries_the_first_send() {
+    let text = crate::claude_auth::route_arrived_text("Not logged in · Please run /login");
+    assert!(super::retried_error(&text));
+    assert_eq!(super::retry_reason(&text), "model_route");
+    assert!(!super::retried_error("Not logged in · Please run /login"));
+}

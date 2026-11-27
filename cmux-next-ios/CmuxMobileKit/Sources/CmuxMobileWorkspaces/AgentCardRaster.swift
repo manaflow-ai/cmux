@@ -385,7 +385,7 @@ struct AgentTabCard: View {
         let lastKnown = snapshot?.image
         let face = Self.face(awaitingHistory: feed.awaitingHistory,
                              mayShowPicture: feed.raster.map { key.mayShow($0.key) } ?? false,
-                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil)
+                             drawable: key.isDrawable, hasLastKnown: snapshot?.hasKnownPicture == true || lastKnown != nil)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
@@ -399,9 +399,9 @@ struct AgentTabCard: View {
                         .background(Color.cmuxMobileBackground)
                 }
             case .lastKnown:
-                if let lastKnown {
-                    TabSnapshotPicture(image: lastKnown).background(Color.cmuxMobileBackground)
-                }
+                TabSnapshotPicture(image: lastKnown, pixelWidth: snapshot?.pixelWidth ?? 0,
+                                   pixelHeight: snapshot?.pixelHeight ?? 0)
+                    .background(Color.cmuxMobileBackground)
             case .live:
                 AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset,
                                  cardSlice: key.visibleHeight)

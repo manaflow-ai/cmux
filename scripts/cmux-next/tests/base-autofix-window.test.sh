@@ -12,14 +12,16 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_STUB_LOG"
-[[ -n "${GH_STUB_FAIL:-}" ]] && exit 1
+[[ -n "${GH_STUB_FAIL:-}" ]] && { echo "HTTP 403: API rate limit exceeded" >&2; exit 1; }
+for t in ${GH_STUB_FAIL_TOKENS:-}; do [[ "$t" == "${GH_TOKEN:-}" ]] && { echo "HTTP 403: rate limit" >&2; exit 1; }; done
 # The caller's --jq turns the runs into id, status, conclusion, title rows; the stub serves them as such.
 cat "$GH_STUB_ROWS"
 EOF
 chmod +x "$tmp/bin/gh"
 export PATH="$tmp/bin:$PATH" GH_STUB_LOG="$tmp/gh.log" GH_STUB_ROWS="$tmp/rows"
 export GITHUB_REPOSITORY=o/r GITHUB_EVENT_NAME=push GITHUB_RUN_ATTEMPT=1 BASE_AUTOFIX_WINDOW_NOW=1800000000
-unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES GH_STUB_FAIL
+unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES GH_STUB_FAIL GH_STUB_FAIL_TOKENS BASE_AUTOFIX_POOL_TOKENS
+export GH_TOKEN=job
 
 rows() { printf '%s\n' "$@" | tr '|' '\037' > "$tmp/rows"; }
 decide() { : > "$tmp/gh.log"; bash "$script" 500 feat-cmux-next; }
@@ -55,6 +57,15 @@ expect true "no run repaired"
 # 4. Fail open: an unreadable list, a window of 0 or garbage, a dispatch and a re-run all run.
 rows "499|completed|success|fix: a"
 GH_STUB_FAIL=1 expect true "runs unreadable"
+GH_STUB_FAIL=1 GH_TOKEN="" expect true "no token"
+
+# 4b. A refused job token falls through to the CI pool tokens, in order; the first that reads decides.
+rows "499|completed|success|fix: a"
+GH_TOKEN=job BASE_AUTOFIX_POOL_TOKENS="pool1 pool2" GH_STUB_FAIL_TOKENS="job pool1" expect false "run 499 ended success"
+[[ "$(grep -c . "$tmp/gh.log")" == 3 ]] || fail "want three reads (job, pool1, pool2): $(cat "$tmp/gh.log")"
+GH_TOKEN=job BASE_AUTOFIX_POOL_TOKENS="pool1 pool2" GH_STUB_FAIL_TOKENS="job pool1 pool2" expect true "runs unreadable"
+GH_TOKEN=job BASE_AUTOFIX_POOL_TOKENS="pool1" expect false "run 499 ended success"
+[[ "$(grep -c . "$tmp/gh.log")" == 1 ]] || fail "a job token that reads asks no pool token: $(cat "$tmp/gh.log")"
 NEXT_BASE_AUTOFIX_WINDOW_MINUTES=0 expect true "window off"
 NEXT_BASE_AUTOFIX_WINDOW_MINUTES=abc expect true "window off"
 GITHUB_EVENT_NAME=workflow_dispatch expect true "event workflow_dispatch"
