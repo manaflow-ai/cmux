@@ -43,7 +43,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les nouveaux téléphones de votre compte se connectent sans demander"
+            "value" : "Les téléphones neufs du compte se connectent sans demander"
           }
         },
         "it" : {
@@ -109,7 +109,7 @@
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Нові телефони вашого облікового запису підключаються без запиту"
+            "value" : "Нові телефони вашого акаунта підключаються без запиту"
           }
         },
         "vi" : {

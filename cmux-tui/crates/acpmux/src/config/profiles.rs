@@ -131,7 +131,7 @@ impl ProfileSources {
 /// `root` is the default acpmux home. `None` for every other home: NIGHTLY,
 /// cmux NEXT, RC, release and a standalone acpmux keep the person's folder.
 ///
-/// The user folder (`~/.config/cmux/harnesses`) is per person, not per
+/// The user folder (`~/.config/cmux-next/harnesses`) is per person, not per
 /// build, so a profile a DEV build or a dogfood script wrote there showed in
 /// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
 /// with models m1 and m2 in cmux NEXT). A DEV build never writes it; it still
@@ -281,6 +281,12 @@ pub struct ProfileMeta {
     /// The agent whose cmux hooks report status for a terminal harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hooks: Option<String>,
+    /// `no_model = true`: the harness calls no model (a bench or probe agent `acpmux cli-agent`
+    /// wraps, `/bin/echo`), so its chats spend nothing. Declared, never inferred from the argv:
+    /// `cli-agent` can wrap a model CLI too. Its chats' `usageStats` read zero tokens, stamped
+    /// each pass (`hub/usage_view.rs`), where no transcript would leave them null (unmetered).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_model: bool,
 }
 
 /// Every profile from every source, and every problem found.
@@ -374,6 +380,8 @@ struct ProfileFile {
     auth: Option<AuthNotes>,
     sessions: Option<SessionsSpec>,
     hooks: Option<String>,
+    #[serde(default, alias = "noModel")]
+    no_model: bool,
 }
 
 // ---------------------------------------------------------------- loading
@@ -914,6 +922,7 @@ fn build(
         models_command: models_file.command,
         model_details: details,
         hooks: file.hooks,
+        no_model: file.no_model,
     };
     Ok((id, profile, meta, warnings))
 }

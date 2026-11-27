@@ -61,6 +61,16 @@ name = "acpmux/plan#STATE_VERSION"
 policy = "unreviewed"
 
 [[format]]
+file = "crates/cmux-auto-session/src/consts.rs"
+const = "MANIFEST_VERSION"
+name = "auto-session-manifest"
+about = "a chat's snapshot manifest in the Cloud: what the next holder (maybe a newer build) needs besides the events"
+policy = "migrate"
+floor = 1
+fixtures = "auto-session-manifest"
+test = "cmux_next_persisted_auto_session_manifest"
+
+[[format]]
 file = "crates/cmux-chat-index/src/index.rs"
 const = "CACHE_VERSION"
 name = "chat-index-cache"
@@ -87,6 +97,14 @@ file = "crates/cmux-config/src/migrations/once.rs"
 const = "LEDGER_VERSION"
 name = "cmux-config/once#LEDGER_VERSION"
 policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-customize/src/library/doctor.rs"
+const = "STATE_VERSION"
+name = "settings-doctor-state"
+about = "the settings doctor's announced and dismissed findings (id to fingerprint)"
+policy = "rebuild"
+why = "a file of another version is carried over by id on the next announce (doctor_announce), and a file lost costs one repeated toast, not work"
 
 [[format]]
 file = "crates/cmux-customize/src/setup/check.rs"

@@ -716,6 +716,8 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
         self.publish(FIX, rules="a" * 64)
+        # The first plan kept FIX's record under state/keys/hot; CI's republish replaces it there too.
+        (self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").unlink()
         code, plan, err = self.plan()
         self.assertEqual(code, 0, err)
         self.assertEqual(plan["via"], "published keys")
@@ -1474,6 +1476,89 @@ class WebCache(unittest.TestCase):
         (keys / commit).write_text(key + "\n")
         self.assertTrue(self.hot.web_unchanged(Live(), key))
         self.assertFalse(self.hot.web_unchanged(Live(), "e" * 64))
+
+
+class SwapLayers(unittest.TestCase):
+    """RFD 0174 slice 1: every receipt names each layer's swap time, and `layers` gives their p95."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("hot_apply_layers_under_test", SCRIPT)
+        cls.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_layers_under_test"] = cls.hot
+        spec.loader.exec_module(cls.hot)
+
+    def receipt(self, **over):
+        base = {"action": "apply", "applied": ["rust"], "platform": "mac",
+                "phases": {"plan": 0.2, "handoff": 1.38, "acpmux": 2.1, "verify": 0.1},
+                "steps": {"rust": {"daemon": "app handoff", "old_pid": 1, "new_pid": 2},
+                          "acpmux": [{"home": "/h", "old_pid": 10, "new_pid": 11}]}}
+        base.update(over)
+        return base
+
+    def test_an_apply_times_the_daemon_handoff_and_the_acpmux_restart_apart(self):
+        self.assertEqual(self.hot.swap_layers(self.receipt()), {
+            "daemon": {"ms": 1380, "state_kept": True},
+            "acpmux": {"ms": 2100, "homes": 1, "state_kept": True}})
+
+    def test_an_acpmux_home_answering_from_its_old_pid_kept_no_state(self):
+        r = self.receipt()
+        r["steps"]["acpmux"][0]["new_pid"] = 10
+        self.assertFalse(self.hot.swap_layers(r)["acpmux"]["state_kept"])
+
+    def test_the_ffi_part_is_quit_plus_launch_and_loses_the_layout(self):
+        r = self.receipt(applied=["ffi"], phases={"quit": 0.6, "swap": 0.05, "launch": 0.42},
+                         steps={"ffi": {"launch": {"pid": 5}}})
+        self.assertEqual(self.hot.swap_layers(r), {"ffi": {"ms": 1020, "state_kept": False, "kept": "sessions"}})
+        r["steps"]["ffi"]["launch"] = None  # the app was not running: nothing the person waited on
+        self.assertEqual(self.hot.swap_layers(r), {})
+
+    def test_dry_runs_failures_and_no_ops_have_no_layers(self):
+        self.assertEqual(self.hot.swap_layers(self.receipt(action="dry-run")), {})
+        self.assertEqual(self.hot.swap_layers(self.receipt(error="boom")), {})
+        self.assertEqual(self.hot.swap_layers(self.receipt(applied=[])), {})
+
+    def test_a_receipt_from_before_the_split_gives_its_reload_as_the_daemon_only_when_alone(self):
+        old = {"action": "apply", "applied": ["rust"], "phases": {"reload": 1.6},
+               "steps": {"rust": {"daemon": "app handoff"}}}
+        self.assertEqual(self.hot.swap_layers(old), {"daemon": {"ms": 1600, "state_kept": True}})
+        old["steps"]["acpmux"] = [{"home": "/h"}]  # reload then held both: neither layer's own time
+        self.assertEqual(self.hot.swap_layers(old), {})
+
+    def test_quantile_is_nearest_rank(self):
+        q = self.hot.quantile
+        self.assertIsNone(q([], 0.95))
+        self.assertEqual(q([5], 0.95), 5)
+        self.assertEqual(q(list(range(1, 21)), 0.95), 19)
+        self.assertEqual(q(list(range(1, 21)), 0.5), 10)
+        self.assertEqual(q([3, 1, 2], 0.0), 1)
+
+    def test_layers_reads_history_and_names_the_now_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            history = Path(tmp) / "history.jsonl"
+            lines = [json.dumps(self.receipt(phases={"handoff": s, "acpmux": 2.0})) for s in (1.0, 1.2, 1.4)]
+            lines += ["not json", json.dumps(self.receipt(action="dry-run")), json.dumps([1])]
+            history.write_text("\n".join(lines) + "\n")
+            out = subprocess.run([sys.executable, str(SCRIPT), "layers", "--json", "--history", str(history)],
+                                 capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            got = json.loads(out.stdout)
+            self.assertEqual(got["layers"]["mac"]["daemon"],
+                             {"n": 3, "p50_ms": 1200, "p95_ms": 1400, "max_ms": 1400, "state_kept": 3})
+            self.assertEqual(got["rows"], {"hot_swap_mac_daemon_handoff_p95_ms": 1400,
+                                           "hot_swap_mac_acpmux_restart_p95_ms": 2000})
+            missing = subprocess.run([sys.executable, str(SCRIPT), "layers", "--history", str(Path(tmp) / "none")],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 1)
+
+    def test_record_writes_the_layers_and_the_platform(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(open(os.devnull, "w")):
+            self.hot.PHASES.seconds = {"handoff": 0.5}
+            receipt = self.receipt(phases=None, steps={"rust": {"daemon": "app handoff"}})
+            self.hot.record(Path(tmp), receipt)
+            line = json.loads((Path(tmp) / "history.jsonl").read_text())
+        self.assertEqual(line["layers"], {"daemon": {"ms": 500, "state_kept": True}})
+        self.assertEqual(line["platform"], "mac")
 
 
 class Phases(unittest.TestCase):
@@ -2296,5 +2381,82 @@ class RefusedOverlayRollback(unittest.TestCase):
         self.assertIn("overlay", json.loads(self.web_dev.read_text()))
 
 
+
+class AppCommitOnAShallowSource(unittest.TestCase):
+    """A fleet Mac's step source is a shallow bundle (hq#27830/#27935): one commit, no history, and an origin
+    it cannot reach. ext-rows-nightly.py crashed there resolving the NIGHTLY's short CMUXCommit (step
+    2a681326817c4454aeb4e856, 2026-11-26): `CMUXCommit 0a6830e is not one commit in .../src`."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-shallow-"))
+        upstream = self.tmp / "upstream"
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True,
+                                  env=env).stdout.strip()
+        subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(upstream)], check=True)
+        for n in (1, 2):
+            (upstream / "f").write_text(f"{n}\n")
+            git(upstream, "add", "f")
+            git(upstream, "commit", "-q", "-m", f"c{n}")
+        self.nightly = git(upstream, "rev-parse", "HEAD~1")  # the app's commit: not the checkout's head
+        self.clone = self.tmp / "src"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", "feat-cmux-next", f"file://{upstream}",
+                        str(self.clone)], check=True)
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+        # GitHub 403s the office IP: the origin is unreachable.
+        git(self.clone, "remote", "set-url", "origin", str(self.tmp / "unreachable"))
+        self.app = self.tmp / "cmux NIGHTLY.app"
+        (self.app / "Contents/Resources/bin").mkdir(parents=True)
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.nightly[:7]}, handle)
+        spec = importlib.util.spec_from_file_location("hot_apply_shallow", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_shallow"] = self.hot
+        spec.loader.exec_module(self.hot)
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_the_bundle_s_own_full_commit_resolves_the_short_stamp(self):
+        (self.app / "Contents/Resources/bin/cmux-tui.version").write_text(
+            f"mode=tree\nkey=k\ncommit={self.nightly}\nsource=release-manifest\n")
+        self.assertEqual(self.hot.app_commit(self.app, self.clone), self.nightly)
+        self.assertEqual(self.hot.app_commit_receipt(self.app, self.clone),
+                         {"app_commit": self.nightly, "app_commit_resolved": True})
+
+    def test_a_bundle_commit_of_another_commit_is_not_taken(self):
+        (self.app / "Contents/Resources/bin/cmux-tui.version").write_text(f"commit={'f' * 40}\n")
+        self.assertFalse(self.hot.resolve_app_commit(self.app, self.clone)["resolved"])
+
+    def test_an_unresolved_stamp_is_a_receipt_as_given_and_a_refusal_for_a_plan(self):
+        receipt = self.hot.app_commit_receipt(self.app, self.clone)
+        self.assertEqual(receipt["app_commit"], self.nightly[:7])
+        self.assertIs(receipt["app_commit_resolved"], False)
+        self.assertIn("a shallow checkout", receipt["app_commit_unresolved"])
+        # What diffs or compares the commit (plan, hot-verify) still refuses: the ancestry is unknown here.
+        with self.assertRaisesRegex(RuntimeError, "is not one commit in a shallow checkout"):
+            self.hot.app_commit(self.app, self.clone)
+
+    def test_a_reachable_origin_deepens_a_shallow_checkout_by_a_day_of_merges(self):
+        subprocess.run(["git", "-C", str(self.clone), "remote", "set-url", "origin",
+                        f"file://{self.tmp / 'upstream'}"], check=True)
+        found = self.hot.resolve_app_commit(self.app, self.clone)
+        self.assertEqual((found["commit"], found["via"]), (self.nightly, "fetch"))
+
+    def test_the_cli_prints_it_for_shell_callers(self):
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), "app-commit", str(self.app), "--repo",
+                               str(self.clone), "--no-fetch"], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["commit"], self.nightly[:7])
+
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py); whole it
+    # ran 260 s on Linux and past the pool's 600 s deadline beside 15 other commands.
+    _shard_spec = importlib.util.spec_from_file_location(
+        "unittest_shard", Path(__file__).resolve().parents[3] / "tests" / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()

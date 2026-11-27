@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CoreFoundation
 import Foundation
-import CmuxNextCompat
+@testable import CmuxNextCompat
 import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogTests {
@@ -46,6 +46,34 @@ import Testing
         CFRunLoopRunInMode(.defaultMode, 0.2, false)
         #expect(watchdog.currentBeat != beat, "the idle run ran")
         #expect(watchdog.log.summary.count == 1)
+    }
+    #endif
+
+    #if DEBUG
+    /// A stall inside a checked blocking call names the call (Chrome's `HangWatcher` names the
+    /// `ScopedBlockingCall`): its kind and call site, read while the main thread was suspended.
+    @MainActor
+    @Test func aStallInsideABlockingCallNamesTheCall() throws {
+        let clock = ManualUptime()
+        let sampled = SampleSignal()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        watchdog.afterSampleForTesting.withLock { $0 = { sampled.fire() } }
+        watchdog.start()
+        defer { watchdog.stop() }
+        let table = BlockingViolationTable(mode: .record)  // the site is recorded here, never in the process's table
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            BlockingViolationTable.$scoped.withValue(table) {
+                blockingCall(.fileIO, line: 4_242) {
+                    stallForTestUntilSampled(clock: clock, by: .milliseconds(150), sampled: sampled)
+                }
+            }
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        #expect(sampled.hasFired, "the watchdog thread did not sample the stall")
+        let stall = try #require(watchdog.log.records().first, "no stall recorded")
+        #expect(stall.details["blocking_call"] == .string("file-io at CmuxNextControlTests/MainThreadWatchdogTests.swift:4242"))
     }
     #endif
 

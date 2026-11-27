@@ -97,6 +97,8 @@ export interface CloudSendDeps {
   newTabCloudSent: RefObject<boolean>;
   cloudPageDraft: RefObject<{ text: string; attachments: ComposerAttachment[] } | undefined>;
   cloudRetryFolder: RefObject<ReturnType<typeof cloudStartFolder> | undefined>;
+  /// The start card shown now: a failed one's environment is the retry's target (`forSend`).
+  cloudStart: CloudStartProgress | undefined;
   setCloudStart: Dispatch<SetStateAction<CloudStartProgress | undefined>>;
   setCloudHeld: Dispatch<SetStateAction<CloudHeld | undefined>>;
   setCloudLeftPage: Dispatch<SetStateAction<number | undefined>>;
@@ -151,6 +153,7 @@ export function sendToCloudWith(
     cloudStartPending,
     cloudPlanHeldTurn,
     cloudPlanHeld,
+    cloudStart,
     setCloudStart,
     sendHeldForPlan,
     cloudEnvironment,
@@ -166,7 +169,7 @@ export function sendToCloudWith(
   if (refused === "cloud_checking") {
     // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
     // goes by itself, the prompt held where it was typed. A read now, since the handshake's may
-    // have missed its 15 s; a read that fails again shows Check again (sandboxUnchecked).
+    // have missed its 15 s; a read that fails again is read again on its own (sandboxUnchecked).
     // The composer's text as it was held, raw (the send's text is trimmed and expanded): an
     // unchanged composer matches it exactly.
     const shownAtHold = fromPage ? undefined : composerHandle.current?.draft();
@@ -218,7 +221,11 @@ export function sendToCloudWith(
     return false;
   }
   // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
-  const environment = cloudEnvironment.forSend(start.environment);
+  // A failed start's environment is part of the preserved intent. The pick resets after the first
+  // send, so a same-prompt Retry uses the card's target instead of silently provisioning another.
+  const retryEnvironment =
+    cloudStart?.state === "failed" && cloudStart.task === text ? cloudStart.environment : undefined;
+  const environment = cloudEnvironment.forSend(start.environment, retryEnvironment);
   const team = cloudSwitchTeam.forSend();
   const unreserved: CloudStart = {
     task: text,
@@ -377,6 +384,7 @@ export function beginCloudSendWith(
             over: { harness: snapshot.summary?.harness, model: snapshot.summary?.model },
           }
         : undefined,
+      start.environment,
     ),
   );
   void started.then((answer) => {
