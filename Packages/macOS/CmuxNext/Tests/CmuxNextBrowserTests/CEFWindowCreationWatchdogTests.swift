@@ -29,12 +29,14 @@ extension CEFSparePageSuites {
             for _ in 0..<40 where !done() { await Task.yield() }
         }
 
-        @Test func aWindowRequestNoOneAnswersIsRetriedOnceThenShowsTheRealFailure() async throws {
+        @Test(arguments: [false, true])
+        func anUnansweredRetryShowsTheRealFailure(firstRequestArrivesLate: Bool) async throws {
             let clock = ManualClock()
             let (runtime, root) = try Fixture.runtime(clock: clock)
             defer { Fixture.tearDown(runtime, root) }
             let (host, tab) = Self.pendingHost(runtime)
             #expect(host.isCreatingWindow && SpareSpy.createWindowCalls == 1)
+            let firstRequest = try #require(runtime.pendingWindows.keys.first)
 
             try await clock.waitForSleeper()
             clock.advance(by: CEFPaneHost.windowCreationLimit + .seconds(1))
@@ -44,6 +46,11 @@ extension CEFSparePageSuites {
             #expect(tab.creationRetries == 1)
 
             try await clock.waitForSleeper()
+            if firstRequestArrivesLate {
+                runtime.handle(.afterCreated(browser: 10, request: firstRequest, window: 1))
+                #expect(SpareSpy.closed.contains(10))
+                #expect(tab.browserID == nil)
+            }
             clock.advance(by: CEFPaneHost.windowCreationLimit + .seconds(1))
             await Self.settle { !host.isCreatingWindow }
             #expect(!host.isCreatingWindow, "the second silence ends the wait")

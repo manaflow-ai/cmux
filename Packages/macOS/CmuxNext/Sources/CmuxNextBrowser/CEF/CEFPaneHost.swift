@@ -360,10 +360,10 @@ final class CEFPaneHost {
 
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
-        windowDeadline?.cancel()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else {
             return lateWindowCreated(browser: browser, request: request)
         }
+        windowDeadline?.cancel()
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
         runtime.benchMarks.point("cef.window_created")
