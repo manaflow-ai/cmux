@@ -169,6 +169,6 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
                                 computerUse: host.menuBarComputerUseAvailable
                                     ? .init(sessions: host.menuBarComputerUseSessions, floatingPreview: floatingPreview?.shown()) : nil,
                                 unread: .init(host.menuBarUnread), running: .init(host.menuBarRunning),
-                                keepingAwake: keepingAwake)
+                                keepingAwake: keepingAwake, signInBackend: host.menuBarSignInBackend)
     }
 }
