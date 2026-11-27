@@ -1,5 +1,5 @@
 import type { Env } from "../../env.ts"
-import type { MadeMachine, SandboxProvider } from "../../hand-providers.ts"
+import { isCapacityFailure, type MadeMachine, type SandboxProvider } from "../../hand-providers.ts"
 import { freestyleCustomer } from "./customer.ts"
 import { freestyleIdleSeconds } from "../../auto-pause.ts"
 import { BACKGROUND_AFTER, settleBackground } from "./background.ts"
@@ -29,9 +29,14 @@ export const freestyleHands: SandboxProvider = {
       ...freestyleCustomer(input.owner),
       firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
     })
-    const body = (await res?.json().catch(() => null)) as { vmId?: string; id?: string } | null
+    if (!res) return null
+    const text = await res.text().catch(() => "")
+    const body = (() => { try { return JSON.parse(text) as { vmId?: string; id?: string; code?: string; message?: string; error?: string } } catch { return null } })()
     const id = body?.vmId ?? body?.id
-    return res?.ok && id ? { id } : null
+    if (res.ok && id) return { id }
+    // Only the status and the provider's own code/message (never the request): e.g. 429 INFRASTRUCTURE_OVERLOADED.
+    const said = [body?.code, body?.message ?? body?.error].filter((x): x is string => typeof x === "string").join(" ").replace(/\s+/g, " ").slice(0, 160)
+    return { error: `${res.status}${said ? ` ${said}` : ""}`, capacity: isCapacityFailure(res.status, said || text.slice(0, 300)) }
   },
   async exec(env, id, command, timeoutMs) {
     // The install runs up to 150 s; held open past about 125 s, the provider's edge cuts the call (background.ts).
