@@ -3110,7 +3110,6 @@ async fn dispatch_request_with_identity(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
-        "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         crate::peer::wg_learn::ADMIT => {
             super::peer_status::wireguard_admit(hub, conn.origin, &params).await
