@@ -3843,6 +3843,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             "needs.fast-tier-cargo.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
+            # The cheap gate is not red: a pull request's heavy jobs start (#58899).
+            "needs.fast-tier-cargo.result": "success",
             "github.event_name": event, "github.ref": ref,
             "github.base_ref": "feat-cmux-next" if event == "pull_request" else "",
             "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
@@ -4087,6 +4089,8 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             # The router succeeded: on a pull request its `!= 'false'` reads need that (#58306).
             "needs.path_route.result": "success",
             "needs.fast-tier-cargo.result": "success",
+            # The router ran: the job checks its result (#56987).
+            "needs.path_route.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
             "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
