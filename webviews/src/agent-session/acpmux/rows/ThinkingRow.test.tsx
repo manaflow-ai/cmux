@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixtures.
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -11,7 +11,11 @@ import { LIVE_THINKING } from "../conversation/turns";
 import type { AcpmuxRow } from "../model";
 
 // Exercise the row's real hooks and startup line; the running turn's rendering has its own tests.
+const realThinking = { ...(await import("../conversation/Thinking")) };
 mock.module("../conversation/Thinking", () => ({ Thinking: () => <span data-running-turn /> }));
+afterAll(async () => {
+  await mock.module("../conversation/Thinking", () => realThinking);
+});
 const { ThinkingRow } = await import("./ThinkingRow");
 
 let root: Root | undefined;
