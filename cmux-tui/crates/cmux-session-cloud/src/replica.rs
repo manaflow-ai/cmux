@@ -26,6 +26,7 @@ pub struct Receipt {
 }
 
 #[derive(Serialize, Deserialize)]
+// skew: strict versioned encrypted storage manifest; never decoded by a live peer.
 #[serde(deny_unknown_fields)]
 struct Manifest {
     version: u32,
@@ -36,6 +37,7 @@ struct Manifest {
 }
 
 #[derive(Serialize, Deserialize)]
+// skew: strict v1 manifest entry; unknown storage semantics require a new manifest version.
 #[serde(deny_unknown_fields)]
 struct Entry {
     path: String,
@@ -45,6 +47,7 @@ struct Entry {
 }
 
 #[derive(Serialize, Deserialize)]
+// skew: strict v1 chunk layout; recovery must understand every authenticated field.
 #[serde(deny_unknown_fields)]
 struct Chunk {
     hash: String,
