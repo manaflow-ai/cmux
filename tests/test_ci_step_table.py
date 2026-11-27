@@ -102,7 +102,7 @@ class NightlyGateTest(unittest.TestCase):
         # Cargo.lock reaches the iOS FFI too: the ios fast verdict starts the pipeline and the reason names both.
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
-        self.assertEqual(only, ["rust-notices"])
+        self.assertEqual(only, ["rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
@@ -128,6 +128,42 @@ class NightlyGateTest(unittest.TestCase):
             start, _, (jobs, only) = self.landing(["first-party-apps/notes/src/app.ts"])
         self.assertNotIn("pr-pipeline.yml", start)
         self.assertEqual(only, [])
+
+    def test_phone_speed_runs_on_each_affected_landing_input(self) -> None:
+        for path in ("cmux-tui/crates/cmux-terminal-projection/src/lib.rs",
+                     "scripts/bench/phone-speed/src/main.rs", "cmux-tui/Cargo.lock"):
+            with self.subTest(path=path):
+                start, why, (jobs, only) = self.landing([path])
+                self.assertIn("pr-pipeline.yml", start)
+                self.assertIn("phone speed gate", why["pr-pipeline.yml"])
+                self.assertEqual(jobs, ["linux"])
+                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
+                self.assertEqual(only, expected)
+
+    def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
+        with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"}):
+            start, _, (jobs, only) = self.landing(["cmux-tui/crates/cmux-terminal-projection/src/lib.rs"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), (["linux"], ["phone-speed-icount"]))
+
+    def test_phone_speed_keeps_the_full_tier_and_cheap_nonlanding_routes(self) -> None:
+        path = "scripts/bench/phone-speed/src/main.rs"
+        start, _, (jobs, only) = self.landing([path], decided=("full", "ready-to-land"))
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertEqual(only, [])
+        start, _, (jobs, only) = self.landing([path], decided=("cheap", "ready head before ready-to-land"))
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
+
+    def test_phone_speed_unknown_paths_run_but_unrelated_paths_do_not(self) -> None:
+        start, _, (jobs, only) = self.landing(None)
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertIn("phone-speed-icount", only)
+        start, _, (jobs, only) = self.landing(["web/app/page.tsx"])
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
 
     def test_the_workflows_pass_only_through(self) -> None:
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
