@@ -161,7 +161,9 @@ impl Hub {
                     report: false,
                     waited: false,
                     at: now_ms(),
-                    within: None,
+                    // A plain chat's own exit-0 end waits a short while (`bg_notify.rs`
+                    // `OWN_END_HOLD_MS`); a coordinator's its class's deadline.
+                    within: crate::prompt_provenance::within(Some(provenance)),
                     text: text.to_owned(),
                     details: None,
                     fire: false,

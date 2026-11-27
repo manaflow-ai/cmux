@@ -1,0 +1,12 @@
+# Reconnects: fast retries and a redial when the network comes back (the phone's link and the Mac's links)
+
+- Section: Transport
+- Mac sends: nothing new; each Mac connection redials by itself
+- Phone: the link (`LinkMachine`, cmux#56778): in front 250 ms, 500 ms, 1, 2, 4, then 5 s for 64 tries, then 20 s; an `NWPathMonitor` change redials at once, and probes a live link; a dial that hangs past its patience (6 s, doubling) gets a redial beside it
+- State: works
+- Notes: Leo, 2026-11-25: "I feel like iOS doesn't retry connections aggressively enough. Or like it isn't detecting when Wi-Fi is restored and all of that ... I mean likewise with all of our other connectivity things." The Mac's analogues, as of `feat-cmux-next` 2026-11-25:
+  - Machine link to a Cloud machine or an SSH remote (`cmux-remote` `ClientConnection`, `remote connect --headless`): matches. Bursts of three redials (at once, then about 150 ms and 600 ms, jittered), then a park of at most 5 s, forever, within a redial budget of 4 plus one per 2 s; a network change (`cmux-netwatch`) drops a dial in flight and redials, wakes a parked link, and probes a live one (2 s, `NETWORK_CHANGE_PROBE_TIMEOUT`); heartbeat every 2 s, dead after 4 s; a warm standby route is raced. Exception: no redial beside a dial that hangs with no network change before the attempt bound (15 s; the phone hedges at 6 s of a 25 s dial).
+  - Mac-to-Mac chat peers (acpmux `peer_link.rs` `Backoff`, `peer_network.rs`): matches while a chat waits on the peer (steps of at most 1 s, `WANTED_CAP`); a network change probes a live link (2 s, `NETWORK_PROBE`) and ends a backoff wait at once; a direct redial is bounded at 4 s. Exception: a peer nobody waits on doubles from 500 ms to 60 s (the phone's slow schedule is its background one).
+  - Daemon connections not on a link (a server socket or bridge; `DaemonService`): an `NWPathMonitor` change wakes the retry; 50 ms doubling to 30 s for 10 tries, then one per 300 s (`RetryPolicy.starvedPeerTail`) until an event.
+  - Cloud event socket (`CloudMachineWire`, `/v1/wire/cloud`: port changes, spare readiness): lagged, fixed in this PR. It backed off 500 ms to 30 s with no network trigger and no probe; now an `NWPathMonitor` change ends its backoff wait at once (and starts the backoff over), and a live socket sends a ping that must answer within 2 s or is redialed. Test: `CmuxNextCloudTests/CloudMachineWireReconnectTests.swift`.
+  - Not checked here: whether a Mac terminal on a Cloud machine shows its saved copy while offline, as the phone's does.

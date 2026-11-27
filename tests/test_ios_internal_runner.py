@@ -183,8 +183,8 @@ class NoCarrierReroutes(unittest.TestCase):
         env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", CI_RUNNER_STATE=raw, FALLBACK_MAC=fallback)
         return picker.fleet_fallback(env)
 
-    def mac(self, status: str = "online", *labels: str) -> dict:
-        return {"status": status, "busy": True, "labels": [{"name": label} for label in labels]}
+    def mac(self, status: str = "online", *labels: str, busy: bool = True) -> dict:
+        return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
     def test_a_declared_xcode_label_no_online_runner_carries_takes_the_fallback(self) -> None:
         only_26 = census([self.mac("online", "glaeda-side-std-xcode-26.6", "xcode-26.6")])
@@ -193,10 +193,17 @@ class NoCarrierReroutes(unittest.TestCase):
         self.assertEqual(self.fallback(offline_27)[0], self.FALLBACK)
         self.assertIn("no online runner carries", self.fallback(offline_27)[1])
 
-    def test_a_live_carrier_keeps_the_fleet_label(self) -> None:
-        # Busy still counts: the job waits for a Mac that has Xcode 27, not for none.
-        live = census([self.mac("online", "cmux-mac", "xcode-27.0")])
-        self.assertEqual(self.fallback(live)[0], "")
+    def test_an_idle_carrier_keeps_the_fleet_label(self) -> None:
+        idle = census([self.mac("online", "cmux-mac", "xcode-27.0"),
+                       self.mac("online", "cmux-mac", "xcode-27.0", busy=False)])
+        self.assertEqual(self.fallback(idle)[0], "")
+
+    def test_a_fleet_with_every_carrier_busy_takes_the_fallback(self) -> None:
+        """Run 45936877784's archive queued 52+ min on a busy cmux-mac + xcode-27.0 (11-27, 82 runs queued); Leo
+        2026-11-27 wants merge to TestFlight in about 30 min."""
+        busy = census([self.mac("online", "cmux-mac", "xcode-27.0"), self.mac("online", "cmux-mac", "xcode-27.0")])
+        self.assertEqual(self.fallback(busy)[0], self.FALLBACK)
+        self.assertIn("is busy", self.fallback(busy)[1])
 
     def test_no_reading_or_no_fallback_keeps_the_fleet_label(self) -> None:
         self.assertEqual(self.fallback("")[0], "")
@@ -213,7 +220,7 @@ class NoCarrierReroutes(unittest.TestCase):
             self.assertEqual(Path(out).read_text(), f"dedicated=\nattempt=1\nfallback=[\"{self.FALLBACK}\"]\n")
 
     def test_the_checked_set_is_the_workflows_fleet_fallback(self) -> None:
-        self.assertIn("fromJSON(needs.pick-archive-runner.outputs.fallback)",
+        self.assertIn("fromJSON(needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback",
                       WORKFLOW.read_text(encoding="utf-8"))
 
 
@@ -232,8 +239,8 @@ class Workflow(unittest.TestCase):
         # The fallback must land on an Xcode 27 Mac: plain cmux-mac took 26.6-only Macs.
         # ... unless no online runner carries xcode-27.0: then the picker's fallback (a Blacksmith Mac).
         self.assertTrue(runs_on.rstrip("} ").endswith(
-            "|| vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && "
-            "needs.pick-archive-runner.outputs.fallback || fromJSON('[\"cmux-mac\",\"xcode-27.0\"]')"), runs_on)
+            "|| vars.CI_OVERFLOW_MAC || fromJSON(needs.pick-archive-runner.outputs.fallback != '' && "
+            "needs.pick-archive-runner.outputs.fallback || '[\"cmux-mac\",\"xcode-27.0\"]')"), runs_on)
         self.assertEqual(jobs["pick-archive-runner"]["outputs"]["fallback"], "${{ steps.pick.outputs.fallback }}")
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])

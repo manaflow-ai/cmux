@@ -95,6 +95,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudEnvironment: "cloudEnvironment"
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method
+        case .cloudFolderAdd: AgentPaneModel.cloudFolderAddMethod
         case .appAction: "appAction"
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"
@@ -123,6 +124,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
         case .checkpointAvailability: "checkpointAvailability"
+        case .composerFilled: "composerFilled"
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
         case .launchSettle: "launchSettle"

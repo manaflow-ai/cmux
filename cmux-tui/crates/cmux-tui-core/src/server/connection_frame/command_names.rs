@@ -36,6 +36,7 @@ impl Command {
             Self::ChiefWork { .. } => "chief-work",
             Self::UrlOpenClaim { .. } => "url-open-claim",
             Self::UrlOpenResult { .. } => "url-open-result",
+            Self::OfferLinkToPhone { .. } => "offer-link-to-phone",
             Self::TerminalClipboardSubscribe { .. } => "terminal-clipboard-subscribe",
             Self::TerminalClipboardReply { .. } => "terminal-clipboard-reply",
             Self::PasteImage { .. } => "paste-image",

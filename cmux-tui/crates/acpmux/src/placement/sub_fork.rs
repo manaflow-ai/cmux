@@ -43,6 +43,17 @@ pub trait Machines: Send + Sync + 'static {
     ) -> impl Future<Output = Result<String, String>> + Send;
     /// Delete a fork this placement made. Deleting one that is already gone is not an error.
     fn delete(&self, machine: &str) -> impl Future<Output = Result<(), String>> + Send;
+    /// [`Machines::fork`] at a ladder size (`sm` .. `2xl`), never smaller than `machine`: a run VM
+    /// at its predicted shape (RFD 0144 piece 8). A backend without sizes forks at the source's.
+    fn fork_sized(
+        &self,
+        machine: &str,
+        client_key: &str,
+        size: Option<&str>,
+    ) -> impl Future<Output = Result<String, String>> + Send {
+        let _ = size;
+        self.fork(machine, client_key)
+    }
 }
 
 /// Runs the sub-agent on a fork and brings its result back.
@@ -206,12 +217,25 @@ impl CloudMachines {
 #[cfg(unix)]
 impl Machines for CloudMachines {
     async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
+        self.fork_sized(machine, client_key, None).await
+    }
+
+    async fn fork_sized(
+        &self,
+        machine: &str,
+        client_key: &str,
+        size: Option<&str>,
+    ) -> Result<String, String> {
         let mut request = self.request.clone();
         request.call = "machine.fork".into();
-        request.args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
+        let mut args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
             .as_object()
             .cloned()
             .unwrap_or_default();
+        if let Some(size) = size {
+            args.insert("size".into(), Value::from(size));
+        }
+        request.args = args;
         let answer = cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
             .await
             .map_err(|f| Self::failure(&f, &request))?;

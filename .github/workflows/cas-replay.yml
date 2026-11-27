@@ -19,6 +19,11 @@ name: cas/1 replay (RFD 0166)
 # Row U2 (a Mac 20 NIGHTLYs behind) is the `u2` job: scripts/cas/mac_update_replay.py fetches published
 # nightly-next DMGs from the feed, unpacks the .app with 7-Zip and replays N-20, N-1 and N.
 #
+# Row A1 (job a1): fleet host acpmux update bytes. scripts/cas/acpmux_update_replay.py finds the
+# newest published acpmux builds (files.cmux.com/cmux-tui/tree/<key>/) along feat-cmux-next's history
+# and replays each update against the previous build: today's whole binary, zstd -19, cas/1 Range GETs
+# and zstd --patch-from the installed build.
+#
 # Every web merge reruns it (the push paths include webviews/), so the row moves with each publish.
 
 on:
@@ -35,6 +40,7 @@ on:
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
+      - "tests/test_cas_acpmux_update_replay.py"
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
@@ -44,6 +50,7 @@ on:
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
+      - "tests/test_cas_acpmux_update_replay.py"
   workflow_dispatch:
     inputs:
       count:
@@ -55,12 +62,18 @@ on:
       behind:
         description: "U2: how many published NIGHTLYs behind the oldest client is"
         default: "20"
+      builds:
+        description: "A1: consecutive published acpmux builds to replay"
+        default: "12"
 
 permissions: {}
 
 concurrency:
   group: cas-replay-${{ github.ref }}
-  cancel-in-progress: true
+  # A push to feat-cmux-next is never cancelled: a run cancelled mid-way burned its runner minutes for no result
+  # (about 40 runner-h/day cancelled, cmuxterm-hq#29655). The group keeps one run going and the newest push pending
+  # (GitHub drops an older pending one, which holds no runner). A pull request's newer head still supersedes its run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   w1:
@@ -73,7 +86,7 @@ jobs:
       # The publish runs' list and their bundle artifacts.
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -132,7 +145,7 @@ jobs:
       # The newest seed-derived-data.yml run's job log names the seed key prefix.
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -194,7 +207,7 @@ jobs:
       # The nightly.yml runs list, which names the published builds.
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -282,5 +295,106 @@ jobs:
           path: |
             ${{ runner.temp }}/cas-replay-u2/rows.jsonl
             ${{ runner.temp }}/u2.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  a1:
+    name: cas/1 replay, row A1 (acpmux update bytes per published build)
+    # Like U2, its input is what is published, not this repo's paths: a push replays only when the
+    # feat-cmux-next channel names a build with no replay yet (a cache marker keyed by its tree key),
+    # so a web merge costs one channel read.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Keying ~1500 commits (16 at a time), 12 x 75 MB downloads, 23 zstd -19 runs and one cas-replay.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Discovery keys feat-cmux-next's first-parent commits; published builds are coalesced.
+          fetch-depth: 1600
+          ref: feat-cmux-next
+
+      - name: Newest channel build
+        id: newest
+        run: |
+          set -euo pipefail
+          key=$(curl -fsSL --retry 3 https://files.cmux.com/cmux-tui/channels/feat-cmux-next.json \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "feat-cmux-next channel tree: $key"
+
+      - name: Has this build been replayed?
+        id: seen
+        if: github.event_name == 'push'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/a1-marker
+          key: cas-replay-a1-${{ steps.newest.outputs.key }}
+          lookup-only: true
+
+      # The PR's own copy of the driver and its test (the checkout above is feat-cmux-next's).
+      - name: Use this commit's driver
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name == 'pull_request'
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$SHA"
+          git checkout "$SHA" -- scripts/cas tests/test_cas_acpmux_update_replay.py cmux-tui/crates/cmux-cas
+
+      - name: Test the replay driver
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tests/test_cas_acpmux_update_replay.py
+
+      - name: Set up pinned Rust
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: false
+
+      - name: Build cas-replay
+        if: steps.seen.outputs.cache-hit != 'true'
+        working-directory: cmux-tui
+        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+
+      - name: Replay the newest published acpmux builds (A1)
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          BUILDS: ${{ inputs.builds || '12' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cas/acpmux_update_replay.py --cas-replay cmux-tui/target/release/cas-replay \
+            --rev HEAD --walk 1500 --count "$BUILDS" --work "$RUNNER_TEMP/cas-replay-a1" | tee "$RUNNER_TEMP/a1.json"
+
+      - name: Mark this build replayed
+        if: github.event_name == 'push' && steps.seen.outputs.cache-hit != 'true'
+        run: mkdir -p "$RUNNER_TEMP/a1-marker" && cp "$RUNNER_TEMP/a1.json" "$RUNNER_TEMP/a1-marker/"
+
+      - name: Save the marker
+        if: github.event_name == 'push' && steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/a1-marker
+          key: cas-replay-a1-${{ steps.newest.outputs.key }}
+
+      - name: Keep the rows
+        if: always() && steps.seen.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cas-replay-a1
+          path: |
+            ${{ runner.temp }}/cas-replay-a1/rows.jsonl
+            ${{ runner.temp }}/a1.json
           if-no-files-found: ignore
           retention-days: 14
