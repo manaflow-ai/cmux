@@ -624,8 +624,9 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
 }
 
 /// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
-/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
-const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// mid-line, starting with a letter, digit or that punctuation, never a space. It may end in spaces:
+/// the serializer keeps a paragraph's trailing spaces, and every word typed ends in one.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!][A-Za-z0-9 ,'?!.]*$/;
 /// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
 /// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
 const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
