@@ -45,6 +45,13 @@ public struct CloudConfiguration: Sendable, Equatable {
         }
     }
 
+    /// The sign-in item the Team-signed production builds share (Rust's `SharedSession`): its Keychain
+    /// service and the access group every query on it names.
+    public struct SharedSession: Sendable, Equatable, Codable {
+        public var keychainService: String
+        public var accessGroup: String
+    }
+
     /// A store an earlier version of this build used (Rust's `LegacyStore`).
     public struct LegacyStore: Sendable, Equatable, Codable {
         public var keychainService: String
@@ -77,6 +84,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// build with no usable tag is misconfigured: every client of this configuration's origins refuses its calls
     /// (``CMUXBuildSpaceError``) rather than reach nightly's data. Every client adds it to each request and upgrade.
     public var buildSpace: CMUXBuildSpaceState = .nightly
+    /// The session this build shares with the other Team-signed production builds; nil for every other build.
+    public var sharedSession: SharedSession?
 
     /// The Stack token Keychain service.
     public var keychainService: String { storage.keychainService }
@@ -133,6 +142,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             var backend: Kind, apiBaseUrl: URL, authWebOrigin: URL, stackBaseUrl: URL, stackProjectId: String
             var stackPublishableClientKey: String, isProductionAuth: Bool, callbackScheme: String, bundleId: String
             var isDebugBuild: Bool, storage: StorageNames, namespacedLegacyStore: LegacyStore?
+            var sharedSession: SharedSession?
         }
         let request = Request(selection: selection, bundleId: bundleID, bundled: bundled, process: process, isDebugBuild: isDebugBuild)
         guard let made = CloudStartCore().call("cloud_config_from_selection", request, as: Made.self) else { return .unavailable }
@@ -147,7 +157,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackPublishableClientKey: made.stackPublishableClientKey, isProductionAuth: made.isProductionAuth,
             callbackScheme: made.callbackScheme, bundleID: made.bundleId, isDebugBuild: made.isDebugBuild,
             runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
-            backendLabel: backendLabel(of: backend))
+            backendLabel: backendLabel(of: backend), sharedSession: made.sharedSession)
         // A tagged dev build asks every cloud backend for its own data space; nightly and stable send nothing.
         configuration.buildSpace = dataSpace(of: BuildIdentity(bundleID: bundleID, bundledTag: bundled["CMUX_TAG"]))
         return configuration
