@@ -24,10 +24,6 @@ import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
 import { PaneViewContext } from "./paneViewStore";
-import { primeRestoredTail } from "./restoredTail";
-
-/// The longest a restored chat's first render waits on its kept tail (`chat.tail.get`, a host read).
-const RESTORED_TAIL_PRIME_MS = 50;
 
 // The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
 // page now, before the handshake, instead of keeping its loading state until the rows are read.
@@ -100,28 +96,21 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // (paneViewStore.ts: its own header, tab row, notices and cards), so a bench can
   // measure what a hidden chat costs as a view in a shared document (bench/chat-pages-memory.bench.ts SHARED=1).
   const mounts = Math.max(1, Math.min(64, Number(new URLSearchParams(location.search).get("mounts")) || 1));
-  // A restored chat (a relaunch) renders once its kept tail is read, at most RESTORED_TAIL_PRIME_MS: the
-  // first render draws its rows under the copy, where it drew an empty transcript and then the rows
-  // (restoredTail.ts `primeRestoredTail`). Any other page, and a gallery's given chat, renders now.
-  const render = () => {
-    for (let index = 0; index < mounts; index += 1) {
-      let container = root;
-      if (mounts > 1) {
-        container = document.createElement("div");
-        container.dataset.paneMount = String(index);
-        root.append(container);
-      }
-      createRoot(container).render(
-        <PaneViewContext.Provider value={mounts > 1 ? `mount-${index}` : null}>
-          <UiProvider container={container} popupHost={popupHost}>
-            <PaneBoundary onRetry={() => window.location.reload()}>
-              <AcpmuxApp initialChat={initialChat} />
-            </PaneBoundary>
-          </UiProvider>
-        </PaneViewContext.Provider>,
-      );
+  for (let index = 0; index < mounts; index += 1) {
+    let container = root;
+    if (mounts > 1) {
+      container = document.createElement("div");
+      container.dataset.paneMount = String(index);
+      root.append(container);
     }
-  };
-  if (initialChat !== undefined || mounts > 1) render();
-  else void primeRestoredTail(RESTORED_TAIL_PRIME_MS).then(render);
+    createRoot(container).render(
+      <PaneViewContext.Provider value={mounts > 1 ? `mount-${index}` : null}>
+        <UiProvider container={container} popupHost={popupHost}>
+          <PaneBoundary onRetry={() => window.location.reload()}>
+            <AcpmuxApp initialChat={initialChat} />
+          </PaneBoundary>
+        </UiProvider>
+      </PaneViewContext.Provider>,
+    );
+  }
 }

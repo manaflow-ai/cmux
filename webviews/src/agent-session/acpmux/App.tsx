@@ -51,7 +51,7 @@ import {
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal } from "./direct";
-import { takePrimedRestoredTail, watchRestoredTail } from "./restoredTail";
+import { watchRestoredTail } from "./restoredTail";
 import { drawsCopy } from "./conversation/turnEndFold";
 import {
   authBlocksSend,
@@ -1240,12 +1240,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
-  // A relaunch's kept tail, read before this first render (restoredTail.ts `primeRestoredTail`): drawn under the
-  // copy from the first render, as `watchRestoredTail` draws one that answers later.
-  const [primedTail] = useState(() => (initialChat ? undefined : takePrimedRestoredTail()));
-  const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(
-    () => initialChat?.snapshot ?? primedTail ?? cachedSnapshot(),
-  );
+  const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(() => initialChat?.snapshot ?? cachedSnapshot());
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
   const switchViewRef = useRef(switchView);
@@ -3902,7 +3897,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A prompt that timed out and came back to the composer, which acpmux took after all, leaves it again.
   useEffect(() => onHandedBackRecorded((back) => composerHandle.current?.withdraw(back.text, back.attachments)), []);
   /// The newest snapshot, for host requests that read it (pane.context).
-  const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot ?? primedTail);
+  const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
   /// A chat's chrome the page drew before its attach answered stays drawn until then (shownChrome.ts):
   /// what the page showed first (the reload copy) until the first frame replaces it, then the last one.
   const [chrome] = useState(() => shownChrome());
@@ -4285,7 +4280,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // with the document, and its window shows over the pane before the host's alpha can hide it:
   // until then the page draws no chat screen (Lucas 2026-10-24: Cmd-T spam flashed it in New Tabs).
   const [contextKnown, setContextKnown] = useState(
-    () => initialChat !== undefined || primedTail !== undefined || injectedNewTabContext() !== undefined,
+    () => initialChat !== undefined || injectedNewTabContext() !== undefined,
   );
   const markContextKnown = useCallback(() => setContextKnown(true), []);
   // A context that came by `newTab.context` (not injected) carries the start too: drawn with it.
@@ -6397,7 +6392,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
   });
-  const rowsRef = useRef<readonly AcpmuxRow[]>(initialChat?.snapshot.rows ?? primedTail?.rows ?? []);
+  const rowsRef = useRef<readonly AcpmuxRow[]>(initialChat?.snapshot.rows ?? []);
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
@@ -7126,7 +7121,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
-  const [restoredTailSession, setRestoredTailSession] = useState<string | undefined>(primedTail?.sessionId);
+  const [restoredTailSession, setRestoredTailSession] = useState<string>();
   // A New Tab page is what it is from its first render: its frame draws before the handshake
   // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
   // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
