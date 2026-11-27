@@ -2258,7 +2258,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: create (the schema gates it on workspace-registry-v1, which the app does not check before sending), rename (a revision sent as a decimal string), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: create (the schema gates it on workspace-registry-v1, which the app does not check before sending), put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2384,6 +2384,31 @@
               ]
             },
             "report_closed_ids": {
+              "encode": "if_true"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "rename-workspace": {
+          "name": "RenameWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "name",
+            "source",
+            "expected_name_revision",
+            "release",
+            "mutation"
+          ],
+          "fields": {
+            "source": {
+              "type": "WorkspaceNameSource"
+            },
+            "expected_name_revision": {
+              "encode": "decimal"
+            },
+            "release": {
               "encode": "if_true"
             }
           },
