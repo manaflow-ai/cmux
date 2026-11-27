@@ -892,7 +892,7 @@ jobs:
     name: cmux-next path routing
     # Why: note-358
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    # Why: note-561
+    # Why: 2026-11-26-path-route-git-stall.md
     env:
       GIT_HTTP_LOW_SPEED_LIMIT: '1'
       GIT_HTTP_LOW_SPEED_TIME: ${{ format('{0}', vars.CI_ROUTE_GIT_STALL_SECONDS) == '0' && '60' || vars.CI_ROUTE_GIT_STALL_SECONDS || '15' }}
