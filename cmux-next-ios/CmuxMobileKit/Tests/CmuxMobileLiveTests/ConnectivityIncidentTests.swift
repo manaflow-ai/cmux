@@ -591,6 +591,7 @@ import Testing
         await driveOutage(first, now: now, seconds: 40)
         await settle { first.pending.first?.tries == 1 }
         #expect(first.pending.map(\.incident.state) == [.open])
+        await ConnectivityIncidentReporter.savesWritten()
         #expect(FileManager.default.fileExists(atPath: file.path))
         // The app is killed while the Mac is still unreachable; the next launch sends the start, then
         // its end as "app relaunched".

@@ -177,7 +177,6 @@ public final class ConnectivityIncidentReporter {
     private var flushTask: Task<Void, Never>?
     /// The one wait for the outbox head's backoff.
     private var retryTask: Task<Void, Never>?
-    private var lastSave: Date = .distantPast
     private var lifecycleObservers: [any NSObjectProtocol] = []
     private var pathMonitor: NWPathMonitor?
     public static let tickInterval: Duration = .seconds(5)
@@ -200,7 +199,10 @@ public final class ConnectivityIncidentReporter {
         }
         self.check = check
         self.send = send
-        outbox = file.flatMap { try? JSONDecoder().decode(ConnectivityIncidentOutbox.self, from: Data(contentsOf: $0)) } ?? .init()
+        // Behind any write still on the disk queue (another reporter's, in this process), so it reads the newest outbox.
+        outbox = file.flatMap { file in
+            Self.disk.sync { try? JSONDecoder().decode(ConnectivityIncidentOutbox.self, from: Data(contentsOf: file)) }
+        } ?? .init()
         outbox.recoverRelaunch(at: now())
         save()
         flush()
@@ -420,14 +422,25 @@ public final class ConnectivityIncidentReporter {
         }
     }
 
+    /// The outbox's encode and write, in order, off the main thread. The tick saves every 5 s while an
+    /// incident is open (an LTE blip opens one), and an atomic write with file protection on main was a
+    /// stall a keystroke waited behind (IncidentSaveMainStallTests). The launch read waits behind it (`init`).
+    private nonisolated static let disk = DispatchQueue(label: "cmux.connectivity-incidents.disk", qos: .utility)
+
     private func save() {
         guard let file else { return }
-        // Nothing to keep and nothing kept: no file (everyone outside the team, tests).
-        if outbox.entries.isEmpty, outbox.open.isEmpty, !FileManager.default.fileExists(atPath: file.path) { return }
-        lastSave = now()
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(outbox) else { return }
-        try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        let outbox = outbox
+        Self.disk.async {
+            // Nothing to keep and nothing kept: no file (everyone outside the team, tests).
+            if outbox.entries.isEmpty, outbox.open.isEmpty, !FileManager.default.fileExists(atPath: file.path) { return }
+            guard let data = try? JSONEncoder().encode(outbox) else { return }
+            try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+    }
+
+    /// Waits until every save so far is on disk (tests and benches).
+    nonisolated static func savesWritten() async {
+        await withCheckedContinuation { continuation in disk.async { continuation.resume() } }
     }
 
     // MARK: The live check
