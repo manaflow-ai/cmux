@@ -711,6 +711,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalPasteboard+Image.swift": {
   "synchronous file write or file-system change": 3
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+CommentAnchor.swift": {
+  "line split of a whole input": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/AppCopyGuide.swift": {
   "process launch": 1
  },
