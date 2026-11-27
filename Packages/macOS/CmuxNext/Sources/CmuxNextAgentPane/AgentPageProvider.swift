@@ -19,6 +19,7 @@ public extension PageDescriptor {
     /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace, CustomizeChatPage.namespace],
+        nativeOps: [PageVisibleSlices.stream],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
@@ -43,7 +44,7 @@ public nonisolated struct AgentPageOps {
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
             "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.cloudPick", "newTab.warm", "shortcut.edit", "action.run", "editors.list", "file.open", "browser.open",
             "project.list", "project.icon", "folder.complete", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "chat.attach.external", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
-            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.sessionInfo.pinch", "pane.glass", "pane.toastAvoidance", "pane.toast", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "customizations.menu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.cloudStartQueue", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.sessionInfo.pinch", "pane.glass", "pane.toastAvoidance", "pane.toast", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "customizations.menu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "cloud.folder.add", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.cloudStartQueue", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.worktree.setup.run", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
@@ -444,8 +445,10 @@ public final class AgentPageProvider: PageProvider {
             case .failure(let error): throw PageError(code: error.code, message: error.message)
             }
         }
-        AgentPaneTailCache.keepHandOver(of: method, params: params.foundationObject as? [String: Any], pageGeneration: tailGeneration)
-        let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
+        AgentPaneTailCache.keepHandOver(of: method, params: params, pageGeneration: tailGeneration)
+        // A kept hand-over's tail is the store's, never the model's: it is not walked into Foundation
+        // on the main actor for a request that never reads it (cmuxterm-hq#19028).
+        let request = AgentPaneRequest(body: ["method": method, "params": Self.withoutHandOver(params, of: method).foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
         if request == .ready { onHandshake?() }
@@ -453,6 +456,14 @@ public final class AgentPageProvider: PageProvider {
         // page params. Pass it through only at this seam so shared-page user-only writes survive a
         // long native menu, while the legacy bridge still uses its pane gesture credit.
         return try Self.value(of: await model.respond(to: request, userGesture: context.userGesture))
+    }
+
+    /// `params` less a `chat.subagentPane`'s `handOver` (``AgentPaneTailCache/keepHandOver(of:params:pageGeneration:)``);
+    /// every other method's params as they are.
+    nonisolated static func withoutHandOver(_ params: JSONValue, of method: String) -> JSONValue {
+        guard method == "chat.subagentPane", case .object(var members) = params,
+              members.removeValue(forKey: "handOver") != nil else { return params }
+        return .object(members)
     }
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and

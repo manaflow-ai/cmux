@@ -1,7 +1,7 @@
 import CmuxNextDesign
 public import Foundation
 
-/// `sidebar.look`: the sidebar drawn like another app's (`claude`, `codex`, `studio`), or cmux's own
+/// `sidebar.look`: the sidebar drawn like another app's (`claude`, `codex`, `studio`, `rex`), or cmux's own
 /// (`cmux`, the default). A look is data: a shipped file of ordinary public settings
 /// (`Resources/sidebar-looks/<look>.json`, the theme-file shape), so a person can rebuild or change
 /// any look in cmux-next.json. It fills only the keys that cmux-next.json, the managed layers and the

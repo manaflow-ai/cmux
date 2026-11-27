@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { runSandbox } from "../src/agent-session/acpmux/sandboxRun";
 import { SandboxRunView } from "../src/agent-session/acpmux/SandboxRunView";
+import { actTurn, until } from "./support/until";
 
 let dom: JSDOM;
 beforeAll(() => {
@@ -26,26 +27,60 @@ test("running shows the message and a turning spinner, never a pulsing dot", () 
   expect(text(markup)).toContain(t("sandbox.running"));
   expect(markup).toContain("cv-spinner");
   expect(markup).not.toContain("cv-spinner__dot");
-  expect(text(markup)).not.toContain(t("sandbox.checkAgain"));
+  expect(text(markup)).not.toContain("Check again");
 });
 
-test("a running card whose newest read failed says so and offers Check again", () => {
+test("a running card whose newest read failed reads again on its own, with no Check again button", async () => {
   const markup = renderToStaticMarkup(
     <SandboxRunView run={{ task: "list the TODOs", state: "running" }} unread onCheckAgain={() => undefined} />,
   );
   expect(text(markup)).toContain(t("sandbox.running"));
-  expect(text(markup)).toContain(t("sandbox.unchecked"));
-  expect(text(markup)).toContain(t("sandbox.checkAgain"));
+  // Nothing at first: no failure words, no button (Leo, 2026-11-22: no vacuous "try again").
+  expect(text(markup)).not.toContain("Couldn't check");
+  expect(text(markup)).not.toContain("Check again");
+  expect(markup).not.toContain("<button");
   expect(markup).toContain("cv-spinner");
-  // A refusal that says the host holds another send offers it too once a read failed.
+  // A refusal that says the host holds another send has no button either way.
   const held = { task: "go", state: "failed" as const, code: "sandbox_busy" };
   const check = () => undefined;
-  expect(text(renderToStaticMarkup(<SandboxRunView run={held} onCheckAgain={check} />))).not.toContain(
-    t("sandbox.checkAgain"),
+  expect(text(renderToStaticMarkup(<SandboxRunView run={held} onCheckAgain={check} />))).not.toContain("Check again");
+  expect(text(renderToStaticMarkup(<SandboxRunView run={held} unread onCheckAgain={check} />))).not.toContain(
+    "Check again",
   );
-  expect(text(renderToStaticMarkup(<SandboxRunView run={held} unread onCheckAgain={check} />))).toContain(
-    t("sandbox.checkAgain"),
-  );
+
+  // Mounted, the card asks the host again by itself, and says Still checking once that has lasted
+  // (the gallery's zero grace shows it at once).
+  const window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }).window;
+  const scope = globalThis as Record<string, unknown>;
+  const saved = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, scope[key]] as const);
+  Object.assign(scope, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { setLastingGrace, LASTING_MS } = await import("../src/ui/lasting");
+  setLastingGrace(0);
+  let reads = 0;
+  const root = createRoot(window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <SandboxRunView run={{ task: "list the TODOs", state: "running" }} unread onCheckAgain={() => reads++} />,
+      ),
+    );
+    await act(async () => Promise.resolve());
+    const shown = window.document.body.textContent ?? "";
+    expect(shown).toContain(t("sandbox.stillChecking"));
+    expect(window.document.querySelector("button")).toBeNull();
+    await until(() => reads >= 1, actTurn);
+    expect(reads).toBeGreaterThanOrEqual(1);
+  } finally {
+    await act(async () => root.unmount());
+    setLastingGrace(LASTING_MS);
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
+    window.close();
+  }
 });
 
 test("a succeeded receipt reads reply first, then status, time, cost, artifacts and VM destroyed", () => {

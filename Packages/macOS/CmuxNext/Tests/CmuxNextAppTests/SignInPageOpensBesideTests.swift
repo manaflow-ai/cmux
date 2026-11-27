@@ -133,7 +133,7 @@ struct SignInPageOpensBesideTests {
             let open = try #require(services.onboarding.signInHarnesses.openSignInPage)
             let store = services.daemon.store
             let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-            let back = try #require(await open(Self.page))
+            let back = try #require(await open(Self.page, []))
             #expect(window.shownTopPage == nil, "the sign-in page opened under a top page")
             try await PinnedPageTests.until({ store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { !before.contains($0.id) } },
                                             report: { "the sign-in page opened no tab" })

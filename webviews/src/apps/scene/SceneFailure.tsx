@@ -47,7 +47,9 @@ export function sceneFailureCopy(reason: string, t: Translate): SceneFailureCopy
  * `AppFailureNSView`). A failure shows its plain words, then Reload (when the host offers it), Copy
  * Error and Details; the raw reason shows only under Details. A disconnected mount's reason is
  * already plain words (the supervisor is unreachable): it draws as the one line, with no buttons.
- * Reload calls `onReload` synchronously from the click, as the host accepts it only from a gesture. */
+ * Reload calls `onReload` synchronously from the click, as the host accepts it only from a gesture.
+ * retry-prompt-ok: Reload runs the app's script again (its own code, with whatever side effects it has),
+ * usually after its author fixed it; the host takes it only from the person's click. */
 export function SceneFailure({
   status,
   onReload,
@@ -75,6 +77,7 @@ export function SceneFailure({
       <span className="cmux-app-scene-failure-title">{copy.title}</span>
       {copy.location ? <span className="cmux-app-scene-failure-location">{copy.location}</span> : null}
       <span className="cmux-app-scene-failure-actions">
+        {/* retry-prompt-ok: runs the app's script again; the host accepts it only from a gesture */}
         {onReload ? (
           <WithFacts facts={[{ value: t("apps.mount.reload.help") }]}>
             {(facts) => (

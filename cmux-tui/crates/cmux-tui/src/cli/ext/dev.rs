@@ -227,9 +227,10 @@ pub(super) fn load_package_unbuilt(dir: &Path, builds: bool) -> Result<Package, 
     // its own folder; a published `OWNER/NAME` (publish.rs) loads as `local/NAME`.
     let name = super::publish::dev_name(&id, &manifest).map_err(|message| vec![field(message)])?;
     if name == "customize" {
-        return Err(vec![field(
-            "local/customize is your customize folder (~/.config/cmux/customize), which cmux already reloads on save; pick another name".into(),
-        )]);
+        return Err(vec![field(format!(
+            "local/customize is your customize folder (~/.config/{}/customize), which cmux already reloads on save; pick another name",
+            cmux_config::NEXT_DIR
+        ))]);
     }
     Ok(Package { dir: dir.to_path_buf(), manifest, id: format!("local/{name}"), name })
 }
@@ -1260,7 +1261,11 @@ impl Session {
         };
         let installed =
             record.as_ref().is_some_and(|r| r.field("installed").as_bool() == Some(true));
-        let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
+        // Turned off in Settings > Apps: only an installed app can be. An app never installed
+        // answers `enabled: false` (the daemon's absent record, mirror.rs `absent`), and it
+        // still mounts as a preview (hosts.rs `mount_as`), so its probe draws the scene.
+        let enabled = !installed
+            || record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
         let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
         let new_tab = NewTabPick::read();

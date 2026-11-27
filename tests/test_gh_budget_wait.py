@@ -9,6 +9,7 @@ gh calls of every job on the publish path, with room in timeout-minutes for the 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -131,6 +132,17 @@ class WrapperTests(unittest.TestCase):
         self.assertNotIn("rate limit exceeded", result.stderr)
         self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
         self.assertEqual(h.waited(), 1)
+
+    def test_a_wait_prints_one_structured_marker_on_stderr_only(self) -> None:
+        # ci-trace classifies waits by `CMUX-WAIT {json}` anywhere in a log line.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1")
+        result = h.gh("release", "upload", "v1", "a.dmg")
+        markers = [json.loads(m.group(1)) for m in re.finditer(r"CMUX-WAIT (\{.*\})", result.stderr)]
+        self.assertEqual(markers, [{"on": "github-api-budget", "class": "quota", "bound_s": 1, "waited_s": 1}])
+        self.assertNotIn("CMUX-WAIT", result.stdout)
+        # A caller merging stderr into stdout compares it exactly, so it gets no marker.
+        out = subprocess.run(["bash", "-c", f'"{h.shim}" api x 2>&1'], env=h.env, capture_output=True, text=True)
+        self.assertEqual(out.stdout, "ok api x\n")
 
     def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
@@ -471,7 +483,8 @@ PUBLISH_PATH = (
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
     "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
-    # The tail's read of the run that published: run 45819376175's died on the rate limit (2026-11-26).
+    # The tail's first job: its one read of the publishing run failed on "API rate limit exceeded for
+    # installation" in tail run 45925996466, and build 4592220755201 got no release notes (2026-11-27).
     "published-build",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
@@ -539,10 +552,6 @@ SHARED_TOKEN_ONLY = {
     # The post-publication dispatch, the same way: github.token first, then cmux-bot and the CI pools at once
     # (run 45562645699 slept 12.9 min here).
     ("dispatch-published-in", "Ask for this build's post-publication run"),
-    # The tail's reads of the run that published: secret-free by design (test_nightly_trusted_routing CMUX_LINUX_JOBS),
-    # so they wait out github.token's hour in the wrapper (run 45819376175 went red on it, 2026-11-26).
-    ("published-build", "Check the run that published"),
-    ("published-build", "Download its record"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
@@ -550,6 +559,10 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
+    # The tail's first job runs secret-free on the nightly's Linux label (no App keys there), so its two reads
+    # go on github.token and wait through a refusal instead (tail run 45925996466 lost a build's notes on one).
+    ("published-build", "Check the run that published"),
+    ("published-build", "Download its record"),
     ("published-in", "Comment the build on its PRs"),
     # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
     ("published-in", "Fetch the published span"),
@@ -607,7 +620,11 @@ class WorkflowTests(unittest.TestCase):
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+                # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
+                # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
+                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
+                                (name, steps[i].get("name")))
 
     def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
@@ -623,6 +640,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]
+            self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+            script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
             self.assertIn("github.hook.wrap('request'", script, step.get("name"))
             self.assertIn("x-ratelimit-reset", script, step.get("name"))
             self.assertIn("deadline", script, step.get("name"))

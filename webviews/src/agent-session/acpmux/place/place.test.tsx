@@ -30,6 +30,9 @@ import {
   triggerKey,
 } from "./placeModel";
 import { evacuateActions, placeActions } from "./usePlace";
+import { ComputerStatusLine, MoveDock, PlaceChip } from "./PlaceMounts";
+import { HybridChip } from "../hybrid/HybridMounts";
+import { setExperimentSwitches } from "../../../experiments/switches";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,7 +41,16 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "CSS",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -47,6 +59,7 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    CSS: dom.window.CSS ?? { escape: (text: string) => text },
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
@@ -155,6 +168,65 @@ test("the header state keeps the place until a push names it again", () => {
   expect(headerState().place?.mode).toBe("auto");
   setHeaderState({ place: null });
   expect(headerState().place).toBeUndefined();
+});
+
+test("the chat's cloud controls draw only while Settings > Experiments' Cloud Toggle is on", async () => {
+  setHeaderState({ place: { mode: "auto", at: "local", move: MOVES.moving } });
+  const mounts = (
+    <>
+      <PlaceChip session="s1" />
+      <HybridChip session="s1" />
+      <MoveDock session="s1" />
+    </>
+  );
+  setExperimentSwitches({});
+  const off = await draw(mounts);
+  expect(off.textContent).toBe("");
+  await act(async () => setExperimentSwitches({ cloudToggle: true }));
+  expect(off.textContent).not.toBe("");
+  await act(async () => setExperimentSwitches({}));
+  expect(off.textContent).toBe("");
+});
+
+test("the status line beside the place button says place.status, and runs only the actions the app has", async () => {
+  const status = {
+    session_id: "s1",
+    home: "this_mac",
+    phase: "staying_local_slots_full",
+    size: { mode: "auto" },
+    sleep: { mode: "auto" },
+  };
+  setHeaderState({ place: { mode: "auto", at: "local", status } });
+  setExperimentSwitches({});
+  const line = await draw(<ComputerStatusLine session="s1" />);
+  expect(text(line)).toBe("");
+  const calls: unknown[] = [];
+  (dom!.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = {
+    "action.run": (params: unknown) => {
+      calls.push(params);
+      return Promise.resolve();
+    },
+  };
+  await act(async () => setExperimentSwitches({ cloudToggle: true }));
+  // Pause one and Upgrade have no app action yet: the words, no buttons.
+  expect(text(line)).toBe(translate("computer.status.slotsFull", undefined, "en"));
+  expect(line.querySelectorAll("button")).toHaveLength(0);
+  const failed = { ...status, phase: "move_failed", move: { direction: "to_cloud", cancellable: false } };
+  await act(async () => setHeaderState({ place: { mode: "auto", at: "local", status: failed } }));
+  const retry = line.querySelector<HTMLButtonElement>('button[data-action="retry"]');
+  expect(retry).not.toBeNull();
+  await act(async () => retry!.click());
+  expect(calls).toEqual([{ id: "chatMove.retry", session: "s1" }]);
+  // Another chat's status, or the chat simply running: nothing.
+  await act(async () =>
+    setHeaderState({ place: { mode: "auto", at: "local", status: { ...failed, session_id: "s2" } } }),
+  );
+  expect(text(line)).toBe("");
+  await act(async () =>
+    setHeaderState({ place: { mode: "auto", at: "local", status: { ...status, phase: "running" } } }),
+  );
+  expect(text(line)).toBe("");
+  setExperimentSwitches({});
 });
 
 test("the clock ticks from the start while moving and stops at the app's time when it ended", () => {
