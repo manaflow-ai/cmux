@@ -1397,8 +1397,8 @@ export function paneSnapshotEffect({
           }
           // Only a thought grew: the row that draws it reads it (liveThought.ts).
           const thought =
-            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
-              ? thoughtOnly(received, next)
+            drawn && received && !streamingRowBlocked()
+              ? thoughtOnly(received, next, pendingPaneDraw.pending ? drawn.rows : undefined)
               : undefined;
           if (thought) {
             liveThought.set(thought.id, thought.before, thought.after);

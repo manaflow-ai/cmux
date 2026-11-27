@@ -121,9 +121,18 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
 /// now, else undefined. The client tells which row changed (rowChanges.ts), so this reads that row
 /// alone: O(its items). Only a thought the transcript draws as the client holds it (`drewThoughts`)
 /// and that already draws (not quiet: a thought's text and time only grow, so it stays drawn).
+///
+/// `pending`: the rows of the pane's draw still pending (paneSnapshotLane.ts `PendingPaneDraw`). The
+/// transcript on screen is older than them, so its thought's text is not `before`'s; the chunk still
+/// goes to the row when the row already draws the thought and the pending draw draws the thought
+/// this chunk's run started from (`withLiveThought` reads the entry over that very item, once the
+/// draw commits). Before, every chunk while a draw was pending drew the whole pane, and each such
+/// draw restarted the pending one, which under load kept it pending: 347 of 969 pane renders a replay
+/// window under load (bench replay-under-load RENDERS=1, `miss:…thought…|pending`; goal renderer-main-busy).
 export function thoughtOnly(
   previous: AcpmuxSnapshot,
   next: AcpmuxSnapshot,
+  pending?: readonly AcpmuxRow[],
 ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
   if (index === undefined || !sameButRows(previous, next)) return undefined;
@@ -145,6 +154,14 @@ export function thoughtOnly(
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
   if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) return { id: now.id, before, after };
+  if (pending) {
+    if (drawnNow === undefined) return undefined;
+    const kept = entries.get(now.id);
+    const from = kept && kept.epoch === epoch && kept.to === before ? kept.from : before;
+    const drawsFrom = pending.find((pendingRow) => pendingRow.id === now.id);
+    if (drawsFrom?.kind !== "activity" || drawsFrom.items?.at(-1) !== from) return undefined;
+    return { id: now.id, before, after };
+  }
   if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
 }
