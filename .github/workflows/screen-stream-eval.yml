@@ -142,9 +142,13 @@ jobs:
           log="$RUNNER_TEMP/eval.log"
           status=0
           # A console session worker (gui-session-v1): the hosts capture the screen and post input.
-          target=()
+          # screen-eval-granted: the controller grants it only when CmuxScreenEvalLauncher.app itself holds
+          # Screen Recording and Accessibility on an unlocked console (hq build-fleet worker
+          # screen_share.eval_launcher). The Computer Use helper's grants are not the launcher's, and a Mac
+          # read as granted from them failed the eval's preflight with exit 3.
+          target=(--label screen-eval-granted)
           # A strict pin never moves to another worker (that one would lack the console grants).
-          [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          [ -n "$WORKER" ] && target+=(--target-worker "$WORKER")
           [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
           # A queue wait past its bound ends the client with 75 and leaves the step queued; the step is
           # then cancelled below, so a paused or drained worker never holds this runner without end.
