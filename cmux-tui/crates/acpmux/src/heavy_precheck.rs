@@ -258,7 +258,9 @@ fn job_of(argv: &[&str], cwd: Option<&str>) -> Option<Job> {
             Some(Job::Project(Project::Rustc))
         }
         "bazel" | "bazelisk"
-            if positional().next() == Some("build") && args.iter().any(|a| a.starts_with("//")) =>
+            // A whole-tree target (`//...`, `//src/...`), not one target (`//foo:bar`).
+            if positional().next() == Some("build")
+                && args.iter().any(|a| a.starts_with("//") && a.ends_with("...")) =>
         {
             Some(Job::BigBuild)
         }
@@ -299,7 +301,8 @@ fn warn(job: Job, argv: &[&str], shape: &Shape, place: &Place<'_>) -> Option<War
         Job::Project(project) => {
             let (disk, memory) = project.minimums();
             let mut short = Vec::new();
-            if shape.disk_free < disk {
+            // At the minimum the build fills the disk to the last byte: short too.
+            if shape.disk_free <= disk {
                 short.push(Short::Disk);
             }
             if memory.is_some_and(|m| (shape.mem_total as f64) < m as f64 * MEMORY_SLACK) {
