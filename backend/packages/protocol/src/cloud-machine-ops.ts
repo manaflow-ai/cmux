@@ -434,6 +434,8 @@ const CloudAllotmentSetting = Schema.Struct({
   auto_max_micros: Schema.NullOr(AllotmentMicros),
   tiers: Schema.Record(Schema.String, AllotmentTier),
   snoozed_until: Schema.NullOr(Schema.Int),
+  /** How long a person's machine stays running after their chat, seconds; absent: the deployment's own window. */
+  person_hold_seconds: Schema.optionalKey(Schema.Int),
   changed_at: Schema.Int,
   changed_by: Schema.String
 }).annotate({ identifier: "CloudAllotmentSetting" })
@@ -522,6 +524,29 @@ export const CloudAllotmentGet = cloudRead(
   ["cloud.allotment.off"],
   "This team's Cloud allotment and the scheduler's proposal from metered use: scale the pooled monthly commit down, hold it or scale it up, with each member's use this month and over 14 days, and the reasons (unused seats, starts past the allotment, a runaway). A read.",
   "cloud allotment get"
+)
+/**
+ * cloud.allotment.set: a team admin's answer to the allotment proposal, the Auto switch, or the team's hold for its
+ * people (`person_hold_seconds`). It answers the stored setting (cmux-platform domain/Cloud.ts allotmentSet), not the
+ * view. The Cloud app server passes only `person_hold_seconds` through; the keys that move the commit are refused there.
+ */
+export const CloudAllotmentSet = cloudMutation(
+  "cloud.allotment.set",
+  "money",
+  Schema.Struct({
+    action: Schema.optionalKey(AllotmentPosition),
+    auto: Schema.optionalKey(Schema.Boolean),
+    auto_max_micros: Schema.optionalKey(
+      Schema.NullOr(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))
+    ),
+    person_hold_seconds: Schema.optionalKey(Schema.NullOr(Schema.Literals([300, 900, 1800])))
+  }),
+  Schema.Struct({ allotment: CloudAllotmentSetting }),
+  ["cloud.allotment.off"],
+  "Answer this team's Cloud allotment proposal (a team admin): down or up moves the pooled monthly commit (to the proposal's figure when it is the proposal, one step otherwise), hold keeps it and snoozes proposals. Without action only auto and auto_max_micros change (the commit and any snooze stay). auto: true applies later proposals without asking, up to auto_max_micros of commit (null: up to the spending cap). person_hold_seconds (300, 900 or 1800; null clears it) keeps a person's machine running that long after their chat, so their next message does not wait on a resume; the held time is metered as running time, and an agent's machine pauses as before.",
+  "cloud allotment set",
+  // A money op: a signed-in person only, off MCP and the visible CLI, as the platform's reducer refuses agents.
+  true
 )
 
 export const CloudMachineConnectInfo = cloudRead(
@@ -770,6 +795,7 @@ export const cloudMachineOps = [
   CloudMachineArchiveDelete,
   CloudRetentionSet,
   CloudAllotmentGet,
+  CloudAllotmentSet,
   CloudMachineConnectInfo,
   CloudMachineLinkToken,
   CloudMachineUpgrade,
