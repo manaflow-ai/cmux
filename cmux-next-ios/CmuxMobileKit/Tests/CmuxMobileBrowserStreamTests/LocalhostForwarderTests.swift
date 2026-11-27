@@ -10,15 +10,21 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let lock = NSLock()
     private var request = Data()
+    private var sentBytes = 0
+    private var closes = 0
+    var sentByteCount: Int { lock.withLock { sentBytes } }
+    var closeCount: Int { lock.withLock { closes } }
     private var replies: AsyncStream<Data>.Continuation
     private let stream: AsyncStream<Data>
     private var iterator: AsyncStream<Data>.Iterator?
     private let body: String?
     private let refusal: LinkError?
+    private let onClose: (@Sendable () -> Void)?
 
     /// `body`: what each request gets; nil with `refusal`: the Mac refused the connection.
-    init(body: String?, refusal: LinkError? = nil) {
+    init(body: String?, refusal: LinkError? = nil, onClose: (@Sendable () -> Void)? = nil) {
         self.body = body
+        self.onClose = onClose
         self.refusal = refusal
         (stream, replies) = AsyncStream<Data>.makeStream()
         iterator = stream.makeAsyncIterator()
@@ -28,6 +34,7 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
     func send(_ data: Data) async throws {
         guard let body else { throw LinkError(code: "closed", message: "closed") }
         let answers: Int = lock.withLock {
+            sentBytes += data.count
             request.append(data)
             var count = 0
             while let end = request.range(of: Data("\r\n\r\n".utf8)) {
@@ -48,7 +55,11 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
         return data
     }
 
-    func close(code: String, reason: String) async { replies.finish() }
+    func close(code: String, reason: String) async {
+        lock.withLock { closes += 1 }
+        replies.finish()
+        onClose?()
+    }
 
     var closedBy: LinkError? { refusal }
 }
@@ -83,6 +94,60 @@ final class OpenLog: @unchecked Sendable {
             // A real request reaches the rebound listener; GET is not a CONNECT tunnel.
             #expect(await fetch(original.localPort)?.status == 400)
         }
+    }
+
+    @Test(arguments: 0..<8)
+    func privateProxyConcurrentCallersKeepPublishedEndpointAcrossResume(iteration: Int) async throws {
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in FakeLoopbackChannel(body: "private") })
+        defer { forwarder.retain(proxies: []) }
+        let first = Task { try? await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a") }
+        let second = Task {
+            let route = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+            forwarder.suspend()
+            return route
+        }
+        let published = try await second.value
+        _ = await first.value
+        forwarder.resume()
+        let resumed = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        #expect(resumed == published, "a returned endpoint survives an immediate suspension (iteration \(iteration))")
+        #expect(await fetch(published.localPort)?.status == 400)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func privateProxyRevokedWhileOpeningDoesNotForwardBufferedBytes() async throws {
+        let (closed, signalClosed) = AsyncStream<Void>.makeStream()
+        let channel = FakeLoopbackChannel(body: "private", onClose: { signalClosed.yield(()) })
+        let (opening, signalOpening) = AsyncStream<Void>.makeStream()
+        let (release, releaseOpen) = AsyncStream<Void>.makeStream()
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in
+            signalOpening.yield(())
+            for await _ in release { break }
+            return channel
+        })
+        defer {
+            releaseOpen.finish()
+            signalOpening.finish()
+            signalClosed.finish()
+            forwarder.retain(proxies: [])
+        }
+        let route = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        let retained = try await forwarder.proxy(host: "dev.internal", port: 9443, macID: "mac-a")
+        let connection = NWConnection(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: route.localPort)!, using: .tcp)
+        connection.start(queue: LocalhostForwarder.queue)
+        defer { connection.cancel() }
+        let auth = Data("\(route.username):\(route.password)".utf8).base64EncodedString()
+        let request = "CONNECT dev.internal:8443 HTTP/1.1\r\nProxy-Authorization: Basic \(auth)\r\n\r\nGET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n"
+        #expect(await LocalhostForwarder.send(connection, Data(request.utf8)))
+        for await _ in opening { break }
+        forwarder.retain(proxies: [.init(target: retained.target, macID: "mac-a")])
+        releaseOpen.yield(())
+        let response = await LocalhostForwarder.receive(connection)
+        #expect(response == nil || response?.isEmpty == true)
+        // Waiting on the channel-close event avoids assuming socket cancellation
+        // means the asynchronous host opener has already returned.
+        for await _ in closed { break }
+        #expect(channel.closeCount > 0)
+        #expect(channel.sentByteCount == 0)
     }
 
     @Test func privateProxiesForDifferentMacsHaveDifferentEndpoints() async throws {

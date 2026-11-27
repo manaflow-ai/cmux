@@ -228,7 +228,7 @@ public final class LocalhostForwarder {
                 stopProxy(key)
             } else {
                 for (id, port) in route.connectionPorts where !route.ports.contains(port) {
-                    route.connections[id]?.cancel()
+                    route.connections.removeValue(forKey: id)?.cancel()
                 }
             }
         }
@@ -591,7 +591,8 @@ public final class LocalhostForwarder {
             }
             return
         }
-        guard proxies[key] === route, !suspended, route.ports.contains(port) else {
+        guard proxies[key] === route, !suspended, route.ports.contains(port),
+              route.connections[connectionID] === connection else {
             await channel.close(code: "superseded", reason: "")
             return
         }
@@ -599,7 +600,8 @@ public final class LocalhostForwarder {
             await channel.close(code: "eof", reason: "")
             return
         }
-        guard proxies[key] === route, !suspended, route.ports.contains(port) else {
+        guard proxies[key] === route, !suspended, route.ports.contains(port),
+              route.connections[connectionID] === connection else {
             await channel.close(code: "superseded", reason: "")
             return
         }
