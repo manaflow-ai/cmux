@@ -6,6 +6,7 @@
 // walk-through variants carry a state picker. Light and dark follow the gallery's appearance switch.
 import { componentEntry } from "../gallery/format";
 import type { AutoCloudDesign, AutoCloudStatusProps } from "./AutoCloudStatus";
+import { AUTO_CLOUD_MATRIX_STATES } from "./autocloudStatusMatrix";
 
 const designs: Record<AutoCloudDesign, string> = {
   glyph: "A: one glyph, status ring, count badge",
@@ -13,11 +14,9 @@ const designs: Record<AutoCloudDesign, string> = {
   split: "C: two slots, AutoCloud toggle and presence",
   strip: "D: Discord-style strip, only when something is going on",
 };
-const states = ["off", "synced", "syncing", "offline", "warming", "active", "here", "crowd"];
-
 const variants: Record<string, { note: string; props: AutoCloudStatusProps }> = {};
 for (const design of Object.keys(designs) as AutoCloudDesign[]) {
-  for (const state of states) {
+  for (const state of AUTO_CLOUD_MATRIX_STATES) {
     variants[`${design}-${state}`] = { note: `${designs[design]}; state ${state}`, props: { design, state } };
   }
   variants[`${design}-popover`] = {
