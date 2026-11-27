@@ -159,8 +159,7 @@ public final class AgentPaneDraftAttachments {
             return []
         }
 
-        let previous = try saved(in: folder)
-        let kept = previous
+        let kept = try saved(in: folder)
         func removeUncommittedFiles() {
             let old = Set((kept?.files?.values.map { $0 } ?? []) + (kept?.texts?.values.map { $0 } ?? []) + [listName])
             for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !old.contains(name) {
@@ -171,7 +170,7 @@ public final class AgentPaneDraftAttachments {
         // written) keeps nothing rather than some of its chips. Bytes and text alike go to files of
         // their own, so the list holds only the chips' names and kinds.
         guard let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:], failOnMissingKept: true) else {
-            if previous == nil { try? manager.removeItem(at: folder) }
+            if kept == nil { try? manager.removeItem(at: folder) }
             throw Failure.write(folder)
         }
         // A new image, document or recording without bytes has historically been ignored when it
@@ -179,24 +178,18 @@ public final class AgentPaneDraftAttachments {
         // chip would replace that draft with an incomplete list, so reject the whole replacement.
         let requested = Set(attachments.map(\.id))
         let retained = Set(bytes.attachments.map(\.id)).union(Set(bytes.files.keys))
-        if previous != nil, !requested.isSubset(of: retained) {
+        if kept != nil, !requested.isSubset(of: retained) {
             removeUncommittedFiles()
             throw Failure.write(folder)
         }
         guard let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:], failOnMissingKept: true) else {
             removeUncommittedFiles()
-            if previous == nil { try? manager.removeItem(at: folder) }
+            if kept == nil { try? manager.removeItem(at: folder) }
             throw Failure.write(folder)
         }
-        guard !texts.attachments.isEmpty else {
-            do {
-                try manager.removeItem(at: folder)
-                return []
-            } catch {
-                removeUncommittedFiles()
-                throw Failure.write(folder)
-            }
-        }
+        // A first write containing only unknown byte-less images created no files.
+        // A prior manifest was protected by the completeness check above.
+        guard !texts.attachments.isEmpty else { return [] }
         // The list is written last, atomically: one that fails (a full disk, a locked folder) leaves
         // the list before it and the files it names, never deletes them.
         do {
@@ -206,6 +199,7 @@ public final class AgentPaneDraftAttachments {
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             removeUncommittedFiles()
+            if kept == nil { try? manager.removeItem(at: folder) }
             throw Failure.write(folder.appending(path: listName))
         }
         // Files no chip names any more (a chip taken out) go.
