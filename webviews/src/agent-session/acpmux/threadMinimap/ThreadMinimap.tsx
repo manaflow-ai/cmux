@@ -49,7 +49,7 @@ import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { tickRanges } from "./tickWindow";
-import { afterPaint } from "../../../protocol/intents/schedule";
+import { drawTicksAfterPaint } from "./ticksFrame";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
@@ -1670,7 +1670,7 @@ function ThreadMinimapView({
   const ticksDrawn = ticksFor !== undefined && ticksFor.sessionId === sessionId;
   useEffect(() => {
     if (ticksDrawn) return;
-    return afterPaint(() => setTicksFor({ sessionId }));
+    return drawTicksAfterPaint(() => setTicksFor({ sessionId }));
   }, [ticksDrawn, sessionId]);
   const drawnKey = ticksDrawn ? `drawn ${drawn.join(" ")}` : "none";
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ranges' contents, not the new array.
