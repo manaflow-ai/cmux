@@ -39,11 +39,11 @@ impl ThemeSpec {
 }
 
 fn prefixed(text: &str, prefix: &str) -> Option<String> {
-    let head = text.get(..prefix.len())?;
+    let (head, name) = text.split_at_checked(prefix.len())?;
     if !head.eq_ignore_ascii_case(prefix) {
         return None;
     }
-    let name = trim_spaces(&text[prefix.len()..]);
+    let name = trim_spaces(name);
     (!name.is_empty()).then(|| name.to_owned())
 }
 
@@ -58,6 +58,7 @@ mod tests {
     #[test]
     fn a_plain_name_is_both_sides() {
         assert_eq!(ThemeSpec::parse("  Nord "), spec("Nord", "Nord"));
+        assert_eq!(ThemeSpec::parse("深海青"), spec("深海青", "深海青"));
     }
 
     #[test]

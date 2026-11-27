@@ -71,7 +71,8 @@ pub fn rename(mut templates: Vec<Value>, id: &str, name: &str) -> Result<Vec<Val
     {
         return Err(Failure::NameTaken);
     }
-    set(&mut templates[index], "name", Value::from(name));
+    let template = templates.get_mut(index).ok_or(Failure::NotFound)?;
+    set(template, "name", Value::from(name));
     Ok(templates)
 }
 

@@ -126,11 +126,11 @@ fn split_equals(line: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut rest = line;
     while parts.len() < 2 {
-        let Some(at) = rest.find('=') else { break };
-        if at > 0 {
-            parts.push(&rest[..at]);
+        let Some((part, tail)) = rest.split_once('=') else { break };
+        if !part.is_empty() {
+            parts.push(part);
         }
-        rest = &rest[at + 1..];
+        rest = tail;
     }
     if !rest.is_empty() {
         parts.push(rest);
@@ -154,8 +154,8 @@ pub fn merge(base: &[String], edits: &[String]) -> Vec<String> {
     let mut lines = base.to_vec();
     for edit in edits {
         let edit_slot = slot(edit);
-        if let Some(index) = lines.iter().position(|line| slot(line) == edit_slot) {
-            lines[index] = edit.clone();
+        if let Some(line) = lines.iter_mut().find(|line| slot(line) == edit_slot) {
+            line.clone_from(edit);
             lines.retain(|line| line == edit || slot(line) != edit_slot);
         } else {
             lines.push(edit.clone());
@@ -359,6 +359,7 @@ mod tests {
         assert_eq!(slot("background = #000000"), "background");
         assert_eq!(slot("palette"), "palette");
         assert_eq!(slot("=x"), "x");
+        assert_eq!(slot("==palette==深=blue"), "palette 深");
         assert_eq!(slot(""), "");
         assert_eq!(slot("# cmux-accent = #abcdef"), "# cmux-accent");
     }
