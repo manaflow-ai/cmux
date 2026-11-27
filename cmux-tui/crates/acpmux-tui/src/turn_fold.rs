@@ -19,9 +19,10 @@ pub(crate) fn superseded_error(t: &Transcript, i: usize) -> bool {
     let mut at = i + 1;
     while let Some(off) = t.items.get(at..).and_then(|rest| rest.iter().position(prompt)) {
         let start = at + off + 1;
-        let end = t.items[start..].iter().position(prompt).map_or(t.items.len(), |p| start + p);
+        let rest = t.items.get(start..).unwrap_or_default();
+        let end = rest.iter().position(prompt).map_or(t.items.len(), |p| start + p);
         let live = end == t.items.len() && t.status == "running";
-        let turn = &t.items[start..end];
+        let turn = t.items.get(start..end).unwrap_or_default();
         if !live
             && !turn.iter().any(|x| matches!(x, Item::Error { .. }))
             && turn.iter().any(|x| matches!(x, Item::Assistant { text } if !text.trim().is_empty()))
@@ -60,7 +61,10 @@ pub(crate) fn is_takeaway(text: &str) -> bool {
 /// `\n\s*\n`: a second paragraph.
 fn has_blank_line(text: &str) -> bool {
     let lines: Vec<&str> = text.split('\n').collect();
-    lines.len() > 2 && lines[1..lines.len() - 1].iter().any(|l| l.trim().is_empty())
+    lines.len() > 2
+        && lines
+            .get(1..lines.len().saturating_sub(1))
+            .is_some_and(|inner| inner.iter().any(|l| l.trim().is_empty()))
 }
 
 /// `^\s*(?:[-*+]|\d+[.)])\s`: a list item.
@@ -73,7 +77,7 @@ fn is_list_line(line: &str) -> bool {
         if digits == 0 {
             return false;
         }
-        match l[digits..].strip_prefix(['.', ')']) {
+        match l.get(digits..).and_then(|r| r.strip_prefix(['.', ')'])) {
             Some(r) => r,
             None => return false,
         }
@@ -88,23 +92,22 @@ fn sentences(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut i = 0;
-    while i < chars.len() {
-        let ch = chars[i];
+    while let Some(&ch) = chars.get(i) {
         if matches!(ch, '.' | '!' | '?') {
             // An ellipsis ("...") is one stop.
             let mut j = i;
-            while j + 1 < chars.len() && chars[j + 1] == '.' && ch == '.' {
+            while ch == '.' && chars.get(j + 1) == Some(&'.') {
                 j += 1;
             }
-            if j + 1 == chars.len() || chars[j + 1].is_whitespace() {
+            if chars.get(j + 1).is_none_or(|c| c.is_whitespace()) {
                 out.push(std::mem::take(&mut cur));
                 i = j + 1;
-                while i < chars.len() && chars[i].is_whitespace() {
+                while chars.get(i).is_some_and(|c| c.is_whitespace()) {
                     i += 1;
                 }
                 continue;
             }
-            cur.extend(&chars[i..=j]);
+            cur.extend(chars.get(i..=j).unwrap_or_default());
             i = j + 1;
             continue;
         }
@@ -174,7 +177,9 @@ const FINDING_VERBS: &[&str] = &[
 
 /// The action that opens a narration sentence, as its byte length, or None.
 fn action_len(lower: &str) -> Option<usize> {
-    let word_end = |s: &str, at: usize| s[at..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+    let word_end = |s: &str, at: usize| {
+        s.get(at..).and_then(|r| r.chars().next()).is_none_or(|c| !c.is_alphanumeric())
+    };
     for lead in ["let me ", "i'll ", "i’ll ", "i will "] {
         if let Some(rest) = lower.strip_prefix(lead) {
             for a in ACTIONS {
@@ -229,7 +234,10 @@ fn has_finite_verb(rest: &str) -> bool {
             && lower.chars().all(char::is_alphabetic)
             && lower.ends_with("ed")
             && !lower.ends_with("eed")
-            && !ED_ADJECTIVE_AFTER.contains(&w[at - 1].to_lowercase().as_str())
+            && at
+                .checked_sub(1)
+                .and_then(|p| w.get(p))
+                .is_none_or(|prev| !ED_ADJECTIVE_AFTER.contains(&prev.to_lowercase().as_str()))
     })
 }
 
@@ -245,7 +253,7 @@ fn is_work_narration(text: &str) -> bool {
                 return true;
             }
             let Some(len) = action_len(&lower) else { return false };
-            let rest = &lower[len..];
+            let Some(rest) = lower.get(len..) else { return false };
             !rest.contains([',', ';', ':', '|'])
                 && !words(rest).iter().any(|w| CLAUSE_WORDS.contains(&w.as_str()))
                 && !has_finite_verb(rest)

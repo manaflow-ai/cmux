@@ -98,10 +98,10 @@ impl TranscriptCache {
             self.prefix_rows = self.rows.len();
         }
         if prefix_changed {
-            self.prefix_errors = (0..self.prefix_items).any(|i| {
-                matches!(t.items[i], Item::Error { .. })
-                    && !crate::turn_fold::superseded_error(t, i)
-            });
+            self.prefix_errors =
+                t.items.iter().take(self.prefix_items).enumerate().any(|(i, x)| {
+                    matches!(x, Item::Error { .. }) && !crate::turn_fold::superseded_error(t, i)
+                });
         }
         self.markdown.retain(|&item, _| item >= split);
         let rows = transcript_rows_range(

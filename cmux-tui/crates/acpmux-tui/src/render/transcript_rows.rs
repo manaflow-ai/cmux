@@ -299,14 +299,16 @@ pub(super) fn transcript_rows_range(
                 } else {
                     // The last reply with words in it: an empty message is not the answer.
                     (k..next_pos).rev().find(
-                        |&p| matches!(&t.items[vis[p]], Item::Assistant { text } if !text.trim().is_empty()),
+                        |&p| matches!(vis.get(p).and_then(|&j| t.items.get(j)), Some(Item::Assistant { text }) if !text.trim().is_empty()),
                     )
                 };
                 // A turn that ended on an error reads "Failed after", not "Worked for" (cmux#44475):
                 // its last drawn row before the next prompt is the error.
                 // Read off the items, not `vis`: a card a later turn cleared still failed.
                 let failed = !turn_live
-                    && t.items[i + 1..next_user]
+                    && t.items
+                        .get(i + 1..next_user)
+                        .unwrap_or_default()
                         .iter()
                         .rev()
                         .find(|x| {
@@ -510,23 +512,28 @@ pub(super) fn transcript_rows_range(
                         kept = work
                             .iter()
                             .copied()
-                            .filter(|&j| match &t.items[j] {
-                                Item::Error { .. } => true,
-                                Item::Assistant { text } => crate::turn_fold::is_takeaway(text),
+                            .filter(|&j| match t.items.get(j) {
+                                Some(Item::Error { .. }) => true,
+                                Some(Item::Assistant { text }) => {
+                                    crate::turn_fold::is_takeaway(text)
+                                }
                                 _ => false,
                             })
                             .collect();
                         trailing = final_reply
                             .map(|f| {
-                                vis[f + 1..next_pos]
+                                vis.get(f + 1..next_pos)
+                                    .unwrap_or_default()
                                     .iter()
                                     .copied()
-                                    .filter(|&j| match &t.items[j] {
-                                        Item::Tool { .. }
-                                        | Item::Permission { decided: Some(_), .. }
-                                        | Item::Thought { .. } => true,
-                                        Item::Status { .. } => !show_system,
-                                        Item::Assistant { text } => text.trim().is_empty(),
+                                    .filter(|&j| match t.items.get(j) {
+                                        Some(
+                                            Item::Tool { .. }
+                                            | Item::Permission { decided: Some(_), .. }
+                                            | Item::Thought { .. },
+                                        ) => true,
+                                        Some(Item::Status { .. }) => !show_system,
+                                        Some(Item::Assistant { text }) => text.trim().is_empty(),
                                         _ => false,
                                     })
                                     .collect()
@@ -538,9 +545,9 @@ pub(super) fn transcript_rows_range(
             }
             it if group(it) => {
                 let start_k = k;
-                while k < vis.len()
-                    && group(&t.items[vis[k]])
-                    && trailing.contains(&vis[k]) == trailing.contains(&i)
+                while let Some(&j) = vis.get(k)
+                    && t.items.get(j).is_some_and(|x| group(x))
+                    && trailing.contains(&j) == trailing.contains(&i)
                 {
                     k += 1;
                 }
