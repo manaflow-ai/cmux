@@ -188,18 +188,24 @@ pub struct Watch {
 impl Watch {
     /// One pass over `rows` (`(key, host, summary)`): a notice for each row that reads dead,
     /// names a starter `is_local` accepts and was not told for this death. A row that reads
-    /// alive or is gone is forgotten, so its next death is told again.
+    /// alive or is gone is forgotten, so its next death is told again. A host `idle_closed`
+    /// names (its link closed because nothing used it) is not down: its rows read
+    /// `unreachable` until the next use dials it, so they are not a dead machine.
     pub fn pass<'a>(
         &mut self,
         rows: impl IntoIterator<Item = (&'a str, &'a str, &'a Value)>,
         now_ms: u64,
         grace_ms: u64,
         mut is_local: impl FnMut(&str) -> bool,
+        mut idle_closed: impl FnMut(&str) -> bool,
     ) -> Vec<Notice> {
         let mut seen = HashMap::new();
         let mut out = Vec::new();
         for (key, host, row) in rows {
             let Some(dead) = dead_why(row, now_ms, grace_ms) else { continue };
+            if dead.host_down && idle_closed(host) {
+                continue;
+            }
             let Some(parent) = parent_of(row).filter(|p| is_local(p)) else { continue };
             seen.insert(key.to_owned(), dead.since_ms);
             if self.told.get(key) == Some(&dead.since_ms) {
