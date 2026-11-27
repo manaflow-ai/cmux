@@ -468,6 +468,7 @@ cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
+cmux-cas = { path = "crates/cmux-cas" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }

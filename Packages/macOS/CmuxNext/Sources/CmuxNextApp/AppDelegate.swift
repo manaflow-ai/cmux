@@ -217,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.registry.logBindingProblems()
             logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         }
-        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
+        LaunchTypeProbe.armChat(environment: ProcessInfo.processInfo.environment, listen: AgentPaneLaunchTimings.shared.listen) { DebugTimings.markLaunch($0) }; firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1; launch_tti_check.py's chat rounds
         // Before the first window opens (restoreWhenLoaded opens one at once).
         launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
