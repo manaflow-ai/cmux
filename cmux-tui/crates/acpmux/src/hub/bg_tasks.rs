@@ -337,6 +337,8 @@ impl Hub {
                 row.set("description", json!(r.description));
                 row.set("notify", json!(r.notify));
                 row.set("resultLine", json!(r.result_line));
+                // Its call, so its registry row names it again at the destination (`bg_rearm.rs`).
+                row.set("toolCallId", json!(r.tool_call_id));
                 Some(row)
             })
             .collect()
@@ -773,7 +775,7 @@ fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
 
 /// Waits until the task's runner exited (nothing holds its lock), at most [`STOP_WAIT`]: a
 /// non-blocking look every [`STOP_LOOK`], so no thread or descriptor outlives the wait.
-async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
+pub(super) async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
     let deadline = tokio::time::Instant::now() + STOP_WAIT;
     while !bg_gone(dir, id) {
         if tokio::time::Instant::now() >= deadline {

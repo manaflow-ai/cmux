@@ -81,6 +81,8 @@ async fn a_task_whose_runner_died_is_never_running_forever() {
     hub.bg_publish(&session, &dir, &record);
     assert_eq!(listed(&hub, &session)[0]["state"], "running");
     drop(lock);
+    // A test elsewhere may fork while the lock is open: wait until the kernel freed it.
+    assert!(super::super::bg_tasks::bg_wait_gone(&dir, &record.id).await);
     let row = listed(&hub, &session).remove(0);
     assert_eq!(row["state"], "lost", "{row}");
     assert!(row["endedAt"].as_u64().is_some(), "{row}");
@@ -88,7 +90,7 @@ async fn a_task_whose_runner_died_is_never_running_forever() {
     hub.bg_ended(&dir, &session.id, &record.id);
     hub.bg_publish(&session, &dir, &record);
     assert_eq!(listed(&hub, &session)[0]["endedAt"], row["endedAt"], "logged once");
-    hub.rebuild_processes(&session);
+    hub.rebuild_processes_from(&session, None);
     assert_eq!(listed(&hub, &session)[0]["state"], "lost", "the end was logged");
 }
 
@@ -109,6 +111,8 @@ async fn an_ended_task_says_how_it_ended() {
             r.stopped = stopped;
         });
         drop(lock);
+        // A test elsewhere may fork while the lock is open: wait until the kernel freed it.
+        assert!(super::super::bg_tasks::bg_wait_gone(&dir, &record.id).await);
         hub.bg_ended(&dir, &session.id, &record.id);
         let row = listed(&hub, &session).remove(0);
         assert_eq!(row["state"], state, "{row}");
@@ -155,6 +159,8 @@ async fn a_written_end_replaces_a_lost_read_before_it() {
     let (dir, record) = only_task(&hub, &session, |r| r.command = "true".into());
     hub.bg_publish(&session, &dir, &record);
     drop(lock);
+    // A test elsewhere may fork while the lock is open: wait until the kernel freed it.
+    assert!(super::super::bg_tasks::bg_wait_gone(&dir, &record.id).await);
     assert_eq!(listed(&hub, &session)[0]["state"], "lost");
     let (_, record) = only_task(&hub, &session, |r| {
         r.ended_at = Some(r.started_at + 10);
