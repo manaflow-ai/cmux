@@ -8,6 +8,22 @@ fn parse(args: &[&str]) -> Value {
     request(command).unwrap()
 }
 
+/// A stop by name goes as the exact id this daemon resolved, never as `HOST/NAME` the hub
+/// would split at the session name's own slash (`pin_target`).
+#[test]
+fn a_resolved_name_goes_as_its_exact_id() {
+    let stop = parse(&["acpmux", "session", "stop", "coord/review", "--mesh"]);
+    assert_eq!(stop["to"], json!({"name": "review", "host": "coord"}));
+    assert_eq!(name_key(&stop["to"]).as_deref(), Some("coord/review"));
+    let bare = parse(&["acpmux", "session", "stop", "claude-17", "--mesh"]);
+    assert_eq!(name_key(&bare["to"]).as_deref(), Some("claude-17"));
+    let by_id = parse(&["acpmux", "session", "stop", "stable-id", "--mesh", "--id"]);
+    assert_eq!(name_key(&by_id["to"]), None);
+    let id = "01a218c7-8dc3-76a5-b5d8-f3440a542a1a";
+    assert_eq!(pinned_to(&format!("worker/{id}")), json!({"sessionId": id}));
+    assert_eq!(pinned_to(id), json!({"sessionId": id}));
+}
+
 #[test]
 fn mesh_cli_keeps_start_policy_and_exact_recipients() {
     let start = parse(&[
