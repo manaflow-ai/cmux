@@ -21,8 +21,8 @@ const SEEDS: Seed[] = [
   {
     id: "manaflow-ai/studio-look",
     name: "Studio",
-    tagline: "Dark and compact.",
-    traits: ["Black", "Compact"],
+    tagline: "Compact rows, orange accents.",
+    traits: ["Compact", "Orange"],
     repo: "github.com/manaflow-ai/cmux-studio-look",
     tags: ["chat", "dark"],
     colors: { dark: ["#16161a", "#1f1f25", "#2a2a33", "#f0a35e"], light: ["#f6f4f0", "#ece8e1", "#ffffff", "#c8743a"] },

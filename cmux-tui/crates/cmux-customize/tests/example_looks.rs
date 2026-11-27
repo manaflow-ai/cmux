@@ -229,51 +229,6 @@ fn every_look_installs_as_one_layer_and_comes_off_leaving_yours() {
     }
 }
 
-/// Leo, 2026-11-27: "im not a fan of the descriptions on our themes and whatnot". What the Settings
-/// gallery, the Customize checklist and a look's install card show of a look (its tagline and
-/// description) and of each theme it carries (the theme file's description) is one short plain
-/// phrase a person reads at a glance: at most seven words, no "A look: x, y, z".
-#[test]
-fn every_look_and_theme_says_what_it_looks_like_in_a_few_plain_words() {
-    let mut checked = 0;
-    // A look's own folder, and each folder of this repo the gallery lists (the app profiles).
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let listed = setup::looks::catalog()
-        .unwrap()
-        .looks
-        .into_iter()
-        .filter_map(|look| look.reference())
-        .filter(|reference| reference.owner == "manaflow-ai" && reference.repo == "cmux")
-        .map(|reference| root.join(&reference.path));
-    let dirs = fs::read_dir(looks()).unwrap().map(|entry| entry.unwrap().path()).chain(listed);
-    for dir in dirs {
-        if !dir.join(setup::SETUP_FILE).is_file() {
-            continue;
-        }
-        let read = setup::read_dir(&dir).unwrap_or_else(|error| panic!("{dir:?}: {error}"));
-        let manifest = &read.manifest;
-        for words in manifest.tagline.iter().chain([&manifest.description]) {
-            assert!(setup::looks::plain_phrase(words), "{dir:?}: {words:?}");
-            checked += 1;
-        }
-        let Ok(themes) = fs::read_dir(dir.join("themes")) else { continue };
-        for theme in themes {
-            let path = theme.unwrap().path();
-            if path.extension().is_none_or(|e| e != "json") {
-                continue;
-            }
-            let text = fs::read_to_string(&path).unwrap();
-            let value = cmux_config::jsonc::parse(&text)
-                .unwrap_or_else(|error| panic!("{path:?}: {error}"));
-            if let Some(words) = value["description"].as_str() {
-                assert!(setup::looks::plain_phrase(words), "{path:?}: {words:?}");
-                checked += 1;
-            }
-        }
-    }
-    assert!(checked >= 100, "checked only {checked} phrases");
-}
-
 /// The gallery's order on one machine, as Settings > Appearance installs them one after another
 /// (hq feature flow `looks`): each install puts its own theme on, over the ones before it. The
 /// NIGHTLY walk saw Linen's install leave Basalt's theme on (themeFile still `basalt`).
@@ -318,4 +273,49 @@ fn every_look_installed_over_the_others_puts_its_theme_on() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Leo, 2026-11-27: "im not a fan of the descriptions on our themes and whatnot". What the Settings
+/// gallery, the Customize checklist and a look's install card show of a look (its tagline and
+/// description) and of each theme it carries (the theme file's description) is one short plain
+/// phrase a person reads at a glance: at most seven words, no "A look: x, y, z".
+#[test]
+fn every_look_and_theme_says_what_it_looks_like_in_a_few_plain_words() {
+    let mut checked = 0;
+    // A look's own folder, and each folder of this repo the gallery lists (the app profiles).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let listed = setup::looks::catalog()
+        .unwrap()
+        .looks
+        .into_iter()
+        .filter_map(|look| look.reference())
+        .filter(|reference| reference.owner == "manaflow-ai" && reference.repo == "cmux")
+        .map(|reference| root.join(&reference.path));
+    let dirs = fs::read_dir(looks()).unwrap().map(|entry| entry.unwrap().path()).chain(listed);
+    for dir in dirs {
+        if !dir.join(setup::SETUP_FILE).is_file() {
+            continue;
+        }
+        let read = setup::read_dir(&dir).unwrap_or_else(|error| panic!("{dir:?}: {error}"));
+        let manifest = &read.manifest;
+        for words in manifest.tagline.iter().chain([&manifest.description]) {
+            assert!(setup::looks::plain_phrase(words), "{dir:?}: {words:?}");
+            checked += 1;
+        }
+        let Ok(themes) = fs::read_dir(dir.join("themes")) else { continue };
+        for theme in themes {
+            let path = theme.unwrap().path();
+            if path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).unwrap();
+            let value = cmux_config::jsonc::parse(&text)
+                .unwrap_or_else(|error| panic!("{path:?}: {error}"));
+            if let Some(words) = value["description"].as_str() {
+                assert!(setup::looks::plain_phrase(words), "{path:?}: {words:?}");
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 100, "checked only {checked} phrases");
 }
