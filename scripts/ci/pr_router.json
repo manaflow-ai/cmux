@@ -280,9 +280,7 @@
     "scripts/ci/mobile-pair-skew.sh",
     "scripts/ci/pr_router.json",
     ".github/workflows/cmux-next-fast-gates.yml",
-    "cmux-next-ios/rust/crates/cmux-mobile-host/**",
-    "cmux-next-ios/rust/crates/cmux-mobile-dial/**",
-    "cmux-next-ios/rust/crates/cmux-mobile-proto/**",
+    "cmux-next-ios/rust/crates/**",
     "scripts/ci/mobile_pair_*.py",
     "scripts/ci/mobile_pair_shipped_window.json"
    ],
