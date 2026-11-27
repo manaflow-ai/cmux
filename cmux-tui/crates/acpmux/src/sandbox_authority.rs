@@ -54,14 +54,13 @@ pub(crate) fn wrap_shell(
     shell: &str,
     command: &str,
 ) -> (String, Vec<String>) {
-    let inner = [shell.to_owned(), "-c".to_owned(), command.to_owned()];
     match sandbox {
         Some(prefix) => {
             let mut args = prefix.to_vec();
-            args.extend(inner);
+            args.extend([shell.to_owned(), "-c".to_owned(), command.to_owned()]);
             (crate::local_sandbox::SANDBOX_EXEC.to_owned(), args)
         }
-        None => (inner[0].clone(), inner[1..].to_vec()),
+        None => (shell.to_owned(), vec!["-c".to_owned(), command.to_owned()]),
     }
 }
 
