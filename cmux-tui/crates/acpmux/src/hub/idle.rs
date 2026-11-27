@@ -172,6 +172,7 @@ impl Hub {
         let sleeps_held = self.sleeps_through_hold(session);
         let required_restart = session.respawn_required.load(Ordering::SeqCst)
             && session.respawn_when_quiet.load(Ordering::SeqCst);
+        let prompt_restart = session.quiet_restart_queue_owner.load(Ordering::SeqCst);
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
@@ -183,6 +184,8 @@ impl Hub {
             // blocker would make a required quiet handoff wait for its own retry forever.
             && (session.queued() == 0
                 || sleeps_held
+                || (prompt_restart && session.queued() == 1
+                    && session.queue.lock().unwrap_or_else(|e| e.into_inner()).len() == 1)
                 || (firing_retry && {
                     let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
                     // The count also reserves prompts waiting for the turn lock, before

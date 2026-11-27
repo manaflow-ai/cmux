@@ -322,6 +322,10 @@ pub struct Session {
     /// and profile refreshes are opportunistic; credential, route and proxy changes are required
     /// so a continuation must not reuse the old child for them.
     pub(super) respawn_required: AtomicBool,
+    /// The prompt that owns a required quiet restart; later prompts wait for it.
+    pub(super) quiet_restart_task: AtomicBool,
+    pub(super) quiet_restart_queue_owner: AtomicBool,
+    pub(super) quiet_restart_done: Notify,
     /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
     /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
     pub(super) inbound: std::sync::OnceLock<InboundChannel>,
