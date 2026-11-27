@@ -139,6 +139,7 @@ WRITTEN_OUT: dict[str, set[str]] = {
     'ci-compile-attribution.yml': {'analyze', 'fix', 'report'},
     'ci-failure-attribution.yml': {'attribute'},
     'ci-guard-attribution.yml': {'analyze', 'report'},
+    'ci-health-report.yml': {'report'},
     'ci-hosted-backlog-rescue.yml': {'backlog'},
     'ci-hosted-light-rescue.yml': {'rescue'},
     'ci-hosted-queue-rescue.yml': {'rescue'},
