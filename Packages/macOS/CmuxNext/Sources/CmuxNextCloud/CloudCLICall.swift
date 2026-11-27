@@ -264,6 +264,18 @@ public struct CloudDaemon: Sendable {
         self.sendsStackSession = sendsStackSession
     }
 
+    /// The daemon as one owner credential with no Stack session (the feed's `cloud.owner.op`: the person's session
+    /// or this Mac's install token). `run` stands in for the `cmux cloud api` child (a test's); nil: `machineIO`'s.
+    public static func owner(baseURL: URL, credential: @escaping @Sendable () async throws -> String,
+                             teamID: @escaping TeamID, machineIO: CloudMachineIO?,
+                             run: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)? = nil) -> CloudDaemon {
+        var daemon = CloudDaemon(baseURL: baseURL, tokens: { (try await credential(), "") }, teamID: teamID,
+                                 appVersion: "cmux-next", sendsStackSession: false)
+        daemon.machineIO = machineIO
+        daemon.daemonCall = run
+        return daemon
+    }
+
     /// This daemon with its team fixed to `team`: every request of a create and its retries goes to the same team
     /// whatever the app switches to meanwhile. A Worker client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudDaemon {

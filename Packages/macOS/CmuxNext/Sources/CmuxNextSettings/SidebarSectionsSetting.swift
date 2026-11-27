@@ -84,6 +84,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.folderlessUngrouped = flag(root, folderlessUngroupedPath, fallback: folderlessUngroupedDefault, &diagnostics)
         result.density = ColumnLayoutSettings.choice(root, densityPath, fallback: densityDefault, diagnostics: &diagnostics)
         result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)
+        result.profileMenuStyle = ColumnLayoutSettings.choice(root, profileMenuStylePath, fallback: profileMenuStyleDefault,
+                                                              diagnostics: &diagnostics)
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
         result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)

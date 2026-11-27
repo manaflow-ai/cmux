@@ -1087,6 +1087,58 @@
           }
         },
         {
+          "key": "sidebar.profileMenu.style",
+          "name": "profileMenuStyle",
+          "title": {
+            "key": "settings.sidebar.profileMenu.style",
+            "text": "Profile Menu"
+          },
+          "help": {
+            "key": "settings.sidebar.profileMenu.style.help",
+            "text": "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "app",
+              "title": {
+                "key": "settings.choice.profileMenuApp",
+                "text": "App Menu"
+              }
+            },
+            {
+              "value": "account",
+              "title": {
+                "key": "settings.choice.profileMenuAccount",
+                "text": "Account Menu"
+              }
+            }
+          ],
+          "default": "app",
+          "keywords": [
+            "profile",
+            "account",
+            "accounts",
+            "switch",
+            "switching",
+            "sign out",
+            "log out",
+            "usage",
+            "menu",
+            "claude",
+            "codex"
+          ],
+          "swift_enum": {
+            "name": "SidebarProfileMenuStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.detailedStatusIcons",
           "title": {
             "key": "settings.sidebar.detailedStatusIcons",
