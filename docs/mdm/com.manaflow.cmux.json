@@ -115,6 +115,16 @@
       "title" : "Chat Detail",
       "type" : "string"
     },
+    "agentPane.display.effortChip" : {
+      "default" : "auto",
+      "description" : "Auto lets the composer look decide. In Model Chip names the effort inside the model chip, so the composer shows one chip.",
+      "enum" : [
+        "auto",
+        "joined"
+      ],
+      "title" : "Effort Chip",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",

@@ -47,6 +47,8 @@
     // The model picker (parity table, model_effort_picker): the reference app's chip opens a short list of
     // models with a check on the current one; the compact menu is that, with Effort as a submenu.
     "agentPane.display.modelPickerStyle": "menu",
+    // One model/effort chip ("GPT-5.5  High"), as the Codex composer draws it: Studio would split the effort into its own chip.
+    "agentPane.display.effortChip": "joined",
 
     // The sidebar (codex/sidebar): 340 pt, 36 pt rows, 11 pt text (14 / 1.3), one line per chat.
     "appearance.metrics.sidebarWidth": 340,

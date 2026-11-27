@@ -474,6 +474,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.modelChipIcon` | boolean | `true` |  | Model Logo in Composer. Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on. |
 | `agentPane.display.modelPickerOrder` | array | `[]` |  | Model Picker Harness Order. The order of the harnesses in the model picker. Drag a harness in the picker to move it. |
 | `agentPane.display.modelPickerStyle` | string | `"list"` | `list`, `menu` | Model Picker Style. List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode. |
+| `agentPane.display.effortChip` | string | `"auto"` | `auto`, `joined` | Effort Chip. Auto lets the composer look decide. In Model Chip names the effort inside the model chip, so the composer shows one chip. |
 | `agentPane.display.queueing` | boolean | `true` |  | Queue Prompts During a Turn. On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits. |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
 | `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |

@@ -35,6 +35,7 @@ import { useComposerContribution } from "./composer/extensionCommands";
 import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { useComposerLook } from "./composerLook";
+import { useEffortChip } from "./chatDisplay";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
@@ -260,6 +261,8 @@ export function ComposerPickers({
   // non-toggleable Fast remains in the model menu.
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const studio = useComposerLook() === "studio";
+  // Settings > Effort Chip (chatDisplay.ts EFFORT_CHIP_KEY): "joined" keeps the effort in the model chip under Studio too.
+  const effortJoined = useEffortChip() === "joined";
   const chatAccounts = useChatAccounts();
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
@@ -1346,8 +1349,9 @@ export function ComposerPickers({
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.
   // Studio's look (composerLook.ts) draws the effort as its own chip after the model's, as the
-  // reference composer does, so the model chip names only the model there.
-  const studioEffort = studio && !held ? quickEffort : undefined;
+  // reference composer does, so the model chip names only the model there, unless Effort Chip
+  // joins it back (the Codex app's one model/effort chip).
+  const studioEffort = studio && !held && !effortJoined ? quickEffort : undefined;
   const quickDetail = studioEffort
     ? undefined
     : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));

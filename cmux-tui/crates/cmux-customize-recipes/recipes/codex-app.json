@@ -19,6 +19,7 @@
     "agentPane.display.minimap": "off",
     "agentPane.editedFiles.show": "collapsed",
     "agentPane.attachmentView": "strip",
+    "agentPane.display.effortChip": "joined",
     "diff.layout": "unified",
     "notifications.attention.agentChats": "ring"
   },
