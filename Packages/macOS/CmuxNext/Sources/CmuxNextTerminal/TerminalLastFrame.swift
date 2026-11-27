@@ -20,7 +20,7 @@ public final class TerminalLastFrame {
     /// card pictures only a frame with output, never a new shell's empty prompt (Leo 2026-10-13).
     public let showsOutput: Bool
     /// The pane's size in points and light or dark look (`NSAppearance.Name`) as it was evicted: a hibernated
-    /// workspace's frame keeps them in its `DormantRecord` (``TerminalLastFrames/sleep(_:)``).
+    /// workspace's frame keeps them in its `DormantRecord` (``TerminalLastFrames/stow(_:)``).
     let pointSize: CGSize
     let appearance: String?
 

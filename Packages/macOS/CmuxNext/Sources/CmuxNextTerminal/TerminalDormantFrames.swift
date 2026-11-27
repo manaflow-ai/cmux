@@ -2,7 +2,7 @@ import CmuxNextDesign
 import CmuxNextHibernation
 import CoreGraphics
 
-/// A hibernated workspace's terminals' last frames, on disk (``TerminalLastFrames/sleep(_:)``). An evicted terminal's
+/// A hibernated workspace's terminals' last frames, on disk (``TerminalLastFrames/stow(_:)``). An evicted terminal's
 /// frame is a full-resolution IOSurface (about 24 MB for a large pane at 2x), volatile but resident until memory
 /// pressure comes, so 200 hibernated workspaces kept up to 128 of them, 0.25 to 2 GB of the app's memory. A sleeping
 /// terminal keeps a ``DormantRecord`` (kind `terminal`, its tab key) instead, and its frame is a lossless PNG file of a
@@ -36,7 +36,7 @@ final class TerminalDormantFrames {
     }
 
     /// `frame` (`key`'s, just evicted) leaves memory: encoded off the main thread to a file, then dropped.
-    func sleep(_ frame: TerminalLastFrame, key: String) {
+    func stow(_ frame: TerminalLastFrame, key: String) {
         drop(key)
         encoding[key] = frame
         pending[key] = Task { [weak self] in

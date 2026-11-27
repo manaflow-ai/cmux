@@ -98,7 +98,7 @@ import Testing
         entry.close()
         try #require(services.cache.lastFrames[tab] != nil, "setup: the eviction kept no frame")
 
-        services.cache.lastFrames.sleep(tab)
+        services.cache.lastFrames.stow(tab)
         #expect(services.cache.lastFrames[tab] == nil, "the sleeping frame stayed in the warm store")
         await services.cache.lastFrames.sleepSettled()
         let sleeping = services.cache.lastFrames.sleeping

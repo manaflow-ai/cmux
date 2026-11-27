@@ -23,7 +23,7 @@ public struct TerminalLastFrames {
     /// terminal's card shows how it last looked, never an empty tile.
     private let pictures = TerminalEvictedPictures()
 
-    /// Hibernated workspaces' terminals' frames, on disk (``sleep(_:)``): one record each in memory, not a frame.
+    /// Hibernated workspaces' terminals' frames, on disk (``stow(_:)``): one record each in memory, not a frame.
     private let dormant = TerminalDormantFrames()
 
     /// `key`'s kept picture (only a terminal that had output), at most ``TerminalEvictedPictures/side`` px.
@@ -57,9 +57,9 @@ public struct TerminalLastFrames {
     /// `key`'s workspace hibernated (its terminal just evicted): its frame leaves memory for a file and a
     /// ``DormantRecord`` (``TerminalDormantFrames``); its picture stays for the hover card. A warm-set eviction
     /// keeps its frame in memory, so a quick switch back shows it with no read.
-    public mutating func sleep(_ key: String) {
+    public mutating func stow(_ key: String) {
         guard let frame = removeFrame(key) else { return }
-        dormant.sleep(frame, key: key)
+        dormant.stow(frame, key: key)
         note("slept")
     }
 
