@@ -30,8 +30,11 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
-from typing import Iterable
+from typing import Callable, Iterable, TypeVar
+
+T = TypeVar("T")
 
 KIND = "cmux-proof-record"
 VERSION = 1
@@ -154,6 +157,37 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
     return out
 
 
+# GitHub refusing this token (spent, or not allowed here), not the read: the next token may get it.
+TOKEN_REFUSED = (401, 403, 429)
+
+
+def read_tokens() -> list[str]:
+    """GH_TOKEN (or GITHUB_TOKEN) first, then the TOKENS pool the step also posts with, each once."""
+    first = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    return list(dict.fromkeys(t for t in [first, *os.environ.get("TOKENS", "").split()] if t))
+
+
+def with_tokens(read: Callable[[str], T], tokens: list[str]) -> T:
+    """READ(token) with each token in turn while GitHub refuses the token (TOKEN_REFUSED); the last refusal, or any
+    other error, raises. A run's own github.token 403s once the repo's shared budget is spent, so a gate that read
+    with it alone posted `error` on every visual PR until the hour turned."""
+    if not tokens:
+        raise ValueError("no token")
+    for i, token in enumerate(tokens):
+        try:
+            return read(token)
+        except urllib.error.HTTPError as e:
+            if e.code not in TOKEN_REFUSED or i == len(tokens) - 1:
+                raise
+            print(f"read refused (HTTP {e.code}) with token {i + 1} of {len(tokens)}; trying the next", file=sys.stderr)
+    raise AssertionError("unreachable")
+
+
+def unread(e: Exception) -> str:
+    """How a read failed, for the status line: the class and, for an HTTP error, its code."""
+    return f"{type(e).__name__} {e.code}" if isinstance(e, urllib.error.HTTPError) else type(e).__name__
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -171,14 +205,15 @@ def main(argv: list[str] | None = None) -> int:
             print(p, file=sys.stderr)
         return 1 if bad else 0
     repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    if not (repo and pr and sha and token):
+    tokens = read_tokens()
+    if not (repo and pr and sha and tokens):
         print("error\tproof record not read: REPO, PR, SHA and GH_TOKEN are needed")
         return 0
     try:
-        record = find(pr_comments(repo, pr, token), a.suite, sha, [b for b in a.bots.split(",") if b])
+        comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
+        record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
-        print(f"error\tproof record not read ({type(e).__name__}): rerun this job")
+        print(f"error\tproof record not read ({unread(e)}): rerun this job")
         return 0
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")
