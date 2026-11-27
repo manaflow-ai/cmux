@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "releases": [
+    {
+      "platform": "ios",
+      "sha": "7e9744732eaa6dc063b6ad7b21a9f19472a49089",
+      "release_id": "20261127140252",
+      "published_at": "2026-11-27T14:20:44Z",
+      "evidence": {
+        "kind": "testflight-processed",
+        "url": "https://github.com/manaflow-ai/cmux/actions/runs/46011215834/job/140555631318"
+      }
+    },
+    {
+      "platform": "ios",
+      "sha": "2a390230c5a3bffee5b84545a33764761dfd645e",
+      "release_id": "20261127130434",
+      "published_at": "2026-11-27T13:27:55Z",
+      "evidence": {
+        "kind": "testflight-processed",
+        "url": "https://github.com/manaflow-ai/cmux/actions/runs/46002620214/job/140528214606"
+      }
+    },
+    {
+      "platform": "ios",
+      "sha": "d59d188bf96bb6cf4e479b6b3b784864203c4690",
+      "release_id": "20261127025823",
+      "published_at": "2026-11-27T03:18:48Z",
+      "evidence": {
+        "kind": "testflight-processed",
+        "url": "https://github.com/manaflow-ai/cmux/actions/runs/45931253674/job/140287404248"
+      }
+    },
+    {
+      "platform": "mac",
+      "sha": "946de8bad99927bdfb38c683f77f92f30a02bfdc",
+      "release_id": "4598798383801",
+      "published_at": "2026-11-27T11:49:55Z",
+      "evidence": {
+        "kind": "nightly-feed-published",
+        "url": "https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-4598798383801.dmg"
+      }
+    },
+    {
+      "platform": "mac",
+      "sha": "7682aa4571235d820f8e136c90202e2d93cabd1e",
+      "release_id": "4598742452601",
+      "published_at": "2026-11-27T11:35:31Z",
+      "evidence": {
+        "kind": "nightly-feed-published",
+        "url": "https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-4598742452601.dmg"
+      }
+    },
+    {
+      "platform": "mac",
+      "sha": "c6ff12463fb76c6e29ed6b703aa5ccbfb7a8a2f6",
+      "release_id": "4594117542401",
+      "published_at": "2026-11-27T05:17:35Z",
+      "evidence": {
+        "kind": "nightly-feed-published",
+        "url": "https://github.com/manaflow-ai/cmux/actions/runs/45941175424/job/140327282618"
+      }
+    }
+  ]
+}

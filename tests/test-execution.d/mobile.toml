@@ -1,0 +1,3 @@
+[[test]]
+path = "tests/test_mobile_pair_shipped_window.py"
+lane = "linux-guard"
