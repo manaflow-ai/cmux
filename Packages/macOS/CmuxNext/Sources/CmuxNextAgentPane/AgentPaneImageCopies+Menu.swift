@@ -37,14 +37,18 @@ extension AgentPaneImageCopies {
     }
 
     /// The pasteboard item for `file` (Copy, a drag out): its file URL, its name, and an image's
-    /// `data` under its type and as TIFF.
+    /// `data` under its type, as PNG and as TIFF (a JPEG or WebP still pastes where only PNG is read).
     @MainActor static func pasteboardItem(_ file: URL, data: Data?) -> NSPasteboardItem {
         let item = NSPasteboardItem()
         item.setString(file.absoluteString, forType: .fileURL)
         item.setString(file.lastPathComponent, forType: .string)
         if let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image), let data {
             item.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
-            if type != .tiff, let tiff = NSImage(data: data)?.tiffRepresentation { item.setData(tiff, forType: .tiff) }
+            let tiff = type == .tiff ? data : NSImage(data: data)?.tiffRepresentation
+            if type != .tiff, let tiff { item.setData(tiff, forType: .tiff) }
+            if type != .png, let tiff, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                item.setData(png, forType: .png)
+            }
         }
         return item
     }

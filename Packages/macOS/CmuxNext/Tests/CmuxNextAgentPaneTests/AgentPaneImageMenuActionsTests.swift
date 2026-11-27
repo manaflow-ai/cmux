@@ -77,6 +77,22 @@ struct AgentPaneImageMenuActionsTests {
         #expect(effects.copied.count == 1)
     }
 
+    /// A JPEG copies as PNG too, so an app that reads only PNG (or a pasted composer) gets it.
+    @Test func copyImageOfAJPEGAlsoPutsPNGOnThePasteboard() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, effects) = Self.model(folder)
+        let jpeg = try #require(NSBitmapImageRep(data: Self.png)?.representation(using: .jpeg, properties: [:]))
+
+        let reply = await Self.ask(model, "image.copy", ["src": "data:image/jpeg;base64," + jpeg.base64EncodedString(), "name": "photo"])
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        let item = try #require(effects.copied.first)
+        #expect(item.string(forType: .fileURL).flatMap(URL.init(string:))?.pathExtension == "jpg")
+        #expect(item.data(forType: NSPasteboard.PasteboardType("public.jpeg")) == jpeg)
+        #expect(item.data(forType: .png).flatMap(NSImage.init(data:)) != nil)
+        #expect(item.data(forType: .tiff).flatMap(NSImage.init(data:)) != nil)
+    }
+
     @Test func saveImageAsOffersTheCopyUnderTheImagesOwnName() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -110,13 +126,14 @@ struct AgentPaneImageMenuActionsTests {
         AgentPaneContextMenu.rebuild(menu, target: AgentPaneMessageTarget(text: "", opensImage: true), devTools: false,
                                      actions: .init(copy: { _ in }, fork: { _ in }, page: { name, _ in ran.append(name) }))
         let titles = menu.items.map(\.title)
-        #expect(Array(titles.prefix(5)) == [AgentPaneMenuStrings.openImage, AgentPaneMenuStrings.copyImage,
+        // Copy leads (Leo, 2026-11-27: "i need to be able to copy images that i pasted").
+        #expect(Array(titles.prefix(5)) == [AgentPaneMenuStrings.copyImage, AgentPaneMenuStrings.openImage,
                                             AgentPaneMenuStrings.saveImageAs, AgentPaneMenuStrings.quickLook,
                                             AgentPaneMenuStrings.showInFinder])
         for item in menu.items.prefix(5) {
             _ = (item.target as? NSObject)?.perform(item.action, with: item)
         }
-        #expect(ran == ["chat.menu.openImage", "chat.menu.copyImage", "chat.menu.saveImage", "chat.menu.quickLookImage",
+        #expect(ran == ["chat.menu.copyImage", "chat.menu.openImage", "chat.menu.saveImage", "chat.menu.quickLookImage",
                         "chat.menu.revealImage"])
     }
 }

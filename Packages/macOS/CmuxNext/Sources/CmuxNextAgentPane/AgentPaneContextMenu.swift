@@ -257,13 +257,17 @@ enum AgentPaneContextMenu {
         }
         menu.removeAllItems()
         var image: [NSMenuItem] = []
+        if target?.hasImage == true {
+            // The page sends the image to the host, which acts on a named copy (AgentPaneImageCopies+Menu):
+            // Copy Image puts the file and its bytes on the pasteboard, on Chromium and WebKit alike. It
+            // is the image's first row, before Open Image, as on a composer attachment (Leo, 2026-11-27:
+            // "i need to be able to copy images that i pasted").
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyImage, symbol: "doc.on.doc") { actions.page("chat.menu.copyImage", [:]) })
+        }
         if target?.opensImage == true {
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage, symbol: "photo.on.rectangle") { actions.page("chat.menu.openImage", [:]) })
         }
         if target?.hasImage == true {
-            // The page sends the image to the host, which acts on a named copy (AgentPaneImageCopies+Menu):
-            // Copy Image puts the file and its bytes on the pasteboard, on Chromium and WebKit alike.
-            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyImage, symbol: "doc.on.doc") { actions.page("chat.menu.copyImage", [:]) })
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.saveImageAs, symbol: "square.and.arrow.down") { actions.page("chat.menu.saveImage", [:]) })
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quickLook, symbol: "eye") { actions.page("chat.menu.quickLookImage", [:]) })
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.showInFinder, symbol: "macwindow") { actions.page("chat.menu.revealImage", [:]) })
