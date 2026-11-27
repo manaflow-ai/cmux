@@ -2038,6 +2038,13 @@ fn every_test_wait_on_a_hold_is_bounded() {
             "the page's reader drains the served connection's output: it ends when the \
              connection drops `output`, and no test waits on it",
         ),
+        (
+            "server/outbox.rs",
+            "out_rx",
+            "not test code: the scan reads every `outbox.rs` as a test file because \
+             `stress/mod.rs` declares `#[cfg(test)] mod outbox;`. `attempt_once` awaits it in a \
+             `select!` against `sleep_until(quiet.end())`, which bounds it",
+        ),
     ];
     fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
         let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
@@ -2214,18 +2221,11 @@ fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
     };
     let mut modules: Vec<Modules> =
         (0..files.len()).map(|i| modules_of(i, named(&files[i].0))).collect();
-    // Modules declared `#[cfg(test)] mod name;`: files with that name only build under test.
-    let test_names: HashSet<String> = modules.iter().flat_map(|m| m.names.clone()).collect();
-    let mut whole: Vec<bool> = files
-        .iter()
-        .map(|(relative, _)| {
-            named(relative)
-                || relative.iter().any(|part| {
-                    let part = part.to_str().unwrap_or("");
-                    test_names.contains(part.strip_suffix(".rs").unwrap_or(part))
-                })
-        })
-        .collect();
+    // A `#[cfg(test)] mod name;` makes the one file the module tree puts there test code (the
+    // walk below, through `files`), never every file of that name: stress/mod.rs's `mod outbox;`
+    // once made server/outbox.rs and hub/outbox.rs whole test files, and their live `select!`
+    // arms unbounded waits.
+    let mut whole: Vec<bool> = files.iter().map(|(relative, _)| named(relative)).collect();
     let mut scan =
         CrateScan { checked: 0, unread: Vec::new(), unresolved: Vec::new(), waits: Vec::new() };
     // Each test file's own `mod child;` files are test files too, to any depth.
@@ -2280,8 +2280,6 @@ struct Modules {
     bodies: Vec<TokenStream>,
     /// Each `mod child;` whose file is test code: where it may be, the first that exists.
     files: Vec<Vec<PathBuf>>,
-    /// Each name declared `#[cfg(test)] mod name;` outside test code.
-    names: Vec<String>,
 }
 
 /// The modules in `tokens`, at any depth. `dir` holds the `mod child;` files, `base` is what a
@@ -2327,9 +2325,6 @@ fn modules_in(tokens: TokenStream, dir: &Path, base: &Path, in_test: bool, out: 
                             vec![dir.join(format!("{name}.rs")), dir.join(&name).join("mod.rs")]
                         }
                     });
-                }
-                if test && !in_test {
-                    out.names.push(name);
                 }
                 i = j + 3;
                 continue;
@@ -3258,6 +3253,20 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             wrong.push(format!("child file not read: {shape}"));
         }
     }
+    // A test module's name is no test file elsewhere: stress/mod.rs's `#[cfg(test)] mod outbox;`
+    // is stress/outbox.rs, not server/outbox.rs's live code.
+    let files: Vec<(PathBuf, String)> = [
+        ("stress/mod.rs", "#[cfg(test)]\nmod outbox;\n"),
+        ("stress/outbox.rs", "fn t() {}\n"),
+        ("server/outbox.rs", "fn live() {\n    arrived.RECV.unwrap();\n}\n"),
+    ]
+    .iter()
+    .map(|(path, text)| (PathBuf::from(path), source(text)))
+    .collect();
+    let flagged: Vec<String> = scan_crate(&files).waits.into_iter().map(|(path, _)| path).collect();
+    if !flagged.is_empty() {
+        wrong.push(format!("a test module's name made another file test code: {flagged:?}"));
+    }
     assert!(wrong.is_empty(), "the bounded-wait scan judges by text shape:\n{}", wrong.join("\n"));
 }
 
@@ -3289,4 +3298,53 @@ fn journal_store_forwards_every_local_store_override() {
     let stale: Vec<&&str> =
         DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
     assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
+}
+
+/// A held tool output body (`Store::keep_held`) is kept beside the chat's log, replaced, listed
+/// and removed, through the journal store and through the local store under it. A deleted chat's
+/// folder is not made again for one, and a name that is no slot is refused.
+#[test]
+fn held_bodies_are_kept_replaced_and_removed_beside_the_log() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(41);
+    let journaled = open(home.path(), &journal);
+    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let local = LocalStore::new(root.path().join("sessions"), 1 << 20)
+        .unwrap_or_else(|e| panic!("open the local store: {e:#}"));
+    for store in [journaled.as_ref(), &local as &dyn Store] {
+        store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+        assert!(store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_empty());
+        let keep = |slot: &str, held: Option<&[u8]>| {
+            store.keep_held(CHAT, slot, held).unwrap_or_else(|e| panic!("keep {slot}: {e:#}"))
+        };
+        let kept = || {
+            let mut kept = store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+            kept.sort();
+            kept
+        };
+        keep("00ff", Some(&b"one"[..]));
+        keep("00ff", Some(&b"two"[..]));
+        keep("abcd", Some(&b"three"[..]));
+        let both =
+            vec![("00ff".to_owned(), b"two".to_vec()), ("abcd".to_owned(), b"three".to_vec())];
+        assert_eq!(kept(), both);
+        // A copy a write left behind is no slot's.
+        let dir = store.session_path(CHAT).unwrap_or_else(|| panic!("no folder")).join("held");
+        std::fs::write(dir.join("00ff.tmp-1"), b"partial").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(kept(), both);
+        keep("00ff", None);
+        keep("00ff", None);
+        assert_eq!(kept(), vec![("abcd".to_owned(), b"three".to_vec())]);
+        for bad in ["", "../parked", "ABCD", "00ff.json", "ab/cd"] {
+            assert!(store.keep_held(CHAT, bad, Some(&b"x"[..])).is_err(), "{bad:?} was kept");
+            assert!(store.keep_held(CHAT, bad, None).is_err(), "{bad:?} was removed");
+        }
+        store.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+        assert!(
+            store.keep_held(CHAT, "abcd", Some(&b"again"[..])).is_err(),
+            "kept for a deleted chat"
+        );
+        assert!(!store.session_path(CHAT).unwrap_or_else(|| panic!("no path")).exists());
+        assert!(store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_empty());
+    }
 }

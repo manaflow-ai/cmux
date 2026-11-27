@@ -28,6 +28,9 @@ public actor ChiefHomeDirectory {
     }
 
     private let parents: [URL]
+    /// Which Chief homes this app may route a tab to (``admission(of:devBuild:)``): a home's acpmux runs with the
+    /// environment, so the cloud build space, of the app that starts it or attaches to it.
+    private let admits: @Sendable (URL) -> Bool
     private let work: BackgroundWork
     /// The least time between two reads of `parents` after a miss.
     private let rescanInterval: Duration
@@ -51,10 +54,12 @@ public actor ChiefHomeDirectory {
     private var lastScan: ContinuousClock.Instant?
     private var lookups: [String: Task<OwnAcpmux?, Never>] = [:]
 
-    public init(parents: [URL], work: BackgroundWork, rescanInterval: Duration = .seconds(10),
+    public init(parents: [URL], admits: @escaping @Sendable (URL) -> Bool = { _ in true }, work: BackgroundWork,
+                rescanInterval: Duration = .seconds(10),
                 environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?,
                 ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding) {
         self.parents = parents
+        self.admits = admits
         self.work = work
         self.rescanInterval = rescanInterval
         self.environment = environment
@@ -63,10 +68,31 @@ public actor ChiefHomeDirectory {
 
     /// The directories that hold the Chief homes beside `home`: its parent, the Chief root and
     /// that root's `isolated/`.
+    /// Rust `chief_home.directory_home_parents`; when the rules cannot run, no parents (no tab routes to another home).
     public nonisolated static func homeParents(of home: ChiefHome, root: URL = ChiefHome.chiefRoot()) -> [URL] {
-        var seen = Set<String>()
-        return [home.root.deletingLastPathComponent(), root, root.appendingPathComponent("isolated", isDirectory: true)]
-            .filter { seen.insert($0.standardizedFileURL.path).inserted }
+        struct Request: Encodable { let homeRoot: String; let chiefRoot: String }
+        struct Reply: Decodable { let parents: [String] }
+        let reply: Reply? = try? ChiefHomeRules().call("directory_home_parents", Request(homeRoot: home.root.path, chiefRoot: root.path))
+        return (reply?.parents ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// The Chief homes an app may route a tab to, by their root (AGENTS.md "Dev builds are separate"). A home's
+    /// acpmux and its sessions call the cloud in the space of the app that starts it, and its sessions hold that
+    /// space's data, so:
+    /// - a dev build (one with a cloud build space of its own) reaches only its own home and its named Chiefs;
+    /// - nightly and stable never reach a dev or staging build's home (`~/.cmux/chief/<dev bundle id>[.<account>]`),
+    ///   whose sessions belong to that build's space, but keep the homes of their own space (NIGHTLY's old
+    ///   per-build homes, an RC's, an isolated test home).
+    ///
+    /// Rust `chief_home.directory_admits`; when the rules cannot run, a root is admitted only if it is the app's own home.
+    public nonisolated static func admission(of home: ChiefHome, devBuild: Bool) -> @Sendable (URL) -> Bool {
+        let own = home.root.path
+        return { root in
+            struct Request: Encodable { let homeRoot: String; let devBuild: Bool; let root: String }
+            struct Reply: Decodable { let admits: Bool }
+            let reply: Reply? = try? ChiefHomeRules().call("directory_admits", Request(homeRoot: own, devBuild: devBuild, root: root.path))
+            return reply?.admits ?? (root.standardizedFileURL.path == URL(fileURLWithPath: own).standardizedFileURL.path)
+        }
     }
 
     /// The router of Chief home `host`'s sessions over `fallback` (this Mac's acpmux), nil when no
@@ -100,8 +126,8 @@ public actor ChiefHomeDirectory {
 
     private func lookUp(_ host: String) async -> OwnAcpmux? {
         if roots[host] == nil, lastScan.map({ ContinuousClock.now - $0 >= rescanInterval }) ?? true {
-            let parents = parents
-            guard let found = try? await work.run(.userVisible, mayBlock: .files, { Self.homes(in: parents) }) else { return nil }
+            let parents = parents, admits = admits
+            guard let found = try? await work.run(.userVisible, mayBlock: .files, { Self.homes(in: parents).filter { admits($0.value.acpmuxOwner) } }) else { return nil }
             lastScan = ContinuousClock.now
             roots.merge(found) { kept, _ in kept }
         }
@@ -123,38 +149,56 @@ public actor ChiefHomeDirectory {
     /// to it (cx-ebm.54): `home`'s own host, or for a named Chief also its home's (`owner`) host while
     /// that one runs on `<owner>/acpmux`, not on the app's acpmux (its launch mark,
     /// ``ChiefAppAcpmuxMove/readMark(_:)``, names another). It reads the disk.
+    ///
+    /// The locks and the mark are read here, the decision is Rust `chief_home.directory_owned`; when the rules cannot run,
+    /// the home counts as owned, so the tab only attaches and never starts a daemon another build may own.
     nonisolated static func owned(home: ChiefHome, owner: ChiefHome) -> Bool {
-        if home.hostRuns { return true }
-        guard owner.root != home.root, owner.hostRuns else { return false }
-        return ChiefAppAcpmuxMove.readMark(owner).home.map { $0 == owner.acpmuxHome.path } ?? true
+        struct Request: Encodable {
+            let homeRoot: String
+            let ownerRoot: String
+            let homeHostRuns: Bool
+            let ownerHostRuns: Bool
+            let ownerMarkedHome: String?
+        }
+        struct Reply: Decodable { let owned: Bool }
+        let homeHostRuns = home.hostRuns
+        let separate = owner.root != home.root
+        let ownerHostRuns = separate && owner.hostRuns
+        let marked = ownerHostRuns ? ChiefAppAcpmuxMove.readMark(owner).home : nil
+        let request = Request(homeRoot: home.root.path, ownerRoot: owner.root.path, homeHostRuns: homeHostRuns,
+                              ownerHostRuns: ownerHostRuns, ownerMarkedHome: marked)
+        return ((try? ChiefHomeRules().call("directory_owned", request)) as Reply?)?.owned ?? true
     }
 
     /// Every directory under `parents` by its `chief:<home id>`, each with the named Chiefs' homes
     /// inside it (`<home>/c/<id>`), whose sessions run in that home's acpmux. It reads the disk.
+    /// The listing is read here, the homes by tab host are Rust `chief_home.directory_homes`; when the rules
+    /// cannot run, none (a tab then stays on this Mac's acpmux).
     nonisolated static func homes(in parents: [URL]) -> [String: Found] {
-        var homes: [String: Found] = [:]
-        for parent in parents {
-            for root in directories(in: parent) {
-                let id = ChiefHome.tabHost(muxHome: root)
-                if homes[id] == nil { homes[id] = Found(root: root, acpmuxOwner: root) }
-                // `ChiefHome.brainHome`'s folder: one directory per named Chief.
-                for brain in directories(in: root.appendingPathComponent("c", isDirectory: true)) {
-                    let id = ChiefHome.tabHost(muxHome: brain)
-                    if homes[id] == nil { homes[id] = Found(root: brain, acpmuxOwner: root) }
-                }
-            }
+        struct Listing: Encodable { let parent: String; let directories: [String]; let brains: [String: [String]] }
+        struct Request: Encodable { let listings: [Listing] }
+        struct Home: Decodable { let root: String; let acpmuxOwner: String }
+        struct Reply: Decodable { let homes: [String: Home] }
+        let listings = parents.map { parent in
+            let names = directories(in: parent)
+            // `ChiefHome.brainHome`'s folder: one directory per named Chief.
+            let brains = Dictionary(uniqueKeysWithValues: names.map {
+                ($0, directories(in: parent.appendingPathComponent($0, isDirectory: true).appendingPathComponent("c", isDirectory: true)))
+            })
+            return Listing(parent: parent.path, directories: names, brains: brains)
         }
-        return homes
+        guard let reply: Reply = try? ChiefHomeRules().call("directory_homes", Request(listings: listings)) else { return [:] }
+        return reply.homes.mapValues {
+            Found(root: URL(fileURLWithPath: $0.root, isDirectory: true), acpmuxOwner: URL(fileURLWithPath: $0.acpmuxOwner, isDirectory: true))
+        }
     }
 
-    /// The directories directly under `parent`, hidden ones left out. It reads the disk.
-    private nonisolated static func directories(in parent: URL) -> [URL] {
-        ((try? FileManager.checked.contentsOfDirectory(atPath: parent.path)) ?? []).compactMap { name in
-            guard !name.hasPrefix(".") else { return nil }
-            let root = parent.appendingPathComponent(name, isDirectory: true)
+    /// The names of the directories directly under `parent`, hidden ones left out (their `c/` is not read). It reads the disk.
+    private nonisolated static func directories(in parent: URL) -> [String] {
+        ((try? FileManager.checked.contentsOfDirectory(atPath: parent.path)) ?? []).filter { name in
+            guard !name.hasPrefix(".") else { return false }
             var directory: ObjCBool = false
-            guard FileManager.checked.fileExists(atPath: root.path, isDirectory: &directory), directory.boolValue else { return nil }
-            return root
+            return FileManager.checked.fileExists(atPath: parent.appendingPathComponent(name).path, isDirectory: &directory) && directory.boolValue
         }
     }
 }

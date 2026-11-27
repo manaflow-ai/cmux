@@ -15,6 +15,12 @@
 //! once for the whole page. `updated_ms` moves with every output a working chat
 //! writes, so it is kept fresh but is no change signal of its own.
 //!
+//! Reads are newest first (`updated_ms`, else `created_ms`): the index keeps every row's place in
+//! that order, overall and per state, so `chat.list {limit: 5}` (a New Tab page's recent chats) or
+//! `{state: "input", limit: 3}` reads N rows by walking the order, and a page of All chats
+//! (`before_ms` + `before_id`) starts at its cursor. A change moves one row's place (O(log n)); no
+//! read sorts the chats, whatever their number (Leo's 10K chats).
+//!
 //! A chat that is closed, archived (acpmux's `archived` tag) or has no lane
 //! leaves the list. A connection's list that comes whole drops the rows it did
 //! not name (purged while the watch was away); a chat a push reached during that
@@ -22,7 +28,9 @@
 //! (acpmux answers only what changed since the watch's cursor) applies its rows
 //! and drops the ones it says are `gone`, but drops nothing it did not name.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ops::Bound;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Map, Value, json};
@@ -50,10 +58,139 @@ impl ChatIndex {
     }
 }
 
+/// The states a listed chat is in (the catalog's `ChatState`); `Order::by_state` has one set each.
+pub(crate) const STATES: [&str; 5] = ["working", "input", "idle", "failed", "lost"];
+
+/// A row's place in the newest-first order: its recency ([`recency`]), its id, its peer ("" here).
+type Place = (Reverse<u64>, String, String);
+
+/// Every row's place, overall and in its state, newest first.
+#[derive(Default)]
+struct Order {
+    all: BTreeSet<Place>,
+    by_state: [BTreeSet<Place>; STATES.len()],
+}
+
+/// A row's recency: its `updated_ms`, else its `created_ms`, else 0.
+fn recency(row: &Value) -> u64 {
+    let ms =
+        |name: &str| row.get(name).and_then(Value::as_str).and_then(|ms| ms.parse::<u64>().ok());
+    ms("updated_ms").or_else(|| ms("created_ms")).unwrap_or(0)
+}
+
+fn place(row: &Value) -> Place {
+    let text = |name: &str| row.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
+    (Reverse(recency(row)), text("id"), text("machine"))
+}
+
+fn state_index(row: &Value) -> Option<usize> {
+    let state = row.get("state").and_then(Value::as_str)?;
+    STATES.iter().position(|known| *known == state)
+}
+
+impl Order {
+    fn insert(&mut self, row: &Value) {
+        let place = place(row);
+        if let Some(set) = state_index(row).and_then(|state| self.by_state.get_mut(state)) {
+            set.insert(place.clone());
+        }
+        self.all.insert(place);
+    }
+
+    fn remove(&mut self, row: &Value) {
+        let place = place(row);
+        if let Some(set) = state_index(row).and_then(|state| self.by_state.get_mut(state)) {
+            set.remove(&place);
+        }
+        self.all.remove(&place);
+    }
+}
+
+/// What a `chat.list` read asks for (spec/resource-operations-v2.json): at most `limit` rows, only
+/// those in `state`, after the cursor `before` (the last row of the page before). Every read is
+/// newest first.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct ChatQuery {
+    pub(crate) limit: Option<usize>,
+    pub(crate) state: Option<usize>,
+    before: Option<Place>,
+}
+
+/// The most rows one `chat.list` read with a `limit` returns.
+pub(crate) const MAX_LIMIT: u64 = 1000;
+
+impl ChatQuery {
+    /// The query `chat.list`'s (and `agent_chat.list`'s) fields name; `Err((field, reason))` for a
+    /// field the catalog refuses, or one this read does not know.
+    pub(crate) fn from_fields(fields: &Map<String, Value>) -> Result<Self, (&'static str, String)> {
+        let mut query = Self::default();
+        for name in fields.keys() {
+            if !["limit", "state", "before_ms", "before_id", "before_machine"]
+                .contains(&name.as_str())
+            {
+                return Err(("fields", format!("chat.list takes no field {name:?}")));
+            }
+        }
+        if let Some(limit) = fields.get("limit").filter(|value| !value.is_null()) {
+            match limit.as_u64() {
+                Some(limit @ 1..=MAX_LIMIT) => query.limit = usize::try_from(limit).ok(),
+                _ => {
+                    return Err((
+                        "limit",
+                        format!("limit must be a whole number from 1 to {MAX_LIMIT}"),
+                    ));
+                }
+            }
+        }
+        if let Some(state) = fields.get("state").filter(|value| !value.is_null()) {
+            let index =
+                state.as_str().and_then(|state| STATES.iter().position(|known| *known == state));
+            query.state =
+                Some(index.ok_or_else(|| {
+                    ("state", format!("state must be one of {}", STATES.join(", ")))
+                })?);
+        }
+        let before_ms = fields.get("before_ms").filter(|value| !value.is_null());
+        let before_id = fields.get("before_id").filter(|value| !value.is_null());
+        match (before_ms, before_id) {
+            (None, None) => {
+                if fields.get("before_machine").is_some_and(|value| !value.is_null()) {
+                    return Err((
+                        "before_machine",
+                        "before_machine needs before_ms and before_id".into(),
+                    ));
+                }
+            }
+            (Some(ms), Some(id)) => {
+                let ms = ms
+                    .as_u64()
+                    .or_else(|| ms.as_str().and_then(|ms| ms.parse::<u64>().ok()))
+                    .ok_or(("before_ms", "before_ms must be Unix milliseconds".to_owned()))?;
+                let id = id
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or(("before_id", "before_id must be a chat id".to_owned()))?;
+                let machine = match fields.get("before_machine") {
+                    None | Some(Value::Null) => "",
+                    Some(machine) => machine
+                        .as_str()
+                        .ok_or(("before_machine", "before_machine must be a string".to_owned()))?,
+                };
+                query.before = Some((Reverse(ms), id.to_owned(), machine.to_owned()));
+            }
+            (None, Some(_)) => return Err(("before_ms", "before_id needs before_ms".into())),
+            (Some(_), None) => return Err(("before_id", "before_ms needs before_id".into())),
+        }
+        Ok(query)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Chats {
     /// Rows by key ([`key`]): the peer and the chat's id.
     rows: BTreeMap<String, Value>,
+    /// Every row's place in the newest-first order (the module docs).
+    order: Order,
     revision: u64,
     /// The whole list a connection is reading now, if any.
     listing: Option<Listing>,
@@ -139,16 +276,23 @@ pub(crate) fn row(summary: &Value) -> Option<Value> {
         "updated_ms": ms(summary.get("updatedAt")),
         "created_ms": ms(summary.get("createdAt")),
         "pull_requests": pull_requests,
+        "preview": text(summary.get("preview")),
     }))
 }
 
-/// Whether two rows differ in anything but `updated_ms`.
+/// The fields that are kept fresh but are no change signal of their own: `updated_ms` moves with
+/// every output, and `preview` (the last reply) with it; the turn's end changes `state`, which is.
+const QUIET: &[&str] = &["updated_ms", "preview"];
+
+/// Whether two rows differ in anything but the [`QUIET`] fields.
 fn differs(before: &Value, after: &Value) -> bool {
     let (Some(before), Some(after)) = (before.as_object(), after.as_object()) else {
         return before != after;
     };
     before.len() != after.len()
-        || before.iter().any(|(name, value)| name != "updated_ms" && after.get(name) != Some(value))
+        || before
+            .iter()
+            .any(|(name, value)| !QUIET.contains(&name.as_str()) && after.get(name) != Some(value))
 }
 
 impl Chats {
@@ -158,11 +302,43 @@ impl Chats {
             Some(row) => {
                 let changed = self.rows.get(&key).is_none_or(|before| differs(before, &row));
                 // A row the same but for `updated_ms` is still stored, so reads see it fresh.
-                self.rows.insert(key, row);
+                self.store(key, row);
                 changed
             }
-            None => self.rows.remove(&key).is_some(),
+            None => self.unstore(&key).is_some(),
         }
+    }
+
+    /// Stores `row` under `key`, moving its place in the order.
+    fn store(&mut self, key: String, row: Value) {
+        if let Some(before) = self.rows.get(&key) {
+            self.order.remove(before);
+        }
+        self.order.insert(&row);
+        self.rows.insert(key, row);
+    }
+
+    /// Removes `key`'s row and its place in the order.
+    fn unstore(&mut self, key: &str) -> Option<Value> {
+        let row = self.rows.remove(key)?;
+        self.order.remove(&row);
+        Some(row)
+    }
+
+    /// The rows `query` names, newest first: N steps along the order, never a sort.
+    fn newest(&self, query: &ChatQuery) -> Vec<Value> {
+        let set =
+            query.state.and_then(|state| self.order.by_state.get(state)).unwrap_or(&self.order.all);
+        let limit = query.limit.unwrap_or(usize::MAX);
+        let places: Box<dyn Iterator<Item = &Place>> = match &query.before {
+            Some(before) => Box::new(set.range((Bound::Excluded(before), Bound::Unbounded))),
+            None => Box::new(set.iter()),
+        };
+        places
+            .filter_map(|(_, id, peer)| self.rows.get(&key(Some(peer), id)))
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     /// A page of the watch's list (`sessions`, each with its `peer`).
@@ -214,10 +390,16 @@ impl Chats {
     /// The connection's list came whole: a row it did not name, and no push reached, is gone.
     pub(crate) fn end(&mut self) -> bool {
         let Some(listing) = self.listing.take() else { return false };
-        let before = self.rows.len();
-        let pushed = &self.pushed;
-        self.rows.retain(|key, _| listing.named.contains(key) || pushed.contains(key));
-        self.rows.len() != before
+        let gone = self
+            .rows
+            .keys()
+            .filter(|key| !listing.named.contains(*key) && !self.pushed.contains(*key))
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in &gone {
+            self.unstore(key);
+        }
+        !gone.is_empty()
     }
 
     /// A follow's `gone` entries (`{sessionId, peer}`): those chats left acpmux, unless a push
@@ -269,9 +451,10 @@ impl Mux {
         self.emit(MuxEvent::ChatsChanged { revision });
     }
 
-    /// `chat.list`: every row, with the workspace of a tab that shows the chat.
-    pub(crate) fn chat_rows(&self) -> Vec<Value> {
-        let mut rows = self.chats().rows.values().cloned().collect::<Vec<_>>();
+    /// `chat.list`: the rows `query` names, newest first, each with the workspace of a tab that
+    /// shows the chat. Costs the rows it returns, not the chats there are.
+    pub(crate) fn chat_rows_matching(&self, query: &ChatQuery) -> Vec<Value> {
+        let mut rows = self.chats().newest(query);
         if rows.is_empty() {
             return rows;
         }
@@ -305,13 +488,14 @@ impl Mux {
         let mut found = None;
         self.change_chats(|chats| {
             let Some(key) = chats.find(chat) else { return false };
-            let Some(row) = chats.rows.get_mut(&key) else { return false };
-            let before = row.clone();
+            let Some(before) = chats.rows.get(&key) else { return false };
+            let mut row = before.clone();
             if let Some(fields) = row.as_object_mut() {
                 change(fields);
             }
-            let changed = differs(&before, row);
+            let changed = differs(before, &row);
             found = Some(row.clone());
+            chats.store(key, row);
             changed
         });
         let mut row = found?;

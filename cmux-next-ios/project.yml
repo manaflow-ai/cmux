@@ -15,7 +15,8 @@ configs:
   # the Demo build. Built by scripts/demo-build.sh --config Production.
   Production: release
   # TestFlight: the shipping build for App Store Connect app "cmux INTERNAL"
-  # (bundle dev.cmux.app.internal, ASC app id 6791408425). Everything
+  # (bundle dev.cmux.app.internal, ASC app id 6791408425). The App Store
+  # submission is cmux INTERNAL, built by this configuration. Everything
   # Production has (no DEBUG, production Stack project) plus the production
   # Worker, App Store distribution signing, push (production APNs) and Sign in
   # with Apple. Built only by scripts/testflight-build.sh. See
@@ -28,14 +29,18 @@ configs:
   # `scripts/testflight-build.sh --config TestFlightStaging`; production
   # (TestFlight) stays the default.
   TestFlightStaging: release
-  # AppStore: the public App Store build, App Store Connect app "cmux" (bundle
-  # com.cmux.app, the record the classic ios/ app used; this app replaces it as
-  # an update). The TestFlight configuration with the production identity:
-  # production Stack project, Worker and Cloud, App Store signing, push and Sign
-  # in with Apple. Built only by `scripts/testflight-build.sh --config AppStore`.
-  # No workflow builds or uploads it yet: the App Store lane for com.cmux.app is
-  # not wired (.github/workflows/ios-app-store.yml and ios-appstore-upload.yml
-  # still build the classic ios/ app). A phone updating from the
+  # AppStore: a build for App Store Connect app "cmux" (bundle com.cmux.app,
+  # ASC 6783338052, the record the classic ios/ app used). It is NOT the App
+  # Store submission: the App Store submission is cmux INTERNAL
+  # (dev.cmux.app.internal, ASC 6791408425), built by the TestFlight
+  # configuration above (Leo, 2026-11-22). This configuration is the
+  # TestFlight configuration with the com.cmux.app identity: production Stack
+  # project, Worker and Cloud, App Store signing, push and Sign in with Apple.
+  # Built only by `scripts/testflight-build.sh --config AppStore`, by hand or
+  # from the one-off rc/ upload workflow
+  # (.github/workflows/ios-appstore-next-review.yml on rc/cnx-ios-appstore-review);
+  # main's ios-appstore-upload.yml still builds the classic ios/ app. Its
+  # version is its own (MARKETING_VERSION below). A phone updating from the
   # classic app keeps its Keychain items and settings: ClassicLeftovers
   # (CmuxMobileLive) deletes them once at the first launch.
   AppStore: release
@@ -46,8 +51,21 @@ options:
 settings:
   base:
     CMUX_MOBILE_TAG: ""
+    # The dev tag the app's cloud requests carry as `X-Cmux-Build-Space: dev:<slug>` (Info.plist
+    # CmuxMobileDevTag; CMUXBuildSpace sanitizes it and drops the tag's leading "."), so a tagged
+    # dev build never sees another build's cloud data. Set only by the Debug configuration below.
+    # Demo stays empty: it is a shared, hand-installed demo build (demo-build.sh) that pairs with
+    # nightly Macs and must show the person's real data, so it sends no header. Production's fixed
+    # ".prod", Release, TestFlight, TestFlightStaging and AppStore send none either.
+    CMUX_MOBILE_DEV_TAG: ""
     CMUX_MOBILE_SOURCE_COMMIT: ""
     CMUX_MOBILE_DISPLAY_NAME: cmux
+    # How this build names the phone to the account's Macs (Info.plist CmuxMobileInstanceLabel,
+    # CmuxMobileLive DeviceInstanceName): the phone's name plus this label in parentheses. Each build
+    # on a phone is its own device, so the label tells them apart. The App Store build has none (the
+    # phone's name alone); every other configuration sets its own. A future BETA configuration
+    # (dev.cmux.app.beta) sets BETA.
+    CMUX_MOBILE_INSTANCE_LABEL: DEV
     # The cmux-mobile-api base URL baked into Info.plist (CmuxMobileAPIBase). DEBUG
     # builds fall back to the dev Worker when it is empty; a non-DEBUG build
     # with no value has no live data, so every shipping config sets it.
@@ -70,10 +88,13 @@ settings:
     # The Stack project of a non-DEBUG build (CmuxMobileStackEnvironment): empty is
     # production; "development" is the development project (staging).
     CMUX_MOBILE_STACK_ENVIRONMENT: ""
-    # User-facing version. Must stay at or above the highest version ever
-    # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
-    # testflight-build.sh checks this against App Store Connect. The build
-    # number (CURRENT_PROJECT_VERSION) is stamped per upload by that script.
+    # User-facing version of every configuration but AppStore, which sets its
+    # own (the App Store record's version, below). Must stay at or above the
+    # highest version ever uploaded to cmux INTERNAL (TestFlight orders builds
+    # by it first); testflight-build.sh and scripts/ci/ios_internal_builder.py
+    # read this base value for the INTERNAL lane and the former checks it
+    # against App Store Connect. The build number (CURRENT_PROJECT_VERSION) is
+    # stamped per upload by that script.
     MARKETING_VERSION: 1.2.0
     # The app's bundle id; the notification extensions are `<it>.notification-content`
     # (and, with the encrypted fallback, `.notification-service`), and the App Group
@@ -115,14 +136,19 @@ settings:
     CMUX_MOBILE_KEYCHAIN_GROUP: $(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push
     CURRENT_PROJECT_VERSION: "1"
   configs:
+    Debug:
+      CMUX_MOBILE_DEV_TAG: $(CMUX_MOBILE_TAG)
     Release:
+      CMUX_MOBILE_INSTANCE_LABEL: RELEASE
       # Release (the `xcodebuild archive` default) is a production build too.
       CMUX_MOBILE_API_BASE: https:/$()/mobile-api.cmux.dev
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     Demo:
+      CMUX_MOBILE_INSTANCE_LABEL: DEMO
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CMUX_MOBILE_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
     Production:
+      CMUX_MOBILE_INSTANCE_LABEL: PROD
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: .prod
@@ -131,10 +157,12 @@ settings:
       CMUX_MOBILE_API_BASE: https:/$()/mobile-api.cmux.dev
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     Release:
+      CMUX_MOBILE_INSTANCE_LABEL: RELEASE
       # A non-DEBUG build with no service address signs in to an empty app.
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     TestFlight:
+      CMUX_MOBILE_INSTANCE_LABEL: INTERNAL
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: ""
@@ -144,6 +172,7 @@ settings:
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     TestFlightStaging:
+      CMUX_MOBILE_INSTANCE_LABEL: "INTERNAL STAGING"
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: ""
@@ -153,6 +182,7 @@ settings:
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_STAGING_CLOUD_API_BASE)
       CMUX_MOBILE_STACK_ENVIRONMENT: development
     AppStore:
+      CMUX_MOBILE_INSTANCE_LABEL: ""
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: ""
@@ -162,8 +192,14 @@ settings:
       # 7WLXT3NR37.com.cmux.app.push; the App Group (when on) is group.com.cmux.app.
       CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app
       CMUX_MOBILE_DISPLAY_NAME: cmux
-      # The version is the base MARKETING_VERSION above: the review package
-      # (cmux-next-ios/AppStoreReview/metadata/version/<MARKETING_VERSION>) is named for it.
+      # The com.cmux.app version, independent of the INTERNAL lane's base
+      # MARKETING_VERSION (1.2.0 above, which must not go down on
+      # dev.cmux.app.internal; the App Store submission is cmux INTERNAL on
+      # that 1.2.x base, not this record). testflight-build.sh --config AppStore,
+      # app_review_gate.py `version --lane appstore` and asc_review_package.py
+      # read this value; the review package
+      # (cmux-next-ios/AppStoreReview/metadata/version/<it>) is named for it.
+      MARKETING_VERSION: 1.0.0
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
       CMUX_MOBILE_APP_PROFILE: cmux App Store CI
@@ -174,6 +210,11 @@ packages:
     path: CmuxMobileKit
   CmuxChiefVoiceCore:
     path: ../Packages/Shared/CmuxChiefVoiceCore
+  # Swift live code in the simulator (scripts/live-code/ios-sim.sh); only DEBUG code uses it. Linked
+  # into every configuration, but on iOS its sources compile only with DEBUG, so a Release, TestFlight
+  # or App Store binary holds none of it (Packages/Shared/CmuxLiveCode/Sources/CmuxLiveCode/LiveEngine.swift).
+  CmuxLiveCode:
+    path: ../Packages/Shared/CmuxLiveCode
   CmuxConversation:
     path: ../Packages/iOS/CmuxConversation
 targets:
@@ -198,6 +239,7 @@ targets:
       - package: CmuxMobileKit
         product: CmuxMobileChief
       - package: CmuxChiefVoiceCore
+      - package: CmuxLiveCode
       # Long-press view of every cmux notification (verify/rich-push.md).
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
@@ -245,6 +287,11 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
       configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
         Production:
           # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.mobile.prod):
           # Stack tokens never mix with the Demo or Debug installs. No app group:
@@ -301,6 +348,8 @@ targets:
         CFBundleAllowMixedLocalizations: true
         LSRequiresIPhoneOS: true
         CmuxMobileTag: $(CMUX_MOBILE_TAG)
+        CmuxMobileInstanceLabel: $(CMUX_MOBILE_INSTANCE_LABEL)
+        CmuxMobileDevTag: $(CMUX_MOBILE_DEV_TAG)
         CmuxMobileAPIBase: $(CMUX_MOBILE_API_BASE)
         CmuxMobileCloudAPIBase: $(CMUX_MOBILE_CLOUD_API_BASE)
         CmuxMobileStackEnvironment: $(CMUX_MOBILE_STACK_ENVIRONMENT)
@@ -329,21 +378,21 @@ targets:
         # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
         # WebRTC host candidates) before falling back to the relay.
         NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.
-        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan the pairing code on your Mac.
-        # A Mac's pairing code (`cmux-next://pair?…`, MobileHostPairInvite): the Camera
-        # opens it here. Every configuration registers it; side-by-side installs share the scheme.
+        # A Mac nearby is found by Bonjour (`_cmux-link._tcp`, over Wi-Fi and peer-to-peer) and dialed
+        # through its local hub, with no internet needed (LocalLinkBrowser). iOS 14+ refuses a browse
+        # for a type not listed here.
+        NSBonjourServices: [_cmux-link._tcp]
+        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan an invite code on your Mac.
         # cmux links (CmuxLink: `cmux://tab/tab_…`, `cmux://agent/claude/…`) in each Mac
         # build's scheme open what they name, from Safari, Messages, Notes or a QR code.
         # (`cmux-dev-<tag>` links of a tagged Mac open only when tapped inside the app.)
         CFBundleURLTypes:
-          - CFBundleURLName: dev.cmux.mobile.pair
-            CFBundleURLSchemes: [cmux-next]
           - CFBundleURLName: dev.cmux.mobile.link
             CFBundleURLSchemes: [cmux, cmux-nightly, cmux-rc, cmux-dev]
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
         NSMicrophoneUsageDescription: Talk to Chief on calls and record audio messages for Chief and your agents.
-        NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device. Audio is not sent for recognition.
+        NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device, and dictate messages. Dictation uses Apple's speech recognition on this device when it can, otherwise Apple's servers.
         # The Action Button Chief call keeps recording while the phone is locked.
         UIBackgroundModes: [audio]
         NSFaceIDUsageDescription: Unlock cmux with Face ID when Require Face ID is on.
@@ -394,6 +443,11 @@ targets:
         CMUX_MOBILE_ENTITLEMENTS_YES: NotificationContent/NotificationContent-Group.entitlements
         CODE_SIGN_ENTITLEMENTS: $(CMUX_MOBILE_ENTITLEMENTS_$(CMUX_MOBILE_APP_GROUP))
       configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
         TestFlight:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
@@ -456,6 +510,11 @@ targets:
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         CODE_SIGN_ENTITLEMENTS: NotificationService/NotificationService.entitlements
       configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
         TestFlight:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
@@ -498,3 +557,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: 7WLXT3NR37
         CODE_SIGN_STYLE: Automatic
+      configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"

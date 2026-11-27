@@ -3,12 +3,17 @@
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 APP="build-universal/Build/Products/Release/cmux.app"
+# cmux NEXT's code is CmuxNextApp.framework behind the stub Contents/MacOS/cmux (CMUX-629): its slices
+# are the app's. Classic and a static build have no such framework.
+app_code=()
+[ -f "$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" ] &&
+  app_code=("$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp")
 for binary in \
   "$APP/Contents/MacOS/cmux" \
+  ${app_code[@]+"${app_code[@]}"} \
   "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/ghostty" \
-  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar"
 do
   archs="$(lipo -archs "$binary")"
   echo "$binary: $archs"
@@ -22,6 +27,12 @@ done
 if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
   for helper in optchat-chief cmux-mobile-host; do
     binary="$APP/Contents/Resources/bin/$helper"
+    # The iPhone host is a stale part, not a hold (app-bundle-chief-and-mobile-host.sh noted it), unless
+    # vars.NIGHTLY_COMPONENT_GATES is block.
+    if [ ! -e "$binary" ] && [ "$helper" = cmux-mobile-host ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+      echo "::warning title=Nightly stale part::cmux-mobile-host: this nightly carries no iPhone host"
+      continue
+    fi
     [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
@@ -31,11 +42,16 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
       [ "$archs" = "$NIGHTLY_VARIANT" ]
     fi
   done
-  # And the screen sharing executable, inside the Computer Use helper (one permission identity:
-  # scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use).
-  helpers=("$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing")
-  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing" >&2; exit 1; }
-  for binary in "${helpers[@]}"; do
+  # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
+  # A helper that failed to build is a stale part (app-bundle-chief-and-mobile-host.sh noted it), not a hold,
+  # unless vars.NIGHTLY_COMPONENT_GATES is block.
+  helpers=("$APP/Contents/Library/"*" Helper.app/Contents/MacOS/cmux-screen-sharing")
+  if [ ! -e "${helpers[0]}" ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+    echo "::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper"
+    helpers=()
+  fi
+  [ "${#helpers[@]}" -eq 0 ] || [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Helper.app" >&2; exit 1; }
+  for binary in ${helpers[@]+"${helpers[@]}"}; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
     if [ "$NIGHTLY_VARIANT" = "universal" ]; then

@@ -55,6 +55,8 @@ async fn main() -> anyhow::Result<()> {
                 generation,
                 issued_at_unix: now,
                 expires_at_unix,
+                grant: None,
+                region: None,
             };
             println!("{}", authority.issue(&claims)?);
             Ok(())

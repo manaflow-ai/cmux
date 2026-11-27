@@ -228,7 +228,17 @@ fn query(url: &str) -> HashMap<String, String> {
 /// Begins a sign-in, then calls its callback with `extra` (and the right state unless `extra`
 /// names one), and waits for the attempt.
 async fn sign_in(s: &Setup, extra: &[(&str, &str)]) -> (Status, HashMap<String, String>) {
-    let begun = s.service.begin(s.places.clone(), None, |_| {}).await.expect("begin");
+    sign_in_again(s, None, extra).await
+}
+
+/// [`sign_in`] that signs in again on the route `reauth`.
+async fn sign_in_again(
+    s: &Setup,
+    reauth: Option<&str>,
+    extra: &[(&str, &str)],
+) -> (Status, HashMap<String, String>) {
+    let begun =
+        s.service.begin(s.places.clone(), reauth.map(str::to_owned), |_| {}).await.expect("begin");
     let params = query(&begun.url);
     s.fake.state.lock().unwrap().nonce = params["nonce"].clone();
     let mut pairs: Vec<(&str, &str)> = extra.to_vec();
@@ -238,7 +248,14 @@ async fn sign_in(s: &Setup, extra: &[(&str, &str)]) -> (Status, HashMap<String, 
     let callback = format!("{}?{}", params["redirect_uri"], form_encode(&pairs));
     let page = reqwest::get(&callback).await.expect("callback");
     assert_eq!(page.status(), 200);
+    let html = page.text().await.expect("page");
+    // The loopback listener answers the cmux page (mark, card), not plain text.
+    assert!(html.contains("data-auth-state=") && html.contains("--background:#fafafa"), "{html}");
     let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.expect("wait");
+    if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
+        let kind = if html.contains("data-auth-state=\"ok\"") { "live-ok" } else { "live-err" };
+        std::fs::write(format!("{dir}/{kind}.html"), &html).unwrap();
+    }
     (status, params)
 }
 
@@ -488,10 +505,14 @@ async fn a_cancelled_sign_in_closes_its_listener() {
     assert_eq!(status, Status::Cancelled);
     let redirect = query(&begun.url)["redirect_uri"].clone();
     let port = reqwest::Url::parse(&redirect).unwrap().port().unwrap();
-    assert!(
-        tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(),
-        "the listener is closed"
-    );
+    // A child another test spawns holds a copy of the dropped listener between its fork and
+    // exec, so a connect can still land for that moment: the listener is closed once a connect
+    // is refused, within a bound no fork-to-exec window reaches.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+        assert!(std::time::Instant::now() < deadline, "the listener is closed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 #[test]
@@ -582,4 +603,102 @@ async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
         .unwrap();
     assert_eq!(token, "access-r1");
     assert!(expires_at - now() >= super::CREDENTIAL_MARGIN_SECS);
+}
+
+/// A `chatgpt-plan` route this acpmux home holds no sign-in for (the route folder is shared by every
+/// cmux on the Mac; another build, or the retired token-sharing client, wrote it): the row reads
+/// signed out, and its Sign In signs in on that same route instead of failing `not_found` (cmux#45774).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
+    let s = setup().await;
+    let dir = s.places.routes.as_deref();
+    let mut stale = crate::routes::RouteFile {
+        name: Some("ChatGPT plan (alex@example.com)".into()),
+        kind: RouteKind::ChatgptPlan,
+        families: vec!["codex".into()],
+        anthropic_base_url: None,
+        openai_base_url: Some("https://api.openai.com/v1".into()),
+        auth: None,
+        secret: None,
+        headers: Default::default(),
+        health_url: None,
+        fallback: vec![],
+        auto_fallback: false,
+        notes: None,
+        account_home: None,
+        shadow_of: None,
+        disabled: false,
+        provider: Some("openai".into()),
+    };
+    routes::add(dir, "chatgpt", &stale, true).expect("route");
+
+    let (status, _) = sign_in_again(&s, Some("chatgpt"), &[("code", "c1")]).await;
+    assert_eq!(status, Status::Done("chatgpt".into()), "the same route, not a second one");
+    let record = store::read(&s.places.home, "chatgpt").unwrap().expect("record");
+    assert!(record.signed_in());
+    let route = routes::find(dir, "chatgpt").expect("route");
+    assert_eq!(route.file.openai_base_url.as_deref(), Some(super::CODEX_BACKEND));
+    assert!(routes::find(dir, "chatgpt-2").is_err(), "no duplicate connection");
+
+    // A route that is not a ChatGPT sign-in, or none at all, is still not one to sign in again.
+    stale.kind = RouteKind::DirectSubscription;
+    routes::add(dir, "other", &stale, true).expect("route");
+    for id in ["other", "nope"] {
+        let failure = s.service.begin(s.places.clone(), Some(id.into()), |_| {}).await.err();
+        assert_eq!(failure.map(|f| f.code), Some("not_found".into()), "{id}");
+    }
+}
+
+#[test]
+fn callback_pages_use_the_cmux_sign_in_page_styles() {
+    use super::oauth::{AUTH_PAGE_CSS, Page};
+    let ok = Page::signed_in().html();
+    assert!(ok.contains("<h1>Signed in to ChatGPT</h1>"));
+    assert!(ok.contains("You can close this tab and return to cmux."));
+    assert!(ok.contains("class=\"card\"") && ok.contains("<svg"));
+    // Self-contained: no fetched font, script or image.
+    assert!(!ok.contains("@import") && !ok.contains("<script") && !ok.contains("http"), "{ok}");
+    assert!(ok.contains("data-auth-state=\"ok\""));
+    let err = Page::failed("access_denied").html();
+    assert!(err.contains("data-auth-state=\"error\""));
+    assert!(err.contains("<h1>Couldn\u{2019}t sign in to ChatGPT</h1>"));
+    assert!(err.contains("<p class=\"code\">Error code <span>access_denied</span></p>"));
+    assert!(err.contains("cancelled"));
+    // A code never injects markup.
+    let odd = Page::failed("<script>").html();
+    assert!(!odd.contains("<script>"));
+    assert!(odd.contains("&lt;script&gt;"));
+    // The colors are the web sign-in page's own (web/app/globals.css), light and dark.
+    let globals = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../web/app/globals.css"
+    ))
+    .expect("web/app/globals.css");
+    let token = |block: &str, name: &str| -> String {
+        let start = globals.find(block).expect(block);
+        let rest = &globals[start..];
+        let at = rest.find(&format!("--{name}:")).expect(name);
+        rest[at..].split(';').next().unwrap().replace(' ', "")
+    };
+    let (light, dark) = AUTH_PAGE_CSS.split_once("@media").unwrap();
+    for name in ["background", "foreground", "muted", "border"] {
+        assert!(light.contains(&token(":root {", name)), "light {name}");
+        assert!(dark.contains(&token(".dark {", name)), "dark {name}");
+    }
+    // The other loopback sign-in pages of cmux NEXT carry the same styles.
+    let css_of = |text: &str| -> String {
+        let start = text.find("const AUTH_PAGE_CSS: &str = ").expect("AUTH_PAGE_CSS");
+        let rest = &text[start..];
+        rest[..rest.find("\";").unwrap()].to_owned()
+    };
+    let own = css_of(include_str!("oauth.rs"));
+    for other in ["Native/OptChat/optchat-chief/src/mcp_hub/oauth.rs"] {
+        let path = format!("{}/../../../{other}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).expect(other);
+        assert_eq!(css_of(&text), own, "{other} drifted from the sign-in page styles");
+    }
+    if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
+        std::fs::write(format!("{dir}/success.html"), ok).unwrap();
+        std::fs::write(format!("{dir}/error.html"), err).unwrap();
+    }
 }

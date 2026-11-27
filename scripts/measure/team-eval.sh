@@ -238,7 +238,7 @@ if [[ -d "$repo/webviews" ]]; then
       names+=("${name#webviews/}")
     done
     if [[ "$hidden_rc" == 0 ]]; then
-      (cd "$repo/webviews" && "${lane[@]}" "$BUN" test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
+      (cd "$repo/webviews" && "${lane[@]}" "$BUN" test ${names[@]+"${names[@]}"} > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
     fi
   fi
   checks="$(python3 -I - "$check_rc" "$hidden_rc" "$work/out/hidden-tests.log" "${browser_lane:-none}" <<'PY'

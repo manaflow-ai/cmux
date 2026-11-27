@@ -149,7 +149,9 @@
     "agent-pane.background-task-note-open#completed-open": [],
     "agent-pane.background-task-note-open#failed-open": [],
     "agent-pane.background-task-note-open#stopped-open": [],
-    "agent-pane.background-task-note#ended": [],
+    "agent-pane.background-task-note#ended": [
+      "center-line:row backgroundTask-16"
+    ],
     "agent-pane.background-task-note#lone": [],
     "agent-pane.background-task-note#on-call": [],
     "agent-pane.background-tasks-workflow#list": [],
@@ -262,8 +264,6 @@
     "agent-pane.chat-inspector#chrome-title": [],
     "agent-pane.chat-inspector#cloud-empty": [],
     "agent-pane.chat-inspector#context-breakdown": [],
-    "agent-pane.chat-inspector#context-breakdown-hues": [],
-    "agent-pane.chat-inspector#context-breakdown-mono": [],
     "agent-pane.chat-inspector#context-compact-working": [],
     "agent-pane.chat-inspector#context-connectors-open": [],
     "agent-pane.chat-inspector#environment-branch-chip": [],
@@ -393,12 +393,6 @@
     "agent-pane.code-block-diagram#muted-snug": [],
     "agent-pane.code-block-diagram#row-snug": [],
     "agent-pane.code-block-diagram#row-tall": [],
-    "agent-pane.coderouter-offer#claude-key": [],
-    "agent-pane.coderouter-offer#deepseek-key": [],
-    "agent-pane.coderouter-offer#moving": [],
-    "agent-pane.coderouter-offer#on-coderouter": [],
-    "agent-pane.coderouter-offer#rate-limited": [],
-    "agent-pane.coderouter-offer#sign-in": [],
     "agent-pane.compaction-note#account-switch": [],
     "agent-pane.compaction-note#failover": [],
     "agent-pane.compaction-note#policy-no-asking-mode": [
@@ -417,7 +411,9 @@
     "agent-pane.composer-context-away#newtab-computer": [
       "menu-fit:div[aria-label=\"Environment\"]"
     ],
-    "agent-pane.composer-context-away#newtab-folder": [],
+    "agent-pane.composer-context-away#newtab-folder": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context-away#strip-bump": [],
     "agent-pane.composer-context-away#strip-plain-text": [],
     "agent-pane.composer-context-away#strip-plus-edge": [],
@@ -442,7 +438,9 @@
     "agent-pane.composer-context#computer-menu-quiet": [],
     "agent-pane.composer-context#computer-menu-warnings-off": [],
     "agent-pane.composer-context#computer-search": [],
-    "agent-pane.composer-context#duplicate-search": [],
+    "agent-pane.composer-context#duplicate-search": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#duplicate-worktrees": [],
     "agent-pane.composer-context#environment-face-chip": [
       "menu-fit:div[aria-label=\"Environment\"]"
@@ -491,23 +489,18 @@
     "agent-pane.composer-context#folder-pinned-search": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-short-note": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-de": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-fr": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
     "agent-pane.composer-context#framework-marks": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.composer-context#lane-checkouts": [],
     "agent-pane.composer-context#lane-checkouts-open": [],
     "agent-pane.composer-context#machine-colors": [],
-    "agent-pane.composer-context#repo-worktrees": [],
-    "agent-pane.composer-context#repo-worktrees-guessed": [],
+    "agent-pane.composer-context#repo-worktrees": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
+    "agent-pane.composer-context#repo-worktrees-guessed": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#repo-worktrees-open": [],
     "agent-pane.composer-context#repo-worktrees-search": [],
     "agent-pane.composer-context#saved-environment-picked": [],
@@ -529,8 +522,8 @@
     "agent-pane.composer-edge#wide-edge": [],
     "agent-pane.composer-floats#composer-grown": [],
     "agent-pane.composer-floats#scrolled-to-end": [],
-    "agent-pane.composer-height#chosen-twelve-lines-normal": [],
-    "agent-pane.composer-height#chosen-twelve-lines-short": [],
+    "agent-pane.composer-height#chosen-claude-384-normal": [],
+    "agent-pane.composer-height#chosen-claude-384-short": [],
     "agent-pane.composer-height#current-forty-percent-normal": [],
     "agent-pane.composer-height#current-forty-percent-short": [],
     "agent-pane.composer-height#old-eight-lines-normal": [],
@@ -538,11 +531,9 @@
     "agent-pane.composer-height#thirty-percent-normal": [],
     "agent-pane.composer-height#thirty-percent-short": [],
     "agent-pane.composer-look#claude-chat": [],
-    "agent-pane.composer-look#claude-chat-dots": [],
     "agent-pane.composer-look#codex-chat": [],
     "agent-pane.composer-look#codex-chat-alt-in-box-row": [],
     "agent-pane.composer-look#codex-chat-alt-send-after-mic": [],
-    "agent-pane.composer-look#codex-chat-dots": [],
     "agent-pane.composer-look#codex-new-chat": [],
     "agent-pane.composer-look#codex-new-chat-alt-plain-strip": [],
     "agent-pane.composer-look#codex-new-chat-alt-text-row": [],
@@ -974,16 +965,7 @@
     "agent-pane.effort-track#keyboard": [],
     "agent-pane.effort-track#picked-max": [],
     "agent-pane.effort-track#picked-medium": [],
-    "agent-pane.empty-state#closed": [],
-    "agent-pane.empty-state#no-project": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.empty-state#open": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.empty-state#search": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.empty-state#plain": [],
     "agent-pane.environment-save#granted": [],
     "agent-pane.environment-save#granted-hover": [],
     "agent-pane.environment-save#refused": [],
@@ -1132,6 +1114,10 @@
     "agent-pane.home-lists#long-values": [],
     "agent-pane.home-lists#refused": [],
     "agent-pane.host-error#automatic": [],
+    "agent-pane.host-error#chip": [],
+    "agent-pane.host-error#chip-corner": [],
+    "agent-pane.host-error#chip-dot": [],
+    "agent-pane.host-error#chip-restoring": [],
     "agent-pane.host-error#enable": [],
     "agent-pane.host-error#long": [],
     "agent-pane.host-error#peer-connecting": [],
@@ -1775,13 +1761,9 @@
     "agent-pane.new-tab-start-cancel#start-refused-shows-notice": [],
     "agent-pane.new-tab#attachment-menu": [],
     "agent-pane.new-tab#attachment-menu-pills": [],
-    "agent-pane.new-tab#calm-default": [],
     "agent-pane.new-tab#catalog-fast-menu": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
-    "agent-pane.new-tab#chats-filter-open": [],
-    "agent-pane.new-tab#chats-loading": [],
-    "agent-pane.new-tab#chats-unavailable": [],
     "agent-pane.new-tab#composer-background": [],
     "agent-pane.new-tab#composer-focus": [],
     "agent-pane.new-tab#composer-holds-its-place": [],
@@ -1814,9 +1796,7 @@
     ],
     "agent-pane.new-tab#layout-claude-chips-below": [],
     "agent-pane.new-tab#layout-codex-tabs-above": [],
-    "agent-pane.new-tab#long-title": [],
     "agent-pane.new-tab#machines-fleet": [],
-    "agent-pane.new-tab#many-chats": [],
     "agent-pane.new-tab#minimal-default": [],
     "agent-pane.new-tab#model-picker-open": [
       "menu-fit:div[aria-label=\"Model\"]"
@@ -1831,14 +1811,9 @@
     "agent-pane.new-tab#now-playing-off": [],
     "agent-pane.new-tab#now-playing-paused": [],
     "agent-pane.new-tab#omnibar-row-kinds": [],
-    "agent-pane.new-tab#projects": [],
     "agent-pane.new-tab#reasoning-chip": [],
-    "agent-pane.new-tab#reasoning-chip-stage": [],
-    "agent-pane.new-tab#recently-closed": [],
     "agent-pane.new-tab#split-open-tabs": [],
     "agent-pane.new-tab#split-open-tabs-context-menu": [],
-    "agent-pane.new-tab#stage-hover": [],
-    "agent-pane.new-tab#stage-layout": [],
     "agent-pane.new-tab#start-refused": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
@@ -1872,15 +1847,8 @@
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
-    "agent-pane.new-tab#template-cards": [],
-    "agent-pane.new-tab#template-cards-typed": [
-      "menu-fit:div[aria-label=\"Suggestions\"]",
-      "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
-    ],
     "agent-pane.new-tab#template-classic": [],
     "agent-pane.new-tab#template-composer": [],
-    "agent-pane.new-tab#template-console": [],
-    "agent-pane.new-tab#template-threads": [],
     "agent-pane.new-tab#typed-address": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
@@ -1918,13 +1886,12 @@
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
-    "agent-pane.new-tab#typed-tab-match-stage": [],
     "agent-pane.new-tab#workspace-switch-animation-audit": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
-    "agent-pane.newtab-composer-height#chosen-twelve-lines-normal": [],
-    "agent-pane.newtab-composer-height#chosen-twelve-lines-short": [],
+    "agent-pane.newtab-composer-height#chosen-claude-384-normal": [],
+    "agent-pane.newtab-composer-height#chosen-claude-384-short": [],
     "agent-pane.newtab-composer-height#current-forty-percent-normal": [],
     "agent-pane.newtab-composer-height#current-forty-percent-short": [],
     "agent-pane.newtab-composer-height#old-eight-lines-normal": [],
@@ -1981,20 +1948,6 @@
     "agent-pane.permission-panel#pending": [],
     "agent-pane.permission-panel#receipt": [],
     "agent-pane.permission-panel#uncertain": [],
-    "agent-pane.plan-list-looks#borderless": [],
-    "agent-pane.plan-list-looks#card": [],
-    "agent-pane.plan-list-looks#card-ended": [],
-    "agent-pane.plan-list-looks#card-midway": [],
-    "agent-pane.plan-list-looks#count": [],
-    "agent-pane.plan-list#activity-line": [
-      "center-line:row plan-5"
-    ],
-    "agent-pane.plan-list#finished": [
-      "center-line:row plan-9"
-    ],
-    "agent-pane.plan-list#running": [
-      "center-line:row plan-2"
-    ],
     "agent-pane.preview-card#gallery-stage": [],
     "agent-pane.preview-card#loaded": [],
     "agent-pane.preview-card#loopback-host": [],
@@ -2376,12 +2329,6 @@
       "center-line:row subagentDone:agent-completed-check-4"
     ],
     "agent-pane.subagent-tray#workflow-progress": [],
-    "agent-pane.subagents#agents-pill": [
-      "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
-      "center-line:row subagents-2:agent-test-coverage",
-      "center-line:row subagents-2:agent-timeouts"
-    ],
     "agent-pane.subagents#card-closed": [
       "center-line:row subagents-2:agent-error-parsing",
       "center-line:row subagents-2:agent-retry-policy",
@@ -2429,79 +2376,14 @@
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
-    "agent-pane.subagents#child-nested": [],
-    "agent-pane.subagents#claude-kinds": [
-      "center-line:row subagents-17:agent-check-the-docs",
-      "center-line:row subagents-17:agent-find-retry-config",
-      "center-line:row subagents-17:agent-review-naming"
-    ],
-    "agent-pane.subagents#codex": [
-      "center-line:row subagents-13:agent-read-a",
-      "center-line:row subagents-13:agent-read-b"
-    ],
     "agent-pane.subagents#codex-child": [],
     "agent-pane.subagents#codex-two-turns": [
       "icon-column:row subagents-13"
-    ],
-    "agent-pane.subagents#done": [
-      "icon-column:row subagents-6"
-    ],
-    "agent-pane.subagents#many": [
-      "center-line:row subagents-4:agent-package-i18n",
-      "center-line:row subagents-4:agent-package-icons",
-      "center-line:row subagents-4:agent-package-router",
-      "center-line:row subagents-4:agent-package-tests"
-    ],
-    "agent-pane.subagents#mixed": [
-      "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
-      "center-line:row subagents-2:agent-test-coverage",
-      "center-line:row subagents-2:agent-timeouts"
-    ],
-    "agent-pane.subagents#open": [
-      "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
-      "center-line:row subagents-2:agent-test-coverage",
-      "center-line:row subagents-2:agent-timeouts"
-    ],
-    "agent-pane.subagents#open-done": [
-      "center-line:row subagents-6:agent-error-parsing",
-      "center-line:row subagents-6:agent-retry-policy",
-      "center-line:row subagents-6:agent-test-coverage",
-      "center-line:row subagents-6:agent-timeouts"
-    ],
-    "agent-pane.subagents#open-many": [
-      "center-line:row subagents-4:agent-package-i18n",
-      "center-line:row subagents-4:agent-package-icons",
-      "center-line:row subagents-4:agent-package-net",
-      "center-line:row subagents-4:agent-package-router",
-      "center-line:row subagents-4:agent-package-store",
-      "center-line:row subagents-4:agent-package-tests",
-      "center-line:row subagents-4:agent-package-ui"
     ],
     "agent-pane.subagents#own-pane": [
       "center-line:row subagents-11:agent-integration-tests",
       "center-line:row subagents-11:agent-unit-tests",
       "icon-column:row subagents-11"
-    ],
-    "agent-pane.subagents#pane-open": [
-      "center-line:row subagents-13:agent-read-a",
-      "center-line:row subagents-13:agent-read-b"
-    ],
-    "agent-pane.subagents#running": [
-      "center-line:row subagents-19:agent-error-parsing",
-      "center-line:row subagents-19:agent-retry-policy",
-      "center-line:row subagents-19:agent-test-coverage",
-      "center-line:row subagents-19:agent-timeouts"
-    ],
-    "agent-pane.subagents#single": [
-      "center-line:row subagents-24:agent-find-callers"
-    ],
-    "agent-pane.subagents#stopped": [],
-    "agent-pane.subagents#stopped-open": [
-      "center-line:row subagents-29:agent-error-parsing",
-      "center-line:row subagents-29:agent-retry-policy",
-      "center-line:row subagents-29:agent-timeouts"
     ],
     "agent-pane.subagents#summary": [
       "center-line:row subagents-2:agent-error-parsing",
@@ -2510,11 +2392,6 @@
       "center-line:row subagents-2:agent-timeouts"
     ],
     "agent-pane.subagents#summary-legacy": [],
-    "agent-pane.subagents#two-batches": [
-      "center-line:row subagents-34:agent-test-coverage",
-      "center-line:row subagents-34:agent-timeouts",
-      "icon-column:row subagents-34"
-    ],
     "agent-pane.subsession-cards#avatars": [
       "center-line:row activity-24"
     ],
@@ -2651,16 +2528,20 @@
     "agent-pane.transcript-row-alignment#finished-hover": [],
     "agent-pane.transcript-row-alignment#finished-work": [],
     "agent-pane.transcript-row-alignment#footer": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#mix": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#off": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#roomy": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-grammar#chip": [],
     "agent-pane.transcript-row-grammar#link": [],
@@ -3781,7 +3662,8 @@
     "ui.choice-group#thorough": [],
     "ui.combobox#closed": [],
     "ui.combobox#disabled": [
-      "menu-fit:\"Alpha projectGamma projectDelta projectB\""
+      "menu-fit:\"Alpha projectGamma projectDelta projectB\"",
+      "menu-fit:\"Alpha projectBeta projectGamma projectDe\""
     ],
     "ui.combobox#escape": [],
     "ui.combobox#inline": [],

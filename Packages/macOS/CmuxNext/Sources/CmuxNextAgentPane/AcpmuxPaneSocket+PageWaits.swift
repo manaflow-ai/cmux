@@ -1,25 +1,33 @@
+import CmuxNextCompat
 import Foundation
 
 extension AcpmuxPaneSocket {
-    private static let rawWaitedEventMarkers = [
-        "\"kind\":\"turn_end\"", "\"kind\": \"turn_end\"",
-        "\"kind\":\"turn_result\"", "\"kind\": \"turn_result\"",
-        "\"kind\":\"queued\"", "\"kind\": \"queued\"",
-        "\"kind\":\"dequeued\"", "\"kind\": \"dequeued\"",
-        "\"kind\":\"queue_removed\"", "\"kind\": \"queue_removed\"",
-        "\"kind\":\"prompt_refused\"", "\"kind\": \"prompt_refused\"",
-    ]
+    /// The `_acpmux/event` record kinds the page waits on (the parsed frame's ``pageWaits(on:)``).
+    nonisolated static let waitedEventKinds: Set<String> = ["turn_end", "turn_result", "queued", "dequeued", "queue_removed", "prompt_refused"]
 
-    /// The opaque-notification fast path in ``AcpmuxRequestIds`` keeps the original text. These
-    /// markers are enough for pacing decisions; the observer notifications are parsed before this
-    /// path and use the object overload below. A false positive only wakes a hidden page sooner.
+    /// The opaque-notification fast path in ``AcpmuxRequestIds`` keeps the original text, and names the frame's
+    /// top-level `method` it read (``AcpmuxRequestIds/toPage(_:)``): the method decides, and only an `_acpmux/event`
+    /// looks at its text, for its record's `kind`. Before, every frame was scanned in full with Foundation's
+    /// `String.contains` for each marker (a `session/update`, the bulk of a stream, three times for markers it never
+    /// holds): about two thirds of the inbound queues' CPU on Leo's NIGHTLY, 2026-11-21. A false positive only wakes a
+    /// hidden page sooner.
+    nonisolated static func pageWaits(on text: String, method: String?) -> Bool {
+        switch method {
+        case "_acpmux/prompt_accepted", "session/request_permission": true
+        case "_acpmux/event": text.utf8HasValue(of: "kind", in: waitedEventKinds)
+        case nil: pageWaits(on: text)
+        default: false
+        }
+    }
+
+    /// ``pageWaits(on:method:)`` for a frame whose method was not read: byte searches for the same names.
     nonisolated static func pageWaits(on text: String) -> Bool {
-        guard text.contains("\"method\"") else { return false }
-        if text.contains("\"_acpmux/prompt_accepted\"") || text.contains("\"session/request_permission\"") {
+        guard text.utf8Contains("\"method\"") else { return false }
+        if text.utf8ContainsAny(["\"_acpmux/prompt_accepted\"", "\"session/request_permission\""]) {
             return true
         }
-        guard text.contains("\"_acpmux/event\"") else { return false }
-        return Self.rawWaitedEventMarkers.contains(where: text.contains)
+        guard text.utf8Contains("\"_acpmux/event\"") else { return false }
+        return text.utf8HasValue(of: "kind", in: waitedEventKinds)
     }
 
     /// Whether the page waits on a daemon frame, so a pane nobody can see still gets it soon
@@ -39,8 +47,7 @@ extension AcpmuxPaneSocket {
         switch object["method"] as? String {
         case "_acpmux/prompt_accepted": return true
         case "_acpmux/event":
-            let kind = (object["params"] as? [String: Any])?["kind"] as? String
-            return ["turn_end", "turn_result", "queued", "dequeued", "queue_removed", "prompt_refused"].contains(kind)
+            return ((object["params"] as? [String: Any])?["kind"] as? String).map(waitedEventKinds.contains) ?? false
         default: return false
         }
     }

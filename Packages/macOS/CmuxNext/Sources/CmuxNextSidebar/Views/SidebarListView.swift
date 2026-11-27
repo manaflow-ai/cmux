@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxVisibleRows
 import QuartzCore
 /// Scrollable document view that renders the sidebar tree.
 ///
@@ -17,19 +18,29 @@ typealias SidebarListViewComponents = SidebarListView
 
 final class SidebarListView: NSView {
     let model: SidebarModel
-    var displayed = SidebarLayout.empty
+    /// Every new layout (a reload, an apply, a drag's look) reads the row height for the pool's limit again
+    /// (`poolRowHeight`): a density change lays the rows out again, so the cached height never outlives it.
+    var displayed = SidebarLayout.empty { didSet { poolRowHeight = nil } }
+    /// The row height `fitToClip` sized the pool's limit with, read once per `displayed`: a window resize changes only
+    /// the clip's height, and reading `metrics` there (every density token) was most of `fitToClip` per resize step.
+    var poolRowHeight: CGFloat?
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
     /// The spaces the person left, each as the list drew it: a space shown again lays out no row (`SidebarSpacePage`).
     var spacePages = SidebarSpacePages()
-    /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
-    var splicedRow: SidebarRowKey?
-    /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
-    var splicedOut: (key: SidebarRowKey, moved: Bool)?
+    /// The rows the apply running now splices in, takes out and moves (`spliceInsertion`, `spliceRemoval`,
+    /// `spliceEdits`; none for `spliceHeights`): its only change, no other row added or removed.
+    var splice: SidebarListSplice?
+    /// Rows whose new content changed their height since the last reload (`patchRowsNow`), with that content, and the
+    /// full layout they change (`spliceBase` then): the next reload moves the rows below them, no row is laid out
+    /// again. Nil `base`: a change no splice shows (a folded parent's roll-up), laid out in full.
+    var pendingHeights: (base: (revision: UInt64, options: SidebarLayoutOptions)?, rows: [SidebarRowKey: WorkspaceRowContent])?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
+    /// The rows this list configured, laid out and walked (the visible-rows contract, `SidebarListView+VisibleRows`).
+    let listWork = ListWorkMeter()
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty
@@ -167,6 +178,8 @@ final class SidebarListView: NSView {
     var onStuckHeaderChange: ((Bool) -> Void)?
     /// What the stuck header stands on (`SidebarStuckVeilView`), above the rows, under the header.
     let stuckVeil = SidebarStuckVeilView()
+    /// The rows the stuck header covers, out of VoiceOver and the key view loop (`updateVeiledRows`).
+    var veiledRows: Set<SidebarRowKey> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -197,6 +210,10 @@ final class SidebarListView: NSView {
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
+    /// The selected row's frame in the window as last reported to the window's chrome (`flush-goo`,
+    /// `reportGooeySelection`), and whether a chrome took the report.
+    var reportedGooeyRow: CGRect?
+    var reportedGooeyLanded = false
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.
@@ -324,6 +341,8 @@ final class SidebarListView: NSView {
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: (any NSObjectProtocol)?
+    /// Each motion-setting change (the system's Reduce Motion too) starts or stops the rows' needs-you glow breath.
+    private var needsYouMotion: MotionSubscription?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
@@ -361,6 +380,7 @@ final class SidebarListView: NSView {
             if let drag { abandonDrag(drag) }
             press = nil
         }
+        needsYouMotion = window == nil ? nil : Motion.changes.subscribe { [weak self] _ in self?.needsYouMotionChanged() }
         // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
@@ -385,7 +405,21 @@ final class SidebarListView: NSView {
         // then on capturing ones in Release).
         var pending: [NSView] = subviews.reversed()
         while let view = pending.popLast() {
-            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+            (view as? WorkspaceRowView)?.isNeedsYouWindowVisible = visible // its glow's breath (WorkspaceRowView+NeedsYouGlow)
+            if let indicator = view as? StatusIndicatorView {
+                indicator.isWindowVisible = visible
+            } else if let beam = view as? SidebarAgentBeamView {
+                beam.setWindowVisible(visible) // `experiments.agentBadges` beam: no lap in a covered window
+            } else {
+                pending.append(contentsOf: view.subviews.reversed())
+            }
+        }
+    }
+    /// Loops turned on or off: each glowing row's breath starts or stops (WorkspaceRowView+NeedsYouGlow).
+    private func needsYouMotionChanged() {
+        var pending: [NSView] = subviews.reversed()
+        while let view = pending.popLast() {
+            if let row = view as? WorkspaceRowView { row.updateNeedsYouGlowMotion() } else { pending.append(contentsOf: view.subviews.reversed()) }
         }
     }
     nonisolated override var isFlipped: Bool { true }

@@ -295,6 +295,11 @@ impl Hub {
                             }),
                         // The target sees what the source saw (`additional_dirs.rs`).
                         additional_directories: sm.additional_directories.clone(),
+                        // The answer of the Mac that started the source (`cmux_tools_answer.rs`).
+                        env: crate::hub::cmux_tools_answer::inherited(
+                            Default::default(),
+                            &sm.session_env,
+                        ),
                         // The same work goes on: the target keeps the source's stop condition.
                         stop_condition: sm.stop_condition.clone(),
                         ..Default::default()
@@ -601,6 +606,7 @@ impl Hub {
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
             race_guard: None,
+            admission: None,
             cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,
@@ -628,6 +634,7 @@ impl Hub {
             agent: None,
             class: None,
             after_turn: None,
+            fired: None,
             supersede: None,
             display_parts: None,
             full_access_device: None,

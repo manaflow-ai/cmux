@@ -58,7 +58,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         // An empty kept conversation is not shown on its own (``MacConversationScreen/shownKept``):
         // past the bound it must become the loader's session, or the screen keeps its spinner.
         let loader = MacConversationLoader(quiet: .milliseconds(30))
-        let kept = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let kept = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         let (gate, open) = AsyncStream<Void>.makeStream()
         let load = Task { @MainActor in
             await loader.load({
@@ -93,7 +93,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         // No window: a key window in the scene-less test host stalls the main actor for seconds.
         let controller = ConversationViewController(store: store)
         controller.loadViewIfNeeded()
-        #expect(Self.label("Connecting…", in: controller.view) != nil)
+        #expect(Self.label("Connecting…", in: controller.view) == nil, "never, however long (Leo 2026-11-22)")
     }
 
     /// The simulator read-back of Leo's flow (2026-11-16) with no paired Mac: a drop that comes
@@ -143,7 +143,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         await settle()
         capture("2-down-past-10s-one-line")
         #expect(store.connectionNoticeDue)
-        #expect(Self.label("Connecting…", in: controller.view) != nil)
+        #expect(Self.label("Connecting…", in: controller.view) == nil, "never, however long (Leo 2026-11-22)")
 
         // 3. Back: silent again.
         backend.up()

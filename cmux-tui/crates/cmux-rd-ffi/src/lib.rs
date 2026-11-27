@@ -4,21 +4,30 @@
 //! (`scripts/cmux-next/build-rd-ffi.sh`; plans/cmux-next/remote-desktop.md
 //! section 3). The surface is small on purpose: received bytes in, access
 //! units, messages and feedback datagrams out; upstream media frames in,
-//! datagrams out. No I/O, no threads, no async
+//! datagrams out. No I/O (except the one recording file the app names,
+//! `record_ffi.rs`), no threads, no async
 //! runtime. Every entry point catches panics; a panic poisons the receiver
 //! and every later call on it returns `CMUX_RD_ERR_PANIC`. No handle is
 //! thread-safe: the header has the host call each from one thread or actor at
 //! a time, so an entry point has its handle to itself for the call.
 
 mod bulk_ffi;
+mod clipboard_ffi;
+mod h264;
 mod input;
 mod input_ffi;
 mod line_reader_ffi;
+mod mp4;
 mod rb_client_ffi;
 mod receiver;
+mod record;
+mod record_ffi;
 mod session;
 mod session_ffi;
+pub mod ui;
 mod upstream_ffi;
+pub mod view;
+mod view_ffi;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -26,17 +35,20 @@ use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
 pub use bulk_ffi::*;
+pub use clipboard_ffi::*;
 pub use input::InputChannel;
 pub use input_ffi::*;
 pub use line_reader_ffi::*;
 pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
-pub use session::{MAX_STREAMS, Session, SessionError};
+pub use record_ffi::*;
+pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
 pub use upstream_ffi::*;
+pub use view_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 9;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -82,6 +94,8 @@ pub struct CmuxRdStats {
     pub frames_lost: u64,
     pub acked_frame: u32,
     pub need_recovery: bool,
+    /// Frames a newer keyframe replaced on the ready queue (ABI 9).
+    pub frames_skipped: u64,
 }
 
 /// The opaque receiver handle (`CmuxRdReceiver`).
@@ -339,7 +353,8 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
     unsafe { with_receiver(receiver, run) }
 }
 
-/// Records one decode time.
+/// Records one decode time, naming no frame: no LTR token is acknowledged
+/// (the app's call before `cmux_rd_receiver_note_frame_decode`).
 ///
 /// # Safety
 /// `receiver` is valid.
@@ -349,7 +364,27 @@ pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
     decode_us: u32,
 ) -> i32 {
     let run = |h: &mut CmuxRdReceiver| {
-        h.inner.note_decode(decode_us);
+        h.inner.note_decode(None, decode_us);
+        CMUX_RD_OK
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
+}
+
+/// Records one decode time of popped frame `frame`, the frame that decoded:
+/// its LTR token is acknowledged to the host.
+///
+/// # Safety
+/// `receiver` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_receiver_note_frame_decode(
+    receiver: *mut CmuxRdReceiver,
+    frame: u32,
+    decode_us: u32,
+) -> i32 {
+    let run = |h: &mut CmuxRdReceiver| {
+        h.inner.note_decode(Some(frame), decode_us);
         CMUX_RD_OK
     };
     // SAFETY: `receiver` is NULL or valid by this function's contract, and the
@@ -449,6 +484,7 @@ pub unsafe extern "C" fn cmux_rd_receiver_stats(
             frames_lost: s.frames_lost,
             acked_frame: s.acked_frame,
             need_recovery: s.need_recovery,
+            frames_skipped: s.frames_skipped,
         };
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
@@ -494,14 +530,26 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 #[cfg(test)]
 mod bulk_tests;
 #[cfg(test)]
+mod clipboard_tests;
+#[cfg(test)]
 mod input_tests;
 #[cfg(test)]
 mod line_reader_tests;
 #[cfg(test)]
 mod rb_client_tests;
 #[cfg(test)]
+mod receiver_tests;
+#[cfg(test)]
+mod record_tests;
+#[cfg(test)]
 mod session_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod upstream_tests;
+#[cfg(test)]
+mod view_session_tests;
+#[cfg(test)]
+mod view_tests;
+#[cfg(test)]
+mod view_transport_tests;

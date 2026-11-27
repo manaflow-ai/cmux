@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.layout.composer.help" : {
+      "comment" : "Settings > Agent Chat > Chat Layout > Message Box Shape: help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حدود مربع الرسالة: مستديرة، أو على شكل كبسولة، أو مربعة ومثبتة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obris polja za poruku: zaobljen, u obliku pilule ili četvrtast i usidren."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beskedfeltets omrids: afrundet, som en pille eller firkantet og fastgjort."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Umriss des Nachrichtenfelds: abgerundet, als Pille oder eckig und angedockt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The message box's outline: rounded, a pill, or square and docked."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El contorno del cuadro de mensaje: redondeado, en píldora, o cuadrado y acoplado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le contour de la zone de message : arrondi, en pilule, ou carré et ancré."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il contorno della casella del messaggio: arrotondato, a pillola, oppure squadrato e agganciato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "メッセージ欄の輪郭：角丸、ピル型、または角型でドッキング。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គែមនៃប្រអប់សារ៖ មូល រាងគ្រាប់ថ្នាំ ឬការ៉េ និងភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "메시지 상자의 윤곽: 둥근 모양, 알약 모양, 또는 각지고 고정된 모양."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Omrisset av meldingsfeltet: avrundet, som en pille eller firkantet og festet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obrys pola wiadomości: zaokrąglony, w kształcie pigułki albo kwadratowy i zadokowany."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O contorno da caixa de mensagem: arredondado, em pílula, ou quadrado e encaixado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Контур поля сообщения: скруглённый, в виде таблетки или квадратный и закреплённый."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เส้นขอบของช่องข้อความ: มุมมน ทรงแคปซูล หรือเหลี่ยมและยึดติด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mesaj kutusunun dış çizgisi: yuvarlak, hap biçiminde ya da köşeli ve sabitlenmiş."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Контур поля повідомлення: заокруглений, у формі пігулки або квадратний і закріплений."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đường viền của ô tin nhắn: bo tròn, hình viên thuốc, hoặc vuông và cố định."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "消息框的轮廓：圆角、胶囊形，或方形并停靠。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "訊息框的輪廓：圓角、膠囊形，或方形並停靠。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -7,10 +7,12 @@
 //   settled    nothing moved for 400 ms after that: no long task or layout shift, and the scroller's
 //              position and height unchanged;
 //   long ms    long-task time from the call to settled, and the layout-shift sum over the same window.
-// Two arms. `unread`: B is selected 150 ms after A paints, before the pane's idle read-ahead of the
+// Three arms. `unread`: B is selected 150 ms after A paints, before the pane's idle read-ahead of the
 // list's recent chats (direct.ts READ_AHEAD_DELAY_MS, 600 ms) has read it, so the switch waits on the
 // daemon. `read ahead`: B is selected after 1.2 s of idle, once the read-ahead has kept B's newest
-// page, so the switch draws it from memory. The stand-in lists the methods the pane sent for the
+// page, so the switch draws it from memory. `return`: B is opened and left at rest, then the switch timed is
+// back to A, a chat the same page drew and laid out before (Leo, 2026-11-18: "switching between workspaces").
+// The stand-in lists the methods the pane sent for the
 // switch, so a slow arm shows what it asked for. It pages as acpmux does, by count and by the ask's
 // `maxBytes` (daemonPage.ts), and prints the size of B's attach page.
 // PROFILE=1 builds the pane unminified and prints, for each arm's last switch, a CPU profile (self and
@@ -40,6 +42,7 @@ import { diff as heapDiff, takeSnapshot, type Snapshot } from "./heapProbe";
 import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 import { addRenderCountProbe, formatRenderCounts, renderCountsReset, renderCountsTake } from "./renderCounts";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -311,14 +314,22 @@ try {
     },
   ]);
 
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+  const variant = Boolean(PROFILE || RENDERS || process.env.HEAP_PROBE);
+  const shared = sharedPaneDir({ variant });
+  const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
+  if (!shared) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}) },
-    logLevel: "error",
-  });
+  if (!shared)
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: {
+        outDir: out,
+        emptyOutDir: true,
+        ...(variant ? { minify: false } : {}),
+      },
+      logLevel: "error",
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -329,7 +340,7 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${A}`;
   const launch = (args: string[] = []) =>
     chromium.launch({
       headless: true,
@@ -344,6 +355,8 @@ try {
     longTasks: number;
     longMs: number;
     shift: number;
+    /// The largest layout shifts after the call: when, how much, and what moved (row ids or classes).
+    shifts: { at: number; value: number; moved: string[] }[];
     sent: string[];
     quiet?: Idle;
     steady?: Idle;
@@ -358,7 +371,7 @@ try {
     maxTopDrift: number;
     maxHeightDrift: number;
   };
-  const open = async (idle: number, mode?: RemoteTail, still = false): Promise<Round> => {
+  const open = async (idle: number, mode?: RemoteTail, still = false, back = false): Promise<Round> => {
     remoteTail = mode;
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
     await addStabilityProbe(context, { boxes: false });
@@ -415,6 +428,25 @@ try {
         calls.some((call) => call.sessionId === B && ["_acpmux/attach", "_acpmux/events"].includes(call.method))
       )
         throw new Error("remote B was read before the click; this round is not cold");
+      // The `return` arm: B is opened and left to settle first, so the switch timed is the one back to A,
+      // a chat this page already drew (and laid out) before.
+      if (back) {
+        await page.evaluate(
+          (id) =>
+            (
+              window as unknown as {
+                cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+              }
+            ).cmuxAcpmuxActions["chat.select"]!({ sessionId: id }),
+          B,
+        );
+        await page.waitForFunction((text) => document.body.textContent?.includes(text), SECOND_TEXT, {
+          timeout: 120_000,
+          polling: 100,
+        });
+        // fixed-wait: B is left at rest past the read-ahead delay before the switch back is timed.
+        await page.evaluate((idle) => new Promise<void>((resolve) => setTimeout(resolve, idle)), idle);
+      }
       calls = [];
       const profiling = PROFILE && still && cdp;
       if (profiling) {
@@ -440,6 +472,7 @@ try {
               longTasks: 0,
               longMs: 0,
               shift: 0,
+              shifts: [] as { at: number; value: number; moved: string[] }[],
               top: -1,
               height: -1,
               reconciled: 0,
@@ -509,9 +542,18 @@ try {
                 value: number;
                 hadRecentInput: boolean;
                 startTime: number;
+                sources?: { node?: Node | null }[];
               }[]) {
                 if (entry.hadRecentInput || entry.startTime < t0) continue;
                 state.shift += entry.value;
+                const moved = (entry.sources ?? []).map(({ node }) => {
+                  const element = node instanceof Element ? node : node?.parentElement;
+                  const row = element?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+                  return row
+                    ? `row ${row}`
+                    : (element?.className?.toString().split(" ")[0] ?? element?.nodeName ?? "?");
+                });
+                state.shifts.push({ at: entry.startTime - t0, value: entry.value, moved });
                 state.activity = Math.max(state.activity, entry.startTime);
               }
             });
@@ -565,6 +607,7 @@ try {
                   longTasks: state.longTasks,
                   longMs: state.longMs,
                   shift: state.shift,
+                  shifts: state.shifts.sort((a, b) => b.value - a.value).slice(0, 4),
                   attach: attached() ? attached() - t0 : 0,
                   reconciled: state.reconciled ? state.reconciled - t0 : 0,
                   nativeReads: state.nativeReads,
@@ -591,7 +634,7 @@ try {
             });
             frame = requestAnimationFrame(tick);
           }),
-        { id: B, text: SECOND_TEXT, mode, snapshot: peerSnapshot() },
+        { id: back ? A : B, text: back ? FIRST_TEXT : SECOND_TEXT, mode, snapshot: peerSnapshot() },
       );
       if (profiling) {
         const done = new Promise<void>((resolve) => profiling.once("Tracing.tracingComplete", () => resolve()));
@@ -623,7 +666,7 @@ try {
       if (RENDERS)
         console.log(
           formatRenderCounts(
-            `chat_switch${FIXTURE === "god" ? ".god" : ""}.${idle < 600 ? "unread" : "read_ahead"}`,
+            `chat_switch${FIXTURE === "god" ? ".god" : ""}.${back ? "return" : idle < 600 ? "unread" : "read_ahead"}`,
             await renderCountsTake(page),
           ),
         );
@@ -649,7 +692,7 @@ try {
     `chat-switch: ${FIXTURE === "god" ? "god sessions" : `${TURNS} turns per chat`}, answers delayed ${LATENCY} ms, median of ${ROUNDS}`,
   );
   console.log("arm | latest ms | settled ms | long tasks | long ms | layout shift");
-  const arms: { name: string; idle: number; mode?: RemoteTail }[] = REMOTE_TAIL
+  const arms: { name: string; idle: number; mode?: RemoteTail; back?: boolean }[] = REMOTE_TAIL
     ? (REMOTE_TAIL === "both" ? (["absent", "present"] as const) : [REMOTE_TAIL as RemoteTail]).map((mode) => ({
         name: `remote ${mode}`,
         idle: 150,
@@ -658,15 +701,16 @@ try {
     : [
         { name: "unread", idle: 150 },
         { name: "read ahead", idle: 1200 },
+        { name: "return", idle: 1200, back: true },
       ];
   if (REMOTE_TAIL)
     console.log(
       `synthetic click-origin remote arms; B attach delayed ${PEER_ATTACH_MS} ms; no native Mac latency claim`,
     );
-  for (const { name: arm, idle, mode } of arms) {
-    await open(idle, mode); // warm the server and the browser process
+  for (const { name: arm, idle, mode, back } of arms) {
+    await open(idle, mode, false, back); // warm the server and the browser process
     const rounds: Round[] = [];
-    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle, mode, round === ROUNDS - 1));
+    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle, mode, round === ROUNDS - 1, back));
     const of = (pick: (r: Round) => number) => median(rounds.map(pick));
     console.log(
       [
@@ -679,6 +723,11 @@ try {
       ].join(" | "),
     );
     console.log(`  the pane sent for the switch: ${rounds.at(-1)!.sent.join(", ") || "nothing"}`);
+    const shifts = rounds.at(-1)!.shifts;
+    if (shifts.length)
+      console.log(
+        `  its largest layout shifts: ${shifts.map((s) => `${s.value.toFixed(4)} at ${s.at.toFixed(0)} ms (${s.moved.join(", ")})`).join("; ")}`,
+      );
     console.log(`  B's attach page: ${attachPage.events} records, ${(attachPage.bytes / 1024).toFixed(0)} KiB`);
     if (mode) {
       console.log(
@@ -748,6 +797,7 @@ try {
       unit: "count",
       target: 0,
       floor: 0.5,
+      ...(quiet.sources.length ? { sources: quiet.sources } : {}),
     });
     if (quiet.cpuMs !== null)
       perfRow({
@@ -775,6 +825,7 @@ try {
         unit: "count",
         target: 0,
         floor: 0.5,
+        ...(steady.sources.length ? { sources: steady.sources } : {}),
       });
     }
   }

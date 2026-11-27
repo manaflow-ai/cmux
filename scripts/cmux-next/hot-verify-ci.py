@@ -12,6 +12,10 @@ one comment with what it looks like.
     hot-verify-ci.py queue-bound STATUS_JSON        the controller's /v1/status -> seconds a look waits for a Mac
     hot-verify-ci.py pack --pr N --head SHA --nonce NONCE [--video]
                                                     the fleet step's inputs as z-chunks, one per line
+    hot-verify-ci.py nightly-commit FEED_XML        the NEXT feed -> the CMUXCommit of the nightly a look copies, or nothing
+    LOOK_RESULT=JSON hot-verify-ci.py result --pr N --head SHA
+                                                    the build fleet controller's look_result -> state, step, url
+                                                    (the signed out.tar link, or empty) and reason lines
     hot-verify-ci.py unpack OUT_TAR DIR             the step's out.tar into DIR (data only: no links, no ..)
     hot-verify-ci.py stage DIR --pr N --head SHA --stage STAGE --text TEXT
                                                     check the receipt names HEAD; copy the media into STAGE under
@@ -33,7 +37,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -65,6 +71,11 @@ THEMES = ("light", "dark")
 
 class Refused(Exception):
     """A step result this side will not publish (the message says why, with no file content in it)."""
+
+
+class NoReceipt(Refused):
+    """The worker stopped before it wrote a receipt (its step.json says why): the look never judged the change, so
+    the workflow looks again once (main exits 3)."""
 
 
 # ---------------------------------------------------------------- plan
@@ -238,7 +249,7 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
     if not receipt.get("marker") and step.get("error"):
-        raise Refused(worker_stop(step))
+        raise NoReceipt(worker_stop(step))
     check_marker(receipt, head)
     if step and str(step.get("head") or head) != head:
         raise Refused("step.json names another head")
@@ -475,6 +486,60 @@ def queue_bound(text: str, step_class: str = "light") -> int:
     return int(max(QUEUE_FLOOR, min(QUEUE_CAP, -(-value // 1))))  # clamped before int(): inf stays out of it
 
 
+# ---------------------------------------------------------------- the nightly and the controller's result
+
+PICKER = Path(__file__).resolve().parents[1] / "ci" / "nightly_next_launch_smoke.py"
+# The writer binds cmux: inline (<cmux:sourceCommit xmlns:cmux="...">), so attributes must match too.
+SOURCE_COMMIT = re.compile(r"<cmux:sourceCommit(?:\s[^>]*)?>\s*([0-9a-f]{40})\s*</cmux:sourceCommit>")
+
+
+def nightly_commit(feed: str, picker: Path = PICKER) -> str:
+    """The CMUXCommit of the nightly a fleet look copies: the NEXT feed's item cmux's own pick() chooses (the item
+    the worker's hot_verify_run.py takes), its cmux:sourceCommit; "" when the feed or the item names none."""
+    try:
+        spec = importlib.util.spec_from_file_location("hot_verify_nightly_pick", picker)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        build = module.pick(feed)[0]
+    except (OSError, ValueError, AttributeError, ImportError, SyntaxError):
+        return ""
+    for item in module.ITEM.findall(feed):
+        version = module.VERSION.search(item)
+        if version and int(version.group(1)) == build:
+            found = SOURCE_COMMIT.search(item)
+            return found.group(1) if found else ""
+    return ""
+
+
+RESULT_STATES = ("done", "failed", "cancelled", "unsubmitted")
+
+
+def look_result(text: str, pr: int, head: str) -> dict:
+    """The controller's look_result (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go) for PR at HEAD:
+    {state, step, url (the signed out.tar GET, or ""), reason}. Refused when it names another PR or head."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        raise Refused("look_result is not JSON") from None
+    if not isinstance(data, dict) or data.get("pr") != pr or data.get("head") != head:
+        raise Refused("look_result names another pull request or head")
+    state = data.get("state")
+    if state not in RESULT_STATES:
+        raise Refused(f"look_result has no known state: {str(state)[:40]!r}")
+    url = str(data.get("artifact_url") or "")
+    if url and not url.startswith("https://"):
+        raise Refused("look_result's out.tar link is not https")
+    step = str(data.get("step_id") or "")
+    step = step if re.fullmatch(r"[0-9a-f]{1,64}", step) else ""
+    code = data.get("exit_code")
+    reason = " ".join(str(data.get("error") or "").split())[:300]
+    waited = data.get("queued_s")
+    return {"state": state, "step": step, "url": url,
+            "reason": f"step {step or 'none'} {state}" + (f" (exit {code})" if isinstance(code, int) else "")
+                      + (f" after {waited} s in the queue" if isinstance(waited, int) and waited > 0 else "")
+                      + (f": {reason}" if reason else "")}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -493,6 +558,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("unpack")
     p.add_argument("tar", type=Path)
     p.add_argument("dir", type=Path)
+    p = sub.add_parser("nightly-commit")
+    p.add_argument("feed", type=Path)
+    p = sub.add_parser("result")
+    p.add_argument("--pr", type=int, required=True)
+    p.add_argument("--head", required=True)
     for name in ("stage", "render", "post"):
         p = sub.add_parser(name)
         p.add_argument("path", type=Path)
@@ -521,6 +591,11 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(pack(step_inputs(a.pr, a.head, a.nonce, a.video))))
         elif a.command == "unpack":
             print(unpack(a.tar, a.dir))
+        elif a.command == "nightly-commit":
+            print(nightly_commit(a.feed.read_text(errors="replace") if a.feed.is_file() else ""))
+        elif a.command == "result":
+            found = look_result(os.environ.get("LOOK_RESULT", ""), a.pr, a.head)
+            print("".join(f"{key}={found[key]}\n" for key in ("state", "step", "url", "reason")), end="")
         elif a.command == "stage":
             print(json.dumps(stage(a.path, a.pr, a.head, a.stage, a.text)))
         elif a.command == "render":
@@ -532,7 +607,7 @@ def main(argv: list[str] | None = None) -> int:
             print(post(a.path.read_text(), a.pr, a.head, a.repo))
     except Refused as error:
         print(f"hot-verify-ci: {error}", file=sys.stderr)
-        return 1
+        return 3 if isinstance(error, NoReceipt) else 1
     return 0
 
 

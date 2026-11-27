@@ -86,7 +86,11 @@ const answer = (method: string, params: Record<string, unknown>, ws: Socket): un
     case "_acpmux/attach": {
       const chat = byId.get(String(params.sessionId)) ?? chats[0]!;
       chat.sockets.add(ws);
-      return { session: summary(chat, chats.indexOf(chat)), lastSeq: chat.events.length, events: chat.events.slice(-400) };
+      return {
+        session: summary(chat, chats.indexOf(chat)),
+        lastSeq: chat.events.length,
+        events: chat.events.slice(-400),
+      };
     }
     case "_acpmux/events": {
       const chat = byId.get(String(params.sessionId));
@@ -119,7 +123,9 @@ try {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (message.id === undefined) return;
-        ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}, ws) }));
+        ws.send(
+          JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}, ws) }),
+        );
       },
       close(ws) {
         for (const chat of chats) chat.sockets.delete(ws);
@@ -130,7 +136,11 @@ try {
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "hidden-stream-heap-"));
   releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
   const { build } = await import("vite");
-  await build({ configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"), build: { outDir: out, emptyOutDir: true, minify: process.env.MINIFY !== "0" }, logLevel: "error" });
+  await build({
+    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+    build: { outDir: out, emptyOutDir: true, minify: process.env.MINIFY !== "0" },
+    logLevel: "error",
+  });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -143,7 +153,7 @@ try {
   releases.push(() => statics.stop(true));
   const origin = `http://127.0.0.1:${statics.port}`;
   const urlFor = (index: number) =>
-    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
 
   const browser = await chromium.launch({ headless: true, args: ["--process-per-site", "--js-flags=--expose-gc"] });
   releases.push(() => browser.close());
@@ -192,7 +202,9 @@ try {
   const snaps: Snapshot[] = [];
   const first = await heap();
   if (process.env.PROBE === "1") snaps.push(await takeSnapshot(probe));
-  console.log(`start used=${first.usedMb.toFixed(1)}MB gc=${first.gcMs.toFixed(0)}ms chats=${CHATS} hidden=${CHATS - 1}`);
+  console.log(
+    `start used=${first.usedMb.toFixed(1)}MB gc=${first.gcMs.toFixed(0)}ms chats=${CHATS} hidden=${CHATS - 1}`,
+  );
   const deadline = Date.now() + MINUTES * 60_000;
   let last = first;
   for (let sample = 1; Date.now() < deadline; sample++) {
@@ -207,7 +219,8 @@ try {
     perfRow({ name: `hidden_stream_heap.used_mb.t${sample * SAMPLE_S}s`, p95: last.usedMb, unit: "MB" });
     perfRow({ name: `hidden_stream_heap.gc_ms.t${sample * SAMPLE_S}s`, p95: last.gcMs, unit: "ms" });
   }
-  if (process.env.PROBE === "1" && snaps.length === 2) diff(snaps[0]!, await takeSnapshot(probe), "streamed chats", snaps[1]);
+  if (process.env.PROBE === "1" && snaps.length === 2)
+    diff(snaps[0]!, await takeSnapshot(probe), "streamed chats", snaps[1]);
   const minutes = MINUTES;
   console.log(
     `growth: ${(last.usedMb - first.usedMb).toFixed(1)}MB in ${minutes} min (${((last.usedMb - first.usedMb) / minutes).toFixed(1)} MB/min) across ${CHATS} chats, ${CHATS - 1} hidden`,

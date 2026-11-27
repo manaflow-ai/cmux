@@ -22,7 +22,7 @@ extension AppControl {
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
                     "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
-                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null, "backend_label": cloud.configuration.runtimeSelection?.developerBackendLabel.map(JSONValue.string) ?? .null,
                     "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
                     "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
@@ -35,19 +35,16 @@ extension AppControl {
                                        "creations": .array(services.cloud.creations.controlRows),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
-            // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (`cmux cloud automation-relay`).
-            .async("cloud.automation") { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth), registry = services.registry] call in
-                if let refusal = await MainActor.run(body: { ControlError.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
-                let reply = await forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
-                return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
-            }.withDeadline(.fixed(.seconds(30))),
+            // `cmux automation --target cloud`, and `cmux app ls|versions` off a Cloud machine: as the signed-in person.
+            .cloudRelay("cloud.automation", seconds: 30, disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)),
+            .cloudRelay("cloud.apps", seconds: 35, disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).appsRelay(signedIn: services.cloud.auth)),
         ])
         registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
-        // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
+        // `cmux auth token` (cmux-platform#111) and `cmux auth handoff`: methods in CmuxNextControl, Cloud calls in CmuxNextCloud and cmux-tui.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
-        service?.router.register([.authToken(
+        service?.router.register([ControlMethod.authToken(
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
             mint: { asked in
                 do {
@@ -55,7 +52,7 @@ extension AppControl {
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
                 } catch let refused as CloudAccessToken.Refusal { throw AuthTokenRefusal(code: refused.failure.code, detail: refused.failure.detail, team: refused.team) }
             }),
-        ])
+        ] + ControlMethod.authHandoff(disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).authHandoffRelay(signedIn: auth)))
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -86,12 +83,11 @@ extension AppControl {
         #endif
     }
 
-    /// One Cloud machine's row of `cloud.machines` (and of the Cloud
-    /// diagnostics' details): its record, stage, daemon link state and the
-    /// capability negotiation of its daemon.
     /// The daemon capability that serves file ops over a Cloud machine's home (cmux-tui `FS_CAPABILITY`).
     static let cloudFileOpsCapability = "fs-v1"
 
+    /// One Cloud machine's row of `cloud.machines` (and of the Cloud diagnostics' details): its record and team, stage,
+    /// daemon link state and the capability negotiation of its daemon.
     static func cloudMachineRow(_ session: CloudMachineSession, _ machines: MachineRegistry) -> [String: JSONValue] {
         let store = session.daemon.store
         let state: String = switch store.connectionState {
@@ -117,6 +113,7 @@ extension AppControl {
             // so `cmux machine list` lists a connected machine once.
             "machine_id": session.daemon.identity?.machineResourceID.map { .string($0.rawValue) } ?? .null,
             "title": .string(session.machine.title),
+            "team": session.machine.team.map(JSONValue.string) ?? .null, // the machine's own team, which the app's dial sends (the active team may be another)
             // The record's status, except a connected daemon is running (cx-lu8f).
             "status": .string(session.effectiveStatus.rawValue),
             "api_status": .string(session.machine.status.rawValue),
@@ -153,7 +150,7 @@ extension AppControl {
             ControlMethod.async("runs.sandbox.create") { call in
                 let params = call.params
                 guard let task = params["task"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty else {
-                    throw ControlError.invalidParams(String(localized: "runs.error.taskRequired", defaultValue: "A sandboxed run needs a task.", table: "Runs", bundle: .module))
+                    throw ControlError.invalidParams(String(localized: "runs.error.taskRequired", defaultValue: "A sandboxed run needs a task.", table: "Runs", bundle: .module.inAppLanguage))
                 }
                 let key = params["idempotencyKey"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
                 let api = try await Self.runsAPI(services, newRun: true)
@@ -179,7 +176,7 @@ extension AppControl {
     }
 
     nonisolated private static func runID(_ params: [String: JSONValue]) throws -> String {
-        guard let id = params["id"]?.stringValue, !id.isEmpty else { throw ControlError.invalidParams(String(localized: "runs.error.idRequired", defaultValue: "Name the run with `id`.", table: "Runs", bundle: .module)) }
+        guard let id = params["id"]?.stringValue, !id.isEmpty else { throw ControlError.invalidParams(String(localized: "runs.error.idRequired", defaultValue: "Name the run with `id`.", table: "Runs", bundle: .module.inAppLanguage)) }
         return id
     }
 
@@ -187,13 +184,13 @@ extension AppControl {
     /// waiting on or cancelling one that exists stays open, so turning it off mid-run never strands
     /// a billable VM without its receipt or its cancel. Not behind Labs (Leo, 2026-10-30): the CLI's
     /// `cmux run --sandboxed` is the person's explicit ask for the run; a new one goes under the account signed in now (`runningAs`).
-    nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
+    nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudDaemon {
         try await MainActor.run {
             if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
-            guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)) }
-            guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)) }
-            return newRun ? services.cloud.machineAPI.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI.drainingClassic(services.cloud.api)
+            guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module.inAppLanguage)) }
+            guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)) }
+            return newRun ? services.cloud.machineAPI.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI
         }
     }
 
@@ -209,24 +206,24 @@ extension AppControl {
         // else) says nothing about the run: `bad_response`, which the CLI treats as "the run may
         // exist" on a create, waits through on a wait, and as no answer on a cancel.
         guard let answer = try? JSONValue.parse(data), case .object = answer else {
-            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "The cmux daemon sent an answer the app couldn't read.", table: "Runs", bundle: .module))
+            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "The cmux daemon sent an answer the app couldn't read.", table: "Runs", bundle: .module.inAppLanguage))
         }
         return answer
     }
 
     /// The control error a Run API failure answers with (internal for its tests).
     nonisolated static func runError(_ error: CloudAPIError) -> ControlError {
-        let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
+        let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)
         switch error {
         case .notSignedIn: return ControlError(code: "not_signed_in", message: notSignedIn)
-        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "The cmux daemon didn't answer in time.", table: "Runs", bundle: .module))
+        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "The cmux daemon didn't answer in time.", table: "Runs", bundle: .module.inAppLanguage))
         // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
         case .http(401, _, _, _, _): return ControlError(code: "not_signed_in", message: notSignedIn)
-        case .http(_, "run_sandbox_unavailable", _, _, _): return ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
-        case .http(_, "run_image_invalid", _, _, _): return ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module))
-        case .http(_, "run_agent_invalid", _, _, _): return ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module))
-        case .http(_, "run_task_required", _, _, _): return ControlError(code: "run_task_required", message: String(localized: "runs.error.taskInvalid", defaultValue: "A sandboxed run needs a task of at most 16,000 characters.", table: "Runs", bundle: .module))
-        case .http(_, "run_timeout_invalid", _, _, _): return ControlError(code: "run_timeout_invalid", message: String(localized: "runs.error.timeoutInvalid", defaultValue: "The timeout must be 30 to 720 seconds.", table: "Runs", bundle: .module))
+        case .http(_, "run_sandbox_unavailable", _, _, _): return ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module.inAppLanguage))
+        case .http(_, "run_image_invalid", _, _, _): return ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module.inAppLanguage))
+        case .http(_, "run_agent_invalid", _, _, _): return ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module.inAppLanguage))
+        case .http(_, "run_task_required", _, _, _): return ControlError(code: "run_task_required", message: String(localized: "runs.error.taskInvalid", defaultValue: "A sandboxed run needs a task of at most 16,000 characters.", table: "Runs", bundle: .module.inAppLanguage))
+        case .http(_, "run_timeout_invalid", _, _, _): return ControlError(code: "run_timeout_invalid", message: String(localized: "runs.error.timeoutInvalid", defaultValue: "The timeout must be 30 to 720 seconds.", table: "Runs", bundle: .module.inAppLanguage))
         // The rate limit answers before anything is stored: a definite refusal, not "may have started".
         case .http(429, let code, _, _, _): return ControlError(code: "rate_limited", message: error.description, data: .object(["status": .number(429), "code": code.map(JSONValue.string) ?? .null]))
         // A server failure says nothing about the run: the caller may wait again.

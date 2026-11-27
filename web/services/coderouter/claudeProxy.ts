@@ -1,5 +1,19 @@
 import { accountAccessForIdentity } from "./accountAccess";
-import { noAccountConfiguredMessage } from "./noAccountMessage";
+import { FALLBACK_REFUSAL_MESSAGES, noAccountConfiguredMessage } from "./noAccountMessage";
+import {
+  defaultClaudeFallbackSpend,
+  FALLBACK_REFUSAL_HEADER,
+  INCLUDED_USAGE_NOTICE_HEADER,
+  includedUsageNotice,
+  fallbackReservationCents,
+  requestedFields,
+  requestedModel,
+  UNPRICED_USD_PER_TOKEN,
+  type ClaudeFallbackSpend,
+  type FallbackRefusal,
+  type FallbackReservation,
+} from "./claudeFallback";
+import { estimateApiEquivalent } from "./apiEquivalentPricing";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -34,7 +48,7 @@ import {
   recordUsageEvent,
 } from "./usageLedger";
 import { usageOriginFromHeaders } from "./usageOrigin";
-import { observeClaudeUsage, type ClaudeUsage } from "./claudeUsage";
+import { observeClaudeUsage, observeClaudeUsageCharged, type ClaudeUsage } from "./claudeUsage";
 import {
   currentCoderouterRequestId,
   recordCoderouterOutcome,
@@ -139,6 +153,8 @@ export type ClaudeProxyDependencies = {
   readonly fetch: typeof fetch;
   readonly now: () => Date;
   readonly capture: typeof captureCoderouterEvent;
+  /** Where a fallback completion's cost is added to its team's cached spend. */
+  readonly fallbackSpend?: ClaudeFallbackSpend;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -165,6 +181,7 @@ const defaultDependencies: ClaudeProxyDependencies = {
   fetch: (input, init) => fetch(input, init),
   now: () => new Date(),
   capture: captureCoderouterEvent,
+  fallbackSpend: defaultClaudeFallbackSpend,
 };
 
 function resolveClaudeRuntime(
@@ -190,6 +207,7 @@ type RouteFailureStage =
   | "auth"
   | "account_selection"
   | "provider_config"
+  | "usage_cap"
   | "upstream_transport"
   | "upstream_response";
 
@@ -214,6 +232,10 @@ type Routed =
     readonly failed: boolean;
     readonly failureStage: RouteFailureStage;
     readonly hold?: CapacityHoldStats;
+    /** House route only: the team's included usage before this request. */
+    readonly included?: { readonly spentCents: number; readonly capCents: number };
+    /** House route only: the request's hold on the cap, released once the response settles. */
+    readonly reservation?: FallbackReservation;
   }
   | {
     readonly kind: "exhausted";
@@ -241,7 +263,8 @@ export function createClaudeMessagesProxy(
     const routed = await routeWithFailover(dependencies, identity, request, "messages", upstreamHeaderDeadlineAt, runtime, (upstream, headersTimeoutMs) =>
       upstream.kind === "bedrock"
         ? bedrockMessages(dependencies, request, body.bytes, upstream, headersTimeoutMs)
-        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages", request.signal, headersTimeoutMs));
+        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages", request.signal, headersTimeoutMs),
+    houseRequest(body.bytes, true));
     if (routed.kind === "exhausted") {
       captureRouteHealth(dependencies, {
         ...health,
@@ -256,7 +279,7 @@ export function createClaudeMessagesProxy(
       });
       return routed.response;
     }
-    const { response, upstream } = routed;
+    const { response, upstream, reservation } = routed;
     const streamed = isStreamingResponse(response);
     captureRouteHealth(dependencies, {
       ...health,
@@ -271,7 +294,7 @@ export function createClaudeMessagesProxy(
       upstream,
     });
     const agent = agentFromUserAgent(request.headers.get("user-agent"));
-    const observed = observeClaudeUsage(response.body, (usage) => {
+    const onUsage = (usage: ClaudeUsage | null) => {
       captureModelUsage(dependencies, identity, upstream, usage, {
         requestId: health.requestId,
         agent,
@@ -280,8 +303,28 @@ export function createClaudeMessagesProxy(
         streamed,
         ...usageOriginFromHeaders(request.headers),
       });
-    });
-    return new Response(observed, { status: response.status, headers: response.headers });
+    };
+    // The house route charges a completion the client cancels (or that
+    // breaks) before its final usage; otherwise that usage is free past the
+    // cap. Every other account keeps today's observer.
+    const charged = upstream.fallback && response.status >= 200 && response.status < 300;
+    // An error answer costs nothing: its hold on the cap goes at once.
+    if (!charged) reservation?.release();
+    const observed = charged
+      ? observeClaudeUsageCharged(response.body, { bytes: body.bytes?.byteLength ?? 0, model: requestedModel(body.bytes) }, (usage) => {
+        // The charge is noted, then the hold released, in one tick: the
+        // request never counts twice and never drops out of the sums.
+        try {
+          onUsage(usage);
+        } finally {
+          reservation?.release();
+        }
+      })
+      : observeClaudeUsage(response.body, onUsage);
+    const notice = includedUsageNotice(routed.included);
+    const headers = notice ? new Headers(response.headers) : response.headers;
+    if (notice) headers.set(INCLUDED_USAGE_NOTICE_HEADER, notice);
+    return new Response(observed, { status: response.status, headers });
   };
 }
 
@@ -299,7 +342,10 @@ export function createClaudeCountTokensProxy(
     const routed = await routeWithFailover(dependencies, auth.identity, request, "count_tokens", upstreamHeaderDeadlineAt, runtime, (upstream, headersTimeoutMs) =>
       upstream.kind === "bedrock"
         ? bedrockCountTokens(dependencies, request, body.bytes, upstream, headersTimeoutMs)
-        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages/count_tokens", request.signal, headersTimeoutMs));
+        : anthropicRequest(dependencies, request, body.bytes, upstream, "/v1/messages/count_tokens", request.signal, headersTimeoutMs),
+    houseRequest(body.bytes, false));
+    // count_tokens is free: it holds nothing (no reserveCents), but release defensively.
+    if (routed.kind === "response") routed.reservation?.release();
     recordRoutedOutcome(routed, request);
     return routed.response;
   };
@@ -409,9 +455,10 @@ async function routeWithFailover(
   upstreamHeaderDeadlineAt: number,
   runtime: ClaudeProxyRuntime,
   send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
+  house?: HouseRequest,
 ): Promise<Routed> {
   const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
-  const routed = await routeRounds(dependencies, identity, request, surface, upstreamHeaderDeadlineAt, runtime, hold, send);
+  const routed = await routeRounds(dependencies, identity, request, surface, upstreamHeaderDeadlineAt, runtime, hold, send, house);
   if (hold.holdCount === 0) return routed;
   return { ...routed, hold: { heldMs: hold.heldMs, holdCount: hold.holdCount } };
 }
@@ -426,6 +473,7 @@ async function routeRounds(
   runtime: ClaudeProxyRuntime,
   hold: CapacityHold,
   send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
+  house?: HouseRequest,
 ): Promise<Routed> {
   const excluded: string[] = [];
   let lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null = null;
@@ -469,6 +517,8 @@ async function routeRounds(
           stickyKey: stickyKey(identity),
           excludedAccountIds: excluded,
           signal,
+          ...(house ? { model: house.model } : {}),
+          ...(house?.reserveCents ? { reserveCents: house.reserveCents } : {}),
         }),
       );
       recordCoderouterSpan({
@@ -529,6 +579,31 @@ async function routeRounds(
         ),
       };
     }
+    if (selection.kind === "fallback_refused") {
+      // A team with no account of its own on the house route: used up, a
+      // model above its tier, or the shared daily budget. Not retryable: a
+      // 402 with a typed reason the chat turns into the sign-in step.
+      addCoderouterBreadcrumb("routing", "House Claude route refused", { surface, reason: selection.reason }, "warning");
+      return {
+        kind: "exhausted",
+        attempts,
+        outcome: "no_usable_account",
+        failureStage: "usage_cap",
+        response: includedUsageRefusal(selection.reason),
+      };
+    }
+    if (selection.kind === "fallback_unavailable") {
+      // The fallback's spend could not be read: refuse (fail closed), retryably.
+      return {
+        kind: "exhausted",
+        attempts,
+        outcome: "provider_unavailable",
+        failureStage: "account_selection",
+        response: anthropicError(503, "api_error", "coderouter could not check the team's included usage. Retry shortly.", {
+          "retry-after": "5",
+        }),
+      };
+    }
     if (selection.kind === "exhausted") {
       // Every account was tried this round: back off, then let the next
       // selection report when the cooling accounts recover. Otherwise every
@@ -572,18 +647,38 @@ async function routeRounds(
       total: selection.total,
     });
     const attemptStartedAt = performance.now();
-    const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
-      upstreamHeaderDeadlineAt,
-      runtime.now(),
-      runtime.upstreamHeadersTimeoutMs,
-    );
-    if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
-    const attempt = await sendClaudeAttempt(send, upstream, headersTimeoutMs, surface, request.signal);
-    const verdict = classifyAttempt(attempt);
-    recordClaudeAttempt(attemptStartedAt, upstream, attempts, surface, attempt, verdict);
-    if (verdict.kind === "done") {
-      void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
-      return { kind: "response", response: verdict.response, upstream, attempts, failed: false, failureStage: "none" };
+    // House route: the request's hold on the cap goes with a done answer to
+    // the caller, and is released on every other way out of this attempt.
+    const reservation = selection.reservation;
+    let handedOff = false;
+    let attempt: Attempt;
+    let verdict: ReturnType<typeof classifyAttempt>;
+    try {
+      const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+        upstreamHeaderDeadlineAt,
+        runtime.now(),
+        runtime.upstreamHeadersTimeoutMs,
+      );
+      if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
+      attempt = await sendClaudeAttempt(send, upstream, headersTimeoutMs, surface, request.signal);
+      verdict = classifyAttempt(attempt);
+      recordClaudeAttempt(attemptStartedAt, upstream, attempts, surface, attempt, verdict);
+      if (verdict.kind === "done") {
+        void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
+        handedOff = true;
+        return {
+          kind: "response",
+          response: verdict.response,
+          upstream,
+          attempts,
+          failed: false,
+          failureStage: "none",
+          ...(selection.included ? { included: selection.included } : {}),
+          ...(reservation ? { reservation } : {}),
+        };
+      }
+    } finally {
+      if (!handedOff) reservation?.release();
     }
     if (attempt.kind === "transport") {
       reportCoderouterFailure("upstream_transport", attempt.error, {
@@ -1047,6 +1142,24 @@ async function bedrockMessages(
   }
   const parsed = parseJsonObject(body);
   if (!parsed.ok) return parsed.response;
+  // Message threads (`thread`, beta message-threads-2026-08-12) live in Anthropic's API; Bedrock has no such field. A
+  // create carries the whole conversation, so bedrockInvokeBody drops `thread` and it goes on as a plain request. A
+  // continue carries only the new messages: answer as the API answers a thread it cannot continue (404
+  // thread_not_found), so the client replays the full conversation.
+  const thread = parsed.value.thread;
+  if (typeof thread === "object" && thread !== null && (thread as { type?: unknown }).type === "continue") {
+    return Response.json(
+      {
+        type: "error",
+        error: {
+          type: "not_found_error",
+          message: "thread not found",
+          details: { error_code: "thread_not_found" },
+        },
+      },
+      { status: 404, headers: { "cache-control": "no-store" } },
+    );
+  }
   const invoke = bedrockInvokeBody(parsed.value);
   const modelId = invoke.model ? bedrockModelId(invoke.model, upstream.config.modelIds) : null;
   if (!invoke.model || !modelId) {
@@ -1237,6 +1350,29 @@ function recordRoutedOutcome(routed: Routed, request: Request): void {
   });
 }
 
+/** What the house route reads from a request body, at most once and only if it asks. */
+type HouseRequest = { readonly model: () => string | null; readonly reserveCents?: () => number };
+
+/** `reserve`: the call costs model usage (Messages), so the house route holds its upper bound against the cap. */
+function houseRequest(bytes: Uint8Array | null, reserve: boolean): HouseRequest {
+  let fields: ReturnType<typeof requestedFields> | null = null;
+  const read = () => (fields ??= requestedFields(bytes));
+  const model = () => read().model;
+  if (!reserve) return { model };
+  return {
+    model,
+    reserveCents: () => fallbackReservationCents({ model: read().model, bytes: bytes?.byteLength ?? 0, maxTokens: read().maxTokens }),
+  };
+}
+
+/** HTTP 402 with a typed reason (`error.reason` and a header) the chat turns into the sign-in step. */
+export function includedUsageRefusal(reason: FallbackRefusal): Response {
+  return Response.json(
+    { type: "error", error: { type: "billing_error", reason, message: FALLBACK_REFUSAL_MESSAGES[reason] } },
+    { status: 402, headers: { "cache-control": "no-store", [FALLBACK_REFUSAL_HEADER]: reason } },
+  );
+}
+
 export function anthropicError(
   status: number,
   type: string,
@@ -1330,6 +1466,9 @@ function captureModelUsage(
   if (!usage || usage.totalTokens === 0) return;
   const inputTokens =
     usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+  if (upstream.fallback) noteFallbackSpend(dependencies, identity.teamId, upstream.accountId, usage, inputTokens);
+  // A fallback completion stays the caller team's usage; its
+  // upstream_account_id is the configured fallback account id.
   recordUsageEvent({
     requestId: ledger.requestId,
     teamId: identity.teamId,
@@ -1349,6 +1488,23 @@ function captureModelUsage(
     totalTokens: usage.totalTokens,
     status: ledger.status,
   });
+}
+
+function noteFallbackSpend(
+  dependencies: ClaudeProxyDependencies,
+  teamId: string,
+  accountId: string,
+  usage: ClaudeUsage,
+  inputTokens: number,
+): void {
+  const estimate = estimateApiEquivalent({
+    model: usage.model ?? "",
+    inputTokens,
+    cachedInputTokens: usage.cacheReadInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+  });
+  dependencies.fallbackSpend?.note(teamId, accountId, (estimate.usd + estimate.unpricedTokens * UNPRICED_USD_PER_TOKEN) * 100);
 }
 
 function agentFromUserAgent(value: string | null): string {

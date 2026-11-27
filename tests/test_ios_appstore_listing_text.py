@@ -12,13 +12,18 @@ under Connection Method, use Add Computer, open the App Review workspace", scree
 the replacing app does not have. This test fails a locale when:
   - a field is over its App Store limit;
   - the locale set is not the production record's, or the two trees (app-info and
-    version) hold different locales, or the version tree is not project.yml's
-    MARKETING_VERSION;
+    version) hold different locales, or the version tree is not the AppStore
+    configuration's MARKETING_VERSION in project.yml;
   - it names a classic-only screen (CLASSIC_ONLY_TERMS);
   - the public text carries App Review instructions (they belong in the notes);
   - a quoted screen name (any locale) is not a string the app shows;
   - an English capitalized phrase that is not a product or platform name is not a
-    string the app shows.
+    string the app shows;
+  - a description has no Terms of Use link, or a keyword repeats a term of the
+    locale's name or subtitle. These two are `asc validate --strict` blockers (asc
+    7.2.0 internal/validation legal.go and keyword_audit.go, ported below); on
+    2026-11-26 they were 18 of the readiness gate's 30 ASC blockers (run
+    45748224089), found only after the listing was locked in review.
 
 "Strings the app shows" are the string literals of the release app's Swift
 sources (APP_SOURCE_DIRS) and every key and value of their string catalogs,
@@ -100,6 +105,11 @@ QUOTED = re.compile(
 )
 SWIFT_STRING = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 CAPITALIZED_RUN = re.compile(r"(?<![\w-])[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*")
+# asc 7.2.0 HasTermsOfUseLink: a description URL that looks like a terms link, or
+# any URL with "terms" or "EULA" within 80 characters of it.
+DESCRIPTION_URL = re.compile(r"(?i)https?://[^\s]+")
+TERMS_URL = re.compile(r"(^|[^a-z0-9])(terms?|eula|tos|termsofservice)([^a-z0-9]|$)")
+TERMS_WORD = re.compile(r"(?i)\bterms of use\b|\bterms\b|\beula\b")
 DIRECTIVE = re.compile(r"^\s*#(if|elseif|else|endif)\b(.*)$")
 
 
@@ -157,7 +167,12 @@ def app_strings() -> set[str]:
 
 
 def marketing_version() -> str:
-    match = re.search(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", PROJECT_YML.read_text(encoding="utf-8"), re.MULTILINE)
+    """The App Store version: the AppStore configuration's MARKETING_VERSION, else the base one."""
+    text = PROJECT_YML.read_text(encoding="utf-8")
+    pattern = re.compile(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", re.MULTILINE)
+    block = re.search(r"^    AppStore:\n((?:(?:      .*)?\n)*)", text, re.MULTILINE)
+    match = pattern.search(block.group(1)) if block else None
+    match = match or pattern.search(text)
     assert match, f"{PROJECT_YML} has no MARKETING_VERSION"
     return match.group(1)
 
@@ -178,6 +193,33 @@ def read_listings() -> dict[str, dict[str, dict[str, str]]]:
                 "promotional_text": data.get("promotionalText", ""),
             }
     return trees
+
+
+def has_terms_of_use_link(description: str) -> bool:
+    for match in DESCRIPTION_URL.finditer(description):
+        url = match.group(0).strip().lstrip("\"'([{<").rstrip("\"'.,);:!?]}>")
+        if TERMS_URL.search(url.lower()):
+            return True
+        if TERMS_WORD.search(description[max(match.start() - 80, 0) : match.end() + 80]):
+            return True
+    return False
+
+
+def search_text(value: str) -> str:
+    """asc 7.2.0 normalizeKeywordAuditText: lowercase letters and digits, one space between runs."""
+    out: list[str] = []
+    for ch in value.strip():
+        if ch.isalnum():
+            out.append(ch.lower())
+        elif out and out[-1] != " ":
+            out.append(" ")
+    return "".join(out).strip()
+
+
+def keywords_repeating(keywords: str, *texts: str) -> list[str]:
+    """Keyword phrases that appear as whole words in any of texts (asc's overlap_name and overlap_subtitle)."""
+    hay = [f" {search_text(t)} " for t in texts if search_text(t)]
+    return [k for k in keywords.split(",") if search_text(k) and any(f" {search_text(k)} " in h for h in hay)]
 
 
 def english_screen_candidates(text: str) -> set[tuple[str, ...]]:
@@ -242,7 +284,7 @@ class ListingTextTest(unittest.TestCase):
         version = marketing_version()
         versions = [tree for tree in self.listings if tree.startswith("version/")]
         self.assertEqual(versions, [f"version/{version}"],
-                         f"move metadata/version/<dir> to project.yml's MARKETING_VERSION {version}")
+                         f"move metadata/version/<dir> to the AppStore configuration's MARKETING_VERSION {version}")
         for tree, locales in self.listings.items():
             with self.subTest(tree=tree):
                 self.assertEqual(sorted(locales), sorted(PRODUCTION_LOCALES))
@@ -284,6 +326,36 @@ class ListingTextTest(unittest.TestCase):
             for readings in sorted(english_screen_candidates(text)):
                 with self.subTest(tree=tree, locale=locale, field=field, phrase=readings[0]):
                     self.assertTrue(named_in_app(readings, self.strings), f"{readings[0]!r} is not a string the app shows")
+
+    def test_descriptions_link_terms_of_use(self) -> None:
+        # Guideline 3.1.2: an auto-renewing subscription's listing links its terms.
+        for tree, locales in self.listings.items():
+            if not tree.startswith("version/"):
+                continue
+            for locale, fields in locales.items():
+                with self.subTest(tree=tree, locale=locale):
+                    self.assertTrue(has_terms_of_use_link(fields["description"]),
+                                    f"{locale} description has no Terms of Use link")
+
+    def test_keywords_do_not_repeat_name_or_subtitle(self) -> None:
+        info = self.listings["app-info"]
+        for tree, locales in self.listings.items():
+            if not tree.startswith("version/"):
+                continue
+            for locale, fields in locales.items():
+                with self.subTest(tree=tree, locale=locale):
+                    app = info.get(locale, {})
+                    self.assertEqual(keywords_repeating(fields["keywords"], app.get("name", ""), app.get("subtitle", "")), [])
+
+    def test_asc_rule_ports_catch_the_locked_listing(self) -> None:
+        # The es-ES and de-DE text in App Store Connect on 2026-11-26.
+        self.assertFalse(has_terms_of_use_link("Für cmux auf dem iPhone brauchst du einen cmux-Account."))
+        self.assertFalse(has_terms_of_use_link("Support: https://cmux.com/support"))
+        self.assertTrue(has_terms_of_use_link("Nutzungsbedingungen: https://cmux.com/terms-of-service"))
+        self.assertTrue(has_terms_of_use_link("Terms of Use: https://example.com/legal"))
+        self.assertEqual(keywords_repeating("agente de IA,IA,código", "Chatea con tus agentes de IA"), ["IA"])
+        self.assertEqual(keywords_repeating("코딩,에이전트", "코딩 에이전트와 대화하세요"), ["코딩"])
+        self.assertEqual(keywords_repeating("chat,Mac", "cmux"), [])
 
     def test_detectors_catch_the_classic_text(self) -> None:
         classic = (

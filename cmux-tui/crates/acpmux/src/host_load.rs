@@ -8,11 +8,18 @@
 //! daemon, and a daemon that does not answer within `DAEMON_WAIT` leaves `busy`,
 //! `localTurns` and `heavy` out.
 //!
+//! `rootTotalBytes`, `rootUsedBytes` and `rootFreeBytes` are the root filesystem's; `diskSplit`
+//! is the last split of its used bytes into system, project and caches (`disk_usage.rs`), read
+//! from a file a background walk writes at most every five minutes, never walked on a sample.
+//!
 //! `heavy` is the heaviest known build or test the daemon's agents run now: the
 //! shell commands of their tool calls in flight (`hub/activity.rs`) and of their
 //! running background processes (`hub/processes.rs`), as the daemon reports them
 //! (`host_pressure.heavy`). Never a process scan (plans/cmux-next/pty-holder.md 4):
 //! the agents report what they run.
+//!
+//! `--watch` samples once a second and prints one JSON line when a line is crossed
+//! (`host_load_watch.rs`).
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -42,10 +49,37 @@ pub struct Load {
     pub swap_used_fraction: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oom_kills: Option<u64>,
+    /// `/proc/vmstat`'s reclaim counters since boot (allocations stalled on direct reclaim,
+    /// pages it scanned, evicted pages read back): the memory stall where PSI is off. The
+    /// server diffs two samples, as with `oomKills` (cmuxterm-hq RFD 0182 B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alloc_stalls: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_scanned: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refaults: Option<u64>,
+    /// Memory stall in PSI's shape (`some`/`full`, `avg10`/`avg60`/`avg300`, percent) estimated
+    /// from the reclaim counters by the daemon's once-a-second reader, for hosts where
+    /// `memSomeAvg60` is missing because PSI is off (cmuxterm-hq RFD 0182 B1). Left out with no
+    /// daemon, or one under two seconds old.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_stall: Option<crate::host_pressure::mem_stall::MemStall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_free_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_free_fraction: Option<f64>,
+    /// The root filesystem (`/`): its size, the bytes in use and the bytes free to the work
+    /// user (`disk_usage.rs`). The disk cmux Cloud grows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_total_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_used_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_free_bytes: Option<u64>,
+    /// The last split of the root's used bytes into system, project and caches, at most
+    /// `disk_usage::WALK_EVERY` old once a walk has run (`disk_usage.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_split: Option<crate::disk_usage::DiskSplit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub busy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,6 +357,13 @@ pub fn heavy_of(status: &serde_json::Value) -> Option<Heavy> {
     serde_json::from_value(status.pointer("/host_pressure/heavy")?.clone()).ok()
 }
 
+/// `memStall` from `daemon status`'s `host_pressure.mem_stall`.
+pub fn mem_stall_of(
+    status: &serde_json::Value,
+) -> Option<crate::host_pressure::mem_stall::MemStall> {
+    serde_json::from_value(status.pointer("/host_pressure/mem_stall")?.clone()).ok()
+}
+
 /// The sample: the `/proc` reads (blocking, about [`CPU_WINDOW`]) beside the daemon's answer.
 pub async fn sample() -> Load {
     let reads = tokio::task::spawn_blocking(read_host);
@@ -333,6 +374,7 @@ pub async fn sample() -> Load {
     load.local_turns = turns;
     load.busy = turns.map(|n| n > 0);
     load.heavy = status.as_ref().and_then(heavy_of);
+    load.mem_stall = status.as_ref().and_then(mem_stall_of);
     load
 }
 
@@ -345,13 +387,19 @@ async fn daemon_status() -> Option<serde_json::Value> {
 fn read_host() -> Load {
     let mut load = Load::default();
     disk(&mut load);
+    if let Some(root) = crate::disk_usage::statvfs(std::path::Path::new("/")) {
+        load.root_total_bytes = Some(root.total);
+        load.root_used_bytes = Some(root.used);
+        load.root_free_bytes = Some(root.free);
+    }
+    load.disk_split = crate::disk_usage::split_for_sample();
     #[cfg(target_os = "linux")]
     linux(&mut load);
     load
 }
 
 #[cfg(unix)]
-fn disk(load: &mut Load) {
+pub(crate) fn disk(load: &mut Load) {
     use std::os::unix::ffi::OsStrExt;
     let Some(home) = std::env::var_os("HOME") else { return };
     let Ok(path) = std::ffi::CString::new(home.as_bytes()) else { return };
@@ -369,7 +417,7 @@ fn disk(load: &mut Load) {
 }
 
 #[cfg(not(unix))]
-fn disk(_: &mut Load) {}
+pub(crate) fn disk(_: &mut Load) {}
 
 #[cfg(target_os = "linux")]
 fn linux(load: &mut Load) {
@@ -387,7 +435,14 @@ fn linux(load: &mut Load) {
         load.mem_available_fraction = p::parse_meminfo_available(&meminfo);
         load.swap_used_fraction = p::parse_meminfo_swap_used(&meminfo);
     }
-    load.oom_kills = read("/proc/vmstat").and_then(|s| p::parse_vmstat_oom_kill(&s));
+    if let Some(vmstat) = read("/proc/vmstat") {
+        load.oom_kills = p::parse_vmstat_oom_kill(&vmstat);
+        if let Some(r) = p::parse_vmstat_reclaim(&vmstat) {
+            load.alloc_stalls = Some(r.alloc_stalls);
+            load.direct_scanned = Some(r.direct_scanned);
+            load.refaults = Some(r.refaults);
+        }
+    }
     // The window is the sleep alone: the reads above stay out of it.
     let before = stat();
     std::thread::sleep(CPU_WINDOW);
@@ -508,5 +563,17 @@ mod tests {
             json!({"host_pressure": {"heavy": {"kind": "test", "need": {"vcpu": 6, "memGiB": 2}}}});
         assert_eq!(heavy_of(&status), need(Kind::Test, 6, 2));
         assert_eq!(heavy_of(&json!({"host_pressure": {"local_turns": 0}})), None);
+    }
+
+    #[test]
+    fn mem_stall_comes_from_daemon_status_in_psis_shape() {
+        let avgs = json!({"avg10": 41.26, "avg60": 10.67, "avg300": 2.29});
+        let zero = json!({"avg10": 0.0, "avg60": 0.0, "avg300": 0.0});
+        let stall = json!({"source": "vmstat", "some": avgs, "full": zero, "coveredSecs": 9});
+        let m = mem_stall_of(&json!({"host_pressure": {"mem_stall": stall}})).unwrap();
+        assert_eq!(m.some.avg10, 41.26);
+        let load = Load { mem_stall: Some(m), ..Load::default() };
+        assert_eq!(serde_json::to_value(&load).unwrap()["memStall"], stall);
+        assert_eq!(mem_stall_of(&json!({"host_pressure": {"local_turns": 0}})), None);
     }
 }

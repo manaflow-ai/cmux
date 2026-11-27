@@ -64,15 +64,48 @@ use syn::visit::Visit;
 
 /// The writes by path left as they are, each with why: (file, function, write, reason). `*`
 /// matches any file or function; a write ending in `*` any write it starts.
-const ALLOWED: &[(&str, &str, &str, &str)] = &[(
-    "*",
-    "*",
-    "owner_only::*",
-    "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
+const ALLOWED: &[(&str, &str, &str, &str)] = &[
+    (
+        "*",
+        "*",
+        "owner_only::*",
+        "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
      has no *at calls. Each runs right after its own home check (`config::private_state_*`, \
      `store::open_private_append`), and a temporary file it makes is renamed through `home_fs`, \
      which checks the home's file id again (#41372).",
-)];
+    ),
+    (
+        "src/auto_session/import/folder.rs",
+        "*",
+        "fs::write",
+        "git's input, the patch and the bundle go into a fresh `tempfile` file or folder under the \
+     system's temp folder, never the home: `home_fs::write` would replace the temp file's inode \
+     and narrow its mode for no gain.",
+    ),
+    (
+        "src/auto_session/export/leftover.rs",
+        "put",
+        "OpenOptions::open",
+        "Only the shared scratch case (`std::env::temp_dir()`, never the home) opens by path: made \
+     new and owner-only so a path anyone made first is refused (security review of cmux#52931, \
+     item 5); a patch beside its record goes through `config::write_atomic`.",
+    ),
+    (
+        "src/memory_mount/link.rs",
+        "symlink",
+        "fs::symlink_dir",
+        "Windows only: `home_fs::symlink` is Unix-only and Windows has no *at symlink call. It links a \
+     harness memory folder the user names to the memory mount, right after `home_fs::rename` moved \
+     the old folder aside.",
+    ),
+    (
+        "src/hypervisor/libvirt.rs",
+        "LibvirtDriver::*",
+        "fs::*",
+        "The VM images folder and domain XML are read by libvirt's qemu user, not only this one: \
+     `home_fs` makes folders 0700 and files 0600, which would lock qemu out of the overlays.",
+    ),
+];
 
 /// Whether `pattern` (an `ALLOWED` field) matches `value`.
 fn matches(pattern: &str, value: &str) -> bool {

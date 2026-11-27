@@ -94,20 +94,20 @@ export function pageSyntaxVariable(type: "light" | "dark", role: SyntaxRoleName)
 
 /**
  * Each role's color for a terminal theme: the first palette slot it names (the default palette
- * fills a slot the theme leaves out), blended toward the foreground just enough to read on the
- * background (syntax-colors.ts); `variable` is the foreground.
+ * fills a slot the theme leaves out), blended toward the foreground just enough to read on every
+ * one of `backgrounds` (syntax-colors.ts); `variable` is the foreground.
  */
 export function syntaxRoleColors(
   palette: Record<string, string | undefined>,
   type: "light" | "dark",
-  background: string,
+  backgrounds: string | readonly string[],
   foreground: string,
 ): Record<SyntaxRoleName, string> {
   const roles = Object.entries(SYNTAX_ROLES) as Array<[SyntaxRoleName, SyntaxRole]>;
   return Object.fromEntries(
     roles.map(([role, spec]) => [
       role,
-      spec.slots.length ? syntaxPaletteColor(palette, spec.slots, type, background, foreground) : foreground,
+      spec.slots.length ? syntaxPaletteColor(palette, spec.slots, type, backgrounds, foreground) : foreground,
     ]),
   ) as Record<SyntaxRoleName, string>;
 }

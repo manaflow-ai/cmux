@@ -27,10 +27,11 @@ tip would show):
 
 GUI host only. Quits the app by its own PID and stops the tag's daemons at the end.
 """
-import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -150,8 +151,30 @@ def write_json(name, value):
         json.dump(value, f, indent=1)
 
 
-def settle(seconds=1.0):
-    time.sleep(seconds)  # let the window redraw before a screenshot (screenshot only)
+def settle(what):
+    """Until the main window's snapshot is the same picture three reads in a row (the redraw done). Screenshot
+    only, so logged when it never holds still."""
+    probe = os.path.join(SCRATCH, "settle.png")
+
+    def picture():
+        rpc("debug.window_snapshot", {"path": probe})
+        with open(probe, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()
+    if wait_stable(picture, what, timeout=10, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print(f"note: {what} did not hold still in 10 s", flush=True)
+
+
+def menu_settled(pid, what):
+    """Until the capture helper lists the app's windows (the menu's among them) the same three reads in a row.
+    Without the helper there is nothing to capture, so nothing to wait for."""
+    if not os.path.exists(CAPTURE_SOCKET):
+        return
+
+    def listed():
+        windows = ((capture_call("list_windows", {"pid": pid}).get("result") or {}).get("structuredContent") or {}).get("windows") or []
+        return json.dumps([(w.get("window_id"), w.get("bounds"), w.get("is_on_screen")) for w in windows], sort_keys=True)
+    if wait_stable(listed, what, timeout=10, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print(f"note: {what} did not hold still in 10 s", flush=True)
 
 
 def launch():
@@ -189,7 +212,10 @@ def menu_pass(app, mode):
     """Hint mode presses the card's x (a person's click): its menu opens; debug.hints reads it."""
     rpc("debug.appearance", {"mode": mode})
     rpc("debug.updater", {"action": "tip"})  # today's first tip on the card for the pictures
-    settle(1.5)
+    if not wait_until(lambda: tips(at=time.time()).get("tip"), f"{mode}: a tip on the card", timeout=10, interval=0.2,
+                      raise_on_timeout=False):
+        print(f"note: {mode}: no tip on the card 10 s after debug.updater tip", flush=True)
+    settle(f"the {mode} window with its tip card")
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"card-{mode}.png")})
     capture_windows(f"card-{mode}", app.pid)
     rpc("settings.set", {"path": "labs.previewFeatures", "value": True})
@@ -204,14 +230,15 @@ def menu_pass(app, mode):
         rpc("debug.key", {"key": letter.lower(), "modifiers": []})
     menu = wait_for(lambda: ((rpc("debug.hints") or {}).get("menu") or {}).get("open") and rpc("debug.hints")["menu"], "the x's menu opens", 10) or {}
     check(menu.get("items") == MENU, f"{mode}: the x opens {MENU}: {menu.get('items')}")
-    settle(0.8)
+    menu_settled(app.pid, f"the {mode} x menu's window")
     capture_windows(f"menu-{mode}", app.pid)
     rpc("debug.hints", {"dismiss_menu": True})
     wait_for(lambda: not ((rpc("debug.hints") or {}).get("menu") or {}).get("open"), "the menu closes", 10)
 
 
+# Tips are off by default (UI simplification, 2026-11-20); this check turns them on to drive them.
 with open(CONFIG, "w") as f:
-    f.write("{}\n")
+    f.write('{"sidebar": {"cards": {"tips": true}}}\n')
 with open(GHOSTTY, "w") as f:
     f.write("")
 apps = []

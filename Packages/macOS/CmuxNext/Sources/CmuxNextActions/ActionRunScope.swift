@@ -67,6 +67,7 @@ public extension ActionRunScope {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// Runs `action`'s handler with its run scope bound as a task local, so
     /// the tasks the handler starts keep the run's view-change permission,
@@ -98,3 +99,4 @@ extension ActionRegistry {
         runObserver?(id, handed)
     }
 }
+#endif

@@ -32,6 +32,8 @@ LANE_PATTERNS = (
     ".github/workflows/billing.yml",
     "scripts/ci/billing_lane.py",
     "tests/test_ci_billing_lane.py",
+    # billing.yml reads the iOS billing packages from it.
+    "scripts/ci/swift-linux-packages.txt",
     "web/scripts/run-db-behavior-tests.sh",
 )
 
@@ -117,11 +119,14 @@ IOS_APP_PATTERNS = (
 
 IOS_PATTERNS = (*IOS_PACKAGE_PATTERNS, *IOS_APP_PATTERNS)
 
-# StoreKit Testing slot. The rewritten billing client is expected to add an
-# SKTestSession suite backed by a .storekit file as a target named
-# BillingStoreKitTests: either a SwiftPM test directory
-# (cmux-next-ios/<Package>/Tests/BillingStoreKitTests) or an xcodegen target in
-# cmux-next-ios/project.yml. Until one exists the slot skips cleanly.
+# StoreKit Testing slot: an SKTestSession suite backed by a .storekit file, as
+# a target named BillingStoreKitTests. The iPhone app's billing client lives in
+# Packages/iOS/CmuxMobileBilling, and its suite is the xcodegen project
+# Packages/iOS/CmuxMobileBilling/StoreKitTests/project.yml: an app-hosted test
+# bundle, because storekitd serves a StoreKit configuration only to an app
+# installed for development, never to SwiftPM's xctest runner. A SwiftPM test
+# directory (cmux-next-ios/<Package>/Tests/BillingStoreKitTests) or an xcodegen
+# target in cmux-next-ios/project.yml is found too. With none the slot skips.
 STOREKIT_TARGET = "BillingStoreKitTests"
 
 # Billing test files by name. Tests that exercise billing under another name
@@ -199,8 +204,23 @@ def classify(paths: list[str]) -> dict[str, bool]:
     }
 
 
+def declares_storekit_target(project: Path) -> bool:
+    """True when an xcodegen project.yml declares the BillingStoreKitTests target."""
+    return project.is_file() and re.search(
+        rf"^[ \t]+[\"']?{STOREKIT_TARGET}[\"']?[ \t]*:", project.read_text(encoding="utf-8"), re.MULTILINE
+    ) is not None
+
+
 def storekit_target(root: Path = ROOT) -> tuple[str, str]:
-    """("package", <package dir>), ("project", "cmux-next-ios") or ("", "")."""
+    """("package", <package dir>), ("project", <project dir>) or ("", "").
+
+    A billing package's own xcodegen project
+    (Packages/iOS/*Billing*/*/project.yml) comes first: that is where the
+    iPhone app's billing client and its suite live.
+    """
+    for project in sorted((root / "Packages/iOS").glob("*Billing*/*/project.yml")):
+        if declares_storekit_target(project):
+            return "project", project.parent.relative_to(root).as_posix()
     app = root / "cmux-next-ios"
     if not app.is_dir():
         return "", ""
@@ -213,10 +233,7 @@ def storekit_target(root: Path = ROOT) -> tuple[str, str]:
                 return "package", parent.relative_to(root).as_posix()
             if parent == app:
                 break
-    project = app / "project.yml"
-    if project.is_file() and re.search(
-        rf"^[ \t]+[\"']?{STOREKIT_TARGET}[\"']?[ \t]*:", project.read_text(encoding="utf-8"), re.MULTILINE
-    ):
+    if declares_storekit_target(app / "project.yml"):
         return "project", "cmux-next-ios"
     return "", ""
 
@@ -264,7 +281,7 @@ def route() -> int:
     lines = "".join(f"{name}={'true' if value else 'false'}\n" for name, value in areas.items())
     kind, path = storekit_target() if areas["storekit"] else ("", "")
     if areas["storekit"] and not kind:
-        print(f"no {STOREKIT_TARGET} target under cmux-next-ios; the StoreKit slot skips")
+        print(f"no {STOREKIT_TARGET} target in Packages/iOS/*Billing* or cmux-next-ios; the StoreKit slot skips")
     lines += f"storekit_kind={kind}\nstorekit_path={path}\n"
     print(lines, end="")
     output = os.environ.get("GITHUB_OUTPUT")

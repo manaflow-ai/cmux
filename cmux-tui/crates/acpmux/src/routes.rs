@@ -510,12 +510,12 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     match &file.secret {
         Some(s) if s.starts_with("op://") => {
             return Err(RouteError::BadParams(
-                "op:// references are not supported yet: store the secret with `cmux harness secret set NAME` and use keychain:NAME".into(),
+                "op:// references are not supported yet: add a model key with `cmux cloud connect api-key --provider anthropic|openai` (or a Claude subscription with `cmux cloud connect claude`), or store the secret in the Keychain and pass keychain:SERVICE/ACCOUNT".into(),
             ));
         }
         Some(s) if !is_reference(s) => {
             return Err(RouteError::SecretInline(
-                "secret must be a reference (keychain:ITEM, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: store it with `cmux harness secret set NAME` and pass keychain:NAME".into(),
+                "secret must be a reference (keychain:SERVICE/ACCOUNT, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: add a model key with `cmux cloud connect api-key --provider anthropic|openai` (or a Claude subscription with `cmux cloud connect claude`), which stores it in the Keychain, or store it there yourself and pass keychain:SERVICE/ACCOUNT".into(),
             ));
         }
         _ => {}
@@ -810,7 +810,7 @@ pub struct Bindings {
     /// order (`server/connections.rs`).
     #[serde(default, rename = "connection_order", skip_serializing_if = "Vec::is_empty")]
     pub connection_order: Vec<String>,
-    /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: on.
+    /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spread: Option<bool>,
     /// Connections with no route file of their own that are turned off (`claude-login`;

@@ -16,14 +16,25 @@ import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
 import type { SpendGuardDO } from "./inference/spend-guard-do.ts"
+import type { ModelCatalogDO } from "./models-catalog/catalog-do.ts"
 import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
 import type { HandoffDO } from "./handoffs/handoff-do.ts"
 import type { HandoffIndexDO } from "./handoffs/index-do.ts"
+import type { AutoSessionDO } from "./auto-sessions/session-do.ts"
+import type { AutoSessionIndexDO } from "./auto-sessions/index-do.ts"
 
-export interface Env {
+/** A build space: "" (nightly and stable) or `dev:<slug>` (one tagged dev build; build-space.ts). */
+export type BuildSpace = "" | `dev:${string}`
+
+/**
+ * The Worker's bindings as the runtime hands them over (the fetch and scheduled handlers, a Durable Object's or an
+ * entrypoint's constructor). Code never reaches an object through it: it goes through build-space.ts's spacedEnv or
+ * envForObject first, which gives an Env.
+ */
+export interface WorkerBindings {
   /** production | staging | development | preview | test */
   readonly ENVIRONMENT: string
   readonly API_VERSION: string
@@ -48,6 +59,9 @@ export interface Env {
   /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
   readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
   readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
+  /** Auto mode (auto-sessions/): one AutoSessionDO per Auto chat, one AutoSessionIndexDO per owner. Unbound in production until Auto mode ships there. */
+  readonly AUTO_SESSION_DO?: DurableObjectNamespace<AutoSessionDO>
+  readonly AUTO_SESSION_INDEX_DO?: DurableObjectNamespace<AutoSessionIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
@@ -91,6 +105,8 @@ export interface Env {
   readonly TRAJECTORY_DO: DurableObjectNamespace<TrajectoryDO>
   /** "1": the trajectory routes answer (development, tests). Unset: 404 cloud.trajectory.disabled. */
   readonly CLOUD_TRAJECTORIES_ENABLED?: string
+  /** "1": integration.approval.approve answers (approve-one-call.ts; development and staging). Unset: approval.one_call_off, and the Mac answers through feed.answer. */
+  readonly CLOUD_APPROVE_ONE_CALL?: string
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**
@@ -162,8 +178,6 @@ export interface Env {
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
   /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
-  /** Var (development only): the public coderouter host the coderouter.cmux.internal edge rule forwards to (cloud-coderouter-edge.ts); unset = no rule. */
-  readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
@@ -172,6 +186,8 @@ export interface Env {
   readonly CLOUD_IDLE_PAUSE?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Named MachineGitHub binding (integrations/machine-github.ts): "on" only in development; off, every method refuses. */
+  readonly PLATFORM_MACHINE_GITHUB?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
   /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
@@ -191,6 +207,12 @@ export interface Env {
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
+  /**
+   * The console that finishes integration connects, when it is not DASHBOARD_ORIGIN: development has no hosted
+   * console, so its connects come back to the staging console, which finishes them on this Worker
+   * (dashboard lib/integration-callback.ts). Pairing and SSO keep DASHBOARD_ORIGIN.
+   */
+  readonly INTEGRATIONS_CALLBACK_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */
   readonly INTEGRATIONS_KEK?: string
   /**
@@ -229,6 +251,8 @@ export interface Env {
   readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
   /** `e2e` (development only): the e2e price set (1 USD included); `v2` (development or staging only): Team 25 USD per seat (billing-catalog.ts). Production is always v1. */
   readonly BILLING_USAGE_PRICE_SET?: string
+  /** A live usage sync's allowlist (billing-usage-sync.ts liveAllowList): subscription ids, comma separated; unset = all. */
+  readonly BILLING_USAGE_LIVE_ALLOW?: string
   /** The raise lock (billing-catalog.ts teamCapUnpaidMaxPools): before its first paid renewal invoice an account's cap counts up to this many pools (default 4). */
   readonly TEAM_CAP_UNPAID_MAX_POOLS?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
@@ -264,6 +288,7 @@ export interface Env {
   /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
   readonly STACK_READ_LOW_LIMIT?: RateLimit
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
+  /** Only the fallback: the slug is read from GitHub's GET /app (providers.ts githubAppSlug), so a renamed App needs no change here. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
   readonly GITHUB_APP_CLIENT_SECRET?: string
@@ -383,6 +408,9 @@ export interface Env {
   readonly CHIEF_CC_ENABLED?: string
   /** The chief-cc VM snapshot id (backend/chief-cc/bake.sh). */
   readonly CHIEF_CC_SNAPSHOT?: string
+  /** The Chief's computer image (backend/chief-cc/bake-computer.sh): small Ubuntu with the desktop and cua-driver baked in,
+   * for `chief-vm create --image computer`. Unset: computer setup installs the desktop on the sandbox. */
+  readonly CHIEF_CC_COMPUTER_SNAPSHOT?: string
   /** Comma-separated exact owner ids (team_ or user_) whose Chiefs use the Claude Code route; each must also be on CHIEF_BRAIN_CLAUDE_OWNERS. */
   readonly CHIEF_CC_OWNERS?: string
   /** Secret: the Freestyle key of the account that holds CHIEF_CC_SNAPSHOT (no other code reads it). */
@@ -474,6 +502,10 @@ export interface Env {
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
   /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */
   readonly SPEND_GUARD_DO: DurableObjectNamespace<SpendGuardDO>
+  /** The live model catalog (src/models-catalog): one instance "global" holds published versions, kills and scout runs. */
+  readonly MODEL_CATALOG_DO?: DurableObjectNamespace<ModelCatalogDO>
+  /** Secret: the bearer of the catalog's internal routes (publish, kill switch, scout runs). Unset: they answer 401. */
+  readonly MODELS_CATALOG_TOKEN?: string
   /** Free tier (src/inference/free.ts): one FreeDeviceDO per App Attest key. */
   readonly FREE_DEVICE_DO: DurableObjectNamespace<FreeDeviceDO>
   /** Per-IP limits of the free tier: every free route, and new device grants. */
@@ -515,6 +547,7 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
   readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
   readonly INFERENCE_DAILY_CAP_USD_PARTICLE?: string
+  readonly INFERENCE_DAILY_CAP_USD_VERTEX?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -535,6 +568,8 @@ export interface Env {
   /** Vercel AI Gateway through the dashboard's OIDC relay: its URL and the shared relay key (secret). */
   readonly INFERENCE_VERCEL_RELAY_URL?: string
   readonly INFERENCE_VERCEL_RELAY_KEY?: string
+  /** Vertex AI (Gemini on our GCP) through the dashboard's keyless Vertex relay; it takes the same relay key. */
+  readonly INFERENCE_VERTEX_RELAY_URL?: string
   /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
   readonly INFERENCE_AZURE_ENDPOINT?: string
   readonly INFERENCE_AZURE_KEY?: string
@@ -572,4 +607,13 @@ export interface Env {
   readonly PROJECTION_SHADOW?: string
   /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
+}
+
+/** The raw bindings: only entry points hold one (build-space.ts). */
+export type RawEnv = WorkerBindings
+
+/** The bindings of one build space (build-space.ts spacedEnv): what every function that reaches an object takes. */
+export type Env = WorkerBindings & {
+  /** The space every per-build binding of this env names its objects in. */
+  readonly BUILD_SPACE: BuildSpace
 }
