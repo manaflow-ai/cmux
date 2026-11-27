@@ -94,6 +94,8 @@ fn snapshot_payload(replay: &[u8]) -> Vec<u8> {
         command: Vec::new(),
         cwd: None,
         osc_progress: String::new(),
+        program_status: None,
+        shell_activity: None,
     })
     .unwrap()
 }

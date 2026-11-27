@@ -1,0 +1,16 @@
+{
+  "id": "automations-a672-recurring",
+  "owner": "a672",
+  "about": "a recurring ask is set up as a real wake, not a promise",
+  "turns": [
+    {
+      "text": "every morning at 9, send me what landed on feat-cmux-next overnight",
+      "checks": [
+        {
+          "type": "judge",
+          "rubric": "PASS when the assistant makes the 9am job happen with a tool call this turn (a sleep/wake, a cron or automation call, or a tell/spawn to the Chief or agent that runs scheduled jobs) and says briefly what was set up and where it will post. FAIL when it only promises, or asks the person how to set it up."
+        }
+      ]
+    }
+  ]
+}

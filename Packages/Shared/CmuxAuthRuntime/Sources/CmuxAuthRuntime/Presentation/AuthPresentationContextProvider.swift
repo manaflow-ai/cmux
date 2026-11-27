@@ -1,3 +1,4 @@
+#if canImport(AuthenticationServices)
 public import AuthenticationServices
 #if os(iOS)
 import UIKit
@@ -47,7 +48,8 @@ public final class AuthPresentationContextProvider: NSObject, AuthPresentationAn
         window.makeKey()
         return window
         #else
-        preconditionFailure("AuthPresentationContextProvider: unsupported platform")
+        #error("AuthPresentationContextProvider supports iOS and macOS only")
         #endif
     }
 }
+#endif

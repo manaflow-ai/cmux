@@ -8,7 +8,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::Config;
@@ -186,9 +185,10 @@ pub async fn await_ceremony(
     platform: &str,
 ) -> Result<PairedOutcome, RelayError> {
     let socket_url = websocket_url(&format!("{backend}/v2/pairing/{}/socket", started.pair_id));
-    let (mut socket, _response) = connect_async(socket_url.as_str())
-        .await
-        .map_err(|error| RelayError::transient(format!("pairing socket failed: {error}")))?;
+    let (mut socket, _response) =
+        cmux_egress::ws::connect_async(socket_url.as_str(), "chatmux_relay::pairing")
+            .await
+            .map_err(|error| RelayError::transient(format!("pairing socket failed: {error}")))?;
     let authenticate = serde_json::json!({
         "version": PAIRING_WIRE_VERSION,
         "type": "authenticate",
@@ -303,56 +303,5 @@ pub async fn await_ceremony(
             }
             _ => {}
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pair_ids_have_the_w100_shape() {
-        for _ in 0..16 {
-            let id = mint_pair_id().expect("OS randomness available in test");
-            assert_eq!(id.len(), "pair_".len() + 24);
-            let tail = id.strip_prefix("pair_").expect("prefix");
-            assert!(tail.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
-        }
-        assert_ne!(mint_pair_id().unwrap(), mint_pair_id().unwrap());
-    }
-
-    #[test]
-    fn relay_public_keys_are_x25519_spki_der_base64url() {
-        let key = mint_relay_public_key().expect("OS randomness available in test");
-        // 44 DER bytes -> 59 unpadded base64url characters.
-        assert_eq!(key.len(), 59);
-        let der = URL_SAFE_NO_PAD.decode(&key).expect("decodes");
-        assert_eq!(der.len(), 44);
-        assert_eq!(
-            &der[..12],
-            &[0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00]
-        );
-        assert_ne!(mint_relay_public_key().unwrap(), mint_relay_public_key().unwrap());
-    }
-
-    #[test]
-    fn secrets_are_43_base64url_characters() {
-        // The Worker's pairing URL regex pins #<secret> to exactly 43
-        // [A-Za-z0-9_-] characters (32 bytes, unpadded).
-        let secret = random_secret().expect("OS randomness available in test");
-        assert_eq!(secret.len(), 43);
-        assert!(secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
-    }
-
-    #[test]
-    fn websocket_urls_upgrade_scheme_like_the_js_relay() {
-        assert_eq!(websocket_url("https://api.chatmux.dev/x"), "wss://api.chatmux.dev/x");
-        assert_eq!(websocket_url("http://localhost:8788/x"), "ws://localhost:8788/x");
-    }
-
-    #[test]
-    fn secret_hash_matches_node_sha256_base64url() {
-        // node -e 'console.log(require("crypto").createHash("sha256").update("secret").digest("base64url"))'
-        assert_eq!(hash_base64url("secret"), "K7gNU3sdo-OL0wNhqoVWhr3g6s1xYv72ol_pe_Unols");
     }
 }

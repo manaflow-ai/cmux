@@ -2,6 +2,7 @@
 import AppKit
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 
 /// Rich link balloon for the macOS transcript, matching LinkPresentation's
 /// Mac metrics (11 pt semibold title, 10 pt domain, 10 pt insets) inside the
@@ -20,7 +21,7 @@ final class MacLinkPreviewView: MacFlippedView {
     private let thumbnailView = NSImageView()
     private let glyphView = NSImageView()
     private let chevronView = NSImageView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = CmuxSpinnerView(side: 32)
 
     private(set) var preview: ConversationLinkPreview?
     private var cardLayout: ConversationLinkCardLayout?
@@ -47,9 +48,6 @@ final class MacLinkPreviewView: MacFlippedView {
         chevronView.image = NSImage(systemSymbolName: "chevron.forward", accessibilityDescription: nil)
         chevronView.symbolConfiguration = .init(pointSize: 9, weight: .semibold)
         chevronView.contentTintColor = MacConversationTheme.secondaryText
-        spinner.style = .spinning
-        spinner.controlSize = .regular
-        spinner.isDisplayedWhenStopped = false
         for view in [mediaView, promptArea, promptLabel, titleLabel, domainLabel, thumbnailView, glyphView, chevronView, spinner] as [NSView] {
             addSubview(view)
         }

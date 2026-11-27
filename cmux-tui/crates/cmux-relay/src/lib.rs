@@ -1,5 +1,20 @@
 //! Opaque WebSocket circuit relay for cmux remote sessions.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 mod admission;
 mod config;
 mod relay;
@@ -15,14 +30,4 @@ pub fn version_string() -> String {
         .filter(|commit| !commit.is_empty())
         .unwrap_or("unstamped");
     format!("{} ({commit})", env!("CARGO_PKG_VERSION"))
-}
-
-#[cfg(test)]
-mod build_info_tests {
-    #[test]
-    fn relay_version_identifies_the_package_and_build() {
-        let version = super::version_string();
-        assert!(version.starts_with(env!("CARGO_PKG_VERSION")));
-        assert!(version.ends_with(')'));
-    }
 }

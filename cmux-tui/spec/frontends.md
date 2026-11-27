@@ -59,7 +59,10 @@ active workspace, screen, pane, and tab fields are defaults for that shared
 projection, not global user focus. A frontend keeps its current workspace,
 screen, pane, tab, text selection, scroll position, crop, pan, scale, hover,
 drag state, and key-prefix state in client memory. It must not publish those
-ephemeral values through the legacy focus commands.
+ephemeral values through the legacy focus commands. The exception is the
+render viewport: a render-mode frontend scrolls with `scroll-surface`, which
+moves the one render viewport every render attach of that terminal shows, on
+every connection ([render.md](render.md#stream-ordering)).
 
 A frontend may also persist a schema-versioned opaque projection with
 `put-frontend-projection`. Use `scope:"personal"` and a stable user/profile or
@@ -147,8 +150,10 @@ Protocol v9 render mode has no PTY mouse or focus-input command. A render fronte
 When the active frontend's geometry changes, convert pixels to cells, report
 the view size, and explicitly claim terminal geometry for that view. A passive
 frontend crops, pans, or scales the authoritative grid. Attaching a view never
-changes canonical geometry. Render and byte clients observe the same grid,
-while their scroll, selection, and viewport state remain independent.
+changes canonical geometry. Render and byte clients observe the same grid.
+Byte clients keep their own scroll, selection, and viewport state. Render
+clients keep their own selection and crop, and share the terminal's render
+viewport position.
 
 ## 7. Notifications And Agents
 

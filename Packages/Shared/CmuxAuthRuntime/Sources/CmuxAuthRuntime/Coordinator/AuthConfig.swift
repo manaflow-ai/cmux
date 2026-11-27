@@ -18,6 +18,17 @@ public struct AuthConfig: Equatable, Sendable {
     /// The base URL of the cmux web API (device-token registration, push).
     public let apiBaseURL: String
 
+    /// The production auth project (cmux.com's sign-in).
+    static let productionProjectId = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+
+    /// The backend a sign-in error names: `cmux.com` for the production auth
+    /// project, else the development backend.
+    public var backendName: String {
+        stack.projectId == Self.productionProjectId
+            ? "cmux.com"
+            : String(localized: "auth.backend.development", defaultValue: "the development backend", bundle: .main)
+    }
+
     /// Creates an auth configuration from its resolved parts.
     public init(stack: CMUXAuthConfig, magicLinkCallbackURL: String, apiBaseURL: String) {
         self.stack = stack
@@ -42,9 +53,12 @@ public struct AuthConfig: Equatable, Sendable {
             environment: environment,
             overrides: overrides,
             developmentProjectId: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
-            productionProjectId: "9790718f-14cd-4f7e-824d-eaf527a82b82",
+            productionProjectId: Self.productionProjectId,
             developmentPublishableClientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
-            productionPublishableClientKey: "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
+            // Production sends no publishable key: the project does not require one,
+            // and a hard-coded key would sign installed apps out when its key set is
+            // revoked. The Stack client then omits the header (see APIClient).
+            productionPublishableClientKey: ""
         )
 
         let callbackURL: String

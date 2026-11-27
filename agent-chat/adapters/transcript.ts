@@ -169,6 +169,27 @@ function decodeXmlEntities(text: string): string {
     ({ lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", amp: "&" })[name] ?? "");
 }
 
+const CROSS_SESSION_MESSAGE = /<cross-session-message\b([^>]*)>([\s\S]*?)<\/cross-session-message>/g;
+
+function xmlAttribute(attributes: string, name: string): string | undefined {
+  const match = attributes.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return match ? decodeXmlEntities(match[1]).trim() || undefined : undefined;
+}
+
+/** The messages another Claude session sent (SendMessage), by sender name, else session id. */
+export function crossSessionMessages(content: unknown, uuid: unknown, origin: unknown): CmuxAgentMessage[] {
+  const text = typeof content === "string" ? content : textOf(content);
+  const out: CmuxAgentMessage[] = [];
+  let index = 0;
+  for (const match of text.matchAll(CROSS_SESSION_MESSAGE)) {
+    const from = xmlAttribute(match[1], "name") ?? xmlAttribute(match[1], "from") ?? (typeof origin === "string" ? origin : "another session");
+    const base = typeof uuid === "string" && uuid ? uuid : `${from}:${match.index}`;
+    out.push({ kind: "agent-message", id: index ? `${base}#${index}` : base, from, body: decodeXmlEntities(match[2]).trim() });
+    index += 1;
+  }
+  return out;
+}
+
 // Claude Code wraps harness bookkeeping in pseudo-XML user messages. These are
 // never something the person typed, so they are hidden from the transcript.
 const CLAUDE_HIDDEN_USER_TAGS = /^<(system-reminder|local-command-caveat|user-prompt-submit-hook|agent-message)>/;
@@ -236,8 +257,11 @@ class ClaudeTranscriptParser implements TranscriptParser {
     if (ev.isMeta && typeof content === "string" && content.startsWith("Stop hook feedback:")) {
       return this.agentMessages.take(content);
     }
+    // Another Claude session's SendMessage: Claude Code records it as a meta
+    // line wrapping a <cross-session-message from=... name=...> envelope.
+    if (originKind === "peer") return crossSessionMessages(content, ev.uuid, ev.origin?.from);
     if (ev.isMeta || ev.isCompactSummary || ev.isVisibleInTranscriptOnly) return [];
-    if (originKind === "task-notification") {
+    if (originKind === "task-notification" || (!originKind && typeof content === "string" && content.trimStart().startsWith("<task-notification>"))) {
       const text = typeof content === "string" ? content : textOf(content);
       // An idle agent woken by cmux (asyncRewake) records the message here.
       // Only the reminder is cmux's; a task's own result may quote anything.

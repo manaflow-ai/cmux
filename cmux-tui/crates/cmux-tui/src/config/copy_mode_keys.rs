@@ -154,7 +154,7 @@ impl CopyModeKeys {
         let Some(object) = value.as_object() else {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring non-object keys.copy_mode {value:?}"
+                "{BIN}: ignoring non-object keys.copy_mode {value:?}"
             );
             return;
         };
@@ -164,7 +164,7 @@ impl CopyModeKeys {
             else {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring unknown copy-mode action {name:?}"
+                    "{BIN}: ignoring unknown copy-mode action {name:?}"
                 );
                 continue;
             };
@@ -176,14 +176,14 @@ impl CopyModeKeys {
                 let Some(chord) = parse_chord(raw_chord) else {
                     crate::client_log::stderr_log!(
                         "config",
-                        "cmux-tui: ignoring unparseable copy-mode binding {name} = {raw_chord:?}"
+                        "{BIN}: ignoring unparseable copy-mode binding {name} = {raw_chord:?}"
                     );
                     continue;
                 };
                 if canonical_chord(chord) == canonical_chord(prefix) {
                     crate::client_log::stderr_log!(
                         "config",
-                        "cmux-tui: ignoring copy-mode binding {name} = {raw_chord:?} because it conflicts with the prefix"
+                        "{BIN}: ignoring copy-mode binding {name} = {raw_chord:?} because it conflicts with the prefix"
                     );
                     continue;
                 }

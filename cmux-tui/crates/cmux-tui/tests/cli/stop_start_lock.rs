@@ -1,4 +1,4 @@
-//! `server stop` and the `<socket>.spawn-lock` start lock (W3-H).
+//! `daemon stop` and the `<socket>.spawn-lock` start lock (W3-H).
 
 use super::*;
 

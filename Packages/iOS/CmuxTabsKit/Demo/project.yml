@@ -1,0 +1,37 @@
+# Demo app for CmuxTabsKit. Generate with `xcodegen generate` in this
+# directory, then open CmuxTabsKitDemo.xcodeproj (or build the
+# CmuxTabsKitDemo scheme for an iOS 26 simulator).
+name: CmuxTabsKitDemo
+options:
+  bundleIdPrefix: dev.cmux.tabskit
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  CmuxTabsKit:
+    path: ..
+targets:
+  CmuxTabsKitDemo:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: CmuxTabsKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.tabskit.demo
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Tabs Kit
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate

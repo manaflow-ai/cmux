@@ -195,4 +195,25 @@ import Testing
         let r4 = gate.hold(.typing)
         #expect(!r4)
     }
+
+    @Test func aHeldPageHoldsArrivalsUntilItLands() {
+        var gate = ConversationLiveChangeGate()
+        gate.beginPageHold()
+        #expect(gate.isHoldingPage)
+        let held = gate.hold(.live(insertedRowIDs: ["a"], sentByMe: false))
+        #expect(held)
+        // A page measured meanwhile does not let them through.
+        gate.beginMeasuring()
+        let afterMeasure = gate.finishMeasuring()
+        #expect(afterMeasure == nil)
+        // The lift does not either: they land with the page.
+        gate.beginDragging()
+        let afterLift = gate.endDragging()
+        #expect(afterLift == nil)
+        gate.endPageHold()
+        #expect(!gate.isHoldingPage)
+        #expect(gate.held == .live(insertedRowIDs: ["a"], sentByMe: false))
+        let released = gate.release()
+        #expect(released == .live(insertedRowIDs: ["a"], sentByMe: false))
+    }
 }

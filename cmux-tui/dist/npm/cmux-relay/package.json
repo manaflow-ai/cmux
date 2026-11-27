@@ -4,7 +4,7 @@
   "description": "cmux remote relay binary launcher.",
   "bin": {"cmux-relay": "bin/cmux-relay.js"},
   "repository": {"type": "git", "url": "git+https://github.com/manaflow-ai/cmux.git", "directory": "cmux-tui/dist/npm/cmux-relay"},
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "engines": {"node": ">=18"},
   "files": ["bin/cmux-relay.js"],
   "optionalDependencies": {}

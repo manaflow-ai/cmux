@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#endif
 import Testing
 @testable import CMUXMobileCore
 
@@ -347,6 +350,10 @@ import Testing
     /// the existing log instead of truncating away diagnostics a user may be
     /// about to share.
     @Test func failedRotationAppendsInsteadOfTruncating() async throws {
+        #if os(Linux)
+        // Root ignores directory permissions, so the rotation cannot be made to fail.
+        guard geteuid() != 0 else { return }
+        #endif
         let dir = try makeTempDirectory()
         defer {
             try? FileManager.default.setAttributes(

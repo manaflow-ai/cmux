@@ -1114,6 +1114,14 @@ _cmux_report_shell_activity_state() {
 
 _cmux_reset_terminal_keyboard_protocols() {
     [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # Powerlevel10k's remote worker performs its first prompt handshake through
+    # the same PTY boundary.  Sending the Kitty reset while that worker is
+    # waiting can leave the worker and the interactive shell polling forever
+    # (cmux#4148).  Keep the reset for every other shell, including local p10k.
+    if [[ "${CMUX_REMOTE_TRANSPORT:-}" == ws ]] &&
+       (( $+functions[p10k] || $+functions[_p9k_init] )); then
+        return 0
+    fi
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
     # prompt, return terminal input encoding to plain readline bytes.
     printf '\033[>m\033[<8u'
@@ -1582,7 +1590,7 @@ _cmux_pr_debug_log() {
     local now="${EPOCHSECONDS:-$SECONDS}"
     local REPLY
     _cmux_pr_state_dir 1 || return 0
-    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >>| "$REPLY/debug.log"
+    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> "$REPLY/debug.log"
 }
 
 _cmux_pr_cache_clear() {
@@ -2226,9 +2234,7 @@ _cmux_terminal_history_precmd() {
     # command; it was never meant to be kept, so it is not recorded either.
     local line="$(builtin fc -ln -1 2>/dev/null)"
     [[ -o hist_ignore_space && "$line" == ' '* ]] && return 0
-    # `>>|` appends even under noclobber, which refuses to create the file
-    # with a plain `>>` and prints an error after every command (#26514).
-    print -r -- "$line" >>| "$CMUX_HISTORY_FILE"
+    print -r -- "$line" >> "$CMUX_HISTORY_FILE"
 }
 
 _cmux_precmd() {

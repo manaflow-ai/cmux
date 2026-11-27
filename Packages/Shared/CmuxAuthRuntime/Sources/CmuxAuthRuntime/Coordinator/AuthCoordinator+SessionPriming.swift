@@ -1,6 +1,8 @@
 internal import CMUXAuthCore
 import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
 import StackAuth
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
@@ -22,7 +24,7 @@ extension AuthCoordinator {
 
     func primeSessionState() {
         if launch.clearAuthRequested {
-            clearAuthState()
+            clearAuthState(reason: "launch asked to clear auth")
             Task { await clearPersistedAuthForUITest() }
             return
         }
@@ -34,7 +36,7 @@ extension AuthCoordinator {
         // same launch. ``AuthCoordinator/start()`` clears the persisted
         // tokens (awaited) before the restore probe.
         if launch.shouldClearStoredSessionBeforePriming {
-            clearAuthState()
+            clearAuthState(reason: "auth environment changed")
         }
 
         #if DEBUG
@@ -64,8 +66,10 @@ extension AuthCoordinator {
             ))
             return
         }
+        #endif
 
-        if autoLoginCredentials != nil {
+        // After the DEBUG-only mock and fixture states, as before; a capture build (`environmentAutoLogin`) too.
+        if launch.environmentAutoLogin, autoLoginCredentials != nil {
             authLog.debug("Auto-login credentials detected")
             apply(.primed(
                 clearAuthRequested: false,
@@ -78,7 +82,6 @@ extension AuthCoordinator {
             ))
             return
         }
-        #endif
 
         apply(.primed(
             clearAuthRequested: false,
@@ -111,37 +114,43 @@ extension AuthCoordinator {
         // it sets, by noteTeamScopeFailure as a session check.
         await StackAuthRateLimitReporting.$callerReports.withValue(true) {
             await checkExistingSessionBody(
-                retryOnStorageAvailable: retryOnStorageAvailable
+                retryOnStorageAvailable: retryOnStorageAvailable,
+                failedReadRetries: 0
             )
         }
     }
 
     private func checkExistingSessionBody(
-        retryOnStorageAvailable: Bool
+        retryOnStorageAvailable: Bool,
+        failedReadRetries: Int
     ) async {
         let generation = sessionGeneration
         let storeWriteHighWater = tokenStoreWriteHighWater
 
-        let cachedUser = loadCachedUser()
+        var cachedUser = loadCachedUser()
         // The keychain token store (AfterFirstUnlock protection) becomes
         // readable exactly once per boot, at the first unlock, and never
         // regresses while this process lives; an unavailable report can only
         // under-state readability. Snapshot before token reads so a first
         // unlock that lands while the token probe is suspended cannot make a
-        // nil locked read look like a definitive empty store.
-        let tokenStorageWasAvailable = await isTokenStorageAvailable()
+        // nil locked read look like a definitive empty store. The same
+        // snapshot holds the store's failed-read count, so a read that fails
+        // with a keychain error is told apart from an empty store.
+        let readBaseline = await tokenReadBaseline()
+        let tokenStorageWasAvailable = readBaseline.storageWasAvailable
         guard generation == sessionGeneration else { return }
         // accessToken() may refresh over the network; a sign-out can land
         // while these reads are parked, so bound the probe and re-check the
         // generation after. A timeout preserves the cached identity instead of
         // leaving launch behind "Restoring session".
         let hasStoredTokens: Bool
+        let storedAccessToken: String?
         do {
             let client = self.client
-            hasStoredTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
-                let hasAccessToken = await client.accessToken() != nil
+            (hasStoredTokens, storedAccessToken) = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                let accessToken = await client.accessToken()
                 let hasRefreshToken = await client.refreshToken() != nil
-                return hasAccessToken || hasRefreshToken
+                return (accessToken != nil || hasRefreshToken, accessToken)
             }
         } catch {
             guard generation == sessionGeneration else { return }
@@ -168,21 +177,25 @@ extension AuthCoordinator {
             }
             return
         }
+        #endif
 
-        if let credentials = autoLoginCredentials,
+        if launch.environmentAutoLogin,
+           let credentials = autoLoginCredentials,
            AuthLaunchOptions.shouldStartAutoLogin(
                hasCredentials: true,
                hasStoredTokens: hasStoredTokens
            ),
            credentials.email.isEmpty == false {
-            authLog.debug("Starting auto-login")
+            authLog.info("Starting auto-login")
             await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
-        #endif
 
         if hasStoredTokens {
             sessionCache.setHasTokens(true)
+            if let cached = cachedUser, dropCachedUserNotNamedBy(accessToken: storedAccessToken, cached: cached) {
+                cachedUser = nil
+            }
             if currentUser == nil, let cachedUser {
                 currentUser = cachedUser
             }
@@ -202,9 +215,52 @@ extension AuthCoordinator {
                     // online mid-restore; tests may script oscillating
                     // availability, while real protected data unlocks at most
                     // once per process.
-                    await checkExistingSessionBody(retryOnStorageAvailable: false)
+                    await checkExistingSessionBody(
+                        retryOnStorageAvailable: false,
+                        failedReadRetries: failedReadRetries
+                    )
                 }
             }
+            return
+        }
+
+        // Both reads came back empty from readable storage. When a read
+        // failed with a keychain error (refused, interaction not allowed)
+        // the store did not say "not found", so a signed-in person is not
+        // signed out on it: retry a few times with a short backoff, then keep
+        // the cached session; the next auth use reads again
+        // (``emptyTokenReadError(since:)`` keeps it retryable). Only a
+        // definite "not found" clears. (manaflow-ai/cmuxterm-hq#8831: NIGHTLY
+        // came up signed out after a keychain miss at launch.)
+        let hasCachedSession = cachedUser != nil || sessionCache.hasTokens
+        if hasCachedSession, await tokenReadFailed(since: readBaseline) {
+            guard generation == sessionGeneration else { return }
+            if failedReadRetries < Self.failedTokenReadRetryDelays.count {
+                let delay = Self.failedTokenReadRetryDelays[failedReadRetries]
+                authLog.error(
+                    "Session token read failed with a storage error; retry \(failedReadRetries + 1, privacy: .public) of \(Self.failedTokenReadRetryDelays.count, privacy: .public)"
+                )
+                do {
+                    try await clock.sleep(for: delay, tolerance: nil)
+                } catch {
+                    // Cancelled mid-backoff: settle on the cached session
+                    // rather than leave the restore unfinished.
+                    if generation == sessionGeneration {
+                        preserveCachedSessionAfterValidationFailure()
+                    }
+                    return
+                }
+                guard generation == sessionGeneration else { return }
+                await checkExistingSessionBody(
+                    retryOnStorageAvailable: retryOnStorageAvailable,
+                    failedReadRetries: failedReadRetries + 1
+                )
+                return
+            }
+            authLog.error(
+                "Session token read kept failing with a storage error; keeping the cached session, the next auth use retries"
+            )
+            preserveCachedSessionAfterValidationFailure()
             return
         }
 
@@ -214,8 +270,38 @@ extension AuthCoordinator {
             return
         }
 
-        clearAuthState(preservePendingCode: true)
+        clearAuthState(
+            reason: hasCachedSession
+                ? "launch restore found no stored tokens in readable storage"
+                : "launch restore found no session",
+            preservePendingCode: true
+        )
     }
+
+    /// Drops the cached user, and the published one primed from it, when the stored access token was issued
+    /// to another account (its `sub` claim, read locally without trusting the signature: it only decides
+    /// whether to discard the cache). The token store and the user cache are written apart, so another
+    /// sign-in can leave B's tokens beside A's cached user; an install bound to A with B's token is refused as
+    /// "the cmux API answered for another user". Validation then publishes the token's real user, and a
+    /// validation that fails keeps no stale identity (``preserveCachedSessionAfterValidationFailure()``).
+    /// The tokens stay: they are the session. True when it dropped.
+    func dropCachedUserNotNamedBy(accessToken: String?, cached: CMUXAuthUser) -> Bool {
+        guard let subject = AccessTokenClaims.subject(accessToken), subject != cached.id else { return false }
+        authLog.error("Cached user does not match the stored access token's account; dropping the cached user")
+        userCache.clear()
+        if currentUser?.id == cached.id {
+            currentUser = nil
+            isAuthenticated = false
+            publishAuthenticatedSessionIdentity()
+        }
+        return true
+    }
+
+    /// Backoff before each retry of a launch token read that failed with a
+    /// storage error; after the last one the cached session is kept.
+    static let failedTokenReadRetryDelays: [Duration] = [
+        .milliseconds(100), .milliseconds(300), .milliseconds(900),
+    ]
 
     private func completeSessionRevalidation() {
         // Retire recovery only after validation and its side effects finish.
@@ -255,19 +341,26 @@ extension AuthCoordinator {
                 authLog.info("Auto-login superseded by a newer session transition; leaving state untouched")
                 return
             }
-            authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
+            // The kind (type, domain, code) is public: a launch that never signed in from its credentials
+            // file says which step refused it, while the message, which can name the account, stays private.
+            let kind = error as NSError
+            authLog.error("Auto-login failed (\(String(describing: type(of: error)), privacy: .public) \(kind.domain, privacy: .public) \(kind.code, privacy: .public)): \(error.localizedDescription, privacy: .private)")
             // No expected refresh token: auto-login only starts against an
             // empty token store, so there is no dead session's token to
             // compare against; the staleness guards inside cover the rest.
             await clearStaleSessionState(
                 generation: generation,
                 storeWriteHighWater: storeWriteHighWater,
-                expectedRefreshToken: nil
+                expectedRefreshToken: nil,
+                reason: "auto-login failed"
             )
         }
     }
 
     func validateCachedSession(generation: UInt64, storeWriteHighWater: UInt64) async {
+        // A token read that fails during validation (a keychain refusal) is never "no refresh token survives":
+        // every clear below first checks that no read failed since here.
+        let readBaseline = await tokenReadBaseline()
         do {
             let client = self.client
             let user = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
@@ -281,17 +374,37 @@ extension AuthCoordinator {
                 await applySignedInUser(user, publication: .revalidation)
                 return
             }
-            authLog.info("Cached session validation returned no current user")
-            // Snapshot the dead session's refresh token right before the
-            // clear so the clear can be compare-and-clear at the token store.
-            let expectedRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+            // Stack answers a nil user for every `/users/me` failure, a dropped
+            // or timed-out request included, so a nil user alone is not a dead
+            // session. The live token store decides, as in the catch below: the
+            // SDK deletes the refresh token only when Stack definitively rejects
+            // it, so a surviving one means this was a transient failure and the
+            // cached session stays. Clearing here signed users out on a network
+            // blip during launch restore.
+            let survivingRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
                 await client.refreshToken()
             }
             guard generation == sessionGeneration else { return }
+            if survivingRefreshToken == nil, await tokenReadFailed(since: readBaseline) {
+                authLog.error("Cached session validation could not read the stored tokens; preserving cached session")
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
+            if survivingRefreshToken != nil {
+                authLog.error(
+                    "Cached session validation returned no current user but a refresh token survives; preserving cached session"
+                )
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
+            authLog.error(
+                "Cached session validation returned no current user and no refresh token survives; routing to login"
+            )
             await clearStaleSessionState(
                 generation: generation,
                 storeWriteHighWater: storeWriteHighWater,
-                expectedRefreshToken: expectedRefreshToken
+                expectedRefreshToken: nil,
+                reason: "validation returned no current user and no refresh token survives"
             )
         } catch {
             // Same staleness rule for the failure paths: a stale clear here
@@ -330,6 +443,11 @@ extension AuthCoordinator {
                 return
             }
             guard generation == sessionGeneration else { return }
+            if survivingRefreshToken == nil, await tokenReadFailed(since: readBaseline) {
+                authLog.error("Session validation could not read the stored tokens; preserving cached session")
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
             if survivingRefreshToken == nil {
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
@@ -337,7 +455,8 @@ extension AuthCoordinator {
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: nil
+                    expectedRefreshToken: nil,
+                    reason: "validation failed and no refresh token survives"
                 )
                 return
             }
@@ -352,7 +471,8 @@ extension AuthCoordinator {
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: survivingRefreshToken
+                    expectedRefreshToken: survivingRefreshToken,
+                    reason: "validation failed with a session-clearing error"
                 )
             case .preserveCachedSession:
                 preserveCachedSessionAfterValidationFailure()
@@ -385,12 +505,19 @@ extension AuthCoordinator {
     /// compare against; the clear falls back to unconditional, where the
     /// only exposure is a refresh-less store racing a sign-in's write
     /// (anomalous: the SDK always persists a refresh token with a session).
+    ///
+    /// `reason` is logged at error level when the clear goes ahead, so every
+    /// sign-out this triggers leaves a record of why.
     func clearStaleSessionState(
         generation: UInt64,
         storeWriteHighWater: UInt64,
-        expectedRefreshToken: String?
+        expectedRefreshToken: String?,
+        reason: String = "unspecified"
     ) async {
         guard tokenStoreWriteHighWater == storeWriteHighWater else { return }
+        authLog.error(
+            "Clearing stale session state reason=\(reason, privacy: .public) compareAndClear=\(expectedRefreshToken != nil, privacy: .public)"
+        )
         if let expectedRefreshToken {
             await client.clearLocalSession(ifRefreshTokenMatches: expectedRefreshToken)
         } else {
@@ -398,6 +525,6 @@ extension AuthCoordinator {
         }
         guard generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else { return }
-        clearAuthState(preservePendingCode: true)
+        clearAuthState(reason: reason, preservePendingCode: true)
     }
 }

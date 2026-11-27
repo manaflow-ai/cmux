@@ -1,2 +1,6 @@
 target/
+# The root target as a file or a symlink too: on a Testbox it is a link to
+# the warm target disk, and `target/` matches only a directory, so the link
+# showed as an untracked source and cmux-remote's build.rs reran every build.
+/target
 *.profraw

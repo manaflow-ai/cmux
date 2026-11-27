@@ -1,0 +1,1576 @@
+#![allow(dead_code)]
+//! In-process fakes of the two owners (the conversation owner and acpmux) and
+//! a compactor model, so the brain runs end to end without a daemon.
+
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::Path;
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
+
+use cmux_chief::acp::AcpmuxEvent;
+use cmux_conversation::{Change, DerivedImage, Message, Op, Part, Summary};
+use optchat_chief::acpmux::{AgentEvent, AgentPort, SessionSpec, TurnSignal};
+use optchat_chief::brain::{Brain, Engine, Input, PARENT, Settings};
+use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, PreviewPort, participants};
+use optchat_chief::state::StateFile;
+use optchat_host::{
+    CompactModel, CompactRequest, Config, Followup, ModelError, OptChat, Reply, SystemClock,
+};
+use serde_json::{Value, json};
+
+pub const CONV: &str = "conv_chief";
+pub const WAIT: Duration = Duration::from_secs(30);
+/// How long `poll_step` waits for an input before its loop checks again.
+pub const POLL: Duration = Duration::from_millis(20);
+/// The turn session names' prefix of the test home (`optchat-<home id>`).
+pub const TURN_PREFIX: &str = "optchat-h0me";
+/// The turn sessions' acpmux preset of the test home.
+pub const TURN_PRESET: &str = "optchat-chief-h0me";
+
+/// What Claude Code answers through acpmux when the request has more than
+/// four cache breakpoints (checked live: Claude Code uses three itself).
+pub const MARKER_LIMIT: &str = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"A maximum of 4 blocks with cache_control may be provided. Found 5.\"}}";
+
+/// A compactor that answers every node with a short line.
+pub struct Model;
+
+impl CompactModel for Model {
+    fn call(&self, request: &CompactRequest, _: &[Followup]) -> Result<Reply, ModelError> {
+        Ok(Reply::text(format!("summary of {}", request.node.name())))
+    }
+}
+
+pub fn open_chat(dir: &Path) -> Arc<OptChat> {
+    let config = Config {
+        reporter: Arc::new(|_| {}),
+        ..Config::default()
+    };
+    Arc::new(OptChat::open_with(dir, config, Arc::new(Model), Arc::new(SystemClock)).unwrap())
+}
+
+pub fn message(seq: u64, author: &str, text: &str) -> Message {
+    Message {
+        id: format!("msg_{seq}"),
+        conversation: CONV.into(),
+        seq,
+        client_msg_id: format!("c{seq}"),
+        author: author.into(),
+        parts: vec![Part::Text {
+            text: text.into(),
+            runs: None,
+        }],
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+        thread_root: None,
+        thread: None,
+        created_at: String::new(),
+        edited_at: None,
+        retracted_at: None,
+        reactions: Vec::new(),
+        origin: None,
+    }
+}
+
+/// A message of side conversation `conversation`.
+pub fn side_message(conversation: &str, seq: u64, author: &str, text: &str) -> Message {
+    Message {
+        id: format!("{conversation}_msg_{seq}"),
+        conversation: conversation.into(),
+        ..message(seq, author, text)
+    }
+}
+
+/// A side conversation: a DM between `person` and the Chief (every message
+/// of the person wakes it).
+pub fn side_summary(conversation: &str, person: &str) -> Summary {
+    let mut participants = participants("Bob");
+    participants[0].id = person.into();
+    Summary {
+        id: conversation.into(),
+        title: format!("dm {conversation}"),
+        participants,
+        ..summary()
+    }
+}
+
+pub fn summary() -> Summary {
+    Summary {
+        id: CONV.into(),
+        owner: "local".into(),
+        title: "mux".into(),
+        participants: participants("Ada"),
+        last_seq: 0,
+        rev: 0,
+        created_at: String::new(),
+        updated_at: String::new(),
+        last_message: None,
+        read_cursors: BTreeMap::new(),
+    }
+}
+
+/// The conversation owner's state as the fake keeps it.
+#[derive(Default)]
+pub struct Owner {
+    pub summary: Option<Summary>,
+    pub messages: Vec<Message>,
+    /// Every op the brain sent, in order: (idempotency key, op).
+    pub ops: Vec<(String, Op)>,
+    pub typing: Vec<bool>,
+    /// Every draft published: (conversation, draft).
+    pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
+    /// Rejections for the next `message.send` ops, in order (None: accept).
+    pub rejects: VecDeque<Option<String>>,
+    /// Rejections for report appends, after recording the attempted write.
+    pub run_append_rejects: VecDeque<Option<OpError>>,
+    /// Models a Cloud or older owner that never supports run storage.
+    pub runs_unsupported: bool,
+    pub reconnects: usize,
+    /// When set, `message.send` keys are remembered as the real owner does:
+    /// a reused key with the same text replays (posts nothing), with other
+    /// text it is refused with `idempotency_conflict`.
+    pub ledger: Option<BTreeMap<String, String>>,
+    /// Rejections for the next `read_cursor.set` ops, in order (None: accept).
+    pub cursor_rejects: VecDeque<Option<String>>,
+    /// Attachment bytes (base64) by (hash, variant), and every read: (hash, variant, bytes).
+    pub attachments: BTreeMap<(String, String), String>,
+    pub attachment_reads: Vec<(String, String, u64)>,
+    /// The other conversations (side conversations the chief is in), one
+    /// store each. The fields above are the main conversation's store.
+    pub stores: BTreeMap<String, Store>,
+    /// The conversation of every snapshot and history read, in order.
+    pub reads: Vec<String>,
+    /// Every `cloud-mux-ack` the brain sent: (conversation, seq).
+    pub acks: Vec<(String, u64)>,
+    /// Every attachment upload: (conversation, record, name, width, height).
+    pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
+    /// The owner lacks `link-preview-v1` (an older daemon).
+    pub no_link_previews: bool,
+    /// Every run record summary the brain appended (`run_append`'s run).
+    pub runs: Vec<Value>,
+    pub run_steps: Vec<(String, Value, Vec<Value>)>,
+    /// When set, every attachment upload is refused with this code.
+    pub refuse_uploads: Option<String>,
+    /// Every Send Later the brain queued: (conversation, op, send_at_ms).
+    pub scheduled: Vec<(String, Op, u64)>,
+    /// Panics outside the owner lock during an original-file upload.
+    pub panic_uploads: bool,
+    /// Runs outside the owner lock before an original-file upload reads its bytes.
+    pub before_attachment_upload: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+/// One side conversation as the fake owner keeps it.
+#[derive(Clone)]
+pub struct Store {
+    pub summary: Summary,
+    pub messages: Vec<Message>,
+    /// Every op the brain sent to this conversation: (idempotency key, op).
+    pub ops: Vec<(String, Op)>,
+    /// Rejections for the next `message.send` ops here (None: accept).
+    pub rejects: VecDeque<Option<String>>,
+}
+
+impl Store {
+    /// The texts the brain posted here: (key, text).
+    pub fn sends(&self) -> Vec<(String, String)> {
+        self.ops
+            .iter()
+            .filter_map(|(key, op)| match op {
+                Op::MessageSend { parts, .. } => match &parts[0] {
+                    Part::Text { text, .. } => Some((key.clone(), text.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+impl Owner {
+    pub fn sends(&self) -> Vec<(String, String)> {
+        self.ops
+            .iter()
+            .filter_map(|(key, op)| match op {
+                Op::MessageSend { parts, .. } => match &parts[0] {
+                    Part::Text { text, .. } => Some((key.clone(), text.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether `conversation` is the main conversation (the fields of `Owner`).
+    pub fn is_main(&self, conversation: &str) -> bool {
+        self.summary.as_ref().is_some_and(|s| s.id == conversation)
+    }
+
+    /// The reads of `conversation` so far.
+    pub fn reads_of(&self, conversation: &str) -> usize {
+        self.reads.iter().filter(|c| *c == conversation).count()
+    }
+
+    pub fn cursors(&self) -> Vec<u64> {
+        self.ops
+            .iter()
+            .filter_map(|(_, op)| match op {
+                Op::ReadCursorSet { seq } => Some(*seq),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone)]
+pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
+
+/// The link preview thread's port onto the same fake owner.
+pub struct FakeUploader(pub Arc<Mutex<Owner>>);
+
+impl PreviewPort for FakeUploader {
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        FakeDaemon(self.0.clone()).snapshot(conversation, tail)
+    }
+
+    fn upload_image(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<DerivedImage, OpError> {
+        use sha2::Digest;
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
+        let image = DerivedImage {
+            hash: sha2::Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            mime_type: mime_type.to_owned(),
+            byte_count: bytes.len() as u64,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.to_owned(),
+            image.clone(),
+            name.to_owned(),
+            width,
+            height,
+        ));
+        Ok(image)
+    }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        path: &std::path::Path,
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        use sha2::Digest;
+        use std::io::Read;
+        let before = self.0.lock().unwrap().before_attachment_upload.clone();
+        if let Some(before) = before {
+            before();
+        }
+        let panic_uploads = self.0.lock().unwrap().panic_uploads;
+        assert!(!panic_uploads, "injected attachment upload panic");
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
+        let mut file =
+            std::fs::File::open(path).map_err(|error| OpError::Transport(error.to_string()))?;
+        let mut buffer = [0; 64 * 1024];
+        let mut hash = sha2::Sha256::new();
+        let mut byte_count = 0;
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|error| OpError::Transport(error.to_string()))?;
+            if read == 0 {
+                break;
+            }
+            byte_count += read as u64;
+            hash.update(&buffer[..read]);
+        }
+        let stored = DerivedImage {
+            hash: format!("{:x}", hash.finalize()),
+            mime_type: mime_type.into(),
+            byte_count,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.into(),
+            stored.clone(),
+            name.into(),
+            width.unwrap_or(0),
+            height.unwrap_or(0),
+        ));
+        Ok(stored)
+    }
+}
+
+impl ConversationPort for FakeDaemon {
+    fn attachment(
+        &mut self,
+        _: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .attachment_reads
+            .push((hash.to_owned(), variant.to_owned(), bytes));
+        owner
+            .attachments
+            .get(&(hash.to_owned(), variant.to_owned()))
+            .cloned()
+            .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+    }
+
+    fn supports(&self, capability: &str) -> bool {
+        capability == optchat_chief::daemon::LINK_PREVIEW_CAPABILITY
+            && !self.0.lock().unwrap().no_link_previews
+    }
+
+    fn preview_port(&self) -> Option<Box<dyn PreviewPort>> {
+        Some(Box::new(FakeUploader(self.0.clone())))
+    }
+
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.reads.push(conversation.to_owned());
+        if !owner.is_main(conversation) {
+            let store = owner
+                .stores
+                .get(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?;
+            let messages = store
+                .messages
+                .iter()
+                .rev()
+                .take(tail as usize)
+                .rev()
+                .cloned()
+                .collect();
+            return Ok((store.summary.clone(), messages));
+        }
+        let messages = owner
+            .messages
+            .iter()
+            .rev()
+            .take(tail as usize)
+            .rev()
+            .cloned()
+            .collect();
+        Ok((owner.summary.clone().unwrap(), messages))
+    }
+
+    fn history(
+        &mut self,
+        conversation: &str,
+        before_seq: u64,
+        limit: u32,
+    ) -> Result<Vec<Message>, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner.reads.push(conversation.to_owned());
+        let messages = if owner.is_main(conversation) {
+            &owner.messages
+        } else {
+            &owner
+                .stores
+                .get(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?
+                .messages
+        };
+        let older: Vec<Message> = messages
+            .iter()
+            .filter(|m| m.seq < before_seq)
+            .cloned()
+            .collect();
+        let skip = older.len().saturating_sub(limit as usize);
+        Ok(older.into_iter().skip(skip).collect())
+    }
+
+    fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        if !owner.is_main(conversation) {
+            let store = owner
+                .stores
+                .get_mut(conversation)
+                .ok_or_else(|| OpError::Rejected("not_found".into()))?;
+            store.ops.push((key.to_owned(), op.clone()));
+            if let Op::MessageSend { parts, .. } = op {
+                if let Some(Some(reason)) = store.rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
+                let seq = store.messages.len() as u64 + 1;
+                let mut m = side_message(conversation, seq, "agent_mux", "");
+                m.parts = parts.clone();
+                store.messages.push(m.clone());
+                return Ok(Some(Change::Message { message: m }));
+            }
+            return Ok(None);
+        }
+        owner.ops.push((key.to_owned(), op.clone()));
+        match op {
+            Op::ReadCursorSet { seq } => {
+                if let Some(Some(reason)) = owner.cursor_rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
+                owner
+                    .summary
+                    .as_mut()
+                    .unwrap()
+                    .read_cursors
+                    .insert("agent_mux".into(), *seq);
+                Ok(None)
+            }
+            Op::MessageSend { parts, .. } => {
+                if let Some(Some(reason)) = owner.rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
+                let text = match &parts[0] {
+                    Part::Text { text, .. } => text.clone(),
+                    _ => String::new(),
+                };
+                if let Some(ledger) = owner.ledger.as_mut() {
+                    match ledger.get(key) {
+                        Some(old) if *old == text => return Ok(None),
+                        Some(_) => {
+                            return Err(OpError::Rejected("idempotency_conflict".into()));
+                        }
+                        None => {
+                            ledger.insert(key.to_owned(), text);
+                        }
+                    }
+                }
+                let seq = owner.messages.len() as u64 + 1;
+                let mut m = message(seq, "agent_mux", "");
+                m.parts = parts.clone();
+                // The owner keeps the sender's client_msg_id (a voice rides in it).
+                m.client_msg_id = key.to_owned();
+                owner.messages.push(m.clone());
+                Ok(Some(Change::Message { message: m }))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
+        self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn run_append(
+        &mut self,
+        conversation: &str,
+        run: Value,
+        steps: Vec<Value>,
+    ) -> Result<(), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .run_steps
+            .push((conversation.to_owned(), run.clone(), steps));
+        if owner.runs_unsupported {
+            return Err(OpError::Rejected("runs_unsupported".into()));
+        }
+        if run["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("reports:"))
+            && let Some(reason) = owner.run_append_rejects.pop_front().flatten()
+        {
+            return Err(reason);
+        }
+        owner.runs.push(run);
+        Ok(())
+    }
+
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .scheduled
+            .push((conversation.to_owned(), op.clone(), send_at_ms));
+        Ok(format!("sch_{}", owner.scheduled.len()))
+    }
+
+    fn draft(
+        &mut self,
+        conversation: &str,
+        draft: &optchat_chief::draft::Draft,
+    ) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .drafts
+            .push((conversation.to_owned(), draft.clone()));
+        Ok(())
+    }
+
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .acks
+            .push((conversation.to_owned(), seq));
+        Ok(())
+    }
+}
+
+/// What one fake turn does: its events, given the turn's prompt blocks.
+pub type Script = Box<dyn Fn(usize, &[Value]) -> Vec<Value> + Send + Sync>;
+
+/// The default turn: a reply, a tool call and its result, a final reply.
+pub fn default_script() -> Script {
+    Box::new(|turn, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "Checking."}}),
+            ),
+            update(
+                "tool_call",
+                json!({"toolCallId": format!("t{turn}"), "title": "Bash", "rawInput": {"command": "ls"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+            update(
+                "tool_call_update",
+                json!({"toolCallId": format!("t{turn}"), "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "a.txt"}}]}),
+            ),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": format!("answer {turn}")}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    })
+}
+
+pub fn update(kind: &str, mut update: Value) -> Value {
+    update["sessionUpdate"] = json!(kind);
+    json!({"dir": "in", "kind": kind, "msg": {"method": "session/update", "params": {"update": update}}})
+}
+
+#[derive(Default)]
+pub struct Agents {
+    pub specs: Vec<SessionSpec>,
+    /// Session names acpmux holds: `new_session` with one is refused as taken, and
+    /// `end_session` / `find` see a session by that name (acpmux's `is taken`).
+    pub taken: BTreeSet<String>,
+    /// `end_session` fails with this error while set, and ends nothing (acpmux refusing a
+    /// purge: an unreadable chat "may be a fork").
+    pub end_error: Option<String>,
+    /// Each session's system prompt when it started: the text its preset
+    /// carried (acpmux `systemPrompt`), None without one.
+    pub systems: Vec<Option<String>>,
+    /// Presets acpmux installed with a system prompt (a daemon that knows
+    /// `systemPrompt`): the cached layout.
+    pub system_prompts: bool,
+    /// Each preset's current system prompt text.
+    pub preset_prompts: BTreeMap<String, String>,
+    /// Every `set_system_prompt` call: (preset, text).
+    pub prompt_sets: Vec<(String, String)>,
+    /// Each turn's prompt blocks.
+    pub prompts: Vec<Vec<Value>>,
+    /// Every `probe_models` request, in order.
+    pub probed: Vec<String>,
+    pub prompt_ids: Vec<String>,
+    pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
+    pub ended: Vec<String>,
+    /// `prompt <session>` and `end <session>`, in the order they ran.
+    pub calls: Vec<String>,
+    /// Turns held before they run, released by `release`.
+    pub hold: bool,
+    pub released: usize,
+    /// The next turn loses its acpmux connection instead of answering.
+    pub lose: bool,
+    /// Every turn loses its acpmux connection instead of answering.
+    pub lose_always: bool,
+    /// `events` fails with this error while set.
+    pub events_error: Option<String>,
+    /// Sessions whose turn was cancelled, in order.
+    pub cancels: Vec<String>,
+    /// Sessions whose running background processes were ended
+    /// (`_acpmux/process/kill` of each), in order.
+    pub killed_processes: Vec<String>,
+    /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
+    pub removed_queued: Vec<(String, String)>,
+    /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
+    pub answer: Option<Value>,
+    /// The next prompt fails with this JSON-RPC error message, used once
+    /// (acpmux answers a refused or failed Claude turn this way).
+    pub answer_error: Option<String>,
+    /// The next prompt never answers and sends no more events (a hung
+    /// harness); taken by that prompt.
+    pub answer_never: bool,
+    /// Names looked up with `find`, in order.
+    pub finds: Vec<String>,
+    /// The next this many `cancel` calls are recorded but change nothing
+    /// (a cancel that reached acpmux before the prompt did).
+    pub ignore_cancels: usize,
+    /// The next `cancel` calls are recorded and fail with these texts, one
+    /// each, in order (acpmux refused the cancel).
+    pub cancel_errors_once: std::collections::VecDeque<String>,
+    /// The prompt's answer comes this long after its events (acpmux records
+    /// `turn_end` before it answers the prompt).
+    pub answer_delay: Option<Duration>,
+    /// `new_session` of a session whose name contains the text takes this
+    /// long (a Claude Code process that starts slowly).
+    pub slow_session: Option<(String, Duration)>,
+    /// Slow session starts under way now, and the most there were at once.
+    pub slow_starting: usize,
+    pub slow_starting_max: usize,
+    /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
+    /// ends it (a harness still working on a loaded machine).
+    pub hold_starts: bool,
+    /// `new_session` on this harness profile fails with the text.
+    pub session_errors: BTreeMap<String, String>,
+    /// The next `new_session` calls fail with these texts, one each, in order.
+    pub session_errors_once: std::collections::VecDeque<String>,
+    /// The next `start_prompt` calls fail with these texts, one each, in
+    /// order (acpmux refused the prompt: the harness died, the socket
+    /// dropped).
+    pub prompt_errors_once: std::collections::VecDeque<String>,
+    /// Each session's turn signals, for `push_events`.
+    pub signals: BTreeMap<String, Sender<TurnSignal>>,
+    /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
+    /// claude on acpmux's own Claude Code adapter, codex on its ACP adapter).
+    pub catalog: Option<Value>,
+    pub machine_status: Option<Value>,
+    pub peer_catalogs: BTreeMap<String, Value>,
+    pub harness_health: BTreeMap<String, Value>,
+    /// The harness acpmux reports a new session on (`session`); None: the
+    /// one the spec asked for.
+    pub session_harness: Option<String>,
+    /// The status `session` reports per session id; without one, `idle`
+    /// once the session's last turn answered or lost its link, else `running`.
+    pub session_status: BTreeMap<String, String>,
+    /// Sessions whose last turn answered or lost its link.
+    pub turn_over: std::collections::BTreeSet<String>,
+    /// Every folder the host trusted (`acp.trust.set`, level trusted).
+    pub trusted: Vec<std::path::PathBuf>,
+    /// Every permission answer: (session, permission id, option id).
+    pub responses: Vec<(String, String, Option<String>)>,
+    /// Allows are refused as acpmux refuses them from anyone but the
+    /// person's app; a deny or a cancel still counts.
+    pub refuse_allows: bool,
+    /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
+    pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// Every `set_mode`: (session, mode id, prompts sent before it).
+    pub modes: Vec<(String, String, usize)>,
+    /// The sessions steer (deliver between tool calls); else a steer fails.
+    pub steering: bool,
+    /// Every steer delivered: (session, blocks).
+    pub steers: Vec<(String, Vec<Value>)>,
+    /// Every steer's prompt id, and whether it asked to be read now (`steer_now`: the
+    /// agent's current step stops, as the pane's Send now does), in `steers` order.
+    pub steer_ids: Vec<(String, bool)>,
+    /// The next this many steers fail (acpmux refused them).
+    pub steer_errors: usize,
+    /// Steers that failed.
+    pub failed_steers: usize,
+    /// Steers are answered only when the turn ends (codex-acp).
+    pub steer_at_end: bool,
+    /// `withdraw_steer` drops an unread steer (Claude Code's
+    /// `cancel_async_message`); else it answers false, as an agent that
+    /// cannot take one back.
+    pub withdraws: bool,
+    /// Every `withdraw_steer`: (session, prompt id).
+    pub withdrawn: Vec<(String, String)>,
+    /// `background_work` moves the running call (Claude Code's Ctrl-B): the
+    /// steers waiting for the step are read at once.
+    pub backgrounds: bool,
+    /// Every `background_work` call's session.
+    pub backgrounded: Vec<String>,
+    /// The running call moved to the background: waiting steers are read.
+    pub moved: bool,
+    /// Turns whose prompt was answered.
+    pub answered_turns: usize,
+    /// Each prompt's session id, in prompt order.
+    pub prompt_sessions: Vec<String>,
+    /// Each session's `.claude/settings.json` in its cwd when it started
+    /// (None: no file), in `specs` order.
+    pub session_settings: Vec<Option<String>>,
+}
+
+/// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
+/// PATH and no `~/.acpx` gets (cmux-lawrence-2, 2026-10-05).
+pub fn catalog() -> Value {
+    json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/Users/cmux/.local/bin/claude"], "fallback": "claude-sr", "family": "claude"},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/Users/cmux/bin/sr", "claude", "proxy"], "fallback": "claude", "family": "claude"},
+        "codex": {"argv": ["/opt/homebrew/bin/npx", "-y", "@agentclientprotocol/codex-acp@1.10.0"], "family": "codex"},
+    }, "defaultHarness": "claude"})
+}
+
+/// The answer of Lawrence's laptop tagged daemons on 2026-10-05: `~/.acpx`
+/// maps `claude` to the claude-acp ACP adapter, and `sr claude proxy
+/// --version` failed, so acpmux replaced claude-sr with a copy of that
+/// `claude` routed through the subrouter server.
+pub fn acpx_catalog() -> Value {
+    let acp = "/Users/lawrence/.local/share/cmux-acp/current/bin/claude-acp";
+    json!({"harnesses": {
+        "claude": {"argv": [acp], "fallback": "claude-sr", "description": "imported from ~/.acpx", "family": "claude"},
+        "claude-sr": {"argv": [acp], "env": {"ANTHROPIC_BASE_URL": "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415"}, "description": "Claude through the subrouter server http://cmux-lawrences-mac-mini.tail137216.ts.net:31415", "family": "claude"},
+        "codex": {"argv": ["/Users/lawrence/.local/share/cmux-acp/current/bin/codex-acp"], "description": "imported from ~/.acpx", "family": "codex"},
+    }, "defaultHarness": "claude"})
+}
+
+pub struct FakeAgents {
+    pub inner: Mutex<Agents>,
+    pub changed: Condvar,
+    script: Script,
+    me: std::sync::Weak<FakeAgents>,
+}
+
+impl FakeAgents {
+    /// A steer as acpmux takes it: `now` when it asked to be read at once (`steer_now`).
+    fn fake_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        inner.steer_ids.push((prompt_id.to_owned(), now));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
+        drop(inner);
+        self.changed.notify_all();
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn && !inner.moved {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
+    }
+
+    pub fn new(script: Script) -> Arc<FakeAgents> {
+        Arc::new_cyclic(|me| FakeAgents {
+            inner: Mutex::new(Agents::default()),
+            changed: Condvar::new(),
+            script,
+            me: me.clone(),
+        })
+    }
+
+    /// Holds turns before they answer (`on`), or lets every held turn go:
+    /// a held turn waits on `changed`, so letting go wakes it (with no
+    /// wake it waited for some other call's, and a test that made none
+    /// timed out).
+    pub fn hold(&self, on: bool) {
+        self.inner.lock().unwrap().hold = on;
+        self.changed.notify_all();
+    }
+
+    /// Lets one held turn run.
+    pub fn release(&self) {
+        self.inner.lock().unwrap().released += 1;
+        self.changed.notify_all();
+    }
+
+    /// Waits until `n` prompts were sent.
+    pub fn wait_prompts(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.prompts.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no prompt {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
+        }
+    }
+
+    /// Adds a prompt's events after the session's earlier ones (acpmux
+    /// numbers a session's events on, across its prompts).
+    pub fn append_events(&self, session: &str, events: Vec<Value>) {
+        let mut inner = self.inner.lock().unwrap();
+        let list = inner.events.entry(session.to_owned()).or_default();
+        let base = list.last().map_or(0, |e| e.seq);
+        for (i, mut e) in events.into_iter().enumerate() {
+            e["seq"] = json!(base + i as u64 + 1);
+            list.push(serde_json::from_value(e).unwrap());
+        }
+    }
+
+    /// Adds events to a running turn and tells its runner, as acpmux's
+    /// notifications do.
+    pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        let from_agent = events.iter().any(|e| e["dir"] == "in");
+        self.append_events(session, events);
+        let signals = self.inner.lock().unwrap().signals.get(session).cloned();
+        if let Some(tx) = signals {
+            let _ = tx.send(if from_agent {
+                TurnSignal::Changed
+            } else {
+                TurnSignal::Noted
+            });
+        }
+    }
+
+    /// Waits until `n` steers were delivered.
+    pub fn wait_steers(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.steers.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no steer {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
+        }
+    }
+
+    /// Waits until `n` cancels were recorded.
+    pub fn wait_cancels(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.cancels.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no cancel {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
+        }
+    }
+
+    pub fn set_events(&self, session: &str, events: Vec<Value>) {
+        let parsed = events.into_iter().enumerate().map(|(i, mut e)| {
+            e["seq"] = json!(i as u64 + 1);
+            serde_json::from_value(e).unwrap()
+        });
+        self.inner
+            .lock()
+            .unwrap()
+            .events
+            .insert(session.to_owned(), parsed.collect());
+    }
+}
+
+impl AgentPort for FakeAgents {
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.inner.lock().unwrap().trusted.push(cwd.to_owned());
+        Ok(())
+    }
+
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        if !self.inner.lock().unwrap().hold_starts {
+            return self.new_session(spec);
+        }
+        let mut waited = Duration::ZERO;
+        loop {
+            waited += Duration::from_secs(10);
+            if !keep_waiting(waited) {
+                return Err("session/new: stopped waiting".to_owned());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if self.inner.lock().unwrap().taken.contains(&spec.name) {
+            return Err(format!(
+                "session/new: session name {:?} is taken",
+                spec.name
+            ));
+        }
+        if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
+            return Err(e.clone());
+        }
+        if let Some(e) = self.inner.lock().unwrap().session_errors_once.pop_front() {
+            return Err(e);
+        }
+        let slow = self.inner.lock().unwrap().slow_session.clone();
+        if let Some((part, delay)) = slow
+            && spec.name.contains(&part)
+        {
+            {
+                let mut inner = self.inner.lock().unwrap();
+                inner.slow_starting += 1;
+                inner.slow_starting_max = inner.slow_starting_max.max(inner.slow_starting);
+            }
+            std::thread::sleep(delay);
+            self.inner.lock().unwrap().slow_starting -= 1;
+        }
+        // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
+        if let Some(key) = spec.env.keys().find(|k| {
+            !matches!(
+                k.as_str(),
+                "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL" | "CMUX_CHIEF_PARTICIPANT"
+            )
+        }) {
+            return Err(format!(
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL, CMUX_CHIEF_PARTICIPANT)"
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        let system = spec
+            .preset
+            .as_ref()
+            .and_then(|p| inner.preset_prompts.get(p))
+            .cloned();
+        inner.systems.push(system);
+        let settings = std::fs::read_to_string(spec.cwd.join(".claude").join("settings.json")).ok();
+        inner.session_settings.push(settings);
+        inner.specs.push(spec.clone());
+        Ok(format!("s{}", inner.specs.len()))
+    }
+
+    fn start_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        if let Some(e) = self.inner.lock().unwrap().prompt_errors_once.pop_front() {
+            return Err(e);
+        }
+        let turn = {
+            let mut inner = self.inner.lock().unwrap();
+            inner.prompts.push(blocks.clone());
+            inner.prompt_ids.push(prompt_id.to_owned());
+            inner.prompt_sessions.push(session.to_owned());
+            inner.calls.push(format!("prompt {session}"));
+            inner.signals.insert(session.to_owned(), signals.clone());
+            inner.turn_over.remove(session);
+            inner.prompts.len() - 1
+        };
+        self.changed.notify_all();
+        self.append_events(session, (self.script)(turn, &blocks));
+        let me = self.me.upgrade().expect("alive");
+        let session = session.to_owned();
+        std::thread::spawn(move || {
+            {
+                let mut inner = me.inner.lock().unwrap();
+                while inner.hold && inner.released <= turn {
+                    inner = me.changed.wait(inner).unwrap();
+                }
+            }
+            if std::mem::take(&mut me.inner.lock().unwrap().answer_never) {
+                return;
+            }
+            let (lose, answer, error, delay) = {
+                let mut inner = me.inner.lock().unwrap();
+                (
+                    std::mem::take(&mut inner.lose) || inner.lose_always,
+                    inner.answer.take(),
+                    inner.answer_error.take(),
+                    inner.answer_delay,
+                )
+            };
+            let _ = signals.send(TurnSignal::Changed);
+            if let Some(delay) = delay {
+                std::thread::sleep(delay);
+            }
+            {
+                let mut inner = me.inner.lock().unwrap();
+                inner.answered_turns += 1;
+                inner.turn_over.insert(session.clone());
+            }
+            me.changed.notify_all();
+            if lose {
+                let _ = signals.send(TurnSignal::Lost);
+            } else if let Some(error) = error {
+                let _ = signals.send(TurnSignal::Done(Err(error)));
+            } else {
+                let answer = answer.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
+                let _ = signals.send(TurnSignal::Done(Ok(answer)));
+            }
+        });
+        Ok(())
+    }
+
+    fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
+        let inner = self.inner.lock().unwrap();
+        if let Some(e) = &inner.events_error {
+            return Err(e.clone());
+        }
+        Ok(inner
+            .events
+            .get(session)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.seq > after)
+            .cloned()
+            .collect())
+    }
+
+    fn end_session(&self, session: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(e) = inner.end_error.clone() {
+            inner.calls.push(format!("end failed {session}"));
+            return Err(e);
+        }
+        inner.taken.remove(session);
+        inner.ended.push(session.to_owned());
+        inner.calls.push(format!("end {session}"));
+        Ok(())
+    }
+
+    fn find(&self, name: &str) -> Result<Option<String>, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.finds.push(name.to_owned());
+        // A taken name is found as itself: the fake's ids for those are their names.
+        Ok(inner.taken.contains(name).then(|| name.to_owned()))
+    }
+
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        let inner = self.inner.lock().unwrap();
+        Ok(inner
+            .taken
+            .iter()
+            .cloned()
+            .chain(inner.specs.iter().map(|s| s.name.clone()))
+            .collect())
+    }
+
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        self.inner.lock().unwrap().probed.push(harness.to_owned());
+        Ok(())
+    }
+
+    fn harness_catalog(&self) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .catalog
+            .clone()
+            .unwrap_or_else(catalog))
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .machine_status
+            .clone()
+            .unwrap_or_else(
+                || json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": []}),
+            ))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        match peer {
+            Some(name) => self
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .get(name)
+                .cloned()
+                .ok_or_else(|| "no peer catalog".into()),
+            None => self.harness_catalog(),
+        }
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .harness_health
+            .get(peer.unwrap_or("here"))
+            .cloned()
+            .unwrap_or_else(|| json!({"harnesses": []})))
+    }
+
+    fn session(&self, id: &str) -> Result<Option<cmux_chief::acp::SessionSummary>, String> {
+        let inner = self.inner.lock().unwrap();
+        let Some(n) = id.strip_prefix('s').and_then(|n| n.parse::<usize>().ok()) else {
+            return Ok(None);
+        };
+        let Some(spec) = inner.specs.get(n.wrapping_sub(1)) else {
+            return Ok(None);
+        };
+        let harness = inner
+            .session_harness
+            .clone()
+            .unwrap_or_else(|| spec.harness.clone());
+        let status = inner.session_status.get(id).cloned().unwrap_or_else(|| {
+            if inner.turn_over.contains(id) {
+                "idle"
+            } else {
+                "running"
+            }
+            .into()
+        });
+        Ok(Some(serde_json::from_value(json!({
+            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
+            "tags": spec.tags,
+        })).unwrap()))
+    }
+
+    fn system_prompt(&self, _preset: &str) -> bool {
+        self.inner.lock().unwrap().system_prompts
+    }
+
+    fn set_system_prompt(&self, preset: &str, text: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.system_prompts {
+            return Err("unknown preset key \"systemPrompt\"".into());
+        }
+        inner.prompt_sets.push((preset.to_owned(), text.to_owned()));
+        inner
+            .preset_prompts
+            .insert(preset.to_owned(), text.to_owned());
+        Ok(())
+    }
+
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.refuse_allows && option.is_some_and(|o| o.starts_with("allow")) {
+            return Err("approve this on the Mac app: allowing a permission is accepted only from the cmux app, never from the CLI, a script or an agent".into());
+        }
+        inner.responses.push((
+            session.to_owned(),
+            permission.to_owned(),
+            option.map(str::to_owned),
+        ));
+        drop(inner);
+        Ok(())
+    }
+
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        self.fake_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        self.fake_steer(session, blocks, prompt_id, true)
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().prewarms.push((
+            harness.to_owned(),
+            preset.map(str::to_owned),
+            cwd.to_owned(),
+        ));
+        Ok(())
+    }
+
+    /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
+    /// prompt that `session/cancel` interrupted.
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        let prompts = inner.prompts.len();
+        inner
+            .modes
+            .push((session.to_owned(), mode.to_owned(), prompts));
+        Ok(())
+    }
+
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.backgrounded.push(session.to_owned());
+        let moved = inner.backgrounds;
+        inner.moved |= moved;
+        drop(inner);
+        self.changed.notify_all();
+        Ok(moved)
+    }
+
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .withdrawn
+            .push((session.to_owned(), prompt_id.to_owned()));
+        Ok(inner.withdraws)
+    }
+
+    fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .removed_queued
+            .push((session.to_owned(), prompt_id.to_owned()));
+        Ok(true)
+    }
+
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .killed_processes
+            .push(session.to_owned());
+        Ok(1)
+    }
+
+    fn cancel(&self, session: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.cancels.push(session.to_owned());
+        if let Some(e) = inner.cancel_errors_once.pop_front() {
+            return Err(e);
+        }
+        if inner.ignore_cancels > 0 {
+            inner.ignore_cancels -= 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Ok(());
+        }
+        inner.answer = Some(json!({"stopReason": "cancelled"}));
+        inner.released += 1;
+        drop(inner);
+        self.changed.notify_all();
+        Ok(())
+    }
+}
+
+pub struct Harness {
+    pub dir: tempfile::TempDir,
+    pub chat: Arc<OptChat>,
+    pub owner: Arc<Mutex<Owner>>,
+    pub agents: Arc<FakeAgents>,
+    pub brain: Brain,
+    pub rx: Receiver<Input>,
+    /// The brain's input channel (what the host's workers send on).
+    pub tx: Sender<Input>,
+}
+
+pub fn settings(dir: &Path) -> Settings {
+    Settings {
+        session_dir: dir.join("session"),
+        harness: "claude-sr".into(),
+        policy: "approve-all".into(),
+        model: None,
+        effort: Some("medium".into()),
+        parent: PARENT.into(),
+        turn_prefix: TURN_PREFIX.into(),
+        agent_gap: Duration::from_millis(30),
+        turn_limit: None,
+        turn_idle_limit: None,
+        engine: Engine::Acpmux,
+        turn_preset: Some(TURN_PRESET.into()),
+        chief_id: "h0me".into(),
+        system_text: optchat_chief::prompt::claude_md(None),
+        engine_file: None,
+        families: Default::default(),
+        codex_preset: None,
+        brains: Default::default(),
+        settings_file: dir.join("settings.json"),
+        trace_dir: Some(dir.join("traces")),
+        cache_ttl: None,
+        shared_ttl: Default::default(),
+        home_view: None,
+        membership: Default::default(),
+        keep_turn_session: false,
+        chief_inbox: None,
+    }
+}
+
+impl Harness {
+    pub fn new(script: Script) -> Harness {
+        let dir = tempfile::tempdir().unwrap();
+        Harness::in_dir(
+            dir,
+            script,
+            Arc::new(Mutex::new(Owner {
+                summary: Some(summary()),
+                ..Owner::default()
+            })),
+        )
+    }
+
+    /// A brain over an existing directory and owner (a restart).
+    pub fn in_dir(dir: tempfile::TempDir, script: Script, owner: Arc<Mutex<Owner>>) -> Harness {
+        Harness::in_dir_with(dir, script, owner, Engine::Acpmux)
+    }
+
+    /// A brain whose turns run on `engine`.
+    pub fn with_engine(engine: Engine) -> Harness {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = Arc::new(Mutex::new(Owner {
+            summary: Some(summary()),
+            ..Owner::default()
+        }));
+        Harness::in_dir_with(dir, default_script(), owner, engine)
+    }
+
+    pub fn in_dir_with(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        engine: Engine,
+    ) -> Harness {
+        let settings = Settings {
+            engine,
+            ..settings(dir.path())
+        };
+        Harness::configured(dir, script, owner, settings, Arc::new(|_: &str| {}))
+    }
+
+    /// A brain with these settings and host.log sink.
+    pub fn configured(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+    ) -> Harness {
+        let chat = open_chat(&dir.path().join("chat"));
+        Harness::over_chat(dir, script, owner, settings, log, chat)
+    }
+
+    /// `configured` over a chat the test opened (its own compactor model).
+    pub fn over_chat(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+        chat: Arc<OptChat>,
+    ) -> Harness {
+        let agents = FakeAgents::new(script);
+        let (tx, rx) = channel();
+        let brain = Brain::new(
+            chat.clone(),
+            agents.clone(),
+            settings,
+            StateFile::new(&dir.path().join("host.json")),
+            tx.clone(),
+            log,
+        );
+        Harness {
+            dir,
+            chat,
+            owner,
+            agents,
+            brain,
+            rx,
+            tx,
+        }
+    }
+
+    /// Both owners connected.
+    pub fn connect(&mut self) {
+        self.brain.step(Input::from(AgentEvent::Up(Vec::new())));
+        let owner = self.owner.clone();
+        let summary = owner.lock().unwrap().summary.clone().unwrap();
+        let reconnects = owner.clone();
+        self.brain.step(Input::from(DaemonEvent::Up {
+            port: Box::new(FakeDaemon(owner)),
+            conversation: summary,
+            reconnect: Box::new(move || reconnects.lock().unwrap().reconnects += 1),
+        }));
+    }
+
+    /// A new message with these parts, as the subscription delivers it.
+    pub fn say_parts(&mut self, author: &str, parts: Vec<Part>) -> Message {
+        let m = {
+            let mut owner = self.owner.lock().unwrap();
+            let seq = owner.messages.len() as u64 + 1;
+            let mut m = message(seq, author, "");
+            m.parts = parts;
+            owner.messages.push(m.clone());
+            m
+        };
+        self.brain.step(Input::from(DaemonEvent::Changed {
+            conversation: CONV.into(),
+            change: Change::Message { message: m.clone() },
+        }));
+        m
+    }
+
+    /// A new message in the conversation, as the subscription delivers it.
+    pub fn say(&mut self, author: &str, text: &str) -> Message {
+        self.say_at(author, text, "")
+    }
+
+    /// `say`, with the owner's `created_at` stamp (RFC 3339).
+    pub fn say_at(&mut self, author: &str, text: &str, created_at: &str) -> Message {
+        let m = {
+            let mut owner = self.owner.lock().unwrap();
+            let seq = owner.messages.len() as u64 + 1;
+            let mut m = message(seq, author, text);
+            m.created_at = created_at.to_owned();
+            owner.messages.push(m.clone());
+            m
+        };
+        self.brain.step(Input::from(DaemonEvent::Changed {
+            conversation: CONV.into(),
+            change: Change::Message { message: m.clone() },
+        }));
+        m
+    }
+
+    /// Adds side conversation `conversation` (a DM with `person`) to the owner.
+    pub fn add_side(&self, conversation: &str, person: &str) {
+        self.owner.lock().unwrap().stores.insert(
+            conversation.into(),
+            Store {
+                summary: side_summary(conversation, person),
+                messages: Vec::new(),
+                ops: Vec::new(),
+                rejects: VecDeque::new(),
+            },
+        );
+    }
+
+    /// A new message in side conversation `conversation`. Nothing tells the
+    /// brain: the brain is not subscribed to side conversations, only the
+    /// wake queue (`wake`) tells it.
+    pub fn post_side(&self, conversation: &str, author: &str, text: &str) -> Message {
+        let mut owner = self.owner.lock().unwrap();
+        let store = owner.stores.get_mut(conversation).expect("add_side first");
+        let seq = store.messages.len() as u64 + 1;
+        let m = side_message(conversation, seq, author, text);
+        store.messages.push(m.clone());
+        store.summary.last_seq = seq;
+        m
+    }
+
+    /// The daemon relays wakes of the chief's queue (`cloud-mux-wake`).
+    pub fn wake(&mut self, wakes: &[(&str, u64)]) {
+        let wakes = wakes
+            .iter()
+            .map(|(conversation, seq)| optchat_chief::daemon::MuxWake {
+                conversation: (*conversation).into(),
+                seq: *seq,
+                reason: "dm".into(),
+            })
+            .collect();
+        self.brain.step(Input::from(DaemonEvent::MuxWake(wakes)));
+    }
+
+    /// The texts the brain posted in side conversation `conversation`.
+    pub fn side_sends(&self, conversation: &str) -> Vec<(String, String)> {
+        self.owner.lock().unwrap().stores[conversation].sends()
+    }
+
+    /// Steps the brain until it is idle (no turn, nothing queued).
+    pub fn settle(&mut self) {
+        while !self.brain.is_idle() {
+            let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
+            self.brain.step(input);
+        }
+    }
+
+    /// Settles, then posts every reply the agent gap holds back (G11).
+    pub fn settle_posts(&mut self) {
+        self.settle();
+        while let Some(at) = self.brain.next_timer() {
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+            self.brain.on_timer();
+        }
+    }
+
+    /// One wait of a `while <condition> { h.poll_step(); }` loop: steps an input
+    /// if one comes within POLL, else returns so the loop checks again. The
+    /// condition is often set on another thread that sends the brain nothing
+    /// after it (the fake agent records a prompt on the turn thread after the
+    /// turn's last input), where a blocking `step` would wait out WAIT and
+    /// fail the test. Panics, as `step` does, once WAIT passes with no input.
+    pub fn poll_step(&mut self) {
+        // (first empty poll, last poll) of this thread's current wait; a poll
+        // long after the last one belongs to a new loop and starts afresh.
+        thread_local! {
+            static IDLE: std::cell::Cell<Option<(std::time::Instant, std::time::Instant)>> =
+                const { std::cell::Cell::new(None) };
+        }
+        match self.rx.recv_timeout(POLL) {
+            Ok(input) => {
+                IDLE.with(|c| c.set(None));
+                self.brain.step(input);
+            }
+            Err(_) => {
+                let now = std::time::Instant::now();
+                let since = match IDLE.with(|c| c.get()) {
+                    Some((since, last)) if now - last < POLL * 10 => since,
+                    _ => now,
+                };
+                IDLE.with(|c| c.set(Some((since, now))));
+                assert!(now - since < WAIT, "the brain got no input");
+            }
+        }
+    }
+
+    /// Steps one input.
+    pub fn step(&mut self) {
+        let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
+        self.brain.step(input);
+    }
+
+    /// Steps the brain's inputs until `n` prompts were sent. A turn sends
+    /// other inputs before `Settled` (the compactor's stuck-line state, a
+    /// progress note), so one `step` does not reach its prompt.
+    pub fn step_to_prompts(&mut self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        while self.agents.inner.lock().unwrap().prompts.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no prompt {n}");
+            if let Ok(input) = self.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                self.brain.step(input);
+            }
+        }
+    }
+
+    /// The whole memory log: (kind, text).
+    pub fn log(&self) -> Vec<(String, String)> {
+        let n = self.chat.status().messages;
+        (0..n)
+            .map(|i| {
+                let (kind, text) = self.chat.message(i).unwrap();
+                (kind.as_str().to_owned(), text)
+            })
+            .collect()
+    }
+}

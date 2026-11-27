@@ -7,6 +7,13 @@ import java.util.Optional;
 
 /** Immutable protocol-v2 resource snapshots. */
 public final class Snapshots {
+    public record MachinePlatform(Optional<String> os, Optional<String> arch) {
+        public MachinePlatform {
+            Objects.requireNonNull(os, "os");
+            Objects.requireNonNull(arch, "arch");
+        }
+    }
+
     public record MachineSnapshot(
         Ids.MachineId id,
         String name,
@@ -15,12 +22,14 @@ public final class Snapshots {
         boolean connectable,
         boolean deleted,
         boolean recoverable,
-        Map<String, Object> extra
+        Map<String, Object> extra,
+        Optional<MachinePlatform> platform,
+        List<String> capabilities
     ) implements ResourceEntitySnapshot {
         public MachineSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(name, "name");
-            oneOf(origin, "origin", "local");
+            oneOf(origin, "origin", "local", "cloud", "ssh", "server");
             oneOf(
                 status,
                 "status",
@@ -31,6 +40,15 @@ public final class Snapshots {
                 "unavailable"
             );
             extra = copy(extra);
+            Objects.requireNonNull(platform, "platform");
+            capabilities = List.copyOf(capabilities);
+        }
+
+        public MachineSnapshot(Ids.MachineId id, String name, String origin, String status,
+                               boolean connectable, boolean deleted, boolean recoverable,
+                               Map<String, Object> extra) {
+            this(id, name, origin, status, connectable, deleted, recoverable, extra,
+                 Optional.empty(), List.of());
         }
     }
 

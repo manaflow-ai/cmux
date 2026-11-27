@@ -1,0 +1,29 @@
+{
+  "id": "assistant-remembers-preference",
+  "group": "assistant",
+  "owner": "a676",
+  "about": "A lasting preference is saved with remember() at once, and the reply is a short acknowledgement, not a question.",
+  "turns": [
+    {
+      "text": "From now on, when you list what agents are doing, give one line per agent and nothing else. No intro, no closing.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "remember"
+        },
+        {
+          "type": "file_contains",
+          "path": "optchat/person.md",
+          "re": "(?i)one line per agent"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 40
+        }
+      ]
+    }
+  ]
+}

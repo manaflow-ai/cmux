@@ -7,6 +7,8 @@ protocol ConversationTranscriptLayoutDataSource: AnyObject {
     func transcriptItemCount() -> Int
     /// Called once at the start of each layout pass, before any height.
     func transcriptWillPrepare(width: CGFloat)
+    /// Called at the end of each layout pass.
+    func transcriptDidPrepare()
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat
     /// Vertical gap above item `index`.
     func transcriptSpacing(before index: Int) -> CGFloat
@@ -83,6 +85,7 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         itemIDs = newIDs
         contentHeight = y + phase + 6 - (count > 0 ? dataSource.transcriptBottomOverhang() : 0)
         cachedAttributes = Array(repeating: nil, count: frames.count)
+        dataSource.transcriptDidPrepare()
     }
 
     /// The phase that keeps the first row on screen in the last pass, and

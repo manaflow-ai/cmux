@@ -1,0 +1,30 @@
+# cmux-managed: true
+# The Vercel pack (plans/cmux-next/chief-toolpacks-DESIGN.md section 3): data only, no Rust.
+# The Chief's own Vercel token goes to the vercel CLI as VERCEL_TOKEN on every call.
+name = "vercel"
+title = "Vercel"
+description = "The vercel CLI with this Chief's own Vercel token: deploys, previews, env, logs"
+health = ["vercel", "whoami"]
+# Shipped off: `chief pack enable vercel` turns it on for one Chief.
+enabled = false
+
+[tool]
+bin = "vercel"
+brew = "vercel-cli"
+npm = "vercel"
+url = "https://vercel.com/docs/cli"
+
+[auth]
+methods = ["paste"]
+token_min = 20
+token_max = 255
+login_hint = "chief pack login vercel"
+tokens_url = "https://vercel.com/account/tokens"
+skill = "vercel"
+
+[check]
+url = "https://api.vercel.com/v2/user"
+login_field = "user.username"
+
+[inject]
+env = ["VERCEL_TOKEN"]

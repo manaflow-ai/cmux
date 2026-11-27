@@ -21,14 +21,14 @@ extension HomeStore {
     /// attachments (uploads, then `message.send`). Offline, the previews are
     /// skipped and the text waits like any offline send.
     public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
-                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil,
+                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil,
                      attaching attach: @MainActor () async -> (parts: [MessagePart], uploads: [LocalAttachment])) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
         guard parts.count <= HomeAttachmentPolicy.maxParts else {
             throw HomeAttachmentError.tooManyParts(limit: HomeAttachmentPolicy.maxParts)
         }
-        let op = HomeOp.sendMessage(conversation: conversation, parts: parts.map(Self.normalizedPart), threadRoot: threadRoot)
+        let op = HomeOp.sendMessage(conversation: conversation, parts: parts.map(Self.normalizedPart), threadRoot: threadRoot, parent: parent)
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
         log.setUploading(key, true)
@@ -47,7 +47,7 @@ extension HomeStore {
                 (try? HomeAttachmentPolicy.check(mimeType: picture.ref.mimeType, byteCount: picture.ref.byteCount,
                                                  name: picture.ref.name)) != nil
             }
-            let filledOp = HomeOp.sendMessage(conversation: conversation, parts: filled, threadRoot: threadRoot)
+            let filledOp = HomeOp.sendMessage(conversation: conversation, parts: filled, threadRoot: threadRoot, parent: parent)
             log.replaceOp(key, with: filledOp)
             for picture in pictures where !job.attachments.contains(where: { $0.ref.hash == picture.ref.hash }) {
                 job.attachments.append(picture)

@@ -1,0 +1,10 @@
+# cmux-managed: true
+# The browser pack (plans/cmux-next/chief-toolpacks-DESIGN.md): cmux's browser, driven by agents.
+name = "browser"
+title = "Browser"
+description = "Drive web pages in the agent's own cmux browser tab: open, snapshot, click, type, wait, screenshot"
+health = ["cmux", "browser", "--help"]
+
+[tool]
+bin = "cmux"
+url = "https://cmux.com"

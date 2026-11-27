@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// Classifies a socket address without retaining it past initialization.
@@ -48,15 +52,14 @@ struct CmxIrohIPAddressScope: Sendable {
     }
 
     private static func host(from socketAddress: String) -> String? {
-        if socketAddress.first == "[",
-           let closingBracket = socketAddress.firstIndex(of: "]") {
-            return String(socketAddress[socketAddress.index(after: socketAddress.startIndex) ..< closingBracket])
+        if let bracketed = Substring(socketAddress).bracketedHost {
+            return String(bracketed.host)
         }
         let colonCount = socketAddress.reduce(into: 0) { count, character in
             if character == ":" { count += 1 }
         }
-        if colonCount == 1, let colon = socketAddress.lastIndex(of: ":") {
-            return String(socketAddress[..<colon])
+        if colonCount == 1, let split = Substring(socketAddress).splitAtLastColon {
+            return String(split.head)
         }
         return colonCount > 1 ? socketAddress : nil
     }

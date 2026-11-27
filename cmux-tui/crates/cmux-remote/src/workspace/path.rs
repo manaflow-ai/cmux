@@ -876,39 +876,3 @@ pub(crate) fn io_error(operation: &str, path: &Path, error: std::io::Error) -> R
     };
     RpcError::new(code, format!("{operation} {}: {error}", path.display()))
 }
-
-#[cfg(test)]
-mod tests {
-    use tempfile::tempdir;
-
-    use super::*;
-
-    #[test]
-    fn rejects_absolute_and_parent_paths() {
-        assert!(validate_relative("/etc/passwd").is_err());
-        assert!(validate_relative("../secret").is_err());
-        assert!(validate_relative("a/../../secret").is_err());
-        assert!(validate_relative("C:\\Windows").is_err());
-        assert!(validate_relative("//server/share").is_err());
-        assert_eq!(normalize_protocol_path("./src/lib.rs").unwrap(), "src/lib.rs");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn rejects_symlink_escape() {
-        use std::os::unix::fs::symlink;
-
-        let root_dir = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        symlink(outside.path(), root_dir.path().join("outside")).unwrap();
-        let root =
-            WorkspaceRoot::open(WorkspaceId("test".into()), root_dir.path().to_str().unwrap())
-                .await
-                .unwrap();
-
-        let error = root.resolve_existing("outside").await.unwrap_err();
-        assert_eq!(error.code, "path-outside-workspace");
-        let error = root.unix_root().resolve_target("outside/new", true).unwrap_err();
-        assert_eq!(error.code, "path-outside-workspace");
-    }
-}

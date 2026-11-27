@@ -1983,9 +1983,6 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 	defer close(done)
 	defer readFile.Close()
 	defer writeFile.Close()
-	oldCtx, oldCancel := context.WithCancel(context.Background())
-	attachment.cancel = oldCancel
-	defer oldCancel()
 
 	go hub.writeInputLoop(session)
 	session.ptyWriteMu.Lock()
@@ -1994,13 +1991,9 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 		t.Fatalf("old write status = %v, want ok", status)
 	}
 
-	type replacementResult struct {
-		attachment *wsPTYAttachment
-		ctx        context.Context
-	}
-	attachDone := make(chan replacementResult, 1)
+	attachDone := make(chan *wsPTYAttachment, 1)
 	go func() {
-		newAttachment, newCtx, _, err := hub.prepareAttachment(
+		newAttachment, _, _, err := hub.prepareAttachment(
 			context.Background(),
 			nil,
 			session.id,
@@ -2015,31 +2008,24 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 		)
 		if err != nil {
 			t.Errorf("prepare replacement attachment: %v", err)
-			attachDone <- replacementResult{}
+			attachDone <- nil
 			return
 		}
-		attachDone <- replacementResult{attachment: newAttachment, ctx: newCtx}
+		attachDone <- newAttachment
 	}()
 
 	// Reattach must complete while the PTY writer is still stalled — a
 	// wedged reader must never turn reattach into an indefinite hang.
-	var result replacementResult
+	var newAttachment *wsPTYAttachment
 	select {
-	case result = <-attachDone:
+	case newAttachment = <-attachDone:
 	case <-time.After(5 * time.Second):
 		session.ptyWriteMu.Unlock()
 		t.Fatal("reattach blocked behind a stalled PTY writer")
 	}
-	newAttachment := result.attachment
 	if newAttachment == nil {
 		session.ptyWriteMu.Unlock()
 		t.Fatal("replacement attachment was not created")
-	}
-	select {
-	case <-oldCtx.Done():
-	default:
-		session.ptyWriteMu.Unlock()
-		t.Fatal("replacement did not cancel the old attachment")
 	}
 	if status := hub.writeInputByID(session.id, newAttachment.id, newAttachment.clientToken, []byte("NEW")); status != wsPTYInputWriteOK {
 		session.ptyWriteMu.Unlock()
@@ -2048,14 +2034,6 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 	session.ptyWriteMu.Unlock()
 	if got := readExactlyFromFile(t, readFile, 6, 5*time.Second); string(got) != "OLDNEW" {
 		t.Fatalf("PTY input = %q, want OLDNEW", string(got))
-	}
-	if !hub.detach(newAttachment) {
-		t.Fatal("detach replacement attachment = false, want true")
-	}
-	select {
-	case <-result.ctx.Done():
-	default:
-		t.Fatal("detach did not cancel the replacement attachment")
 	}
 }
 

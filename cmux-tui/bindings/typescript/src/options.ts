@@ -61,6 +61,11 @@ export interface RequestOptions {
   readonly timeoutMs?: number;
 }
 
+/** Rich machine reads are explicit and grant no execution authority. */
+export interface MachineReadOptions extends RequestOptions {
+  readonly catalog?: boolean;
+}
+
 export interface SessionEventsOptions extends RequestOptions {
   readonly cursor?: Cursor;
 }

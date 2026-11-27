@@ -78,6 +78,19 @@ impl AttachBuilder {
             rows,
             expected_generation: Optional::Missing,
             expected_terminal_id: Optional::Missing,
+            hybrid_frame: Optional::Missing,
+            hybrid_stream: Optional::Missing,
+            replay_history_rows: Optional::Missing,
+            output_coalesce_ms: Optional::Missing,
+            replay_history_start: Optional::Missing,
+            resume_generation: Optional::Missing,
+            resume_max_bytes: Optional::Missing,
+            resume_offset: Optional::Missing,
+            snapshot: Optional::Missing,
+            snapshot_images: None,
+            snapshot_local_history: None,
+            snapshot_version: Optional::Missing,
+            viewer_backlog_bytes: Optional::Missing,
         })
     }
 }
@@ -93,7 +106,13 @@ impl CmuxClient {
 
     pub fn send_text(&mut self, surface: u64, text: impl Into<String>) -> Result<()> {
         self.send(SendRequest {
-            surface,
+            surface: Optional::Value(surface),
+            terminal_id: Optional::Missing,
+            expect_foreground: Optional::Missing,
+            expect_agent: Optional::Missing,
+            submit: None,
+            flow: Optional::Missing,
+            key: Optional::Missing,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
             paste: None,
@@ -103,7 +122,13 @@ impl CmuxClient {
 
     pub fn send_base64(&mut self, surface: u64, bytes: impl Into<String>) -> Result<()> {
         self.send(SendRequest {
-            surface,
+            surface: Optional::Value(surface),
+            terminal_id: Optional::Missing,
+            expect_foreground: Optional::Missing,
+            expect_agent: Optional::Missing,
+            submit: None,
+            flow: Optional::Missing,
+            key: Optional::Missing,
             text: Optional::Missing,
             bytes: Optional::Value(bytes.into()),
             paste: None,
@@ -113,7 +138,13 @@ impl CmuxClient {
 
     pub fn send_paste(&mut self, surface: u64, text: impl Into<String>) -> Result<()> {
         self.send(SendRequest {
-            surface,
+            surface: Optional::Value(surface),
+            terminal_id: Optional::Missing,
+            expect_foreground: Optional::Missing,
+            expect_agent: Optional::Missing,
+            submit: None,
+            flow: Optional::Missing,
+            key: Optional::Missing,
             text: Optional::Value(text.into()),
             bytes: Optional::Missing,
             paste: Some(true),

@@ -1,5 +1,4 @@
 public import Foundation
-public import IrohLib
 
 /// Admission outcome carried into the host: the peer tuple the grant proved,
 /// bound to the TLS-authenticated key by the verifier closure.
@@ -198,6 +197,9 @@ public struct IrxAdmission: Sendable {
         judgment: IrxGrantJudgment,
         journal: IrxJournal
     ) async -> (IrxAdmittedPeerInfo, IrxLaneStream, String)? {
+        // One tuple return, after the do/catch: Swift -O drops tuple elements returned from an
+        // awaiting do (swiftlang/swift#92698, cx-21wc5).
+        var admitted: (IrxAdmittedPeerInfo, IrxLaneStream, String)?
         do {
             let controlResult = try await withIrxDeadlineResult(deadline) {
                 await connection.acceptLane()
@@ -287,7 +289,7 @@ public struct IrxAdmission: Sendable {
                     "path": connection.selectedPathDescription(),
                 ]
             )
-            return (peer, control, sessionID)
+            admitted = (peer, control, sessionID)
         } catch {
             journal.record(
                 "admission", "failed",
@@ -296,5 +298,6 @@ public struct IrxAdmission: Sendable {
             await connection.close(code: .admissionTimeout, origin: .local)
             return nil
         }
+        return admitted
     }
 }

@@ -41,6 +41,9 @@ struct ReplyQuote: Hashable {
     var text: String
     var isOutgoing: Bool
     var hasImage: Bool
+    /// The quoted message's own reply count: Messages labels the quote
+    /// "N Replies" once it has one ("1 Reply").
+    var replyCount: Int = 0
 }
 
 enum MessageFooter: Hashable {
@@ -66,6 +69,10 @@ struct MessageRowModel: Hashable {
     var isFirstInGroup: Bool
     var footer: MessageFooter
     var replyQuote: ReplyQuote?
+    /// The reply's place in its thread block: the line runs from the
+    /// block's quote through every reply of the block (see
+    /// `ConversationRunPlan.ReplyThread`).
+    var replyThread: ConversationRunPlan.ReplyThread? = nil
     var isEmojiOnly: Bool
     /// Distinct tapbacks in first-given order, and whether one of them is mine.
     var reactionKinds: [ConversationReaction]
@@ -213,7 +220,7 @@ enum ConversationRowBuilder {
         appendLeadingRows(store: store, hidesLoadingRow: hidesLoadingRow, into: &rows)
         let messages = store.messages
         let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
-        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, threadBlocks: true)
         var typingPlaced = context.typingIDs.isEmpty
         for (index, original) in messages.enumerated() {
             appendRows(for: original, entry: plan.entries[index], context: context, memo: memo, typingPlaced: &typingPlaced, into: &rows)
@@ -241,8 +248,9 @@ enum ConversationRowBuilder {
     /// below come from `previous`, and a row below that quotes a message of
     /// the page is rebuilt. `reused` are the indices of rows taken from
     /// `previous` (from `keptFrom` on); of those, `rebuilt` were rebuilt.
-    /// Nil when the change is not such a landing.
-    static func rowsAfterPrepend(store: ConversationStore, previous: [ConversationRow]) -> ConversationPrependRows? {
+    /// `index` finds a row of `previous` by id. Nil when the change is not
+    /// such a landing.
+    static func rowsAfterPrepend(store: ConversationStore, previous: [ConversationRow], index: (String) -> Int?) -> ConversationPrependRows? {
         guard let info = store.info else { return nil }
         let messages = store.messages
         // The first message of the previous rows, and where it is now.
@@ -264,7 +272,7 @@ enum ConversationRowBuilder {
         rows.reserveCapacity((boundary + 1) * 2 + 1 + previous.count - keepFrom)
         appendLeadingRows(store: store, hidesLoadingRow: false, into: &rows)
         let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
-        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, limit: boundary + 1)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, limit: boundary + 1, threadBlocks: true)
         var typingPlaced = true
         for index in 0...boundary {
             appendRows(for: messages[index], entry: plan.entries[index], context: context, typingPlaced: &typingPlaced, into: &rows)
@@ -272,27 +280,34 @@ enum ConversationRowBuilder {
         let reusedStart = rows.count
         rows.append(contentsOf: previous[keepFrom...])
         // A reply below whose quoted message just arrived gains its quote.
+        // The replies are found among the messages under the page (a field
+        // read each), not by copying every reused row's model; each one's
+        // row is where `previous` had it, moved by the splice.
         var pageIDs = Set<String>()
         for message in messages[0..<boundary] { pageIDs.insert(message.id) }
+        // A reply quotes its thread's root, so a reply to a reply below the
+        // page re-roots too when the chain reaches the page.
+        for message in messages[boundary...] where message.replyToID.map(pageIDs.contains) == true { pageIDs.insert(message.id) }
         var rebuilt: [Int] = []
-        var messageIndex: [String: Int]?
-        for index in reusedStart..<rows.count {
-            guard case let .message(model) = rows[index], let replyTo = model.message.replyToID, pageIDs.contains(replyTo) else { continue }
-            if messageIndex == nil {
-                var map: [String: Int] = [:]
-                for (i, message) in messages.enumerated() { map[message.rowID] = i }
-                messageIndex = map
-            }
-            guard let i = messageIndex?[model.rowID] else { return nil }
-            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, limit: i + 1).entries[i]
+        for i in store.messageIndices(from: boundary + 1, replyingTo: pageIDs) {
+            let rowID = messages[i].rowID
+            // A reply the rows on screen do not show yet (a live change
+            // held meanwhile) is not among the reused rows.
+            guard let old = index(rowID) else { continue }
+            let row = reusedStart + old - keepFrom
+            guard old >= keepFrom, row < rows.count else { return nil }
+            // Only a bubble shows the quote (an unsent reply is a notice).
+            guard case let .message(model) = rows[row] else { continue }
+            guard model.rowID == rowID else { return nil }
+            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1), threadBlocks: true).entries[0]
             var single: [ConversationRow] = []
             var placed = true
             appendRows(for: messages[i], entry: entry, context: context, typingPlaced: &placed, into: &single)
-            guard let replacement = single.first(where: { $0.id == model.rowID }) else { return nil }
-            rows[index] = replacement
-            rebuilt.append(index)
+            guard let replacement = single.first(where: { $0.id == rowID }) else { return nil }
+            rows[row] = replacement
+            rebuilt.append(row)
         }
-        return ConversationPrependRows(rows: rows, reused: reusedStart..<rows.count, keptFrom: keepFrom, rebuilt: rebuilt)
+        return ConversationPrependRows(rows: rows, reused: reusedStart..<rows.count, keptFrom: keepFrom, rebuilt: rebuilt.sorted())
     }
 
     /// The rows `rows(store:)` gives after a live change (an arrival, an
@@ -342,7 +357,7 @@ enum ConversationRowBuilder {
             if let row = index(id), row < cut { return nil }
         }
         let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
-        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: start..<messages.count)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: start..<messages.count, threadBlocks: true)
         memo?.beginPass(info: info, meID: context.meID, messageCount: messages.count)
         var rows = Array(previous[..<cut])
         rows.reserveCapacity(cut + (messages.count - start) * 2 + 2)
@@ -377,7 +392,7 @@ enum ConversationRowBuilder {
             let rowID = messages[i].rowID
             guard let row = index(rowID), row < cut else { continue }
             guard case .message = previous[row] else { return nil }
-            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1)).entries[0]
+            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1), threadBlocks: true).entries[0]
             var single: [ConversationRow] = []
             var placed = true
             appendRows(for: messages[i], entry: entry, context: context, typingPlaced: &placed, into: &single)
@@ -427,7 +442,7 @@ enum ConversationRowBuilder {
         let presentation = context.translations.presentation(for: original)
         let inputs = ConversationRowMemo.Inputs(
             message: original, entry: entry, translation: presentation?.text, caption: presentation?.caption,
-            quoted: original.replyToID.flatMap { context.store.message(id: $0) }
+            quoted: original.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: context.store.message(id:)) }
         )
         if let cached = memo.entries[original.rowID], cached.inputs == inputs {
             rows.append(contentsOf: cached.rows)
@@ -457,6 +472,8 @@ enum ConversationRowBuilder {
             message.text = translation.text
             message.mentions = []
             message.textRuns = []
+            message.links = []
+            message.tables = []
         }
         if message.isScheduled, let scheduledAt = message.scheduledAt {
             // Scheduled messages trail everything, typing included.
@@ -483,9 +500,17 @@ enum ConversationRowBuilder {
         let nextBreaksGroup = entry.isLastInRun
         let isOutgoing = message.senderID == meID
         let sender = info.participant(message.senderID)
-        let footer = footer(for: entry.status, isGroup: isGroup)
-        let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
-            ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
+        var footer = footer(for: entry.status, isGroup: isGroup)
+        // A sending attachment says how far its upload got under its bubble.
+        if isOutgoing, message.delivery == .sending, let progress = message.uploadProgress {
+            footer = uploadingFooter(progress)
+        }
+        // Only a block's first reply quotes the thread's root (Messages): a
+        // reply right under the message it answers, or one joining the block
+        // above it, shows none.
+        let root = entry.replyThread == nil ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }
+        let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : root.map {
+            ReplyQuote(text: $0.quoteText.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.quoteText, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
             rowID: message.rowID,
@@ -498,10 +523,12 @@ enum ConversationRowBuilder {
             showsAvatar: isGroup && !isOutgoing && nextBreaksGroup,
             reservesAvatarColumn: isGroup && !isOutgoing,
             isGroup: isGroup,
-            showsTail: nextBreaksGroup || quote != nil,
+            showsTail: nextBreaksGroup,
             isFirstInGroup: !groupedWithPrevious,
             footer: footer,
             replyQuote: quote,
+            // Without its root loaded the block has no quote, so no line either.
+            replyThread: root == nil ? nil : entry.replyThread,
             isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
             reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                 if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
@@ -551,7 +578,13 @@ enum ConversationRowBuilder {
         info.participant(participantID)?.name.split(separator: " ").first.map(String.init) ?? ""
     }
 
-    private static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {
+    /// "Uploading 42%" under a sending message whose attachments are uploading.
+    static func uploadingFooter(_ progress: Double) -> MessageFooter {
+        let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+        return .status(String(format: String(localized: "conversation.status.uploading", defaultValue: "Uploading %@", bundle: .module), percent))
+    }
+
+    static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {
         switch status {
         case .none:
             return .none

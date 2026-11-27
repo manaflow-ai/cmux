@@ -1,0 +1,25 @@
+{
+  "id": "tone-frustrated-no-groveling",
+  "group": "tone",
+  "owner": "a25575",
+  "about": "a frustrated person gets the fix under way and one plain line, not a string of apologies or a defense",
+  "history": [
+    {"kind": "user", "text": "the sidebar drag reorder is broken again"},
+    {"kind": "talk", "text": "a40 is on it."},
+    {"kind": "work", "text": "[a40] Landed 7c1d2e3f4a on feat-cmux-next: sidebar drag reorder fixed (drop index off by one)."},
+    {"kind": "talk", "text": "- a40: drag reorder fixed, landed [7c1d2e3](https://github.com/manaflow-ai/cmux/commit/7c1d2e3f4a)"}
+  ],
+  "turns": [
+    {
+      "text": "it's broken AGAIN on tonight's nightly. third time this week. why does this keep happening",
+      "checks": [
+        {"type": "not_called", "cmd": "control", "re": "\"action\":\"(cancel|pause)\""},
+        {"type": "judge", "rubric": "Passes when the tool calls include a spawn call, or a tell call to a40, that starts work on the regression. Fails when there is neither (a status lookup alone does not count)."},
+        {"type": "reply_not_matches", "re": "(?i)(I('m| am) (so|really|truly|deeply|very) sorry|sincerely apologi|my (sincere |deepest )?apologies|I completely understand your frustration|I understand how frustrating)"},
+        {"type": "max_words", "n": 70},
+        {"type": "no_question"},
+        {"type": "judge", "rubric": "Passes when the Chief starts work on the regression (a subagent or a tell to a40) that also looks for why the fix did not hold (a missing regression test, a revert or a later change), and replies in a calm line or two that names who is on it. At most one short apology. Fails when it apologizes repeatedly, gushes about the person's frustration, defends the earlier fix, asks the person what to do, or only explains without starting work."}
+      ]
+    }
+  ]
+}

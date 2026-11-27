@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Synchronous inbound authority for one enrolled Mac tuple, key and generation.
 /// The current directory is swapped under one lock; admission never waits for networking.
@@ -113,7 +115,7 @@ public final class V2InboundAdmissionAuthority: Sendable {
             }
             for (endpoint, entry) in current.entries where entry.peer.bindingID == event.deviceRecordID {
                 current.revokedEndpoints.insert(endpoint)
-                current.entries[endpoint] = nil
+                current.entries.removeValue(forKey: endpoint)
             }
             // Keep authority storage finite even under a stream of unknown revocations.
             if current.revokedRecords.count > 4096 {

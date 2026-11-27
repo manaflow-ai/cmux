@@ -13,12 +13,15 @@ protocol UpdaterHandle: AnyObject {
     var canCheckForUpdates: Bool { get }
     /// Whether Sparkle still owns an update-cycle session that must finish before another check.
     var sessionInProgress: Bool { get }
-    var automaticallyChecksForUpdates: Bool { get }
+    var automaticallyChecksForUpdates: Bool { get set }
     var automaticallyDownloadsUpdates: Bool { get }
-    var updateCheckInterval: TimeInterval { get }
+    var updateCheckInterval: TimeInterval { get set }
+    /// When Sparkle last checked (`SULastCheckTime`), or nil.
+    var lastUpdateCheckDate: Date? { get }
     func start() throws
     func checkForUpdates()
     func checkForUpdateInformation()
+    func checkForUpdatesInBackground()
 }
 
 extension SPUUpdater: UpdaterHandle {}

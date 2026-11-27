@@ -15,6 +15,7 @@ pub mod error;
 pub mod fingerprint;
 pub mod journal_forwarder;
 pub mod pairing;
+mod preview_access;
 pub mod preview_proxy;
 pub mod prompt;
 pub mod pty;
@@ -27,3 +28,6 @@ pub mod tunnel_terminal;
 pub mod watch;
 pub mod wire;
 pub mod workspace;
+
+#[cfg(test)]
+mod seeded_tests;

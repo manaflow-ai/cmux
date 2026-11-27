@@ -1,31 +1,74 @@
 name: nightly-next health
 
-# The cmux NEXT health gate. Its jobs and tooling live on feat-cmux-next and nightly-next
-# (.github/workflows/nightly-next-health.yml there, scripts/ci/nightly_next_health.py,
-# docs/ci/nightly-next-canary.md, Health gate). GitHub runs a schedule, and registers a dispatch,
-# only from the default branch, so this copy on main holds the cron and the dispatch's inputs.
-# Every 15 minutes job start dispatches the workflow on nightly-next, where release-next releases
-# the feed's R2 token; that run judges the newest Nightly builds' real-session health from Sentry,
-# writes health/<build>.json beside the build, and a failing newest build is pulled from the feed.
+# The cmux NEXT health gate (scripts/ci/nightly_next_health.py; docs/ci/nightly-next-canary.md, Health gate).
+# Every 15 minutes it reads real-session health of the feed's newest Nightly build from Sentry release
+# health (crash-free sessions and app hangs, against the Nightly build before it), writes the build's
+# verdict to health/<build>.json beside verdicts/<build>.json in R2
+# (https://files-next.cmux.com/nightly-next/next/health/<build>.json), and a `fail` pulls the build from
+# the feed through nightly-next-rollback.yml (bad_build = if_newest = the build, so a build published
+# meanwhile is never pulled). Before this the crash-free rate reached a person once a day, in
+# cmux-next-quality-report.yml, which gates nothing.
 #
-# Repository variable NIGHTLY_NEXT_HEALTH_GATE: `off` runs nothing; `report` writes verdicts and
-# pulls nothing; unset or anything else pulls a failing build.
+# Repository variable NIGHTLY_NEXT_HEALTH_GATE: `off` runs nothing; `report` writes verdicts and pulls
+# nothing; unset or anything else writes verdicts and pulls a failing build.
+#
+# GitHub runs a schedule, and registers a dispatch, only from the default branch, so this file is on
+# main too. There the cron runs job start, which dispatches this workflow on nightly-next, where
+# release-next releases the feed's R2 token; every other job runs only on nightly-next.
+# The rollback drill (nightly-next-rollback-drill.yml, step health) calls it with drill true: it judges
+# the drill feed's bad canary from a made-up failing reading and pulls it from the drill folder only.
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       build:
-        description: Judge this feed build (digits). Empty judges the newest Nightly builds.
+        description: Judge this feed build (digits). Empty judges the newest Nightly build.
         required: false
         default: ''
         type: string
+  workflow_call:
+    inputs:
+      build:
+        required: false
+        default: ''
+        type: string
+      drill:
+        description: Judge and pull in the drill folder (nightly-next/drill/), never the users' feed.
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      NIGHTLY_NEXT_R2_ACCESS_KEY_ID:
+        required: false
+      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY:
+        required: false
+      NIGHTLY_NEXT_R2_ACCOUNT_ID:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
 
 permissions: {}
+
+# One judge at a time on the users' feed; a running one is never cancelled. GitHub keeps one pending
+# run per group, so a judge queued behind a running one may be replaced by the next tick's, which
+# reads the feed again. The cron's dispatcher on main and each drill have groups of their own.
+concurrency:
+  group: ${{ github.event_name == 'schedule' && format('nightly-next-health-start-{0}', github.run_id) || inputs.drill && format('nightly-next-health-drill-{0}', github.run_id) || 'nightly-next-health' }}
+  cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  # The same values as nightly-next-rollback.yml; nightly-next-guard.py checks every write against them.
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/
+  NIGHTLY_APPCAST: appcast-arm64.xml
+  # The appcast's folder under the feed base (empty for the users' feed), and the health files' folder,
+  # beside verdicts/ and pulled.json (nightly.yml NIGHTLY_NEXT_VERDICTS_BASE).
+  NIGHTLY_FEED_DIR: ${{ inputs.drill && 'drill/' || '' }}
+  NIGHTLY_HEALTH_DIR: ${{ inputs.drill && 'drill/health/' || 'next/health/' }}
 
 jobs:
   # No secrets: it only dispatches this workflow on nightly-next.
@@ -33,43 +76,202 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule' && vars.NIGHTLY_NEXT_HEALTH_GATE != 'off'
     permissions:
       actions: write # dispatch nightly-next-health.yml
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
-    # The cron fires every 15 minutes: wait at most 9 of them through a spent API budget, so a
-    # wait ends in the wrapper's own failure before the next run starts.
-    timeout-minutes: 14
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      GH_BUDGET_WAIT_MAX_SECONDS: "540"
     steps:
-      - name: Check out the GitHub API budget wait
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Dispatch the judge on nightly-next
+        run: gh workflow run nightly-next-health.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
+
+  judge:
+    if: >-
+      github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' &&
+      (github.event_name == 'workflow_dispatch' || inputs.drill) && (inputs.drill || vars.NIGHTLY_NEXT_HEALTH_GATE != 'off')
+    environment: release-next
+    permissions:
+      contents: read
+    # A literal ephemeral label: this job holds the feed's write token.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    outputs:
+      action: ${{ steps.judge.outputs.action }}
+      build: ${{ steps.judge.outputs.build }}
+      verdict: ${{ steps.judge.outputs.verdict }}
+      why: ${{ steps.judge.outputs.why }}
+      blind: ${{ steps.judge.outputs.blind }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .gh-budget-tooling
           sparse-checkout: |
-            scripts/ci/gh_budget_wait.sh
-            scripts/ci/gh_budget_wait.cjs
+            scripts/ci/nightly_next_health.py
+            scripts/ci/nightly-next-guard.py
+            scripts/ci/upload-r2-object.py
+            .gitmodules
           sparse-checkout-cone-mode: false
-      - name: Wait through GitHub API rate limits and 5xx in this job
-        working-directory: ${{ github.workspace }}
-        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-      # A scheduled job's calls on the job token share the repository's per-hour installation pool with
-      # every other workflow; spent, the call ends "HTTP 403: API rate limit exceeded for installation" and
-      # the nightly silently does not run (ios-reliability-matrix 11-23/11-25, cmux#57719). The cmux bot
-      # App's token has its own hour; the job token stays the fallback when it cannot be minted.
-      # Detector: scripts/ci/cron_dispatch_token_lint.py.
-      - name: Mint the cmux bot App token
-        id: app-token
-        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: write
-      - name: Dispatch the judge on nightly-next
+
+      - name: Read the feed
+        id: feed
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-        run: gh workflow run nightly-next-health.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          mkdir -p health/out
+          curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 -A "cmux-nightly-next-health/1" -H "Cache-Control: no-cache" \
+            -o health/feed.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_FEED_DIR}${NIGHTLY_APPCAST}?health=${GITHUB_RUN_ID}"
+          # The newest Nightly builds (RECENT), newest first, so a build superseded within one tick still gets
+          # a verdict; only the newest can be pulled. A dispatch with a build judges that one.
+          echo "builds=${BUILD:-$(python3 -I scripts/ci/nightly_next_health.py recent --feed health/feed.xml)}" >> "$GITHUB_OUTPUT"
+
+      # Each build: its earlier verdict (a 404 is none yet; any other failure skips the build this tick, so its
+      # first_session_at and failed_at are never reset), its reading, its verdict in health/out/<build>.json.
+      # The step's outputs are the first build's: the newest, or the dispatched one.
+      - name: Read Sentry release health and judge
+        id: judge
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          DRILL: ${{ inputs.drill }}
+          BUILDS: ${{ steps.feed.outputs.builds }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          first=1
+          for build in $BUILDS; do
+            existing=()
+            code="$(curl -sSL --retry 2 --connect-timeout 10 --max-time 30 -A "cmux-nightly-next-health/1" -H "Cache-Control: no-cache" \
+              -o "health/existing-$build.json" -w '%{http_code}' "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_HEALTH_DIR}${build}.json?health=${GITHUB_RUN_ID}" || true)"
+            case "$code" in
+              200) existing=(--existing "health/existing-$build.json") ;;
+              404) ;;
+              *) echo "::warning title=nightly-next health::build $build: its earlier verdict did not read (HTTP ${code:-none}); judged next tick"
+                 first=0  # a skipped newest build is never pulled this tick
+                 continue ;;
+            esac
+            now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if [ "$DRILL" = true ]; then
+              python3 -I scripts/ci/nightly_next_health.py drill-reading --build "$build" --now "$now" --out "health/reading-$build.json"
+            else
+              python3 -I scripts/ci/nightly_next_health.py sentry-read --feed health/feed.xml --build "$build" --out "health/reading-$build.json"
+            fi
+            result="$(python3 -I scripts/ci/nightly_next_health.py judge --feed health/feed.xml --reading "health/reading-$build.json" \
+              --build "$build" --now "$now" --run-url "$RUN_URL" --out "health/out/$build.json" "${existing[@]}")"
+            echo "$result"
+            if [ "$first" = 1 ]; then
+              first=0
+              python3 - "$result" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          r = json.loads(sys.argv[1])
+          print(f"action={r['action']}")
+          print(f"build={r['health']['build']}")
+          print(f"verdict={r['health']['verdict']}")
+          print(f"blind={'true' if r.get('blind') else 'false'}")
+          print("why=" + " ".join(r["why"].split()))
+          PY
+            fi
+          done
+
+      - name: Write the verdicts beside the builds
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for file in health/out/*.json; do
+            key="${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_HEALTH_DIR}$(basename "$file")"
+            python3 -I scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
+              --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type application/json \
+              --cache-control "no-cache, no-store, must-revalidate"
+          done
+
+      - name: Summary
+        if: always()
+        env:
+          BUILD: ${{ steps.judge.outputs.build }}
+          VERDICT: ${{ steps.judge.outputs.verdict }}
+          ACTION: ${{ steps.judge.outputs.action }}
+          WHY: ${{ steps.judge.outputs.why }}
+          MODE: ${{ inputs.drill && 'drill' || vars.NIGHTLY_NEXT_HEALTH_GATE || 'enforce' }}
+        run: |
+          {
+            echo "### cmux NEXT health: build ${BUILD:-unknown}"
+            echo ""
+            echo "Verdict: ${VERDICT:-none} ($WHY)"
+            echo ""
+            if [ "$ACTION" = rollback ] && [ "$MODE" = report ]; then
+              echo "NIGHTLY_NEXT_HEALTH_GATE is report: the build stays on the feed."
+            elif [ "$ACTION" = rollback ]; then
+              echo "Job rollback pulls it from the feed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$VERDICT" = unknown ]; then
+            echo "::warning title=nightly-next health::build $BUILD has no health verdict: $WHY"
+          fi
+
+  # A gate that cannot read Sentry can never pull a build (every verdict unknown, as from 2026-11-19 to
+  # 2026-11-22 on HTTP 403). This reports it: one issue (an open one is never repeated) and a red run. It
+  # refuses nothing and holds no feed token; the verdicts are already written.
+  blind:
+    needs: judge
+    if: needs.judge.outputs.blind == 'true' && !inputs.drill
+    permissions:
+      issues: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD: ${{ needs.judge.outputs.build }}
+      WHY: ${{ needs.judge.outputs.why }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/nightly_next_health.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Open one issue and end red
+        run: |
+          set -euo pipefail
+          python3 - > result.json <<'PY'
+          import json, os
+          print(json.dumps({"health": {"build": os.environ["BUILD"]}, "why": os.environ["WHY"]}))
+          PY
+          python3 -I scripts/ci/nightly_next_health.py blind-report --result result.json --run-url "$RUN_URL" > report.json
+          title="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["title"])' report.json)"
+          python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["body"])' report.json > body.md
+          open="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")"
+          if [ -z "$open" ]; then
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+          else
+            echo "issue #$open is open already"
+          fi
+          echo "::error title=nightly-next health::the gate is blind: build $BUILD was not judged ($WHY)"
+          exit 1
+
+  rollback:
+    needs: judge
+    if: needs.judge.outputs.action == 'rollback' && (inputs.drill || vars.NIGHTLY_NEXT_HEALTH_GATE != 'report')
+    # The real rollback jobs. GitHub checks a called workflow's permissions against its caller's, so
+    # this grants the fix-forward's (it never runs for a drill).
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    uses: ./.github/workflows/nightly-next-rollback.yml
+    secrets:
+      NIGHTLY_NEXT_R2_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+      NIGHTLY_NEXT_R2_ACCOUNT_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}
+    with:
+      reason: "health gate: ${{ needs.judge.outputs.why }} (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+      bad_build: ${{ needs.judge.outputs.build }}
+      if_newest: ${{ needs.judge.outputs.build }}
+      drill: ${{ inputs.drill }}

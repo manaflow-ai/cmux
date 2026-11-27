@@ -1,4 +1,3 @@
-import AuthenticationServices
 import CMUXAuthCore
 import Foundation
 import Testing
@@ -536,7 +535,8 @@ import Testing
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
-        #expect(harness.flow.lastFailure == nil)
+        // No issued state and no sign-out this run: the relaunch case offers a retry.
+        #expect(harness.flow.lastFailure == .invalidCallback)
     }
 
 }

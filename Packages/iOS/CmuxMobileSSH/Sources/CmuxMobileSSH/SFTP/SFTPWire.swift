@@ -129,7 +129,11 @@ struct SFTPReader {
         return bytes[offset..<(offset + count)]
     }
 
-    mutating func byte() throws -> UInt8 { try take(1).first! }
+    mutating func byte() throws -> UInt8 {
+        // take(1) returns exactly one byte or throws.
+        guard let byte = try take(1).first else { throw SFTPError.unexpectedPacket("truncated packet") }
+        return byte
+    }
 
     mutating func uint32() throws -> UInt32 {
         try take(4).reduce(0) { $0 << 8 | UInt32($1) }

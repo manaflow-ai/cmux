@@ -1,5 +1,9 @@
 import CmuxConversationGeometry
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Foundation
 import Testing
 
@@ -11,12 +15,10 @@ import Testing
     /// closes the share that two of them would compound to over 1/60 s
     /// (ChatKit: `(1 - e) * (1 - (1 - e)^(dt * 60)) / e`, at most 1).
     @Test func stepSumsSixtyHertzFramesOverTheFrameLength() {
-        let sixtyHertzStep = ConversationTranscriptDynamics.step(easing: 0.25, duration: 1.0 / 60)
-        #expect(abs(sixtyHertzStep - 0.75) < 1e-12)
+        #expect(abs(ConversationTranscriptDynamics.step(easing: 0.25, duration: 1.0 / 60) - 0.75) < 1e-12)
         let e = 0.25, n = 0.5
         let expected = (1 - e) * (1 - pow(1 - e, n)) / e
-        let oneTwentyHertzStep = ConversationTranscriptDynamics.step(easing: e, duration: 1.0 / 120)
-        #expect(abs(oneTwentyHertzStep - expected) < 1e-12)
+        #expect(abs(ConversationTranscriptDynamics.step(easing: e, duration: 1.0 / 120) - expected) < 1e-12)
         // Rigid when there is no easing, and never past the target.
         #expect(ConversationTranscriptDynamics.step(easing: 0, duration: 1.0 / 120) == 1)
         #expect(ConversationTranscriptDynamics.step(easing: 0.01, duration: 1.0 / 20) == 1)

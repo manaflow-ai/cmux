@@ -1,6 +1,10 @@
 # Project environments in the cloud: `cmux vm dev`
 
-Status: design. The command examples below use the shipped grammar; manifest
+> **CLI note (2026-09-30):** `cmux vm dev`, `vm env` and `vm layout` from the Mac were
+> removed in the Rust CLI cutover, so this design has no shipped entry point now. Inside
+> a machine, `cmux env` and `cmux layout apply` remain in the guest adapter.
+
+Status: design. The command examples below use the grammar of the removed Swift CLI; manifest
 replay and automatic machine selection remain proposed. Builds on the shipped primitives (route/push/exec/workspace/terminal,
 per-size snapshots, VPC + tunnel, in-VM `cmux`); nothing here invents a new transport.
 

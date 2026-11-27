@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension AgentQuestion {
     /// Maps an acpmux `permission_request` record (the ACP

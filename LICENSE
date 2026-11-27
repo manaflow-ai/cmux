@@ -15,8 +15,10 @@ production use, including self-hosting:
   workers/ci-artifacts/
   workers/iroh-v2/
   workers/presence/
+  workers/device-hub/
   services/iroh-relay-minter/
   cmux-tui/relays/cloudflare-do/
+  backend/
 
 The macOS app, iOS app, CLI, cmux-tui, and all other directories remain under
 the license that this file or their own notices state.

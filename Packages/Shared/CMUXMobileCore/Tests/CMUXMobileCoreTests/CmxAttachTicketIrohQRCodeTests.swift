@@ -133,13 +133,13 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     #expect(pairingDecoded.expiresAt == nil)
     #expect(pairingDecoded.authToken == nil)
 
+    #if canImport(CoreImage)
     let compactBase64 = encoded.base64EncodedString()
         .replacingOccurrences(of: "+", with: "-")
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
     let beforeURL =
         "\(compactIrohQRTarget.rawValue)://attach?v=1&payload=\(compactBase64)"
-    #if canImport(CoreImage)
     let beforeImage = try #require(CmxPairingQRBitmap().makeImage(payload: beforeURL))
     let afterImage = try #require(CmxPairingQRBitmap().makeImage(payload: pairingURL))
     let quietZone = CmxPairingQRBitmap.quietZoneModules * 2

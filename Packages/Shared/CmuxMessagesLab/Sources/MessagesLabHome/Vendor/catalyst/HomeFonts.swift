@@ -20,13 +20,6 @@ import os
 /// came back nil and `addAttribute` threw "nil value" (cx-qpqs). One font
 /// held here keeps the instance alive, so no lookup races its release.
 enum HomeFonts {
-    /// AppKit fonts are reference types and are explicitly non-Sendable. The
-    /// cache owns them behind its unfair lock and holds each value for the
-    /// process, so the wrapper is the audited Sendable boundary.
-    private struct HeldFont: @unchecked Sendable {
-        let value: UIFont
-    }
-
     #if canImport(UIKit)
     typealias Weight = UIFont.Weight
     #else
@@ -114,7 +107,7 @@ enum HomeFonts {
     static func font(_ base: UIFont, adding traits: UIFontDescriptor.SymbolicTraits) -> UIFont? {
         let all = base.fontDescriptor.symbolicTraits.union(traits)
         let key = Key(size: quantized(base.pointSize), weight: 0, traits: all.rawValue, monospaced: false, name: base.fontName)
-        if let hit = store.withLock({ $0[key] }) { return hit.value }
+        if let hit = store.withLock({ $0[key] }) { return hit }
         #if canImport(UIKit)
         guard let d = base.fontDescriptor.withSymbolicTraits(all) else { return nil }
         // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
@@ -123,13 +116,11 @@ enum HomeFonts {
         // crash-allow: made once under the HomeFonts store lock and held for the process (the cx-qpqs cache itself)
         guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = UIFont(descriptor: d, size: key.size) else { return nil }
         #endif
-        let created = HeldFont(value: font)
-        let retained: HeldFont = store.withLock { fonts in
+        return store.withLock { fonts in
             if let held = fonts[key] { return held }
-            if fonts.count < limit { fonts.updateValue(created, forKey: key) } else { full() } // dictionary write
-            return created
+            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
+            return font
         }
-        return retained.value
     }
 
     private struct Key: Hashable {
@@ -140,7 +131,7 @@ enum HomeFonts {
         var name = ""
     }
 
-    private static let store = OSAllocatedUnfairLock<[Key: HeldFont]>(initialState: [:])
+    private static let store = OSAllocatedUnfairLock<[Key: UIFont]>(initialState: [:])
 
     /// The exact size: a rounded size draws other pixels (the HA HA glyph is 42% of its box,
     /// 7.56 pt, which a half-point store drew at 7.5 pt). The store is bounded by `limit`
@@ -159,17 +150,14 @@ enum HomeFonts {
     }
 
     private static func cached(_ key: Key, make: () -> UIFont) -> UIFont {
-        // Make outside the lock so the non-Sendable AppKit value never crosses
-        // the lock's @Sendable closure boundary. The created font is wrapped
-        // before it is captured; a racing miss may create a duplicate, but the
-        // cache still publishes and retains exactly one value for the key.
-        let created = HeldFont(value: make())
-        let retained: HeldFont = store.withLock { fonts in
+        // Made under the lock: one creation per key, and no thread drops it.
+        // `make` must not call back into the store (the lock is not reentrant).
+        store.withLock { fonts in
             if let held = fonts[key] { return held }
-            if fonts.count < limit { fonts.updateValue(created, forKey: key) } else { full() } // dictionary write
-            return created
+            let font = make()
+            if fonts.count < limit { fonts.updateValue(font, forKey: key) } else { full() } // dictionary write
+            return font
         }
-        return retained.value
     }
 
     /// The reference an AppKit factory annotated nonnull returned, read as an
@@ -179,3 +167,4 @@ enum HomeFonts {
         unsafeBitCast(font, to: UIFont?.self)
     }
 }
+

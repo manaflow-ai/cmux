@@ -305,6 +305,25 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         }
     }
 
+    #if DEBUG
+    /// DEBUG lab: taps a setting's switch as a finger does. UISwitch's own
+    /// tap runs `setOn(!isOn, animated: true)` and then sends
+    /// `.valueChanged`; synthesized touches cannot toggle a switch in a
+    /// headless simulator, so a scripted run uses this.
+    func labTapSwitch(_ name: String) -> String {
+        let toggle: UISwitch
+        switch name {
+        case "hideAlerts": toggle = alertsSwitch
+        case "readReceipts": toggle = receiptsSwitch
+        default: return "error unknown switch \(name)"
+        }
+        guard toggle.window != nil, toggle.isEnabled else { return "error switch not on screen" }
+        toggle.setOn(!toggle.isOn, animated: true)
+        toggle.sendActions(for: .valueChanged)
+        return "ok \(toggle.isOn ? "on" : "off")"
+    }
+    #endif
+
     @objc private func alertsToggled(_ sender: UISwitch) {
         store.updateListState(.init(muted: sender.isOn))
     }

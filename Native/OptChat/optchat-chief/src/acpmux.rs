@@ -1,0 +1,2019 @@
+//! The acpmux side: the port the turn runner and the brain use, and its real
+//! implementation over the acpmux socket, which reconnects on its own and
+//! routes notifications to the turn that owns a session or to the brain.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use cmux_chief::acp::{AcpmuxEvent, SessionSummary};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use crate::rpc::{Notification, RpcClient, RpcError};
+
+/// Longest wait for one steer withdraw (`withdraw_steer`).
+const WITHDRAW_WAIT: Duration = Duration::from_secs(5);
+
+/// A new acpmux session.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionSpec {
+    pub name: String,
+    pub cwd: PathBuf,
+    pub harness: String,
+    pub policy: String,
+    pub model: Option<String>,
+    /// acpmux's `effort` (a harness config option); None: the harness default.
+    pub effort: Option<String>,
+    /// A preset the session requires: it never starts without it (the
+    /// compactor). None: the port's turn preset when installed.
+    pub preset: Option<String>,
+    /// acpmux tags set on the session right after it is created.
+    pub tags: BTreeMap<String, String>,
+    /// Per-session env (acpmux `_meta.acpmux.env`, unix socket only, an
+    /// allowlist: CMUX_WORKSPACE_ID); empty for none.
+    pub env: BTreeMap<String, String>,
+    /// The fast service tier (codex-acp's `fast-mode` config option, set
+    /// right after session/new); false: the harness's default speed.
+    pub fast: bool,
+    /// The acpmux peer (`acpmux host ls`) the session is created on
+    /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
+    pub peer: Option<String>,
+    /// When the session's agent may stop (acpmux `_meta.acpmux.stopCondition`): acpmux gives
+    /// Claude Code it as a prompt Stop hook at every start, the hook `/goal` adds, so the agent
+    /// goes on until it holds (goal.rs). None: it stops when its turn ends.
+    pub stop_condition: Option<String>,
+}
+
+/// The tag on every session the Chief itself runs (its turns and its
+/// compactor nodes), valued with its home id; its children never carry it
+/// (they keep `mux.parent`). Quit counts and endAgents exclude these.
+pub const CHIEF_TAG: &str = "cmux.chief";
+/// `turn` or `compactor`, next to `cmux.chief`.
+pub const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
+/// The compactor's `cmux.chief.role`.
+pub const COMPACTOR_ROLE: &str = "compactor";
+
+/// The tags of a Chief session of `role` for home `home_id`.
+pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        (CHIEF_TAG.to_owned(), home_id.to_owned()),
+        (CHIEF_ROLE_TAG.to_owned(), role.to_owned()),
+    ])
+}
+
+/// On a turn session: the Chief's participant id (`agent_mux`, `agent_…`).
+/// acpmux stamps it as `fromChief` on a message the turn sends another chat
+/// (its `prompt_provenance::session_message_from`), and the app draws that
+/// Chief's name and picture there, not the turn's session name
+/// (manaflow-ai/cmux#27914).
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+
+/// A turn session's tags: [`chief_tags`] plus the names acpmux puts on its
+/// approval cards (Leo 2026-10-21, #89(4): "Chief wants to message a12 ·
+/// Nightly train"): the asker is the Chief by its own name (`title`, else
+/// "Chief"), and its children are the sessions whose `mux.parent` is
+/// `parent`; and the Chief's `participant` id.
+pub fn turn_tags(
+    home_id: &str,
+    parent: &str,
+    participant: &str,
+    title: Option<&str>,
+) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{CHIEF_DISPLAY_NAME, CHILDREN_TAG, LABEL_TAG};
+    let mut tags = chief_tags(home_id, "turn");
+    let label = title
+        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| CHIEF_DISPLAY_NAME.to_owned());
+    tags.insert(LABEL_TAG.to_owned(), label);
+    tags.insert(CHILDREN_TAG.to_owned(), parent.to_owned());
+    tags.insert(CHIEF_PARTICIPANT_TAG.to_owned(), participant.to_owned());
+    tags
+}
+
+/// A harness's family, as acpmux reports it: it decides the layout and the
+/// isolation each Chief session gets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Family {
+    /// Claude Code (claude, claude-sr, ...): preset system prompts, cache
+    /// markers, `CLAUDE_CONFIG_DIR`.
+    Claude,
+    /// Codex (codex-acp): automatic prefix caching routed by
+    /// `prompt_cache_key`, `CODEX_HOME`.
+    Codex,
+    /// Any other harness: the codex layout without codex's settings.
+    Other,
+}
+
+/// The codex-acp mode without codex's workspace-write sandbox. Its
+/// sandbox denies connect(2) to the cmux app and daemon sockets, so a
+/// codex session the Chief runs under approve-all (the posture of its
+/// Claude sessions, which run unsandboxed) takes this mode (E6).
+pub const CODEX_FULL_ACCESS_MODE: &str = "agent-full-access";
+
+/// The mode a fresh Chief session (a turn or a subagent) takes on `family`
+/// under `policy`: full access for codex under approve-all, else its own.
+pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> {
+    (family == Family::Codex && policy == "approve-all").then_some(CODEX_FULL_ACCESS_MODE)
+}
+
+/// The mode a Chief turn session takes before each prompt: a codex one's as
+/// [`chief_session_mode`]; a Claude one under approve-all, the Chief's
+/// permission mode (`claude`, `engine::permission_mode`, cmux#37392:
+/// `bypassPermissions` unless the person or `chief engine set --mode`
+/// chose `auto` or `default`). Under `ask`, only Manual (`default`), which a
+/// Manual owner turn runs under (brain/turns.rs); else its own (a turn that
+/// carries another person's text): never wider than that policy.
+pub fn chief_turn_mode<'a>(
+    family: Family,
+    policy: &str,
+    claude: Option<&'a str>,
+) -> Option<&'a str> {
+    match family {
+        // Under approve-all, the Chief's mode; under `ask` (a Manual owner
+        // turn), only Manual, which never widens what `ask` allows.
+        Family::Claude if policy == "approve-all" || claude == Some("default") => claude,
+        _ => chief_session_mode(family, policy),
+    }
+}
+
+impl Family {
+    pub fn from_name(family: &str) -> Family {
+        match family {
+            "claude" => Family::Claude,
+            "codex" => Family::Codex,
+            _ => Family::Other,
+        }
+    }
+}
+
+/// The family of `harness` in an `_acpmux/harnesses` answer: the `family`
+/// acpmux reports (a declared one, else derived from the harness kind and
+/// command). A daemon from before that field: derived here the same way,
+/// from `kind` and the command's words, never from the harness's name.
+pub fn harness_family(answer: &Value, harness: &str) -> Result<Family, String> {
+    cmux_chief::policy::harness::family(answer, harness).map(|f| Family::from_name(&f))
+}
+
+/// `_acpmux/harnesses` from the daemon at `socket` (started when it does not
+/// answer, as the link starts it), on a connection of its own.
+pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<Value, String> {
+    crate::acpmux_daemon::ensure(socket, log)?;
+    let client = crate::acpmux_peer::connect(socket, |_| {})
+        .map_err(|e| format!("connect {}: {e}", socket.display()))?;
+    let result = client
+        .request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
+        )
+        .map_err(|e| format!("initialize: {e}"))
+        .and_then(|init| {
+            let mut answer = client
+                .request("_acpmux/harnesses", json!({}))
+                .map_err(|e| format!("harnesses: {e}"))?;
+            // What the daemon can do, for the brains (brain_home.rs `prepare`).
+            if let Some(map) = answer.as_object_mut() {
+                map.insert(
+                    DAEMON_FEATURES.to_owned(),
+                    json!({
+                        "builtinPresets": builtin_presets(&init),
+                        "brainPresets": has_feature(&init, BRAIN_PRESETS_FEATURE),
+                    }),
+                );
+            }
+            Ok(answer)
+        });
+    client.close();
+    result
+}
+
+/// The key `query_harnesses` adds to its answer: `{builtinPresets, brainPresets}`.
+pub const DAEMON_FEATURES: &str = "optchatDaemonFeatures";
+
+/// acpmux's `initialize` feature for the brain turn presets (acpmux
+/// `chief_builtins::BRAIN_PRESETS_FEATURE`).
+pub const BRAIN_PRESETS_FEATURE: &str = "chiefBrainPresets";
+
+fn has_feature(init: &Value, feature: &str) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == feature))
+}
+
+/// Whether the daemon's `initialize` says it defines the Chief's presets
+/// (`_meta.acpmux.features` has `chiefBuiltinPresets`).
+fn builtin_presets(init: &Value) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == "chiefBuiltinPresets"))
+}
+
+/// What a running turn hears about its session.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TurnSignal {
+    /// Reply text streamed (drafts, `draft.rs`): read soon, at most every
+    /// `draft::STREAM_GAP`.
+    Streamed,
+    /// New events that matter for the log (not text chunks, but for a
+    /// prompt's first, which says its response started): fetch them.
+    Changed,
+    /// New events that are not the harness's own (acpmux's echo of a
+    /// prompt or steer we sent, its status), or a timer: fetch them, but
+    /// they are no progress of the turn (the idle watchdog, `turn.rs`).
+    Noted,
+    /// The prompt's answer: the turn ended (or never started, on an error).
+    Done(Result<Value, String>),
+    /// The acpmux connection ended during the turn.
+    Lost,
+}
+
+/// What the brain hears from acpmux.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AgentEvent {
+    /// Connected (again): every session, for reconciling children.
+    Up(Vec<SessionSummary>),
+    Down,
+    /// The acpmux daemon this host started or joined shut down (its socket
+    /// is gone): the host never starts another and stops.
+    Ended,
+    SessionChanged(SessionSummary),
+    Permission {
+        session_id: String,
+        permission_id: String,
+        request: Value,
+    },
+    /// A turn Claude Code ran on its own (acpmux `background_turn`: a
+    /// background task ended, a wakeup, a hook) in a session no turn of this
+    /// host runs now: `state` is `started` or `ended`.
+    BackgroundTurn {
+        session_id: String,
+        state: String,
+    },
+}
+
+/// The wait for a steer's answer (`AgentPort::start_steer`).
+pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
+
+/// The acpmux operations the Chief needs. Implemented over the socket here
+/// and by in-process fakes in tests.
+pub trait AgentPort: Send + Sync {
+    /// Creates a session; returns its id.
+    fn new_session(&self, spec: &SessionSpec) -> Result<String, String>;
+    /// [`Self::new_session`], asking `keep_waiting` about once a second, with how long the start
+    /// has taken, whether to go on. False ends the wait with an error; the start may still run
+    /// in acpmux, under the session's name.
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        _keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        self.new_session(spec)
+    }
+    /// [`Self::new_session`] with no preset at all (not the port's turn
+    /// preset): a session on a harness of its own (brain/chief_inbox.rs).
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        self.new_session(spec)
+    }
+    /// Sends a prompt as a new turn; the session's signals and the answer go to `signals`.
+    fn start_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String>;
+    /// The session's recorded events after `after`, oldest first.
+    fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String>;
+    /// Stops routing the session's signals and removes the session.
+    fn end_session(&self, session: &str) -> Result<(), String>;
+    /// A session's id by name.
+    fn find(&self, name: &str) -> Result<Option<String>, String>;
+    /// The names of every session this daemon holds (`_acpmux/sessions`).
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    /// A session's summary by id (None: no such session).
+    fn session(&self, _id: &str) -> Result<Option<SessionSummary>, String> {
+        Ok(None)
+    }
+    /// Stops the session's running turn (`session/cancel`; Claude Code gets an
+    /// interrupt). The turn then ends with stop reason `cancelled`.
+    fn cancel(&self, _session: &str) -> Result<(), String> {
+        Err("cancel is not supported".into())
+    }
+    /// Ends every background process of `session` that still runs
+    /// (`_acpmux/process/list`, then `_acpmux/process/kill` of each): the
+    /// shells a harness started to outlive its turn. How many it ended.
+    fn kill_processes(&self, _session: &str) -> Result<usize, String> {
+        Err("ending background processes is not supported".into())
+    }
+    /// Takes a prompt that still waits in `session`'s queue out of it
+    /// (`_acpmux/queue_remove`): true when it was removed, false when it no
+    /// longer waits (it ran or was removed).
+    fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Err("removing queued prompts is not supported".into())
+    }
+    /// Moves the session's running foreground work to the background
+    /// (`_acpmux/process/background`, Claude Code's Ctrl-B): the call runs
+    /// on, its result comes when it ends, and the agent reads a waiting
+    /// message now. True when something moved.
+    fn background_work(&self, _session: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+    /// Takes back a steer the harness has not read yet (`_acpmux/queue_edit
+    /// op=withdraw`, Claude Code's `cancel_async_message`): true when it was
+    /// dropped unread, false when the harness read it or cannot take one back.
+    /// Blocks until the harness answers.
+    fn withdraw_steer(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+    /// Sets `session`'s harness mode (`session/set_mode`).
+    fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
+        Err("set_mode is not supported".into())
+    }
+    /// Asks acpmux to probe `harness`'s models now (`_acpmux/models
+    /// {"probe": [harness]}`): a harness outside the start-time probe list
+    /// (`ACPMUX_PROBE_HARNESSES`) the Chief now uses. Does not wait.
+    fn probe_models(&self, _harness: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// The models acpmux offers for `harness` (`_acpmux/models`), each
+    /// `{"id", "name"}` with the picker's catalog fields, in its order: what
+    /// an engine set may pick.
+    fn offered_models(&self, _harness: &str) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+
+    /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
+    /// command and family (`harness_gate::admit` reads it before each Chief
+    /// session). A port without one refuses every Chief session.
+    fn harness_catalog(&self) -> Result<Value, String> {
+        Err("this acpmux port reports no harness catalog".into())
+    }
+
+    /// Read-only catalogs on the selected machine; no credential transfer.
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        if peer.is_some() {
+            return Err("peer harness catalog is unavailable".into());
+        }
+        self.harness_catalog()
+    }
+
+    fn harness_health_on(&self, _peer: Option<&str>) -> Result<Value, String> {
+        Ok(json!({"harnesses": []}))
+    }
+
+    /// Cached paired-machine health plus this host's current health.
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(json!({"here": {"os": std::env::consts::OS, "pressure": {"ok": true}}, "peers": []}))
+    }
+
+    /// Answers a pending permission request of `session`
+    /// (`_acpmux/permission_respond`) with `option` (None: cancelled).
+    fn respond_permission(
+        &self,
+        _session: &str,
+        _permission: &str,
+        _option: Option<&str>,
+    ) -> Result<(), String> {
+        Err("answering permissions is not supported".into())
+    }
+    /// Sends `blocks` into `session`'s running turn, to be read between its
+    /// tool calls (a steered `session/prompt`, `steerOnly`), and returns at
+    /// once with the wait for acpmux's answer: Ok once the harness took
+    /// them (Claude Code at its next tool boundary; codex-acp at the turn's
+    /// end). Err: the session could not take them (no running turn, a
+    /// harness that does not steer); nothing was delivered. Calls on one
+    /// thread reach the harness in call order.
+    fn start_steer(
+        &self,
+        _session: &str,
+        _blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        Err("steering is not supported".into())
+    }
+    /// `start_steer`, then its wait.
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer(session, blocks, prompt_id)?()
+    }
+    /// `start_steer` read now (`_meta.acpmux.steerNow`): acpmux stops the agent's current step
+    /// so it reads the message at once, as the pane's Send now does; the turn runs on. A running
+    /// subagent or background shell is never stopped for it. The Chief's tell (Lawrence,
+    /// 2026-10-26: "interrupt by default"). An acpmux without it takes a plain steer.
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.start_steer(session, blocks, prompt_id)
+    }
+    /// `start_steer_now`, then its wait.
+    fn steer_now(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer_now(session, blocks, prompt_id)?()
+    }
+    /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
+    /// app's pane never asks about a folder the host made itself.
+    fn trust_folder(&self, _cwd: &std::path::Path) -> Result<(), String> {
+        Err("trusting folders is not supported".into())
+    }
+    /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
+    /// session of `harness` and `preset` in `cwd`, so the next `session/new`
+    /// of exactly that shape takes a harness that is already up.
+    fn prewarm(
+        &self,
+        _harness: &str,
+        _preset: Option<&str>,
+        _cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    /// Whether the connected daemon installed `preset` at all (None: this
+    /// port does not know).
+    fn preset_installed(&self, _preset: &str) -> Option<bool> {
+        None
+    }
+    /// Installs `preset` again on the connected daemon (the install at
+    /// connect can fail while the daemon is busy); the lines it logged.
+    /// At most once per PRESET_REFRESH; nothing when not connected.
+    fn refresh_preset(&self, _preset: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Whether the connected daemon installed `preset` with its `args`.
+    fn preset_args(&self, _preset: &str) -> bool {
+        false
+    }
+    /// Whether the connected daemon installed `preset` with a system prompt
+    /// (it knows `systemPrompt`): the cached layout.
+    fn system_prompt(&self, _preset: &str) -> bool {
+        false
+    }
+    /// Replaces preset `preset`'s system prompt text (acpmux writes the file
+    /// and records its new sha256); sessions that start after it use it.
+    fn set_system_prompt(&self, _preset: &str, _text: &str) -> Result<(), String> {
+        Err("this acpmux takes no preset system prompt".into())
+    }
+}
+
+/// Event kinds that never change the log by themselves; a turn fetches
+/// events only on the others, so streaming text costs no requests.
+fn is_noise(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_message_chunk" | "agent_thought_chunk" | "usage_update" | "user_message_chunk"
+    )
+}
+
+type Sink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
+
+/// An acpmux preset every turn session starts with: its env reaches the
+/// harness process (acpmux puts a preset's env over the profile's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Preset {
+    pub name: String,
+    /// The harness the preset names (acpmux requires one); turn sessions
+    /// still pass their own explicitly.
+    pub harness: String,
+    pub env: BTreeMap<String, String>,
+    /// Words appended to the harness command (acpmux preset `args`, one argv
+    /// word each, no shell). A daemon from before `args` refuses the key; the
+    /// preset is then installed without them and `preset_args` says so.
+    pub args: Vec<String>,
+    /// The preset's system prompt text at install (acpmux `systemPrompt`,
+    /// Claude harnesses only): acpmux writes it into its own preset directory
+    /// and records its sha256; `set_system_prompt` replaces it later. A
+    /// daemon from before `systemPrompt` refuses the key; the preset is then
+    /// installed without it and `system_prompt` says so.
+    pub system_prompt: Option<String>,
+}
+
+/// The real port: one connection at a time to the acpmux daemon.
+pub struct Acpmux {
+    socket: PathBuf,
+    client: Mutex<Option<Arc<RpcClient>>>,
+    turns: Arc<Mutex<HashMap<String, TurnRoute>>>,
+    /// The turn sessions' preset, used when installed (else a turn runs with
+    /// the harness's own configuration, and host.log says so).
+    preset: Option<Preset>,
+    /// Presets that sessions name in `SessionSpec::preset` and require.
+    required: Vec<Preset>,
+    /// Presets installed in the connected daemon.
+    ready: Mutex<HashSet<String>>,
+    /// Presets installed with their `args` (the daemon knows the key).
+    with_args: Mutex<HashSet<String>>,
+    /// Presets installed with a system prompt (the daemon knows `systemPrompt`).
+    with_prompt: Mutex<HashSet<String>>,
+    /// Whether the connected daemon defines the Chief's presets itself.
+    builtins: std::sync::atomic::AtomicBool,
+    /// When `refresh_preset` last ran, by preset.
+    refreshed: Mutex<HashMap<String, std::time::Instant>>,
+    /// Whether the link may start a daemon on the socket when none answers
+    /// (false: [`Acpmux::joining`]).
+    starts: bool,
+}
+
+/// The shortest time between two `refresh_preset` runs for one preset.
+const PRESET_REFRESH: Duration = Duration::from_secs(30);
+
+impl Acpmux {
+    pub fn new(socket: PathBuf, preset: Option<Preset>, required: Vec<Preset>) -> Arc<Acpmux> {
+        Arc::new(Acpmux::build(socket, preset, required, true))
+    }
+
+    fn build(
+        socket: PathBuf,
+        preset: Option<Preset>,
+        required: Vec<Preset>,
+        starts: bool,
+    ) -> Acpmux {
+        Acpmux {
+            socket,
+            client: Mutex::new(None),
+            turns: Arc::new(Mutex::new(HashMap::new())),
+            preset,
+            required,
+            ready: Mutex::new(HashSet::new()),
+            with_args: Mutex::new(HashSet::new()),
+            with_prompt: Mutex::new(HashSet::new()),
+            builtins: std::sync::atomic::AtomicBool::new(false),
+            refreshed: Mutex::new(HashMap::new()),
+            starts,
+        }
+    }
+
+    /// A port on a daemon someone else runs (this machine's default daemon,
+    /// which a moved Chief's handed-over subagents run on: placed_agents.rs):
+    /// no presets, and its link never starts a daemon there.
+    pub fn joining(socket: PathBuf) -> Arc<Acpmux> {
+        Arc::new(Acpmux::build(socket, None, Vec::new(), false))
+    }
+
+    /// Installs (or refreshes) every preset; acpmux saves them in its config.
+    /// A daemon that does not know a key refuses it ("unknown preset key"):
+    /// the preset is installed again without it, and its users keep the
+    /// layout without (args before #17283, systemPrompt before the preset
+    /// system prompt).
+    /// `builtins`: the daemon defines the Chief's presets itself
+    /// (acpmux `config/chief_builtins.rs`): they are installed by name with
+    /// no env, which only the person may set since acpmux cx-1l61. An
+    /// older daemon gets the env as before.
+    /// `only`: install that one preset and keep the others' state.
+    fn install_presets(
+        &self,
+        client: &RpcClient,
+        log: &dyn Fn(&str),
+        builtins: bool,
+        only: Option<&str>,
+    ) {
+        let mut ready = HashSet::new();
+        let mut with_args = HashSet::new();
+        let mut with_prompt = HashSet::new();
+        let all = self.preset.iter().map(|p| (p, false));
+        for (preset, required) in all.chain(self.required.iter().map(|p| (p, true))) {
+            if only.is_some_and(|name| name != preset.name) {
+                continue;
+            }
+            let mut set = json!({
+                "harness": preset.harness,
+                "description": "optchat-chief: an isolated Claude Code configuration",
+            });
+            if !builtins {
+                set["env"] = json!(preset.env);
+            }
+            // Always say both: acpmux merges a set into the preset it saved,
+            // and the last host's Claude args or system prompt (an engine
+            // switch on the same daemon) would stay and refuse a codex set.
+            set["args"] = if preset.args.is_empty() {
+                Value::Null
+            } else {
+                json!(preset.args)
+            };
+            set["systemPrompt"] = preset
+                .system_prompt
+                .as_ref()
+                .map_or(Value::Null, |text| json!(text));
+            let result = loop {
+                let result =
+                    client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
+                let Err(e) = &result else { break result };
+                let text = e.to_string();
+                // An unknown key ("unknown preset key \"systemPrompt\"; use
+                // ..., args, ...") or a refused value ("systemPrompt: ...",
+                // "args: ...").
+                let key = if text.contains("key \"systemPrompt\"") || text.contains("systemPrompt:")
+                {
+                    "systemPrompt"
+                } else if text.contains("args") {
+                    "args"
+                } else {
+                    break result;
+                };
+                let Some(map) = set.as_object_mut() else {
+                    break result;
+                };
+                // A daemon older than the isolation args: keep the args it
+                // knows (`--tools ""` and the rest), drop only those.
+                // First the --tools list alone (an acpmux that knows the
+                // setting source keeps it), then every isolation word.
+                if key == "args"
+                    && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
+                    && let Some(kept) = project_sources_only(args)
+                        .or_else(|| without_tools_list(args))
+                        .or_else(|| without_isolation_args(args))
+                {
+                    *args = kept;
+                    log(&format!(
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (the local setting source, then a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
+                        preset.name
+                    ));
+                    continue;
+                }
+                if map.remove(key).is_none() {
+                    break result;
+                }
+                log(&format!(
+                    "acpmux refused the {key} of preset {} ({text}); installed without it",
+                    preset.name
+                ));
+            };
+            match result {
+                Ok(_) => {
+                    ready.insert(preset.name.clone());
+                    if set.get("args").is_some_and(|args| !args.is_null()) {
+                        with_args.insert(preset.name.clone());
+                    }
+                    if set.get("systemPrompt").is_some_and(|text| !text.is_null()) {
+                        with_prompt.insert(preset.name.clone());
+                    }
+                }
+                Err(e) if required => log(&format!(
+                    "acpmux preset {} not installed ({e}); sessions that require it do not start",
+                    preset.name
+                )),
+                Err(e) => log(&format!(
+                    "acpmux preset {} not installed ({e}); turns run with the user's Claude configuration",
+                    preset.name
+                )),
+            }
+        }
+        let store = |set: &Mutex<HashSet<String>>, new: HashSet<String>| {
+            let mut set = set
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match only {
+                Some(name) => {
+                    set.remove(name);
+                    set.extend(new);
+                }
+                None => *set = new,
+            }
+        };
+        store(&self.ready, ready);
+        store(&self.with_args, with_args);
+        store(&self.with_prompt, with_prompt);
+    }
+
+    fn client(&self) -> Result<Arc<RpcClient>, String> {
+        self.client
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .filter(|c| !c.is_closed())
+            .ok_or_else(|| "acpmux is not connected".to_owned())
+    }
+
+    /// A steer into `session`'s running turn (`steerOnly`: refused, never queued, when it
+    /// cannot steer now); `now` asks acpmux to stop the agent's step for it (`steerNow`).
+    fn send_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<SteerWait, String> {
+        let mut mux = json!({"promptId": prompt_id, "steer": true, "steerOnly": true});
+        if now {
+            mux["steerNow"] = json!(true);
+        }
+        // Written now, on the caller's thread: steers keep their order.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": mux}}),
+        );
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Taken back unread (the person's X in the pane, or the Chief's
+            // own withdraw): not delivered.
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("withdrawn") => {
+                Err("steer: withdrawn before the agent read it".into())
+            }
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }))
+    }
+
+    /// Runs the connection loop on its own thread: start the daemon if needed,
+    /// connect, report sessions, wait for the end, back off, again.
+    pub fn spawn_link(self: &Arc<Self>, sink: Sink, log: Arc<dyn Fn(&str) + Send + Sync>) {
+        let this = self.clone();
+        let report = log.clone();
+        let spawned = std::thread::Builder::new()
+            .name("acpmux-link".into())
+            .spawn(move || {
+                let mut delay = Duration::from_millis(500);
+                // The host starts the daemon only before its first link: once
+                // that daemon (or the one it joined) shuts down and no next
+                // daemon takes its socket within HANDOFF_WAIT, the host's
+                // sessions ended with it, and it never starts another.
+                let mut linked = false;
+                // A refused socket peer (cx-ggai) is logged once, not at every retry.
+                let mut last_error = String::new();
+                loop {
+                    let started = std::time::Instant::now();
+                    match this.connect_once(&sink, &*log, !linked && this.starts) {
+                        Ok(closed) => {
+                            linked = true;
+                            last_error.clear();
+                            let _ = closed.recv();
+                            log("acpmux connection closed");
+                        }
+                        Err(e) if e == last_error => {}
+                        Err(e) => {
+                            log(&format!("acpmux: {e}"));
+                            last_error = e;
+                        }
+                    }
+                    *this
+                        .client
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                    for (_, turn) in this
+                        .turns
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .drain()
+                    {
+                        let _ = turn.tx.send(TurnSignal::Lost);
+                    }
+                    sink(AgentEvent::Down);
+                    // A joining link (Acpmux::joining) owns no sessions: a
+                    // daemon that went away may come back, so it retries.
+                    if linked && this.starts && !crate::acpmux_daemon::reachable(&this.socket) {
+                        // A handoff, not an end (cx-ebm.54): the next daemon,
+                        // started by the client that handed this one off,
+                        // adopted the sessions. Join it; never start one.
+                        if crate::acpmux_daemon::await_next(
+                            &this.socket,
+                            crate::acpmux_daemon::HANDOFF_WAIT,
+                        ) {
+                            log("acpmux daemon was handed off; joining the next one");
+                            continue;
+                        }
+                        log("acpmux daemon ended; the host does not start another");
+                        sink(AgentEvent::Ended);
+                        return;
+                    }
+                    if started.elapsed() > Duration::from_secs(30) {
+                        delay = Duration::from_millis(500);
+                    }
+                    std::thread::sleep(delay);
+                    delay = (delay * 2).min(Duration::from_secs(30));
+                }
+            });
+        if let Err(e) = spawned {
+            report(&format!("acpmux: cannot start the link thread: {e}"));
+        }
+    }
+
+    fn connect_once(
+        &self,
+        sink: &Sink,
+        log: &dyn Fn(&str),
+        may_start: bool,
+    ) -> Result<std::sync::mpsc::Receiver<()>, String> {
+        if may_start {
+            crate::acpmux_daemon::ensure(&self.socket, log)?;
+        }
+        let (closed_tx, closed_rx) = channel();
+        let turns = self.turns.clone();
+        let route_sink = sink.clone();
+        let client = crate::acpmux_peer::connect(&self.socket, move |n| {
+            if n.method.is_empty() {
+                let _ = closed_tx.send(());
+            } else {
+                route(&turns, &route_sink, n);
+            }
+        })
+        .map_err(|e| format!("connect {}: {e}", self.socket.display()))?;
+        let result = (|| {
+            let init = client
+                .request(
+                    "initialize",
+                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
+                )
+                .map_err(|e| format!("initialize: {e}"))?;
+            // The watch answers with the session list: reading it again at once spent
+            // the connection's second paced list (acpmux `hub/list_guard.rs`).
+            let watched = whole_list(
+                |m, p| client.request(m, p),
+                "_acpmux/watch",
+                json!({"enabled": true}),
+            )
+            .map_err(|e| format!("watch: {e}"))?;
+            let list = match session_rows(&watched) {
+                Some(list) => list,
+                None => sessions(&client)?,
+            };
+            Ok::<_, String>((list, builtin_presets(&init)))
+        })();
+        match result {
+            Ok((list, builtins)) => {
+                self.builtins
+                    .store(builtins, std::sync::atomic::Ordering::SeqCst);
+                self.install_presets(&client, log, builtins, None);
+                *self
+                    .client
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(client);
+                log(&format!("acpmux connected at {}", self.socket.display()));
+                sink(AgentEvent::Up(list));
+                Ok(closed_rx)
+            }
+            Err(e) => {
+                client.close();
+                Err(e)
+            }
+        }
+    }
+}
+
+/// `args` without the newer preset allowlist words: `--setting-sources
+/// <value>`, `--disable-slash-commands` and `--tools <names>` (`--tools ""`
+/// stays, an older acpmux takes it); None when it has none of them.
+pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            Some("--setting-sources") => {
+                words.next();
+                dropped = true;
+            }
+            Some("--disable-slash-commands") => dropped = true,
+            Some("--tools") => match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            },
+            _ => kept.push(word.clone()),
+        }
+    }
+    dropped.then_some(kept)
+}
+
+/// `args` with `--setting-sources project,local` read as `project` (an
+/// acpmux from before the local source refuses it); None when it has none.
+pub fn project_sources_only(args: &[Value]) -> Option<Vec<Value>> {
+    let at = args.windows(2).position(|w| {
+        w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local")
+    })?;
+    let mut kept = args.to_vec();
+    kept[at + 1] = Value::String("project".into());
+    Some(kept)
+}
+
+/// `args` without a `--tools <names>` list (`--tools ""` stays); None when
+/// it has none.
+pub fn without_tools_list(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word.as_str() == Some("--tools") {
+            match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            }
+        } else {
+            kept.push(word.clone());
+        }
+    }
+    dropped.then_some(kept)
+}
+
+/// Sends a notification to the turn that owns its session, or to the brain.
+/// A running prompt's signals.
+struct TurnRoute {
+    tx: Sender<TurnSignal>,
+    /// The harness streamed output in this prompt already.
+    spoke: bool,
+}
+
+/// The first streamed output of a prompt: its response has started (the
+/// API's `message_start` came, so the request's cache entry exists).
+pub(crate) fn is_output(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_message_chunk" | "agent_thought_chunk" | "usage_update"
+    )
+}
+
+/// The signal of a turn's event that matters for the log: `Changed` when
+/// the harness sent it (`session/update`, or an acpmux event `dir: in`),
+/// else `Noted` (acpmux's own: the echo of our prompt or steer, a status).
+pub fn event_signal(method: &str, params: &Value) -> TurnSignal {
+    let from_agent =
+        method == "session/update" || params.get("dir").and_then(Value::as_str) == Some("in");
+    if from_agent {
+        TurnSignal::Changed
+    } else {
+        TurnSignal::Noted
+    }
+}
+
+fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification) {
+    let session = n
+        .params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match n.method.as_str() {
+        "session/update" | "_acpmux/event" => {
+            let kind = n
+                .params
+                .pointer("/_meta/acpmux/kind")
+                .or_else(|| n.params.pointer("/update/sessionUpdate"))
+                .or_else(|| n.params.get("kind"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let mut turns = turns
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if kind == "background_turn" && !turns.contains_key(session) {
+                let state = n
+                    .params
+                    .pointer("/msg/state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                drop(turns);
+                sink(AgentEvent::BackgroundTurn {
+                    session_id: session.to_owned(),
+                    state,
+                });
+                return;
+            }
+            if let Some(turn) = turns.get_mut(session) {
+                // Chunks are noise but for the first one, which says the
+                // response started (the compactor's single-flight waits for it).
+                let first = is_output(kind) && !turn.spoke;
+                turn.spoke |= is_output(kind);
+                if first || !is_noise(kind) {
+                    let _ = turn.tx.send(event_signal(&n.method, &n.params));
+                } else if kind == "agent_message_chunk" {
+                    let _ = turn.tx.send(TurnSignal::Streamed);
+                }
+            }
+        }
+        "_acpmux/session_changed" => {
+            if let Some(summary) = n
+                .params
+                .get("session")
+                .and_then(|s| serde_json::from_value::<SessionSummary>(s.clone()).ok())
+            {
+                sink(AgentEvent::SessionChanged(summary));
+            }
+        }
+        "_acpmux/permission_pending" => sink(AgentEvent::Permission {
+            session_id: session.to_owned(),
+            permission_id: n
+                .params
+                .get("permissionId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            request: n.params.get("request").cloned().unwrap_or(Value::Null),
+        }),
+        _ => {}
+    }
+}
+
+/// `_acpmux/sessions`, rows that do not parse skipped.
+pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
+    let result = whole_list(|m, p| client.request(m, p), "_acpmux/sessions", json!({}))
+        .map_err(|e| format!("sessions: {e}"))?;
+    Ok(session_rows(&result).unwrap_or_default())
+}
+
+/// The whole session list `method` (`_acpmux/sessions` or `_acpmux/watch`)
+/// answers for `params`, each request asked by `ask`. With no `limit`, a list
+/// too large for one acpmux message comes in pages, each with the `nextCursor`
+/// of the rest, read by `_acpmux/sessions` with the same params (less the
+/// watch's `enabled`) from that cursor; the answer is one `sessions` of every
+/// page. A list that fits is one answer with no cursor, as from an acpmux that
+/// never pages. A cursor that comes again is refused, never read in a loop.
+/// With a `limit`, the one page asked for (acpmux `Client::whole_list`).
+pub(crate) fn whole_list<E: std::fmt::Display>(
+    ask: impl Fn(&str, Value) -> Result<Value, E>,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let ask = |m: &str, p: Value| ask(m, p).map_err(|e| e.to_string());
+    if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+        return ask(method, params);
+    }
+    let mut reply = ask(method, params.clone())?;
+    let mut rest = params;
+    if let Some(p) = rest.as_object_mut() {
+        p.remove("enabled");
+    }
+    let mut read = HashSet::new();
+    while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+        let Value::String(cursor) = cursor else { break };
+        if !read.insert(cursor.clone()) {
+            return Err(format!(
+                "the session list answered cursor {cursor:?} again; it would never end"
+            ));
+        }
+        rest["cursor"] = Value::String(cursor);
+        let mut page = ask("_acpmux/sessions", rest.clone())?;
+        let rows = page
+            .get_mut("sessions")
+            .map(Value::take)
+            .unwrap_or_default();
+        if let (Some(all), Value::Array(rows)) = (
+            reply.get_mut("sessions").and_then(Value::as_array_mut),
+            rows,
+        ) {
+            all.extend(rows);
+        }
+        if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+            reply["nextCursor"] = next;
+        }
+    }
+    Ok(reply)
+}
+
+/// Rows a page of a chat's process list asks for: acpmux's most (`process_page_params`).
+const PROCESS_PAGE: u64 = 1_000;
+
+/// The ids of every running process of `session`, read page by page (`limit` and the
+/// `nextCursor` of the rest), each request asked by `ask`. Not one unpaged
+/// `_acpmux/process/list`: that holds only the newest processes that fit one reply
+/// (`omitted` the rest), so stopping a chat from it left its older running processes running.
+/// An acpmux from before pages answers the whole list with no cursor. A cursor that comes
+/// again is refused, never read in a loop.
+pub(crate) fn running_processes<E: std::fmt::Display>(
+    ask: impl Fn(&str, Value) -> Result<Value, E>,
+    session: &str,
+) -> Result<Vec<String>, String> {
+    let mut params = json!({"sessionId": session, "limit": PROCESS_PAGE});
+    let (mut running, mut read) = (Vec::new(), HashSet::new());
+    loop {
+        let page = ask("_acpmux/process/list", params.clone())
+            .map_err(|e| format!("process list: {e}"))?;
+        running.extend(
+            page.get("processes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|p| p.get("state").and_then(Value::as_str) == Some("running"))
+                .filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned)),
+        );
+        let Some(cursor) = page.get("nextCursor").and_then(Value::as_str) else {
+            return Ok(running);
+        };
+        if !read.insert(cursor.to_owned()) {
+            return Err(format!(
+                "process list: cursor {cursor:?} came again; it would never end"
+            ));
+        }
+        params["cursor"] = json!(cursor);
+    }
+}
+
+/// A list answer's rows (`_acpmux/sessions`, `_acpmux/watch`), those that do
+/// not parse skipped; None when it has no `sessions` (an acpmux whose watch
+/// answers without the list).
+pub(crate) fn session_rows(result: &Value) -> Option<Vec<SessionSummary>> {
+    Some(
+        result
+            .get("sessions")?
+            .as_array()?
+            .iter()
+            .filter_map(|s| SessionSummary::deserialize(s).ok())
+            .collect(),
+    )
+}
+
+/// acpmux's code for "no such session" (`RpcError::not_found`).
+const NOT_FOUND: i64 = -32002;
+/// acpmux's code for bad params (`RpcError::invalid_params`), a key that names
+/// several sessions among them.
+const INVALID_PARAMS: i64 = -32602;
+
+/// What `_acpmux/info` resolves a key to.
+enum Resolved {
+    One(Box<SessionSummary>),
+    None,
+    /// A name several sessions share, or a prefix of several (acpmux's
+    /// `Hub::resolve_here`: "... matches N sessions; use the id").
+    Several,
+}
+
+/// Why `_acpmux/info` gave no answer.
+enum InfoError {
+    /// acpmux answered with an error (a peer whose link is down, an acpmux
+    /// without info): the session list may still hold the row.
+    Refused(String),
+    /// No answer at all (closed, timed out): asking again does not help.
+    Unanswered(String),
+}
+
+/// `_acpmux/info` for `key` (an id, a name, a unique prefix of either).
+/// `waitLogs: false`: only the summary is read, so a daemon still loading chat
+/// logs answers at once.
+fn info(client: &RpcClient, key: &str) -> Result<Resolved, InfoError> {
+    match client.request("_acpmux/info", json!({"sessionId": key, "waitLogs": false})) {
+        Ok(detail) => SessionSummary::deserialize(&detail)
+            .map(|s| Resolved::One(Box::new(s)))
+            .map_err(|e| InfoError::Refused(format!("info: unreadable answer for {key:?}: {e}"))),
+        Err(RpcError::Remote {
+            code: Some(NOT_FOUND),
+            ..
+        }) => Ok(Resolved::None),
+        Err(RpcError::Remote {
+            code: Some(INVALID_PARAMS),
+            message,
+        }) if message.contains(" sessions; use the id") => Ok(Resolved::Several),
+        Err(e @ RpcError::Remote { .. }) => Err(InfoError::Refused(format!("info: {e}"))),
+        Err(e) => Err(InfoError::Unanswered(format!("info: {e}"))),
+    }
+}
+
+/// The session list, after `_acpmux/info` refused with `error`; an unanswered
+/// info is the error itself.
+fn listed(client: &RpcClient, error: InfoError) -> Result<Vec<SessionSummary>, String> {
+    match error {
+        InfoError::Refused(e) => sessions(client).map_err(|list| format!("{e}; {list}")),
+        InfoError::Unanswered(e) => Err(e),
+    }
+}
+
+/// One session's summary by id, from `_acpmux/info` (None: no such session).
+///
+/// Not from the session list: acpmux paces full lists per connection and for
+/// all clients together, and refuses one that would wait over 30 s ("session
+/// lists are paced"). The Chief asks this before every turn, subagent prompt
+/// and compactor session (`harness_gate::session_harness`), all on its one
+/// connection, so the lists it spent refused those, and the memory compactor
+/// stopped building summaries. The list is read only when acpmux refuses info.
+pub fn session_info(client: &RpcClient, id: &str) -> Result<Option<SessionSummary>, String> {
+    match info(client, id) {
+        // A name or an id prefix resolves too; only this exact session counts.
+        Ok(Resolved::One(s)) => Ok((s.session_id == id).then_some(*s)),
+        // A prefix of several: no session has this id.
+        Ok(Resolved::None | Resolved::Several) => Ok(None),
+        Err(e) => Ok(listed(client, e)?.into_iter().find(|s| s.session_id == id)),
+    }
+}
+
+/// Whether session `id` is this daemon's own, not a peer's that acpmux
+/// forwarded to: a qualified `local/` id resolves only here.
+fn is_local(client: &RpcClient, id: &str) -> Result<bool, InfoError> {
+    Ok(matches!(info(client, &format!("local/{id}"))?, Resolved::One(s) if s.session_id == id))
+}
+
+/// The id of the session named `name`, from `_acpmux/info` (unpaced, as
+/// [`session_info`]), as the session list names them: a bare name is this
+/// daemon's own session, a peer's is `peer/name`. An ambiguous lookup is
+/// refused: choosing the first list row can send Chief's message to the wrong
+/// child. Fall back to the paced list only when info cannot answer, and require
+/// exactly one matching name there too.
+pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, String> {
+    let error = match info(client, name) {
+        // acpmux resolves an exact id, then a name only one session has, then a
+        // unique prefix, here and then on its peers: a session of another name
+        // means none has it.
+        Ok(Resolved::One(s)) if s.name == name => match is_local(client, &s.session_id) {
+            // A peer's session of the same bare name is listed as `peer/name`.
+            Ok(local) => return Ok(local.then_some(s.session_id)),
+            Err(e) => e,
+        },
+        // A peer's session asked as `peer/name`: its peer answers with `name`.
+        Ok(Resolved::One(s)) => {
+            let qualified = name
+                .strip_suffix(s.name.as_str())
+                .is_some_and(|peer| peer.len() > 1 && peer.ends_with('/'));
+            return Ok(qualified.then_some(s.session_id));
+        }
+        Ok(Resolved::None) => return Ok(None),
+        Ok(Resolved::Several) => {
+            return Err(format!(
+                "find: {name:?} names several sessions; use a unique name or peer/name"
+            ));
+        }
+        Err(e) => e,
+    };
+    let mut candidates = listed(client, error)?
+        .into_iter()
+        .filter(|s| s.name == name);
+    let first = candidates.next();
+    if candidates.next().is_some() {
+        return Err(format!(
+            "find: {name:?} names several sessions; use a unique name or peer/name"
+        ));
+    }
+    Ok(first.map(|s| s.session_id))
+}
+
+/// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
+pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
+    const LIMIT: u64 = 10_000;
+    let mut all: Vec<AcpmuxEvent> = Vec::new();
+    let mut cursor = after;
+    loop {
+        let result = client
+            .request(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": cursor, "limit": LIMIT}),
+            )
+            .map_err(|e| format!("events: {e}"))?;
+        let page: Vec<AcpmuxEvent> = result
+            .get("events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| serde_json::from_value(e.clone()).ok())
+            .collect();
+        let more = result.get("hasMore") == Some(&json!(true)) || page.len() as u64 >= LIMIT;
+        let last = page.iter().map(|e| e.seq).max().unwrap_or(cursor);
+        all.extend(page);
+        if !more || last <= cursor {
+            return Ok(all);
+        }
+        cursor = last;
+    }
+}
+
+/// codex-acp's config option for the fast (priority) service tier.
+pub const FAST_MODE_OPTION: &str = "fast-mode";
+
+/// `session/new`'s `_meta.acpmux`: name, harness, policy, model, effort,
+/// preset, env and peer. On a peer (a cloud VM) a policy that does not ask is
+/// left out: a peer refuses one from a remote connection, and the VM's own
+/// default (its config.json) applies; `ask` (the spawn floor) is still sent.
+pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
+    let mut meta = json!({"name": spec.name, "harness": spec.harness});
+    if spec.peer.is_none() || matches!(spec.policy.as_str(), "ask" | "deny-all") {
+        meta["policy"] = json!(spec.policy);
+    }
+    if let Some(model) = &spec.model {
+        meta["model"] = json!(model);
+    }
+    if let Some(effort) = &spec.effort {
+        meta["effort"] = json!(effort);
+    }
+    if let Some(preset) = preset {
+        meta["preset"] = json!(preset);
+    }
+    if !spec.env.is_empty() {
+        meta["env"] = json!(spec.env);
+    }
+    if let Some(peer) = &spec.peer {
+        meta["peer"] = json!(peer);
+    }
+    if waits_on_harness(spec) {
+        meta["waitStart"] = json!(true);
+    }
+    if is_compactor(spec) {
+        meta["throwaway"] = json!(true);
+    }
+    if let Some(condition) = &spec.stop_condition {
+        meta[STOP_CONDITION] = json!(condition);
+    }
+    meta
+}
+
+/// acpmux's `_meta.acpmux` key for a session's stop condition, and its session/new answer's flag
+/// that the session keeps it (acpmux `hub/stop_condition.rs`).
+pub const STOP_CONDITION: &str = "stopCondition";
+
+/// A compactor node's session: purged at `end_node` minutes after its one prompt, so acpmux keeps
+/// no long prompt body in its log (`_meta.acpmux.throwaway`, acpmux `hub/ephemeral.rs`). Each node's
+/// prompt is about 3.1 MB, about 1,000 nodes an hour, and the log wrote each one and its journal
+/// copy, then deleted it (cmuxterm-hq#9636: 549 GB in 23.6 h on Leo's laptop). An acpmux from
+/// before the key ignores it (an unknown `_meta.acpmux` key is not refused on `session/new`).
+fn is_compactor(spec: &SessionSpec) -> bool {
+    spec.tags.get(CHIEF_ROLE_TAG).map(String::as_str) == Some(COMPACTOR_ROLE)
+}
+
+/// The Chief's own sessions on this machine (its turns, which answer a person's message, and the
+/// compactor's): acpmux lets their start run while the harness works, however loaded the machine
+/// is, and ends it when the harness stops working (acpmux `lifecycle.rs` `StartWatch`).
+fn waits_on_harness(spec: &SessionSpec) -> bool {
+    spec.peer.is_none() && spec.tags.contains_key(CHIEF_ROLE_TAG)
+}
+
+/// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
+/// unless its config sets another), twice, since acpmux tries a start that failed at background
+/// CPU class once more, so acpmux's error arrives. That error says what the agent process was
+/// doing (alive or not, its CPU class, run and CPU time), not a bare "no answer".
+pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(200);
+
+/// How long Chief waits on the `session/new` of a session that waits on its harness: acpmux bounds
+/// that start by the harness's work and answers, so only a daemon that stopped answering, or a
+/// harness whose work it cannot read (not macOS), comes this far.
+pub const START_WAIT_CEILING: Duration = Duration::from_secs(30 * 60);
+
+/// `session/new` with acpmux's name, harness, policy, model and preset.
+pub fn new_session(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+) -> Result<String, String> {
+    new_session_watching(client, spec, preset, &mut |_| true)
+}
+
+/// [`new_session`] under `keep_waiting` (`AgentPort::new_session_watching`).
+pub fn new_session_watching(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+    keep_waiting: &mut dyn FnMut(Duration) -> bool,
+) -> Result<String, String> {
+    let mut meta = session_meta(spec, preset);
+    // A Cloud machine's Chief: its own Claude sessions sign in with the host's credential, as a
+    // Cloud chat's launch does (turn_credential.rs). Only here, at the send: `session_meta` has
+    // other readers.
+    if let Some(credentials) =
+        crate::turn_credential::meta_for(spec, crate::turn_credential::current())
+    {
+        meta["credentials"] = credentials;
+    }
+    let deadline = if waits_on_harness(spec) {
+        START_WAIT_CEILING
+    } else {
+        SESSION_NEW_DEADLINE
+    };
+    let mut request = |meta: &Value| {
+        client.request_watching(
+            "session/new",
+            json!({"cwd": if spec.peer.is_some() && spec.cwd.as_os_str().is_empty() { None } else { Some(&spec.cwd) }, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            deadline,
+            &mut *keep_waiting,
+        )
+    };
+    let result = match request(&meta) {
+        // An acpmux from before the turn seal refuses that key: the turn
+        // runs without it (its `chiefs` tool then answers that it is not
+        // this Chief's turn), never not at all.
+        Err(e)
+            if e.to_string().contains(&format!(
+                "env key {} is not one a session may set",
+                crate::chief_profile::TURN_KEY_ENV
+            )) =>
+        {
+            if let Some(env) = meta.get_mut("env").and_then(Value::as_object_mut) {
+                env.remove(crate::chief_profile::TURN_KEY_ENV);
+                if env.is_empty() {
+                    meta.as_object_mut().map(|m| m.remove("env"));
+                }
+            }
+            request(&meta)
+        }
+        other => other,
+    }
+    .map_err(|e| format!("session/new: {e}"))?;
+    let id = result
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "session/new answered without a sessionId".to_owned())?;
+    // A stop condition the daemon did not keep (an acpmux from before `stopCondition`, or a
+    // harness other than Claude Code): the session runs, but it may stop at any turn end.
+    if spec.stop_condition.is_some()
+        && result.pointer(&format!("/_meta/acpmux/{STOP_CONDITION}")) != Some(&json!(true))
+    {
+        crate::log::log(format!(
+            "acpmux did not keep the stop condition of session {} ({id}): an acpmux older than stopCondition, or not a Claude Code harness; it runs without its goal",
+            spec.name
+        ));
+    }
+    // Right after creation: an untagged Chief session would count as one of
+    // the user's agents (quit counts, endAgents), so it does not stay.
+    if !spec.tags.is_empty()
+        && let Err(e) = client.request("_acpmux/tag", json!({"sessionId": id, "set": spec.tags}))
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!("tagging session {}: {e}", spec.name));
+    }
+    // The fast service tier: codex-acp's `fast-mode` config option (the
+    // priority tier); a session that cannot take it does not stay.
+    if spec.fast
+        && let Err(e) = client.request(
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": FAST_MODE_OPTION, "value": "on"}),
+        )
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!(
+            "setting the fast tier of session {}: {e}",
+            spec.name
+        ));
+    }
+    Ok(id)
+}
+
+impl Acpmux {
+    /// Sends `session/prompt` with `_meta.acpmux` = `meta`; the session's
+    /// signals and the answer go to `signals`.
+    fn prompt_with_meta(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        meta: Value,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let client = self.client()?;
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
+        let answer = client.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": meta}}),
+        );
+        std::thread::Builder::new()
+            .name("acpmux-prompt".into())
+            .spawn(move || {
+                let done = match answer.recv() {
+                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
+                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_) | RpcError::Stopped))
+                    | Err(_) => TurnSignal::Lost,
+                };
+                let _ = signals.send(done);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
+impl AgentPort for Acpmux {
+    fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        self.new_session_watching(spec, &mut |_| true)
+    }
+
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let preset = match &spec.preset {
+            Some(name) if ready.contains(name) => Some(name.as_str()),
+            // Never a fallback to the user's own configuration.
+            Some(name) => {
+                return Err(format!(
+                    "the acpmux preset {name} is not installed, and this session never starts without it"
+                ));
+            }
+            // A peer session: this daemon's presets do not exist there.
+            None if spec.peer.is_some() => None,
+            None => self
+                .preset
+                .as_ref()
+                .filter(|p| ready.contains(&p.name))
+                .map(|p| p.name.as_str()),
+        };
+        new_session_watching(&*self.client()?, spec, preset, keep_waiting)
+    }
+
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        new_session(&*self.client()?, spec, None)
+    }
+
+    fn start_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        self.prompt_with_meta(session, blocks, json!({"promptId": prompt_id}), signals)
+    }
+
+    fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
+        events(&*self.client()?, session, after)
+    }
+
+    fn end_session(&self, session: &str) -> Result<(), String> {
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session);
+        self.client()?
+            .request("_acpmux/kill", json!({"sessionId": session, "purge": true}))
+            .map(|_| ())
+            .map_err(|e| format!("kill: {e}"))
+    }
+
+    fn find(&self, name: &str) -> Result<Option<String>, String> {
+        find_named(&*self.client()?, name)
+    }
+
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(sessions(&*self.client()?)?
+            .into_iter()
+            .map(|s| s.name)
+            .collect())
+    }
+
+    fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
+        session_info(&*self.client()?, id)
+    }
+
+    fn cancel(&self, session: &str) -> Result<(), String> {
+        self.client()?
+            .request("session/cancel", json!({"sessionId": session}))
+            .map(|_| ())
+            .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        self.client()?
+            .request_within(
+                "_acpmux/process/background",
+                json!({"sessionId": session}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("backgrounded").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("background work: {e}"))
+    }
+
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        // Bounded: the person's message is back in the Chief's queue already,
+        // and a drop that answers later is safe (the session is then not kept).
+        self.client()?
+            .request_within(
+                "_acpmux/queue_edit",
+                json!({"sessionId": session, "promptId": prompt_id, "op": "withdraw"}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("withdraw steer: {e}"))
+    }
+
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        let client = self.client()?;
+        let running = running_processes(|m, p| client.request(m, p), session)?;
+        // One process that will not die does not keep the rest running.
+        let mut ended = 0;
+        let mut errors = Vec::new();
+        for id in &running {
+            match client.request("_acpmux/process/kill", json!({"processId": id})) {
+                Ok(_) => ended += 1,
+                Err(e) => errors.push(format!("process kill {id}: {e}")),
+            }
+        }
+        if errors.is_empty() {
+            Ok(ended)
+        } else {
+            Err(format!("ended {ended}; {}", errors.join("; ")))
+        }
+    }
+
+    fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.client()?
+            .request(
+                "_acpmux/queue_remove",
+                json!({"sessionId": session, "promptId": prompt_id}),
+            )
+            .map(|v| v["removed"].as_bool().unwrap_or(false))
+            .map_err(|e| format!("queue_remove: {e}"))
+    }
+
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        self.client()?
+            .request(
+                "session/set_mode",
+                json!({"sessionId": session, "modeId": mode}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("set_mode {mode}: {e}"))
+    }
+
+    fn probe_models(&self, harness: &str) -> Result<(), String> {
+        let mut params = models_params(harness);
+        params["probe"] = json!([harness]);
+        self.client()?
+            .request("_acpmux/models", params)
+            .map(|_| ())
+            .map_err(|e| format!("models probe: {e}"))
+    }
+
+    fn offered_models(&self, harness: &str) -> Result<Vec<Value>, String> {
+        let catalog = self
+            .client()?
+            .request("_acpmux/models", models_params(harness))
+            .map_err(|e| format!("models: {e}"))?;
+        Ok(catalog["harnesses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|h| h["harness"] == harness)
+            .and_then(|h| h["models"].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                let id = m["id"].as_str()?;
+                let name = m["name"].as_str().unwrap_or(id);
+                let mut offered = json!({"id": id, "name": name});
+                // The picker's metadata (family sections, alias dedupe, the
+                // efforts and fast tier a model takes); prices and curation
+                // flags stay acpmux's.
+                for key in PICKER_FIELDS {
+                    if let Some(value) = m.get(*key).filter(|v| !v.is_null()) {
+                        offered[*key] = value.clone();
+                    }
+                }
+                Some(offered)
+            })
+            .collect())
+    }
+
+    fn harness_catalog(&self) -> Result<Value, String> {
+        self.client()?
+            .request("_acpmux/harnesses", json!({}))
+            .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harnesses",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harnesses: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's harnesses".into());
+        }
+        Ok(answer)
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harness/health",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harness health: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's logins".into());
+        }
+        Ok(answer)
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        let client = self.client()?;
+        let peers = client
+            .request("_acpmux/peers", json!({}))
+            .map_err(|e| format!("machines: {e}"))?;
+        let here = client
+            .request("_acpmux/host_health", json!({}))
+            .map_err(|e| format!("machine health: {e}"))?;
+        Ok(json!({"here": here, "peers": peers["peers"]}))
+    }
+
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.client()?
+            .request(
+                "acp.trust.set",
+                json!({"cwd": cwd.display().to_string(), "level": "trusted"}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("acp.trust.set: {e}"))
+    }
+
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        let mut params = json!({"sessionId": session, "permissionId": permission});
+        if let Some(option) = option {
+            params["optionId"] = json!(option);
+        }
+        self.client()?
+            .request("_acpmux/permission_respond", params)
+            .map(|_| ())
+            .map_err(|e| format!("permission_respond: {e}"))
+    }
+
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.send_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.send_steer(session, blocks, prompt_id, true)
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        // The same preset `new_session` gives a session that names none.
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let preset = match preset {
+            Some(name) if ready.contains(name) => Some(name.to_owned()),
+            Some(_) => return Ok(()),
+            None => self
+                .preset
+                .as_ref()
+                .filter(|p| ready.contains(&p.name))
+                .map(|p| p.name.clone()),
+        };
+        let mut params = json!({"harness": harness, "cwd": cwd});
+        if let Some(preset) = preset {
+            params["preset"] = json!(preset);
+        }
+        self.client()?
+            .request("_acpmux/prewarm", params)
+            .map(|_| ())
+            .map_err(|e| format!("prewarm: {e}"))
+    }
+
+    fn preset_args(&self, preset: &str) -> bool {
+        self.with_args
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(preset)
+    }
+
+    fn preset_installed(&self, preset: &str) -> Option<bool> {
+        // Not connected: the set is from no daemon (or an old one).
+        self.client().ok()?;
+        Some(
+            self.ready
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(preset),
+        )
+    }
+
+    fn refresh_preset(&self, preset: &str) -> Vec<String> {
+        let Ok(client) = self.client() else {
+            return Vec::new();
+        };
+        {
+            let mut last = self
+                .refreshed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if last
+                .get(preset)
+                .is_some_and(|t| t.elapsed() < PRESET_REFRESH)
+            {
+                return Vec::new();
+            }
+            last.insert(preset.to_owned(), std::time::Instant::now());
+        }
+        let lines = Mutex::new(Vec::new());
+        self.install_presets(
+            &client,
+            &|line: &str| {
+                lines
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(line.to_owned())
+            },
+            self.builtins.load(std::sync::atomic::Ordering::SeqCst),
+            Some(preset),
+        );
+        lines
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn system_prompt(&self, preset: &str) -> bool {
+        self.with_prompt
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(preset)
+    }
+
+    fn set_system_prompt(&self, preset: &str, text: &str) -> Result<(), String> {
+        if !self.system_prompt(preset) {
+            return Err(format!(
+                "the acpmux preset {preset} was not installed with a system prompt"
+            ));
+        }
+        self.client()?
+            .request(
+                "_acpmux/presets",
+                json!({"name": preset, "set": {"systemPrompt": text}}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
+    }
+}
+
+/// The `_acpmux/models` params for `harness`: this acpmux's own harnesses
+/// (`localOnly`) unless `harness` is a peer's (`peer/harness`). Without
+/// `localOnly` acpmux also asks every peer and waits up to 10 s for a slow
+/// one, with the brain's input loop held (cosmic-gray 2026-10-21: `cmux
+/// chief engine` gave up after the daemon's 10 s with "Resource temporarily
+/// unavailable"). An older acpmux ignores the field and asks its peers.
+fn models_params(harness: &str) -> Value {
+    if harness.contains('/') {
+        json!({})
+    } else {
+        json!({"localOnly": true})
+    }
+}
+
+/// The catalog fields of an `_acpmux/models` entry the Chief's model picker
+/// reads (Home's Chief card: family sections, alias dedupe, per-model efforts,
+/// the fast tier, context variants).
+const PICKER_FIELDS: &[&str] = &[
+    "family",
+    "provider",
+    "shortName",
+    "efforts",
+    "defaultEffort",
+    "fast",
+    "aliases",
+    "resolvedModel",
+    "contextWindow",
+    "releaseDate",
+    "description",
+];
+
+#[cfg(test)]
+mod whole_list_tests {
+    use std::cell::RefCell;
+
+    use serde_json::{Value, json};
+
+    use super::whole_list;
+
+    /// With a `limit` the caller pages itself: one request, its cursor kept.
+    #[test]
+    fn a_list_with_a_limit_is_one_request() {
+        let asked = RefCell::new(Vec::new());
+        let reply = whole_list(
+            |m: &str, p: Value| {
+                asked.borrow_mut().push((m.to_owned(), p));
+                Ok::<_, String>(json!({"sessions": [{"sessionId": "s-1"}], "nextCursor": "c1"}))
+            },
+            "_acpmux/sessions",
+            json!({"limit": 1}),
+        )
+        .unwrap();
+        assert_eq!(reply["nextCursor"], "c1");
+        assert_eq!(
+            asked.into_inner(),
+            [("_acpmux/sessions".to_owned(), json!({"limit": 1}))]
+        );
+    }
+}
+
+#[cfg(test)]
+mod running_processes_tests {
+    use std::cell::RefCell;
+
+    use serde_json::{Value, json};
+
+    use super::running_processes;
+
+    /// A chat with more processes than one page (2,500, every other one running): every
+    /// running one is found, the oldest too, by following each page's cursor. One unpaged
+    /// list held only the newest that fit, so stopping the chat left the older ones running.
+    #[test]
+    fn every_running_process_past_one_page_is_found() {
+        const PROCESSES: usize = 2_500;
+        let id = |i: usize| format!("chat/task-{i:05}");
+        let asked = RefCell::new(0);
+        let running = running_processes(
+            |m: &str, p: Value| {
+                assert_eq!(m, "_acpmux/process/list");
+                *asked.borrow_mut() += 1;
+                let limit = p["limit"].as_u64().expect("a page asks a limit") as usize;
+                let start = p["cursor"]
+                    .as_str()
+                    .map_or(0, |c| c["chat/task-".len()..].parse::<usize>().unwrap() + 1);
+                let end = (start + limit).min(PROCESSES);
+                let rows: Vec<Value> = (start..end)
+                    .map(|i| json!({"id": id(i), "state": if i.is_multiple_of(2) { "running" } else { "ended" }}))
+                    .collect();
+                let next = (end < PROCESSES).then(|| id(end - 1));
+                Ok::<_, String>(json!({"processes": rows, "nextCursor": next}))
+            },
+            "chat",
+        )
+        .unwrap();
+        assert_eq!(running.len(), PROCESSES / 2);
+        assert_eq!(
+            running.first(),
+            Some(&id(0)),
+            "the oldest running process too"
+        );
+        assert!(*asked.borrow() > 1, "more than one page was read");
+    }
+
+    /// A cursor that comes again is an error, never a loop.
+    #[test]
+    fn a_repeated_cursor_is_refused() {
+        let reply = running_processes(
+            |_: &str, _: Value| {
+                Ok::<_, String>(json!({"processes": [], "nextCursor": "chat/task-1"}))
+            },
+            "chat",
+        );
+        assert!(reply.is_err(), "{reply:?}");
+    }
+}
+
+#[cfg(test)]
+mod wait_start_tests {
+    use super::{SessionSpec, chief_tags, session_meta};
+
+    #[test]
+    fn a_chiefs_own_session_waits_on_its_harness_and_no_other_does() {
+        let chief = SessionSpec {
+            tags: chief_tags("home", "turn"),
+            ..SessionSpec::default()
+        };
+        assert_eq!(session_meta(&chief, None)["waitStart"], true);
+        assert!(
+            session_meta(&SessionSpec::default(), None)
+                .get("waitStart")
+                .is_none()
+        );
+    }
+
+    /// cmuxterm-hq#9636: a compactor node's session asks acpmux to keep no long prompt body; a
+    /// Chief turn (a person's chat) and any other session keep theirs.
+    #[test]
+    fn only_a_compactor_session_is_throwaway() {
+        let spec = |role: &str| SessionSpec {
+            tags: chief_tags("home", role),
+            ..SessionSpec::default()
+        };
+        assert_eq!(
+            session_meta(&spec(super::COMPACTOR_ROLE), None)["throwaway"],
+            true
+        );
+        assert!(session_meta(&spec("turn"), None).get("throwaway").is_none());
+        assert!(
+            session_meta(&SessionSpec::default(), None)
+                .get("throwaway")
+                .is_none()
+        );
+    }
+}

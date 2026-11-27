@@ -68,7 +68,7 @@ enum DisplayScale {
     /// cells, drawing, bitmap jobs) this is the scope's scale, so renderers made
     /// there (UIGraphicsImageRendererFormat) and views made there draw at it.
     static var current: CGFloat {
-        get { RenderScaleScope.scoped ?? stored }
+        get { RenderScaleScope.current ?? stored } // cmux: no task local on main outside a task
         set { stored = newValue }
     }
     private static var stored: CGFloat = 2

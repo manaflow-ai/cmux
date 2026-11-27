@@ -11,24 +11,48 @@ public enum MirrorOutcome: Hashable, Sendable {
 /// The confirmed state: written only by owner events and fetched pages,
 /// never by the client's own intents (those live in `IntentLog`).
 public struct HomeMirror: Hashable, Sendable {
-    public private(set) var me: Participant?
-    public private(set) var conversations: [ConversationID: ConversationSummary] = [:]
-    public private(set) var windows: [ConversationID: TranscriptWindow] = [:]
+    public private(set) var me: Participant? { didSet { cacheChanges.bump() } }
+    public private(set) var conversations: [ConversationID: ConversationSummary] = [:] { didSet { cacheChanges.bump() } }
+    public private(set) var windows: [ConversationID: TranscriptWindow] = [:] { didSet { cacheChanges.bump() } }
+    /// Moves with every write to what the client cache holds (`me`, `conversations`, `windows`);
+    /// revisions and stale marks do not move it. Equality ignores it.
+    public private(set) var cacheChanges = HomeChangeCount()
     public private(set) var revisions: [HomeStream: Revision] = [:]
     /// Streams known to be behind their owner (a gap, or a newer revision in
     /// a snapshot) until a fetch catches them up. Nothing settles against them.
     public private(set) var stale: Set<HomeStream> = []
+    /// Transcripts shown nowhere now, kept so switching back to one draws it at once instead of
+    /// an empty transcript while the owner answers (the user, 2026-10-21: "switching between
+    /// different chiefs and messages/conversations needs instant loading of messages"). Not live
+    /// windows: no event or page reaches them, so ``restoreKept(_:)`` brings one back stale and
+    /// the open's read catches it up. Least recently closed first, at most ``keptLimit``.
+    /// A message the mirror learns while one is closed (an event, or the inbox's newest message)
+    /// joins it, and the client cache keeps them across launches (``cachedWindows``): the user,
+    /// 2026-11-10, "the message rows only appear after 2s from opening instead of being
+    /// instantly there" when opening a teammate's conversation after their new message.
+    private var kept: [ConversationID: TranscriptWindow] = [:] { didSet { cacheChanges.bump() } }
+    private var keptOrder: [ConversationID] = []
+    /// How many closed transcripts stay in memory: the conversations a person switches between.
+    public static let keptLimit = 20
 
     public init() {}
 
     public func revision(of stream: HomeStream) -> Revision { revisions[stream] ?? 0 }
+
+    /// What the client cache keeps of each transcript: the live windows and the kept ones (a live
+    /// window wins), so a conversation closed before quitting still draws at once after a relaunch.
+    public var cachedWindows: [ConversationID: [Message]] {
+        var all = kept.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        for (id, window) in windows where !window.messages.isEmpty { all[id] = window.messages }
+        return all
+    }
     public func isStale(_ stream: HomeStream) -> Bool { stale.contains(stream) }
 
     /// Applies the account inbox. Returns the loaded conversations whose
     /// owner revision is ahead of their window; the caller refetches them.
     @discardableResult
     public mutating func apply(inbox snapshot: InboxSnapshot) -> [HomeStream] {
-        me = snapshot.me
+        if me != snapshot.me { me = snapshot.me }
         var next: [ConversationID: ConversationSummary] = [:]
         var refetch: [HomeStream] = []
         for summary in snapshot.conversations {
@@ -44,8 +68,12 @@ public struct HomeMirror: Hashable, Sendable {
                 revisions[stream] = max(revisions[stream] ?? 0, summary.rev)
             }
         }
-        conversations = next
-        windows = windows.filter { next[$0.key] != nil }
+        // Assigned only when they differ: each assignment moves `cacheChanges`, and an inbox
+        // refetch that brings the same inbox is no new information for the client cache.
+        if conversations != next { conversations = next }
+        if windows.keys.contains(where: { next[$0] == nil }) { windows = windows.filter { next[$0.key] != nil } }
+        keptOrder.removeAll { next[$0] == nil }
+        if kept.keys.contains(where: { next[$0] == nil }) { kept = kept.filter { next[$0.key] != nil } }
         revisions[.inbox] = snapshot.rev
         stale.remove(.inbox)
         return refetch
@@ -70,6 +98,23 @@ public struct HomeMirror: Hashable, Sendable {
     /// arrives, so nothing committed during the fetch is lost.
     public mutating func beginLoading(_ conversation: ConversationID) {
         if windows[conversation] == nil { windows[conversation] = .loading() }
+    }
+
+    /// ``beginLoading(_:)`` for a transcript opening with nothing kept: the newest message the
+    /// inbox names draws at once, and the first page joins it (``TranscriptWindow/adopt(page:)``).
+    public mutating func beginLoadingWithNewest(_ conversation: ConversationID) {
+        guard windows[conversation] == nil else { return }
+        var window = TranscriptWindow.loading()
+        if let newest = conversations[conversation]?.lastMessage { _ = window.apply(newest) }
+        windows[conversation] = window
+    }
+
+    /// A message for a closed transcript joins its kept copy when it continues it (or updates one
+    /// it holds); one past a hole leaves it as it was, and the open's read catches it up.
+    private mutating func follow(_ message: Message) {
+        guard var window = kept[message.conversation], !window.messages.isEmpty,
+              let last = window.lastSeq, message.seq <= last + 1 else { return }
+        if window.apply(message), window != kept[message.conversation] { kept[message.conversation] = window }
     }
 
     /// Applies a fetched tail. If the owner moved past the page while it was
@@ -104,9 +149,27 @@ public struct HomeMirror: Hashable, Sendable {
 
     /// The transcript left the screen: its window goes, so nothing is
     /// fetched for it until it opens again, and that open loads its tail.
+    /// What it held is kept (``kept``), so that open draws it at once.
     public mutating func endTranscript(_ conversation: ConversationID) {
+        if let window = windows[conversation], !window.messages.isEmpty {
+            kept[conversation] = window
+            keptOrder.removeAll { $0 == conversation }
+            keptOrder.append(conversation)
+            while keptOrder.count > Self.keptLimit { kept[keptOrder.removeFirst()] = nil }
+        }
         windows[conversation] = nil
         stale.remove(.conversation(conversation))
+    }
+
+    /// Brings back the transcript kept when `conversation` last closed, as its window, stale until
+    /// a read catches it up. False when none is kept (or a window is already there).
+    @discardableResult
+    public mutating func restoreKept(_ conversation: ConversationID) -> Bool {
+        guard windows[conversation] == nil, let window = kept.removeValue(forKey: conversation) else { return false }
+        keptOrder.removeAll { $0 == conversation }
+        windows[conversation] = window
+        stale.insert(.conversation(conversation))
+        return true
     }
 
     /// A refetch failed: the stream stays stale until a later fetch succeeds.
@@ -115,7 +178,7 @@ public struct HomeMirror: Hashable, Sendable {
     @discardableResult
     public mutating func apply(_ event: HomeEvent) -> MirrorOutcome {
         switch event {
-        case .connection, .typing, .draft, .ownerRecovered, .intentsRevoked:
+        case .connection, .typing, .presence, .draft, .live, .ownerRecovered, .intentsRevoked:
             return .applied
         case .inbox(let snapshot):
             return apply(inbox: snapshot).first.map(MirrorOutcome.gap) ?? .applied
@@ -123,12 +186,17 @@ public struct HomeMirror: Hashable, Sendable {
             let outcome = advance(stream, to: rev)
             if outcome == .ignoredStale { return outcome }
             conversations[summary.id] = mergedSummary(summary, fromInbox: stream == .inbox)
+            // A closed conversation is not subscribed: the inbox's newest message is how it learns one.
+            // The merged summary's: an older copy than the one it holds never overwrites a newer edit.
+            if windows[summary.id] == nil, let newest = conversations[summary.id]?.lastMessage { follow(newest) }
             return outcome
         case .conversationRemoved(let id, let inboxRev):
             let outcome = advance(.inbox, to: inboxRev)
             if outcome == .ignoredStale { return outcome }
             conversations[id] = nil
             windows[id] = nil
+            kept[id] = nil
+            keptOrder.removeAll { $0 == id }
             return outcome
         case .message(let message, let rev):
             return apply(message: message, rev: rev)
@@ -137,6 +205,10 @@ public struct HomeMirror: Hashable, Sendable {
             if windows[id] != nil { return apply(page: page) }
             let stream = HomeStream.conversation(id)
             if let known = revisions[stream], known > page.conversation.rev { return .ignoredStale }
+            if var window = kept[id], !window.messages.isEmpty {
+                // A page that leaves a hole after it would drop newer kept messages: keep it only when it joins.
+                if window.adopt(page: page.messages), window != kept[id] { kept[id] = window }
+            }
             conversations[id] = mergedSummary(page.conversation, fromInbox: false)
             revisions[stream] = page.conversation.rev
             stale.remove(stream)
@@ -154,6 +226,8 @@ public struct HomeMirror: Hashable, Sendable {
                 stale.insert(stream)
             }
             windows[message.conversation] = window
+        } else {
+            follow(message)
         }
         if var summary = conversations[message.conversation] {
             if message.seq >= summary.lastSeq {

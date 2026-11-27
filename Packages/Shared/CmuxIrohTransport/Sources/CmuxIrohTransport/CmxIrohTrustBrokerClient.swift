@@ -1,5 +1,8 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 private func cmxIsSafeClientNamespace(_ value: String) -> Bool {
     (1 ... 255).contains(value.utf8.count)
@@ -896,7 +899,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         if let bindingAuthorization,
            path != "api/devices/iroh/challenge",
            path != "api/devices/iroh/register" {
-            let timestamp = Int64(Date().timeIntervalSince1970)
+            let timestamp = Date().timeIntervalSince1970.saturatedInteger(Int64.self) ?? 0
             let signature = try bindingAuthorization.signer.signBrokerRequest(
                 bindingID: bindingAuthorization.bindingID,
                 method: method,

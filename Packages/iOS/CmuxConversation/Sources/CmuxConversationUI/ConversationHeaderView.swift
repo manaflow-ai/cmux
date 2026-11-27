@@ -19,7 +19,6 @@ final class ConversationHeaderView: UIView {
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
     private var avatars: [ConversationAvatarView] = []
-    private var avatarImage: UIImage?
     /// The avatar or group cluster: the details zoom out of (and back into) it.
     let avatarContainer = UIView()
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
@@ -52,8 +51,29 @@ final class ConversationHeaderView: UIView {
     var onInfo: (() -> Void)?
     var onTrailing: (() -> Void)?
     var trailingSymbol = "video"
-    var trailingAccessibilityLabel: String?
+    var presentation = ConversationHeaderPresentation() {
+        didSet {
+            if let label = presentation.avatarAccessibilityLabel { avatarTapButton.accessibilityLabel = label }
+            if let hint = presentation.avatarAccessibilityHint { avatarTapButton.accessibilityHint = hint }
+        }
+    }
     private(set) var trailingMode: TrailingMode = .action
+    /// The host's page menu: the trailing control opens it in the normal
+    /// state instead of `onTrailing`; the X of edit, reply and select still
+    /// closes. nil keeps the plain button.
+    var actionMenu: UIMenu? {
+        didSet { applyTrailingMenu() }
+    }
+    /// Edit mode keeps the action glyph, but a tap there ends the edit.
+    var suppressesActionMenu = false {
+        didSet { applyTrailingMenu() }
+    }
+
+    private func applyTrailingMenu() {
+        let menu = trailingMode == .action && !suppressesActionMenu ? actionMenu : nil
+        trailingButton.menu = menu
+        trailingButton.showsMenuAsPrimaryAction = menu != nil
+    }
 
     static let contentHeight: CGFloat = 92
     /// Above the name capsule (z 0), so the avatar occludes it.
@@ -68,9 +88,9 @@ final class ConversationHeaderView: UIView {
         backButton.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
         backButton.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .touchUpInside)
         // Dark: a near-white pill (243) under the count; light keeps the inverse.
-        unreadPill.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
+        unreadPill.backgroundColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
         unreadLabel.font = .systemFont(ofSize: ConversationHeaderGeometry.unreadFontSize, weight: .medium)
-        unreadLabel.textColor = UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
+        unreadLabel.textColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? .black : .white }
         unreadLabel.textAlignment = .center
         backGlass.contentView.addSubview(unreadPill)
         unreadPill.addSubview(unreadLabel)
@@ -138,8 +158,7 @@ final class ConversationHeaderView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(info: ConversationInfo, meID: String?, unreadCount: Int, avatarImage: UIImage? = nil) {
-        self.avatarImage = avatarImage
+    func configure(info: ConversationInfo, meID: String?, unreadCount: Int) {
         nameLabel.text = info.title
         nameButton.accessibilityLabel = info.title
         let others = info.participants.filter { $0.id != meID }
@@ -147,7 +166,7 @@ final class ConversationHeaderView: UIView {
         avatars.forEach { $0.removeFromSuperview() }
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
-            view.configure(initials: participant.initials, colorHex: nil, image: avatarImage)
+            view.configure(initials: participant.initials, colorHex: nil)
             view.layer.borderWidth = info.kind == .group ? ConversationHeaderGeometry.groupClusterRingWidth : 0
             avatarContainer.addSubview(view)
             return view
@@ -163,11 +182,13 @@ final class ConversationHeaderView: UIView {
 
     func setConnectionStatus(_ text: String?) {
         statusLabel.text = text
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) { self.statusLabel.alpha = text == nil ? 0 : 1 }
     }
 
     func setTrailingMode(_ mode: TrailingMode, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {
         trailingMode = mode
+        applyTrailingMenu()
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
@@ -178,22 +199,24 @@ final class ConversationHeaderView: UIView {
                 ? String(localized: "conversation.select.cancel", defaultValue: "Cancel", bundle: .module)
                 : mode == .close
                 ? String(localized: "conversation.header.close", defaultValue: "Close", bundle: .module)
-                : (self.trailingAccessibilityLabel
-                    ?? (self.trailingSymbol.hasPrefix("video")
+                : self.presentation.actionAccessibilityLabel ?? (self.trailingSymbol.hasPrefix("video")
                     ? String(localized: "conversation.ax.facetime", defaultValue: "FaceTime", bundle: .module)
-                    : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)))
+                    : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module))
         }
         guard animated else { apply(); return }
         guard delay > 0 else {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.transition(with: trailingButton, duration: duration, options: .transitionCrossDissolve, animations: apply)
             return
         }
         // A delayed change fades the old glyph out and the new one in.
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.05, delay: delay, options: [.beginFromCurrentState]) {
             self.trailingButton.alpha = 0
         } completion: { _ in
             guard self.trailingMode == mode else { return }
             apply()
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: duration) { self.trailingButton.alpha = 1 }
         }
     }
@@ -209,11 +232,13 @@ final class ConversationHeaderView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
-            nameLabel.font = Self.nameFont
-            setNeedsLayout()
-        }
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) { applyScaledFonts() }
         if traitCollection.verticalSizeClass != previousTraitCollection?.verticalSizeClass { setNeedsLayout() }
+    }
+
+    func applyScaledFonts() {
+        nameLabel.font = Self.nameFont
+        setNeedsLayout()
     }
 
     override func layoutSubviews() {
@@ -347,6 +372,7 @@ final class ConversationHeaderView: UIView {
         backGlass.isUserInteractionEnabled = !hidden
         backGlass.accessibilityElementsHidden = hidden
         guard animated else { apply(); return }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState], animations: apply)
     }
 

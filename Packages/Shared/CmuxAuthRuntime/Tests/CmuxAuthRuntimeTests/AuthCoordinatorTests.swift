@@ -197,7 +197,7 @@ import Testing
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(recorder.events == ["will-transition", "signed-in"])
 
-        coordinator.clearAuthState()
+        coordinator.clearAuthState(reason: "test")
         #expect(recorder.events == [
             "will-transition",
             "signed-in",
@@ -484,7 +484,13 @@ import Testing
         let client = FakeAuthClient(user: user)
         let (coordinator, _) = makeCoordinator(
             client: client,
-            launch: .plain(includesDevAuth: true)
+            launch: .plain(
+                includesDevAuth: true,
+                environment: [
+                    "CMUX_UITEST_STACK_EMAIL": "l@l.com",
+                    "CMUX_UITEST_STACK_PASSWORD": "test-only-placeholder",
+                ]
+            )
         )
 
         try await coordinator.sendCode(to: "42")
@@ -492,6 +498,18 @@ import Testing
         #expect(coordinator.isAuthenticated)
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "l@l.com")
+    }
+
+    @Test func devAuthFortyTwoShortcutNeedsEnvironmentCredentials() async throws {
+        let client = FakeAuthClient(user: nil)
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            launch: .plain(includesDevAuth: true)
+        )
+        // No credentials in the launch environment: `42` is a normal email.
+        try await coordinator.sendCode(to: "42")
+        let recorded = await client.signedInWithCredential
+        #expect(recorded == nil)
     }
 
     @Test func devAuthShortcutOffWithoutDevAuth() async throws {

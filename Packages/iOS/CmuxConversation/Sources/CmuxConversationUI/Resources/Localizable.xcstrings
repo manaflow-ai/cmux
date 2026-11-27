@@ -52,6 +52,40 @@
         }
       }
     },
+    "conversation.compose.needsRecipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add someone in To: first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に宛先を追加してください。"
+          }
+        }
+      }
+    },
+    "conversation.compose.unknownRecipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No one named “%@”. Type their email address to invite them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」という名前の人はいません。招待するにはメールアドレスを入力してください。"
+          }
+        }
+      }
+    },
     "conversation.composer.addComment": {
       "extractionState": "manual",
       "localizations": {
@@ -99,6 +133,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "App"
+          }
+        }
+      }
+    },
+    "conversation.composer.openAttachment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル"
+          }
+        }
+      }
+    },
+    "conversation.composer.openAttachmentHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを開きます"
           }
         }
       }
@@ -273,6 +341,23 @@
         }
       }
     },
+    "conversation.menu.copyMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをコピー"
+          }
+        }
+      }
+    },
     "conversation.menu.more": {
       "extractionState": "manual",
       "localizations": {
@@ -303,6 +388,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "返信"
+          }
+        }
+      }
+    },
+    "conversation.menu.replyWithSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply with Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択部分で返信"
           }
         }
       }
@@ -613,6 +715,24 @@
         }
       }
     },
+    "conversation.status.uploading": {
+      "comment": "Under a sending message whose photo, video or file is uploading: %@ is the percent sent (\"42%\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロード中 %@"
+          }
+        }
+      }
+    },
     "conversation.timestamp.dateAtTime": {
       "comment": "Transcript separator for a message older than a week: %1$@ is the date (\"Thu, Sep 24\"), %2$@ the time.",
       "extractionState": "manual",
@@ -712,6 +832,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集を保存"
+          }
+        }
+      }
+    },
+    "conversation.composer.sendReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を送信"
           }
         }
       }
@@ -1154,6 +1291,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "一時停止"
+          }
+        }
+      }
+    },
+    "conversation.audio.holdHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap and hold to record and send audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしたままにすると、オーディオを録音して送信できます"
           }
         }
       }

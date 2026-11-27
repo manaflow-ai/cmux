@@ -1,8 +1,5 @@
 import type { RenderGraphicImage } from "cmux/raw";
-import {
-  decodeRenderGraphicImage,
-  renderGraphicDecodedByteLength,
-} from "./renderGraphics";
+import { decodeRenderGraphicImage, renderGraphicDecodedByteLength } from "./renderGraphics";
 import type {
   RenderGraphicsDecodeRequest,
   RenderGraphicsDecodeResponse,
@@ -33,11 +30,8 @@ interface FallbackDecodeResult {
   results: RenderGraphicsDecodeResult[];
 }
 
-function decodeWithoutWorker(
-  images: readonly RenderGraphicImage[],
-): FallbackDecodeResult {
-  let remainingDecodedBytes =
-    RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
+function decodeWithoutWorker(images: readonly RenderGraphicImage[]): FallbackDecodeResult {
+  let remainingDecodedBytes = RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
   const deferred: RenderGraphicImage[] = [];
   const results: RenderGraphicsDecodeResult[] = [];
   for (const image of images) {
@@ -61,8 +55,7 @@ function decodeWithoutWorker(
 
 function canDecodeWithoutWorker(image: RenderGraphicImage): boolean {
   const byteLength = renderGraphicDecodedByteLength(image);
-  return byteLength !== null
-    && byteLength <= RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
+  return byteLength !== null && byteLength <= RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
 }
 
 /**
@@ -91,9 +84,7 @@ export class RenderGraphicsDecodeScheduler {
   ): () => void {
     this.cancel(owner);
     if (this.disposed) return () => {};
-    const requestId = this.nextRequestId === Number.MAX_SAFE_INTEGER
-      ? 1
-      : this.nextRequestId + 1;
+    const requestId = this.nextRequestId === Number.MAX_SAFE_INTEGER ? 1 : this.nextRequestId + 1;
     this.nextRequestId = requestId;
     const job: DecodeJob = {
       canceled: false,
@@ -163,8 +154,7 @@ export class RenderGraphicsDecodeScheduler {
       const job = this.takeRunnableJob();
       if (job === null) return;
       let slot = this.slots.find((candidate) => candidate.job === null);
-      if (slot === undefined && !this.creationStopped
-        && this.slots.length < RENDER_GRAPHICS_DECODE_WORKER_CAP) {
+      if (slot === undefined && !this.creationStopped && this.slots.length < RENDER_GRAPHICS_DECODE_WORKER_CAP) {
         slot = this.createSlot();
         if (slot === undefined) job.workerFailures += 1;
       }
@@ -200,10 +190,7 @@ export class RenderGraphicsDecodeScheduler {
       return undefined;
     }
     try {
-      const worker = new Worker(
-        new URL("../workers/renderGraphicsDecoder.ts", import.meta.url),
-        { type: "module" },
-      );
+      const worker = new Worker(new URL("../workers/renderGraphicsDecoder.ts", import.meta.url), { type: "module" });
       const slot: DecodeWorkerSlot = { job: null, worker };
       worker.onmessage = (event: MessageEvent<RenderGraphicsDecodeResponse>) => {
         this.finishWorkerJob(slot, event.data);
@@ -232,10 +219,7 @@ export class RenderGraphicsDecodeScheduler {
     }
   }
 
-  private finishWorkerJob(
-    slot: DecodeWorkerSlot,
-    response: RenderGraphicsDecodeResponse,
-  ): void {
+  private finishWorkerJob(slot: DecodeWorkerSlot, response: RenderGraphicsDecodeResponse): void {
     const job = slot.job;
     if (job === null) return;
     if (response.requestId !== job.requestId) {
@@ -310,12 +294,8 @@ export class RenderGraphicsDecodeScheduler {
     }, 0);
   }
 
-  private publishJobResults(
-    job: DecodeJob,
-    results: RenderGraphicsDecodeResult[],
-  ): void {
-    if (results.length === 0 || job.canceled || this.disposed
-      || this.jobsByOwner.get(job.owner) !== job) return;
+  private publishJobResults(job: DecodeJob, results: RenderGraphicsDecodeResult[]): void {
+    if (results.length === 0 || job.canceled || this.disposed || this.jobsByOwner.get(job.owner) !== job) return;
     job.complete(results);
   }
 

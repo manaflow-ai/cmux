@@ -41,7 +41,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     ///   - terminalTheme: Resolved terminal theme represented by the source frame.
     ///   - terminalConfigTheme: Raw configuration defaults represented by the source frame.
     ///   - rowSignatures: Per-row text/style signatures for the source frame.
-    ///     The count must match `rows`.
+    ///     Their count is the stored `rows` (a disagreeing `rows` never matches a
+    ///     later frame, so that frame is emitted in full); a negative `columns` is 0.
     public init(
         renderEpoch: String = "",
         renderRevision: UInt64 = 0,
@@ -56,13 +57,10 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         historyRows: UInt64? = nil,
         rowSpaceRevision: UInt64? = nil
     ) {
-        precondition(columns >= 0, "columns must be non-negative")
-        precondition(rows >= 0, "rows must be non-negative")
-        precondition(rowSignatures.count == rows, "rowSignatures count must match rows")
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
-        self.columns = columns
-        self.rows = rows
+        self.columns = max(0, columns)
+        self.rows = rowSignatures.count
         self.stateSeq = stateSeq
         self.activeScreen = activeScreen
         self.terminalTheme = terminalTheme

@@ -55,7 +55,7 @@
 
   // Elements that markdown and GitHub-style READMEs legitimately produce.
   var MARKDOWN_HTML = {
-    a: ['href', 'title'],
+    a: ['href', 'title', 'aria-label'],
     abbr: ['title'],
     b: [], i: [], em: [], strong: [], s: [], del: [], ins: [], u: [], mark: [],
     small: [], sub: [], sup: [], kbd: [], samp: [], 'var': [], code: [],

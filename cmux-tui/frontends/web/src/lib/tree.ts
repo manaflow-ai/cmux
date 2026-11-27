@@ -32,9 +32,18 @@ export function screenSelection(screen: ScreenView): ScreenSelection {
 }
 
 function livePane(screen: Screen, paneId: Id | null): LivePane | null {
-  const pane = screen.panes.find((candidate) => candidate.id === paneId)
-    ?? screen.panes.find((candidate) => "tabs" in candidate);
+  const pane =
+    screen.panes.find((candidate) => candidate.id === paneId) ?? screen.panes.find((candidate) => "tabs" in candidate);
   return pane && "tabs" in pane ? pane : null;
+}
+
+/**
+ * What a tab shows of its title (D2): the daemon's `title_text`, a terminal
+ * title without its status glyphs. The raw `title` keeps a spinner frame the
+ * daemon does not announce. A daemon from before the split sends only `title`.
+ */
+export function shownTitle(tab: Tab): string {
+  return tab.title_text ?? tab.title;
 }
 
 export function treeToViewModel(
@@ -51,10 +60,9 @@ export function treeToViewModel(
     const displayPaneId = selectedRawScreen ? selection.selectedPaneId : null;
     const activeRawPane = displayRawScreen ? livePane(displayRawScreen, displayPaneId) : null;
     const activeTab = activeRawPane?.tabs[Number(activeRawPane.active_tab)];
-    const title = activeRawPane?.name || activeTab?.name || activeTab?.title || t("shell");
-    const subtitle = workspace.screens.length > 1
-      ? t("workspaceSubtitle", { title, count: workspace.screens.length })
-      : title;
+    const title = activeRawPane?.name || activeTab?.name || (activeTab && shownTitle(activeTab)) || t("shell");
+    const subtitle =
+      workspace.screens.length > 1 ? t("workspaceSubtitle", { title, count: workspace.screens.length }) : title;
     return {
       id: workspace.id,
       name: workspace.name,
@@ -68,7 +76,7 @@ export function treeToViewModel(
         return {
           id: screen.id,
           workspaceId: workspace.id,
-          label: screen.name || tab?.name || tab?.title || `#${screen.id}`,
+          label: screen.name || tab?.name || (tab && shownTitle(tab)) || `#${screen.id}`,
           statusLabel: screen.name || String(screenIndex + 1),
           active: screenSelected,
           pane,
@@ -145,6 +153,8 @@ export interface TreeRefreshToken {
 interface GeneratedTitle {
   generation: number;
   title: string;
+  /** The event's `text`; a daemon from before the split sends none. */
+  text: string | undefined;
 }
 
 type SurfaceLocation = readonly [workspace: number, screen: number, pane: number, tab: number];
@@ -162,9 +172,9 @@ export class SurfaceTitleReconciler {
   private readonly titles = new Map<Id, GeneratedTitle>();
   private readonly surfaceLocations = new Map<Id, SurfaceLocation>();
 
-  record(surface: Id, title: string): void {
+  record(surface: Id, title: string, text?: string): void {
     this.titleGeneration += 1;
-    this.titles.set(surface, { generation: this.titleGeneration, title });
+    this.titles.set(surface, { generation: this.titleGeneration, title, text });
   }
 
   beginRefresh(): TreeRefreshToken {
@@ -180,7 +190,7 @@ export class SurfaceTitleReconciler {
     let updated = tree;
     for (const [surface, update] of this.titles) {
       const location = this.surfaceLocations.get(surface);
-      if (location) updated = this.applyTitleAt(updated, location, update.title);
+      if (location) updated = this.applyTitleAt(updated, location, update.title, update.text ?? update.title);
     }
     this.latestTree = updated;
     return updated;
@@ -212,17 +222,17 @@ export class SurfaceTitleReconciler {
     });
   }
 
-  private applyTitleAt(tree: Tree, location: SurfaceLocation, title: string): Tree {
+  private applyTitleAt(tree: Tree, location: SurfaceLocation, title: string, text: string): Tree {
     const [workspaceIndex, screenIndex, paneIndex, tabIndex] = location;
     const workspace = tree.workspaces[workspaceIndex];
     const screen = workspace?.screens[screenIndex];
     const pane = screen?.panes[paneIndex];
     if (!pane || !("tabs" in pane)) return tree;
     const tab = pane.tabs[tabIndex];
-    if (!tab || tab.title === title) return tree;
+    if (!tab || (tab.title === title && tab.title_text === text)) return tree;
 
     const tabs = [...pane.tabs];
-    tabs[tabIndex] = { ...tab, title };
+    tabs[tabIndex] = { ...tab, title, title_text: text };
     const panes = [...screen.panes];
     panes[paneIndex] = { ...pane, tabs };
     const screens = [...workspace.screens];

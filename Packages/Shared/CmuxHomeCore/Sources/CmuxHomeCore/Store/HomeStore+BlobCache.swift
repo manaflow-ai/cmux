@@ -26,7 +26,7 @@ extension HomeStore {
         }
         for job in uploads.values { job.attachments.forEach { add($0.ref) } }
         for entry in log.entries {
-            guard case .sendMessage(_, let parts, _) = entry.intent.op else { continue }
+            guard case .sendMessage(_, let parts, _, _) = entry.intent.op else { continue }
             for part in parts { keep.formUnion(part.blobHashes) }
         }
         for (hash, files) in localFiles {

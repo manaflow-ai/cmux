@@ -1,0 +1,52 @@
+{
+  "id": "routing-bug-plus-where-answers-both",
+  "group": "routing",
+  "owner": "a680",
+  "about": "Built from a real miss: one message held a new bug and \"where is the perf agent?\"; Chief started the bug fix and never answered the question. Both asks get handled.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "make chromium tabs faster, leo says we recompute every view's clipping each frame"
+    },
+    {
+      "kind": "talk",
+      "text": "a62 is on it: [Chromium CEF perf](cmux://workspace/ws_e327c41d), Performance group."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "control",
+      "match": "status",
+      "stdout": "outcome: done.\n- a62 [running] Chromium CEF perf: at work 40 min. [Chromium CEF perf](cmux://workspace/ws_e327c41d)"
+    }
+  ],
+  "turns": [
+    {
+      "text": "also when in focus mode cmd shift p still triggers cmux cmd shift p where is the perf agent?",
+      "tail": "Subagents at work now: a62.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "reply_matches",
+          "re": "a62"
+        },
+        {
+          "type": "reply_matches",
+          "re": "ws_e327c41d"
+        },
+        {
+          "type": "max_calls",
+          "cmd": "spawn",
+          "n": 1
+        },
+        {
+          "type": "max_words",
+          "n": 45
+        }
+      ]
+    }
+  ]
+}

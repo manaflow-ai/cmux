@@ -13,6 +13,7 @@ enum AuthPhase: String, Sendable, Hashable {
     case validateSession = "validate_session"
     case listTeams = "list_teams"
     case teamSelection = "team_selection"
+    case teamManagement = "team_management"
     case postSignIn = "post_sign_in"
     case accountDeletion = "account_deletion"
     case pushRegistrationSession = "push_registration_session"

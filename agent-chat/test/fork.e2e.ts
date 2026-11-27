@@ -1,10 +1,10 @@
 // Handoff coverage: create a pi session, continue elsewhere, and verify source
 // and child provider contexts both retain the pre-handoff exchange.
-const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
+import { E2E_WS } from "./e2e-base";
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 180_000);
 const cwd = `${import.meta.dir}/../scratch`;
 
-const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+const ws = new WebSocket(E2E_WS);
 let opened = false;
 let sessionId = "";
 let forkId = "";

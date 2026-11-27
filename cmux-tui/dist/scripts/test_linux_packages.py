@@ -99,6 +99,7 @@ cleanup() {{
 }}
 trap cleanup EXIT HUP INT TERM
 {command} --version
+{command} autocloud --help | grep -q "An agent chat on any machine"
 {command} --headless --socket "$socket" >/tmp/cmux-server.log 2>&1 &
 server_pid=$!
 attempt=0
@@ -115,7 +116,7 @@ while [ ! -S "$socket" ]; do
   fi
   sleep 0.05
 done
-{command} --socket "$socket" session main ping
+{command} --socket "$socket" workspace list
 kill -TERM "$server_pid"
 wait "$server_pid" || true
 server_pid=""
@@ -182,7 +183,10 @@ def test_native_binary(
                 image,
                 platform=platform,
                 mounts=((binary, "/cmux-tui"),),
-                script="/cmux-tui --version",
+                script=(
+                    "/cmux-tui --version && /cmux-tui autocloud --help"
+                    " | grep -q 'An agent chat on any machine'"
+                ),
             ),
         )
 

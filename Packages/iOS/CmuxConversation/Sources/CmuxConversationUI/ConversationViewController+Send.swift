@@ -20,11 +20,27 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             audioComposer.cancel()
             return
         }
-        guard options.supportsAttachments else { return }
         presentAppsMenu()
     }
 
+    /// Whether ``sendGate`` lets a send go now.
+    func sendGateAllows(retry: @escaping () -> Void) -> Bool {
+        sendGate?(retry) ?? true
+    }
+
     func composerDidTapSend(_ composer: ConversationComposerView) {
+        // Every typed send comes here (Send, Return, the effect picker): the gate sees each.
+        let heldEffect = effects.pendingSendEffect
+        guard sendGateAllows(retry: { [weak self, weak composer] in
+            guard let self, let composer else { return }
+            self.effects.pendingSendEffect = heldEffect
+            self.composerDidTapSend(composer)
+            self.effects.pendingSendEffect = nil
+        }) else {
+            // Held: a later plain send must not carry this one's effect (the retry restores it).
+            effects.pendingSendEffect = nil
+            return
+        }
         if sendLaterIfNeeded(composer) { return }
         let effect = effects.pendingSendEffect
         effects.pendingSendEffect = nil
@@ -43,8 +59,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let files = attachments.compactMap(\.file)
         // Create the flight before the row exists so the row inserts hidden.
         let flight = SendFlight(text: text, attachments: photos.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
-        // A bubble effect replaces the flight: the bubble makes its entrance in place.
-        let flies = effect?.kind != .bubble
+        // A bubble effect replaces the flight: the bubble makes its entrance in
+        // place. A reply joins the open thread instead (`refreshReplyThread`).
+        // Reduce Motion: no flight; the row lands in its slot at once.
+        let replying = replyTarget != nil
+        let flies = effect?.kind != .bubble && !replying && !UIView.reducesMotion
         pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
@@ -56,9 +75,14 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         }
         pendingFlight = nil
         pendingFlightRowIDs = []
-        if replyTarget != nil { exitReplyMode(settling: false) }
         if flies { launch(flight, rowID: rowID) }
         if effect != nil { playSentEffect(rowID: rowID) }
+        if dismissesKeyboardAfterSend?() == true {
+            // The person's setting: the keyboard closes once the message is on its way (iOS
+            // release bar read-back, 2026-11-22, shot 17: Chief kept it up).
+            composer.textView.resignFirstResponder()
+            return
+        }
         // The send button leaves with the text; VoiceOver stays in the field.
         UIAccessibility.post(notification: .layoutChanged, argument: composer.textView)
     }
@@ -117,10 +141,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let bubble = BubbleBackgroundView()
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
-            bubble.fillColor = ConversationTheme.outgoingBubble
+            bubble.fillColor = ConversationTheme.sentFill
             // The landed bubble's screen-fixed gradient, sampled where it lands,
             // so the color doesn't change at the hand-off to the cell.
-            bubble.screenGradient = ConversationTheme.iMessageGradient
+            bubble.screenGradient = ConversationTheme.sentFillGradient
             let label = ConversationEffectLabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)
@@ -200,9 +224,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         // Frame fit of Messages' 2-photo send: residual offset follows
         // (1 + wt)e^-wt with w ~ 23/s (0.27 s response, no overshoot); opacity
         // reaches ~0.4 by 67 ms and ~0.9 by 200 ms.
-        UIView.animate(springDuration: 0.27, bounce: 0, options: [.allowUserInteraction]) {
+        UIView.animateUnlessReduceMotion(springDuration: 0.27, bounce: 0, options: [.allowUserInteraction]) {
             for image in imageFlights { image.transform = .identity }
         }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
             for image in imageFlights { image.alpha = 1 }
         }
@@ -258,6 +283,8 @@ extension ConversationViewController {
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { return }
         if replyTarget != nil { exitReplyMode() }
         editingMessageID = message.id
+        // The trailing control cancels the edit; the host's page menu waits.
+        header.suppressesActionMenu = true
         revealRowID = message.rowID
         let overlay = MessageEditOverlay(text: message.text)
         overlay.onSave = { [weak self] text in
@@ -268,11 +295,12 @@ extension ConversationViewController {
         }
         overlay.onCancel = { [weak self] in self?.exitEditMode() }
         editOverlay = overlay
-        overlay.install(in: view, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
+        overlay.install(in: view, keyboard: keyboardDock.guide, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
     }
 
     func exitEditMode() {
         editingMessageID = nil
+        header.suppressesActionMenu = false
         revealRowID = nil
         editOverlay?.dismiss {}
         editOverlay = nil
@@ -324,7 +352,22 @@ struct SendFlightMotion {
         CGAffineTransform(translationX: mover.bounds.width * (1 - scale) / 2, y: 0).scaledBy(x: scale, y: scale)
     }
 
+    /// Reduce Motion: the flight lands in its end state at once (no rise,
+    /// collapse or dip); the caller's transaction completion still lands it.
     func animate() {
+        guard !UIView.reducesMotion else {
+            UIView.performWithoutAnimation {
+                mover.center.y = endCenterY
+                for view in body {
+                    view.frame = bodyTo
+                    view.layoutIfNeeded()
+                }
+                label?.frame = labelTo
+                fill?.alpha = 1
+                mover.alpha = 1
+            }
+            return
+        }
         let rise = UIViewPropertyAnimator(duration: 0, timingParameters: UISpringTimingParameters(mass: 1, stiffness: 141.759, damping: 17.35, initialVelocity: .zero))
         rise.addAnimations { mover.center.y = endCenterY }
         rise.isUserInteractionEnabled = true

@@ -3,7 +3,9 @@ description: >-
   Hydrate Zig's packages for a Ghostty source with as little network as possible: none when
   every package is already on the machine (a mini's persistent cache), else the cache store
   (keyed by every build.zig.zon of the source), else the deadlined, retried download in
-  scripts/ci/fetch-ghostty-zig-packages.sh. Only a push saves what it fetched (never a pull request or pull_request_target run),
+  scripts/ci/fetch-ghostty-zig-packages.sh. Only a feat-cmux-next push saves what it fetched (never a lane branch push,
+  a pull request or a pull_request_target run: an entry belongs to the ref that saved it, so a lane branch's copy
+  is read only by that branch, and 18 lane branches held 18 copies of one key on 2026-11-18),
   or a workflow_dispatch run of a caller that sets save-on-dispatch.
 
 inputs:
@@ -73,12 +75,19 @@ runs:
       if: ${{ steps.probe.outputs.present != 'true' }}
       uses: ./.github/actions/cache-restore
       with:
-        path: ${{ steps.probe.outputs.dir }}/p
-        key: ghostty-zig-packages-v1-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-${{ hashFiles(format('{0}/**/build.zig.zon', inputs.source), format('!{0}/zig-pkg/**', inputs.source)) }}
+        # zig-pkg/ too: Zig 0.17 unpacks every package into the source's own zig-pkg/<hash> and
+        # hashes it there, and a checkout starts without one. With only p/ restored, that unpack
+        # was the 99.5 s this step took on cmux-tui-build-package.yml's x86_64 thin leg (job
+        # 140256154463; 160 s for 550 MB in 40 packages on a lane VM); with zig-pkg/ present, zig
+        # build --fetch=all took 0.1 s. Packed, zig-pkg/ is about 110 MB, as p/ is.
+        path: |
+          ${{ steps.probe.outputs.dir }}/p
+          ${{ inputs.source }}/zig-pkg
+        key: ghostty-zig-packages-v2-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-${{ hashFiles(format('{0}/**/build.zig.zon', inputs.source), format('!{0}/zig-pkg/**', inputs.source)) }}
         # After a build.zig.zon change, an older set still holds most packages: Zig downloads
         # only the new ones, and checks every package against its pinned hash.
         restore-keys: |
-          ghostty-zig-packages-v1-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-
+          ghostty-zig-packages-v2-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-
 
     # On a restore or a machine that has them, Zig unpacks from <cache>/p with no download.
     - name: Fetch the Zig packages (deadlined, retried)
@@ -86,9 +95,11 @@ runs:
       run: ./scripts/ci/fetch-ghostty-zig-packages.sh "${{ inputs.source }}"
 
     - name: Save the Zig packages
-      if: ${{ steps.probe.outputs.present != 'true' && steps.restore.outputs.cache-hit != 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.save-on-dispatch == 'true') }}
+      if: ${{ steps.probe.outputs.present != 'true' && steps.restore.outputs.cache-hit != 'true' && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' || github.event_name == 'workflow_dispatch' && inputs.save-on-dispatch == 'true') }}
       continue-on-error: true
       uses: ./.github/actions/cache-save
       with:
-        path: ${{ steps.probe.outputs.dir }}/p
-        key: ghostty-zig-packages-v1-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-${{ hashFiles(format('{0}/**/build.zig.zon', inputs.source), format('!{0}/zig-pkg/**', inputs.source)) }}
+        path: |
+          ${{ steps.probe.outputs.dir }}/p
+          ${{ inputs.source }}/zig-pkg
+        key: ghostty-zig-packages-v2-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-${{ hashFiles(format('{0}/**/build.zig.zon', inputs.source), format('!{0}/zig-pkg/**', inputs.source)) }}

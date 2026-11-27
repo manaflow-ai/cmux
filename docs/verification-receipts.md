@@ -136,7 +136,6 @@ it does not assert that the entire CI checkout equals the PR head.
 | `localization-defaults` | Swift `defaultValue` literals consume the same format arguments as their catalog `en` value |
 | `project-tests` | Five project normalizer unit tests at the demonstrated revision; counts are read from each execution |
 | `project` | Xcode project version pin and normalization |
-| `config-schema` | Embedded cmux.json schema matches its source |
 | `test-wiring-sync` | Test-wiring synchronization tool regression suite |
 | `wire-app-sources` | App-source wiring tool regression suite |
 | `ui-lab` | ui-lab harness directive regression suite |
@@ -144,8 +143,6 @@ it does not assert that the entire CI checkout equals the PR head.
 | `launch-policy` | Generated Claude launch policy is current |
 | `test-wiring` | Every Swift test file belongs to the Xcode test target |
 | `package-groups` | Workspace Swift package grouping |
-| `remote-tmux-waits-tests` | Remote-tmux wait lint fixture suite |
-| `remote-tmux-waits` | No new sleep, timer or poll in remote-tmux product sources beyond the baseline and documented exceptions |
 | `feature-flags` | Flag names, ownership, expiry, defaults, single evaluation and retired keys |
 
 Each failure prints a bounded diagnostic tail and an exact `--only` rerun command.

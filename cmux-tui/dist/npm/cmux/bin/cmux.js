@@ -40,9 +40,7 @@ try {
   process.exit(1);
 }
 
-// argv0 makes the binary's help, errors, and version name the `cmux` command
-// that was typed rather than the cmux-tui binary inside the package.
-const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit", argv0: "cmux" });
+const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });
 
 if (result.error) {
   console.error(`cmux: failed to launch ${binPath}: ${result.error.message}`);

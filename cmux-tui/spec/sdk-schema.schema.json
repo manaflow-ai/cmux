@@ -412,6 +412,10 @@
               "boolean"
             ]
           }
+        },
+        "fallback": {
+          "description": "A string enum value that decoders return for a string value they do not know. Encoders stay strict.",
+          "type": "string"
         }
       }
     },

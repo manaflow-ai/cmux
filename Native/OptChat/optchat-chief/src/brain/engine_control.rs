@@ -1,0 +1,367 @@
+//! chief.engine.get / chief.engine.set / chief.stop in the brain: the one
+//! op behind the CLI's `chief-control` and the Home Chief Settings panel of
+//! a Chief on a paired server (2026-10-08: the panel wrote the laptop's
+//! engine.json while the server's brain ran claude-sr). The brain owns its
+//! engine.json: a set is checked here (a harness acpmux does not have, an
+//! effort no harness takes) and refused with a typed error, never saved
+//! for a silent fallback at the next turn.
+//!
+//! Answer: `{"engine": {harness, model, effort, compactor_harness,
+//! compactor_model, permission_mode, permission_mode_source, ...}, "choice": <engine.json>, "last_turn": <turn.end>|null,
+//! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
+//! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
+//! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
+//! unavailable, unavailableReason?, ...}...], "skills": [{name, description,
+//! source}...]}}` (harness_offer.rs; `skills` is what `/` lists in a Chief
+//! composer, slash_skills.rs, so a phone or a Mac whose Chief host runs
+//! elsewhere lists the same skills), or `{"error": {"code", "message"}}`.
+
+use serde_json::{Value, json};
+
+use super::{Brain, EngineRequest, Phase, ReactionFields};
+use crate::engine::{EngineChoice, resolve};
+
+/// The efforts acpmux maps onto a harness (`default` clears the field).
+pub const EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// How many recent turn ends an answer carries.
+const RECENT: usize = 5;
+
+fn error(code: &str, message: impl Into<String>) -> Value {
+    json!({"error": {"code": code, "message": message.into()}})
+}
+
+/// `default` (or empty) clears a field; an absent one stays.
+fn apply(field: &mut Option<String>, value: Option<String>) {
+    if let Some(value) = value {
+        let value = value.trim();
+        *field = (!value.is_empty() && value != "default").then(|| value.to_owned());
+    }
+}
+
+/// The reaction-wake fields of a set over `choice`; Err: the refusal.
+fn apply_reactions(choice: &mut EngineChoice, fields: ReactionFields) -> Result<(), Value> {
+    apply(&mut choice.classifier_harness, fields.classifier_harness);
+    apply(&mut choice.classifier_model, fields.classifier_model);
+    if let Some(prompt) = fields.classifier_prompt {
+        // A prompt keeps its own spacing; only `default` or empty clears it.
+        choice.classifier_prompt =
+            (!prompt.trim().is_empty() && prompt.trim() != "default").then_some(prompt);
+    }
+    if let Some(on) = fields.reactions_can_wake {
+        choice.reactions_can_wake = match on.trim() {
+            "" | "default" => None,
+            "true" | "on" => Some(true),
+            "false" | "off" => Some(false),
+            other => {
+                return Err(error(
+                    "invalid_value",
+                    format!("reactions_can_wake is true, false or default, not {other:?}"),
+                ));
+            }
+        };
+    }
+    Ok(())
+}
+
+impl Brain {
+    pub(super) fn engine_control(&mut self, request: EngineRequest) -> Value {
+        let Some(file) = self.settings.engine_file.clone() else {
+            return error(
+                "engine_unavailable",
+                "this Chief host has no engine.json (its engine is fixed at start)",
+            );
+        };
+        let mut choice = crate::engine::load(&file);
+        if let EngineRequest::Set {
+            harness,
+            model,
+            effort,
+            speed,
+            compactor_speed,
+            compactor_harness,
+            compactor_model,
+            turn_routing,
+            reactions,
+        } = request
+        {
+            if let Some(value) = turn_routing {
+                match crate::engine::parse_turn_routing(&value) {
+                    Ok(value) => choice.turn_routing = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            if let Some(value) = reactions.computer.clone() {
+                match crate::engine::parse_computer(&value) {
+                    Ok(value) => choice.computer = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            if let Some(value) = reactions.permission_mode.clone() {
+                match crate::engine::parse_mode_flag(&value) {
+                    Ok(value) => choice.permission_mode = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            // A speed the target harness has (the turns' after this set;
+            // the compactor's when acpmux says its family).
+            let s = &self.settings;
+            // A value this set names (`default` clears instead).
+            let set = |value: &Option<String>| {
+                value
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty() && *h != "default")
+                    .map(str::to_owned)
+            };
+            let turn_harness = set(&harness)
+                .or_else(|| choice.harness.clone())
+                .unwrap_or_else(|| s.harness.clone());
+            // The compactor's family after this set: the set harness's, else
+            // the turns' when it is Claude, else Claude (a codex Chief
+            // compacts on a Claude route; host::compactor_harness_for).
+            let compactor_family = match &compactor_harness {
+                Some(_) => set(&compactor_harness),
+                None => choice.compactor_harness.clone(),
+            }
+            .map(|h| self.family_of(&h))
+            .unwrap_or(crate::acpmux::Family::Claude);
+            for (value, family) in [
+                (&speed, self.family_of(&turn_harness)),
+                (&compactor_speed, compactor_family),
+            ] {
+                if let Some(v) = value.as_deref()
+                    && let Err(reason) = crate::engine::check_speed(v, family)
+                {
+                    return error("invalid_speed", reason);
+                }
+            }
+            for h in [
+                set(&harness),
+                set(&compactor_harness),
+                set(&reactions.classifier_harness),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !self.settings.families.is_empty() && !self.settings.families.contains_key(&h) {
+                    let known: Vec<&str> =
+                        self.settings.families.keys().map(String::as_str).collect();
+                    return error(
+                        "unknown_harness",
+                        format!(
+                            "acpmux on this host has no harness {h} (it has {})",
+                            known.join(", ")
+                        ),
+                    );
+                }
+            }
+            if let Some(e) = effort.as_deref().map(str::trim)
+                && !e.is_empty()
+                && e != "default"
+                && !EFFORTS.contains(&e)
+            {
+                return error(
+                    "invalid_effort",
+                    format!("effort {e} is not one of default, {}", EFFORTS.join(", ")),
+                );
+            }
+            // acpmux probed only the harnesses the Chief used at its start
+            // (ACPMUX_PROBE_HARNESSES): a new turn harness is probed now.
+            let probe = set(&harness);
+            apply(&mut choice.harness, harness);
+            apply(&mut choice.model, model);
+            apply(&mut choice.effort, effort);
+            apply(&mut choice.speed, speed);
+            apply(&mut choice.compactor_speed, compactor_speed);
+            apply(&mut choice.compactor_harness, compactor_harness);
+            apply(&mut choice.compactor_model, compactor_model);
+            if let Err(e) = apply_reactions(&mut choice, *reactions) {
+                return e;
+            }
+            if let Err(e) = crate::engine::save(&file, &choice) {
+                return error("write_failed", format!("{}: {e}", file.display()));
+            }
+            (self.log)(&format!(
+                "engine set: {}",
+                serde_json::to_string(&choice).unwrap_or_default()
+            ));
+            if let Some(h) = probe.as_deref()
+                && let Err(e) = self.agents.probe_models(h)
+            {
+                (self.log)(&format!("engine set: asking acpmux to probe {h}: {e}"));
+            }
+        }
+        self.engine_answer(&choice)
+    }
+
+    fn engine_answer(&self, choice: &EngineChoice) -> Value {
+        // The reaction classifier this Chief runs now (its engine.json over
+        // the user's cmux.json, reaction_wake.rs).
+        let reactions = self.reaction_config_for(choice);
+        let permission = self.chief_permission_mode(choice);
+        let s = &self.settings;
+        let engine = resolve(choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        let ends: Vec<Value> = s
+            .trace_dir
+            .as_deref()
+            .and_then(|dir| crate::report::read(dir, 0).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| e["ev"] == "turn.end")
+            .collect();
+        let recent: Vec<Value> = ends.iter().rev().take(RECENT).map(turn_summary).collect();
+        // The picker's lists: acpmux's models for the turn harness (none
+        // when it does not answer; the panel then keeps the current one).
+        let models = self
+            .agents
+            .offered_models(&engine.harness)
+            .unwrap_or_else(|e| {
+                (self.log)(&format!("engine answer: acpmux models: {e}"));
+                Vec::new()
+            });
+        // The speeds the turns' harness runs (Fast only on codex), as a set checks.
+        let family = self.family_of(&engine.harness);
+        let speeds: Vec<&str> = crate::engine::SPEEDS
+            .iter()
+            .copied()
+            .filter(|speed| crate::engine::check_speed(speed, family).is_ok())
+            .collect();
+        // Every engine the picker can switch the next turn to (harness_offer.rs).
+        let harnesses = self
+            .agents
+            .harness_catalog()
+            .map(|answer| {
+                super::harness_offer::offered_harnesses(&answer, &self.settings.families, |h| {
+                    self.family_of(h)
+                })
+            })
+            .unwrap_or_else(|e| {
+                (self.log)(&format!("engine answer: acpmux harnesses: {e}"));
+                Vec::new()
+            });
+        // What `/` lists in a Chief composer (slash_skills.rs): a phone or a
+        // Mac whose Chief host runs elsewhere cannot read these folders.
+        let skills = offered_skills(&crate::slash_skills::catalog(
+            &self.file.mux_home(),
+            &crate::compactor::user_claude_home(),
+        ));
+        json!({
+            "engine": {
+                "harness": engine.harness,
+                "model": engine.model,
+                "effort": engine.effort,
+                "compactor_harness": choice.compactor_harness,
+                "compactor_model": choice.compactor_model,
+                "speed": engine.speed.as_deref().unwrap_or("default"),
+                "compactor_speed": choice.compactor_speed.as_deref().unwrap_or("default"),
+                "classifier_harness": reactions.harness,
+                "classifier_model": reactions.model,
+                "classifier_prompt": if reactions.prompt == crate::brain::reaction_wake::DEFAULT_PROMPT {
+                    ""
+                } else {
+                    reactions.prompt.as_str()
+                },
+                "reactions_can_wake": reactions.can_wake,
+                "turn_routing": choice.turn_routing.as_deref().unwrap_or("off"),
+                // What the next Claude turn runs in, and what chose it (cmux#37392).
+                "permission_mode": permission.0,
+                "permission_mode_source": permission.1,
+            },
+            "choice": choice,
+            "last_turn": recent.first().cloned().unwrap_or(Value::Null),
+            "recent": recent,
+            "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses, "skills": skills},
+            // The open-source brains (brain_home.rs): `{family: {state, reason?, harness?,
+            // base_url?, fallback?}}`, so a picker shows which one runs and why one does not.
+            "brains": self.settings.brains.root.as_deref().map(crate::brain_home::load_states).unwrap_or_default(),
+        })
+    }
+
+    /// chief.stop: a running turn stops as for a newer message, and its end
+    /// posts nothing: the owner already knows they stopped it.
+    /// Subagents at work go on: only their own stop (chief.stop {name}) or a
+    /// control cancel stops one (2026-10-20: a Home stop while the Chief
+    /// worked stopped every subagent).
+    pub(super) fn owner_stop(&mut self) -> Value {
+        let turn = self.phase == Phase::Running;
+        if turn {
+            if self.turn_side().is_none() {
+                let answers = self
+                    .state
+                    .turn
+                    .as_ref()
+                    .map(|t| t.answers.clone())
+                    .unwrap_or_default();
+                self.state.stopped_reply = Some(crate::state::StoppedReply {
+                    messages: self
+                        .state
+                        .awaiting
+                        .iter()
+                        .filter(|a| answers.contains(&a.id))
+                        .cloned()
+                        .collect(),
+                    requires_approval: self.turn_ask,
+                });
+                self.save();
+            }
+            self.owner_stopped = true;
+            self.interrupt.request_hard();
+            (self.log)("the owner stopped the running turn");
+        }
+        json!({"stopped": turn})
+    }
+}
+
+/// How many skills `offered.skills` names, and how many characters of a
+/// description it keeps: a menu row shows one line, and the daemon refuses
+/// an answer over 1 MiB (cmux-tui chief_control.rs `MAX_REPLY_BYTES`).
+const OFFERED_SKILLS: usize = 1000;
+const SKILL_DESCRIPTION_CHARS: usize = 300;
+
+/// `offered.skills`: each listed skill as `{name, description, source}`,
+/// `source` one of `chief`, `claude` or `plugin:<plugin>`, in lookup order.
+fn offered_skills(skills: &[crate::slash_skills::SlashSkill]) -> Vec<Value> {
+    use crate::slash_skills::Source;
+    skills
+        .iter()
+        .take(OFFERED_SKILLS)
+        .map(|s| {
+            let source = match s.source {
+                Source::Chief => "chief".to_owned(),
+                Source::Claude => "claude".to_owned(),
+                Source::Plugin => {
+                    let plugin = s.skill.name.split(':').next().unwrap_or_default();
+                    format!("plugin:{plugin}")
+                }
+            };
+            let description: String = s
+                .skill
+                .description
+                .chars()
+                .take(SKILL_DESCRIPTION_CHARS)
+                .collect();
+            json!({"name": s.skill.name, "description": description, "source": source})
+        })
+        .collect()
+}
+
+/// The fields of a `turn.end` an engine panel shows.
+fn turn_summary(end: &Value) -> Value {
+    json!({
+        "turn": end["turn"],
+        "ts": end["ts"],
+        "status": end["status"],
+        "harness": end["harness"],
+        "harness_profile": end["harness_profile"],
+        "model": end["model"],
+        "effort": end["effort"],
+        "ms": end["ms"],
+        "tools": end["tools"],
+        "tool_errors": end["tool_errors"],
+        "cost_usd": end["cost_usd"],
+        "usage": end["usage"],
+        "reply": end["reply"]["prefix"],
+        "error": end["error"]["prefix"],
+    })
+}

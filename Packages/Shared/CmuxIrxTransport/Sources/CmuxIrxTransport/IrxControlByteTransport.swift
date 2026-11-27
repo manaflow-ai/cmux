@@ -108,13 +108,14 @@ public actor IrxControlByteTransport: CmxByteTransport {
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
         onClose: OnClose? = nil,
-        permitsIO: @escaping @Sendable () async -> Bool = { true },
+        permitsIO: (@Sendable () async -> Bool)? = nil,
         controlRepairDeadline: Duration = IrxProtocol().controlRepairDeadline
     ) {
         self.closeCode = closeCode
         self.establish = establish
         self.onClose = onClose
-        self.permitsIO = permitsIO
+        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
+        self.permitsIO = permitsIO ?? { true }
         self.controlRepairDeadline = controlRepairDeadline
     }
 
@@ -386,28 +387,27 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let buffered = inboundPartialFrame
         guard !buffered.isEmpty else { return nil }
         let headerByteCount = MobileSyncFrameCodec.headerByteCount
+        var reader = WireByteReader(buffered)
         var boundary = 0
-        while buffered.count - boundary >= headerByteCount {
-            let headerStart = buffered.startIndex + boundary
-            var length = 0
-            for byte in buffered[headerStart..<(headerStart + headerByteCount)] {
-                length = (length << 8) | Int(byte)
-            }
+        while true {
+            var frame = reader
+            guard let header = frame.bigEndian(UInt32.self) else { break }
+            let length = Int(clamping: header)
             guard length <= MobileSyncFrameCodec.defaultMaximumFrameByteCount else {
                 inboundPartialFrame = Data()
                 return buffered
             }
-            guard buffered.count - boundary - headerByteCount >= length else { break }
+            guard frame.skip(length) else { break }
             boundary += headerByteCount + length
+            reader = frame
         }
         guard boundary > 0 else { return nil }
-        if boundary == buffered.count {
+        if reader.remainingCount == 0 {
             inboundPartialFrame = Data()
             return buffered
         }
-        let split = buffered.startIndex + boundary
-        inboundPartialFrame = Data(buffered[split...])
-        return Data(buffered[buffered.startIndex..<split])
+        inboundPartialFrame = reader.remaining
+        return Data(buffered.prefix(boundary))
     }
 
     // MARK: - Establishment
@@ -557,16 +557,16 @@ extension IrxControlByteTransport: CmxByteTransportContinuityIdentifying {
     /// tell a surviving transport from a replacement.
     public func transportContinuityID() async -> UInt64? {
         guard let (connection, _) = pair else { return nil }
-        return connection.underlying.stableId()
+        return connection.continuityID()
     }
 }
 
 extension IrxControlByteTransport: CmxByteTransportConnectionInspecting {
     public func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
         guard !isClosed, let (connection, _) = pair else { return nil }
-        let selected = connection.underlying.paths().first(where: { $0.isSelected })
+        let selected = connection.selectedPath()
         return CmxTransportConnectionObservation(
-            continuityID: connection.underlying.stableId(),
+            continuityID: connection.continuityID(),
             pathKind: selected.map { $0.isRelay ? .relay : .direct } ?? .unknown
         )
     }

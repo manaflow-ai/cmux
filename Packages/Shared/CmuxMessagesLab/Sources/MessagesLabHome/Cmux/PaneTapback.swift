@@ -21,6 +21,7 @@ extension ChatController {
     /// the menu opened (the release that opened it is not the choice) and less than 1 s ago; else
     /// the tapback is timed from its commit, as before. No event is made or sent: only read.
     func chooseTapback(_ ref: PartRef, _ kind: Reaction.Kind) {
+        guard intents?.canInteract(with: ref.messageId) != false else { return }
         let now = CACurrentMediaTime(), opened = menuHighlight?.openedAt ?? now
         let input = NSApp.currentEvent.flatMap { e -> CFTimeInterval? in
             switch e.type {

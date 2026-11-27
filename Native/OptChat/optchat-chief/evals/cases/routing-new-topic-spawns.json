@@ -1,0 +1,41 @@
+{
+  "id": "routing-new-topic-spawns",
+  "group": "routing",
+  "owner": "a680",
+  "about": "A new topic gets its own agent and workspace, even while another agent works: never pile an unrelated task onto a busy agent.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the white flash when cmux restarts"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it: [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    }
+  ],
+  "turns": [
+    {
+      "text": "add a keyboard shortcut to rename the current workspace",
+      "tail": "Subagents at work now: a12.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "not_called",
+          "cmd": "tell"
+        },
+        {
+          "type": "max_calls",
+          "cmd": "spawn",
+          "n": 1
+        },
+        {
+          "type": "max_words",
+          "n": 30
+        }
+      ]
+    }
+  ]
+}

@@ -9,19 +9,42 @@ public import StackAuth
 /// The wrapped `StackClientApp` is an actor, so this conformer is `Sendable` and
 /// safe to inject as `any AuthClient`.
 public struct StackAuthClient: AuthClient {
-    private let stack: StackClientApp
-    private let apiBaseURL: URL?
+    let stack: StackClientApp
+    let apiBaseURL: URL?
+    /// Whether a sign-out leaves the server session of this refresh token alone (``revokeSession(accessToken:refreshToken:)``).
+    let keepsServerSession: (@Sendable (_ refreshToken: String) async -> Bool)?
+    /// The token store's failed-read count (``AuthClient/tokenReadFailureCount()``),
+    /// when the store is one of ours that reports it.
+    let tokenReadFailures: (@Sendable () async -> UInt64)?
 
     /// Wrap a Stack client app.
-    /// - Parameter stack: The configured Stack client to delegate to.
-    public init(stack: StackClientApp) {
-        self.stack = stack
-        self.apiBaseURL = nil
+    /// - Parameters:
+    ///   - stack: The configured Stack client to delegate to.
+    ///   - tokenStore: The store `stack` was built over, when it is one of
+    ///     ours: its failed reads are reported so a keychain error is never
+    ///     read as a signed-out store.
+    public init(stack: StackClientApp, tokenStore: (any StackAuthTokenStoreProtocol)? = nil) {
+        self.init(stack: stack, apiBaseURL: nil, keepsServerSession: nil,
+                  tokenReadFailures: Self.failedReadCounter(of: tokenStore))
     }
 
-    private init(stack: StackClientApp, apiBaseURL: URL?) {
+    private static func failedReadCounter(
+        of store: (any StackAuthTokenStoreProtocol)?
+    ) -> (@Sendable () async -> UInt64)? {
+        guard let store else { return nil }
+        let reader: @Sendable () async -> UInt64 = {
+            await store.tokenReadFailureCount()
+        }
+        return reader
+    }
+
+    private init(stack: StackClientApp, apiBaseURL: URL?,
+                 keepsServerSession: (@Sendable (_ refreshToken: String) async -> Bool)?,
+                 tokenReadFailures: (@Sendable () async -> UInt64)?) {
         self.stack = stack
         self.apiBaseURL = apiBaseURL
+        self.keepsServerSession = keepsServerSession
+        self.tokenReadFailures = tokenReadFailures
     }
 
     /// Build a Stack client from resolved config and a token-store choice.
@@ -34,12 +57,16 @@ public struct StackAuthClient: AuthClient {
     ///   - baseURL: Stack API origin. Defaults to Stack's production API.
     ///   - noAutomaticPrefetch: Disables Stack project prefetch when the host
     ///     owns startup sequencing.
+    ///   - keepsServerSession: True for a refresh token whose server session another app
+    ///     shares (``ImportingTokenStore/isShared(refreshToken:)``): a sign-out then clears only
+    ///     this app's copy and leaves the session, and so the other app, signed in.
     public init(
         config: AuthConfig,
         tokenStore: TokenStoreInit,
         oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
         baseURL: String = "https://api.stack-auth.com",
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        keepsServerSession: (@Sendable (_ refreshToken: String) async -> Bool)? = nil
     ) {
         self.init(
             stack: StackClientApp(
@@ -50,8 +77,19 @@ public struct StackAuthClient: AuthClient {
                 noAutomaticPrefetch: noAutomaticPrefetch,
                 oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
             ),
-            apiBaseURL: URL(string: config.apiBaseURL)
+            apiBaseURL: URL(string: config.apiBaseURL),
+            keepsServerSession: keepsServerSession,
+            tokenReadFailures: Self.failedReadCounter(ofStoreInit: tokenStore)
         )
+    }
+
+    private static func failedReadCounter(ofStoreInit tokenStore: TokenStoreInit) -> (@Sendable () async -> UInt64)? {
+        guard case .custom(let store) = tokenStore else { return nil }
+        return failedReadCounter(of: store as? any StackAuthTokenStoreProtocol)
+    }
+
+    public func tokenReadFailureCount() async -> UInt64 {
+        await tokenReadFailures?() ?? 0
     }
 
     public func accessToken() async -> String? {
@@ -98,7 +136,9 @@ public struct StackAuthClient: AuthClient {
         var summaries: [CMUXAuthTeam] = []
         summaries.reserveCapacity(teams.count)
         for team in teams {
-            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName))
+            // A cmux VM personal tenant is no team (CMUX-380): never listed, so never the selection either.
+            if await team.cmuxVmPersonalTenant { continue }
+            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName, plan: await team.cmuxPlan))
         }
         return summaries
     }
@@ -116,9 +156,9 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func createTeam(displayName: String) async throws -> CMUXAuthTeam {
-        if let apiBaseURL {
-            return try await createTeamThroughCmuxBackend(displayName: displayName, apiBaseURL: apiBaseURL)
-        }
+        // The cmux team API makes the creator the team's admin; the sign-in
+        // service alone serves only builds with no cmux backend.
+        if let teamsAPI { return try await teamsAPI.create(displayName: displayName) }
         guard let user = try await stack.getUser(or: .returnNull) else {
             throw AuthClientError.unsupported
         }
@@ -127,31 +167,6 @@ public struct StackAuthClient: AuthClient {
             id: team.id,
             displayName: await team.displayName
         )
-    }
-
-    private func createTeamThroughCmuxBackend(
-        displayName: String,
-        apiBaseURL: URL
-    ) async throws -> CMUXAuthTeam {
-        guard let accessToken = await stack.getAccessToken(),
-              let refreshToken = await stack.getRefreshToken() else {
-            throw AuthClientError.unsupported
-        }
-        let endpoint = apiBaseURL.appendingPathComponent("api/subrouter/teams")
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        request.httpBody = try JSONEncoder().encode(CreateTeamRequest(displayName: displayName))
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
-            throw AuthClientError.unsupported
-        }
-        let created = try JSONDecoder().decode(CreateTeamResponse.self, from: data)
-        return CMUXAuthTeam(id: created.team.id, displayName: created.team.name)
     }
 
     public func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
@@ -167,7 +182,11 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
+#if canImport(AuthenticationServices)
         try await stack.signInWithOAuth(provider: provider, presentationContextProvider: anchor)
+#else
+        throw AuthClientError.unsupported
+#endif
     }
 
     /// The access token exactly as stored: a raw read, no freshness check,
@@ -195,6 +214,7 @@ public struct StackAuthClient: AuthClient {
     public func revokeSession(accessToken: String?, refreshToken: String?) async throws {
         // Nothing to authenticate the DELETE with; skip the round trip.
         guard accessToken != nil || refreshToken != nil else { return }
+        if let refreshToken, let keepsServerSession, await keepsServerSession(refreshToken) { return }
         try await stack.revokeSession(accessToken: accessToken, refreshToken: refreshToken)
     }
 
@@ -233,15 +253,15 @@ extension CurrentUser {
     }
 }
 
-private struct CreateTeamRequest: Encodable {
-    let displayName: String
-}
+extension Team {
+    /// The team's plan id, read inside the team actor so the non-`Sendable` metadata dictionary
+    /// never crosses an isolation boundary (``CMUXAuthTeam/plan(fromClientReadOnlyMetadata:)``).
+    var cmuxPlan: String? {
+        CMUXAuthTeam.plan(fromClientReadOnlyMetadata: clientReadOnlyMetadata)
+    }
 
-private struct CreateTeamResponse: Decodable {
-    let team: TeamSummary
-
-    struct TeamSummary: Decodable {
-        let id: String
-        let name: String
+    /// Whether this is a cmux VM personal tenant (``CMUXAuthTeam/isVmPersonalTenant(clientReadOnlyMetadata:)``).
+    var cmuxVmPersonalTenant: Bool {
+        CMUXAuthTeam.isVmPersonalTenant(clientReadOnlyMetadata: clientReadOnlyMetadata)
     }
 }

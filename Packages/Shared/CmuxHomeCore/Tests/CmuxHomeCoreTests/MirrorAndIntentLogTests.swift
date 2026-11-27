@@ -57,6 +57,22 @@ import Testing
         #expect(mirror.inboxRows(log: log).first?.isPinned == true)
     }
 
+    /// Delete in a Chief chat (https://github.com/manaflow-ai/cmux/issues/36019): the list's preview
+    /// drops the deleted message at the press, before the owner's echo; a refused delete (discarded from the log) shows it again.
+    @Test func aPendingRetractClearsTheNewestMessagesPreviewUntilRefused() {
+        var mirror = HomeMirror()
+        var newest = summary(lastSeq: 1, rev: 1)
+        newest.lastMessage = Message(id: MessageID("m1"), conversation: conv, seq: 1, clientMessageID: IdempotencyKey("k1"),
+                                     author: me.id, parts: [.text("my locker code is 4417")], createdAt: Date(timeIntervalSince1970: 1))
+        mirror.apply(inbox: InboxSnapshot(me: me, conversations: [newest], rev: 1))
+        var log = IntentLog()
+        #expect(mirror.inboxRows(log: log).first?.preview == "my locker code is 4417")
+        log.append(HomeIntent(key: IdempotencyKey("r"), op: .retractMessage(message: MessageID("m1"), conversation: conv)))
+        #expect(mirror.inboxRows(log: log).first?.preview == "")
+        log.discard(IdempotencyKey("r")) // HomeStore discards a refused retract
+        #expect(mirror.inboxRows(log: log).first?.preview == "my locker code is 4417")
+    }
+
     @Test func disconnectMarksInFlightUnconfirmedAndReconnectResendsInOrder() {
         var log = IntentLog()
         let a = HomeIntent(key: IdempotencyKey("a"), op: .sendMessage(conversation: conv, parts: [.text("1")]))

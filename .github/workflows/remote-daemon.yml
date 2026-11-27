@@ -37,12 +37,6 @@ on:
         required: false
         default: ""
         type: string
-      # The controller's per-run grant (scripts/ci/mac_grants.py), JSON labels, or "": with it the
-      # macOS tests take it in place of every pool label.
-      pr_grant:
-        required: false
-        default: ""
-        type: string
   push:
     branches: [main]
     paths:
@@ -68,7 +62,7 @@ env:
 
 jobs:
   remote-daemon-admission:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       pull-requests: read
@@ -95,7 +89,7 @@ jobs:
 
   remote-daemon-tests:
     needs: remote-daemon-admission
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -104,7 +98,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         id: setup-go
         with:
-          go-version: '1.26.x'
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
           cache: false
       # Go module and build caches through actions/cache (Blacksmith serves it on its
       # runners), in place of setup-go's own cache, which saves on every event. Restored
@@ -146,6 +142,8 @@ jobs:
         run: node scripts/release_asset_guard.test.js
       - name: Reject broken app bundles and daemon artifacts
         run: python3 tests/test_remote_daemon_release_verification.py
+      - name: cmuxd-remote third-party notices
+        run: python3 tests/test_remote_daemon_notices.py
       - name: Build and exercise stable and nightly daemon artifacts
         run: python3 tests/test_remote_daemon_release_assets.py
       - name: Test daemon behavior with the race detector
@@ -170,7 +168,7 @@ jobs:
     # contended macOS 26 pool. A direct push or dispatch of this workflow (not
     # ci.yml's call) is a side lane: the minis on attempt 1, Blacksmith on
     # any retry.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || github.event_name == 'pull_request' && ((github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, ' remote-daemon ')) && inputs.pr_retry_runner || inputs.pr_side_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(inputs.pr_owned_jobs, ' remote-daemon ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(github.workflow_ref, '/.github/workflows/remote-daemon.yml@') && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && ((github.run_attempt > 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, ' remote-daemon ')) && inputs.pr_retry_runner || inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(inputs.pr_owned_jobs, ' remote-daemon ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(github.workflow_ref, '/.github/workflows/remote-daemon.yml@') && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER))) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -179,7 +177,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         id: setup-go
         with:
-          go-version: '1.26.x'
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
           cache: false
       # The same Go caches as remote-daemon-tests (see there), keyed per OS and arch.
       - name: Go cache key

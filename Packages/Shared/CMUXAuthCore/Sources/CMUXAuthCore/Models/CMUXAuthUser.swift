@@ -91,12 +91,10 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
         return number.boolValue
         #else
-        // swift-corelibs-foundation has no CFBoolean type ID. A Swift Bool
-        // stays a Bool, and JSONSerialization's booleans are NSNumbers whose
-        // objCType is "c" (integers decode as "q", doubles as "d").
-        if let bool = value as? Bool, !(value is NSNumber) { return bool }
-        guard let number = value as? NSNumber, String(cString: number.objCType) == "c" else { return false }
-        return number.boolValue
+        // No CFBoolean type ID here: accept a native Bool or the shared boolean NSNumber instance.
+        if type(of: value) == Bool.self, let flag = value as? Bool { return flag }
+        guard let number = value as? NSNumber else { return false }
+        return number === NSNumber(value: true)
         #endif
     }
 }

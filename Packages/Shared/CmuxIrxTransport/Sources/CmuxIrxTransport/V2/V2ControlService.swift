@@ -6,6 +6,9 @@ import Foundation
 /// to install credentials and peer permissions. Socket status does not determine
 /// IROH reachability, and stopping this service never deletes Stack authentication.
 public actor V2ControlService {
+    /// The injected wall clock in whole Unix seconds (saturated; 0 for NaN).
+    var unixSeconds: Int { dependencies.now().timeIntervalSince1970.saturatedInteger(Int.self) ?? 0 }
+
     let configuration: V2ControlConfiguration
     let dependencies: V2ControlDependencies
     let store: any V2StateStoring
@@ -367,14 +370,15 @@ public actor V2ControlService {
             if response.code == .rateLimited {
                 let delay = max(1, Double(response.retryAfterMS ?? 60_000) / 1000)
                 cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(delay)
-                journal("cooldown-set", ["schema": schema, "source": "rate_limited", "delay_s": String(Int(delay))])
+                journal("cooldown-set", ["schema": schema, "source": "rate_limited", "delay_s": delay.journalInteger])
             } else if response.code == .clientUpgradeRequired {
                 let attempt = retiredAttempts[schema, default: 0]
                 let delays: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
-                let delay = delays[min(attempt, delays.count - 1)] * (1 + 0.1 * dependencies.jitter())
+                // The delay for this attempt, the last one for every later attempt.
+                let delay = (delays.dropFirst(attempt).first ?? delays.last ?? 24 * 3600) * (1 + 0.1 * dependencies.jitter())
                 retiredAttempts[schema] = attempt + 1
                 cooldowns[schema] = dependencies.now().addingTimeInterval(delay)
-                journal("cooldown-set", ["schema": schema, "source": "upgrade_required", "delay_s": String(Int(delay))])
+                journal("cooldown-set", ["schema": schema, "source": "upgrade_required", "delay_s": delay.journalInteger])
             }
         }
         publish()

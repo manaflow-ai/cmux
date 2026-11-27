@@ -1,0 +1,47 @@
+{
+  "id": "links-tab-opened",
+  "owner": "a672",
+  "about": "a page opened beside the chat is linked by its tab",
+  "stubs": [
+    {
+      "cmd": "cmux",
+      "match": "browser",
+      "stdout": "{\"tab\": \"tab_8167aba764916990ee8959f617ea3d9d\", \"pane\": \"pane_44dd55ee66ff\", \"url\": \"https://github.com/manaflow-ai/cmux/pull/25233\", \"title\": \"PR 25233\"}",
+      "exit": 0
+    },
+    {
+      "cmd": "cmux",
+      "match": "identify",
+      "stdout": "{\"caller\": {\"pane\": \"pane_11aa22bb33cc\"}, \"beside\": {\"pane\": \"pane_44dd55ee66ff\"}}"
+    },
+    {
+      "cmd": "cmux",
+      "match": "open",
+      "stdout": "{\"tab\": \"tab_8167aba764916990ee8959f617ea3d9d\", \"pane\": \"pane_44dd55ee66ff\", \"url\": \"https://github.com/manaflow-ai/cmux/pull/25233\"}"
+    },
+    {
+      "cmd": "cmux",
+      "match": "tab list",
+      "stdout": "[{\"id\": \"tab_8167aba764916990ee8959f617ea3d9d\", \"title\": \"PR 25233\", \"pane\": \"pane_44dd55ee66ff\"}]"
+    }
+  ],
+  "turns": [
+    {
+      "text": "open PR 25233 on the right",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "cmux",
+          "match": "25233"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(cmux://tab/tab_8167aba764916990ee8959f617ea3d9d\\)"
+        },
+        {
+          "type": "no_raw_ids"
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,13 @@
 /// The Rust twin in cmux-tui-core must stay identical; both replay
 /// `schemas/terminal-sizing/fixtures.json`.
 public struct TerminalSizingEngine: Sendable {
+    /// The narrowest grid a shared terminal takes while some counting view is
+    /// at least this wide: an iPhone's portrait terminal page. A narrower view
+    /// gets the wider grid instead of squeezing every view below a phone (Leo,
+    /// 2026-11-15: "i dont see the point of a narrower-than-iphone terminal").
+    /// `fixed` and `held` keep their grid. Rust: `MIN_SHARED_COLS`.
+    public static let minSharedCols = 40
+
     private struct Entry: Sendable {
         var participant: TerminalSizingParticipant
         var activity: UInt64
@@ -19,7 +26,7 @@ public struct TerminalSizingEngine: Sendable {
     /// - Parameters:
     ///   - initialSize: the grid before anyone reports, usually the PTY's current size.
     ///   - policy: the effective policy (workspace default or terminal override).
-    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .fitEveryone) {
+    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .latest) {
         self.policy = policy
         self.held = initialSize.clamped
         self.state = TerminalSizingState(
@@ -30,17 +37,19 @@ public struct TerminalSizingEngine: Sendable {
 
     // MARK: Mutations. Each returns true when the published state changed.
 
-    /// Adds a view, or replaces one with the same id. Attach counts as activity.
+    /// Adds a view, or replaces one with the same id. A desktop's attach counts
+    /// as activity; a phone's or tablet's does not (activity 0), so a glance
+    /// from a phone never takes the grid from a desktop in use. A handheld that
+    /// is the only counting view still sets the grid.
     @discardableResult
     public mutating func attach(_ participant: TerminalSizingParticipant) -> Bool {
         activityClock += 1
         var participant = participant
         // A decoded participant bypasses the clamping initializer.
         participant.viewport = participant.viewport?.clamped
-        if let i = index(participant.id) {
-            entries[i] = Entry(participant: participant, activity: activityClock)
-        } else {
-            entries.append(Entry(participant: participant, activity: activityClock))
+        let entry = Entry(participant: participant, activity: participant.deviceKind.isHandheld ? 0 : activityClock)
+        if !updateEntry(participant.id, { $0 = entry }) {
+            entries.append(entry)
         }
         return publish()
     }
@@ -54,24 +63,33 @@ public struct TerminalSizingEngine: Sendable {
 
     @discardableResult
     public mutating func report(_ id: String, viewport: TerminalGridSize) -> Bool {
-        guard let i = index(id) else { return false }
-        entries[i].participant.viewport = viewport.clamped
+        guard updateEntry(id, { $0.participant.viewport = viewport.clamped }) else { return false }
+        return publish()
+    }
+
+    /// Forgets a viewport while keeping the view attached: a viewer that hid
+    /// the terminal (an iPhone app in the background, a terminal off screen)
+    /// stops counting until its next `report`. Twin of the Rust
+    /// `clear_viewport`; fixture op `clear_viewport`.
+    @discardableResult
+    public mutating func clearViewport(_ id: String) -> Bool {
+        guard updateEntry(id, { $0.participant.viewport = nil }) else { return false }
         return publish()
     }
 
     /// Explicit focus-click or keyboard, paste or mouse input. Never hover.
     @discardableResult
     public mutating func noteActivity(_ id: String) -> Bool {
-        guard let i = index(id) else { return false }
+        guard index(id) != nil else { return false }
         activityClock += 1
-        entries[i].activity = activityClock
+        let clock = activityClock
+        updateEntry(id) { $0.activity = clock }
         return publish()
     }
 
     @discardableResult
     public mutating func setCountsOverride(_ id: String, _ value: Bool?) -> Bool {
-        guard let i = index(id) else { return false }
-        entries[i].participant.countsOverride = value
+        guard updateEntry(id, { $0.participant.countsOverride = value }) else { return false }
         return publish()
     }
 
@@ -92,6 +110,20 @@ public struct TerminalSizingEngine: Sendable {
 
     // MARK: Rules
 
+    /// Applies `body` to the entry for `id`; false when there is none.
+    @discardableResult
+    private mutating func updateEntry(_ id: String, _ body: (inout Entry) -> Void) -> Bool {
+        var found = false
+        entries = entries.map { entry in
+            guard !found, entry.participant.id == id else { return entry }
+            found = true
+            var entry = entry
+            body(&entry)
+            return entry
+        }
+        return found
+    }
+
     private func index(_ id: String) -> Int? {
         entries.firstIndex { $0.participant.id == id }
     }
@@ -100,56 +132,81 @@ public struct TerminalSizingEngine: Sendable {
         let p = entry.participant
         guard p.viewport != nil else { return false }
         if let explicit = p.countsOverride { return explicit }
-        // Fit-everyone modes promise to count every attached view; the handheld
-        // deferral only stops a phone from taking the grid by activity.
-        if policy.mode == .smallest || policy.mode == .largest { return true }
+        // Only `priority` defers a phone to its user's desktop. Fit-everyone
+        // modes count every view, and `latest` lets a phone take the grid by
+        // input (its attach alone never does).
+        if policy.mode != .priority { return true }
         guard p.deviceKind.isHandheld, let user = p.userID else { return true }
-        // Defer only to a Mac or TUI of the same user that itself counts: a
+        // Defer only to a desktop of the same user that itself counts: a
         // viewer-only or viewport-less Mac leaves the phone in charge.
         return !entries.contains {
             let other = $0.participant
-            return other.userID == user && (other.deviceKind == .mac || other.deviceKind == .tui)
+            return other.userID == user && other.deviceKind.isDesktop
                 && other.viewport != nil && other.countsOverride != false
         }
+    }
+
+    /// A counting entry with its viewport unwrapped: `counts(_:)` refuses an
+    /// entry without one, and the pair makes the type hold that.
+    private struct Sized {
+        var entry: Entry
+        var viewport: TerminalGridSize
     }
 
     private func decide(_ counting: [Entry]) -> (TerminalGridSize, [String], TerminalSizingReason) {
         if policy.mode == .fixed, let fixed = policy.fixed {
             return (fixed, [], .fixed)
         }
-        guard !counting.isEmpty else { return (held, [], .held) }
-        func newest(_ list: [Entry]) -> Entry {
-            list.max { $0.activity < $1.activity }!
+        let sized = counting.compactMap { entry in
+            entry.participant.viewport.map { Sized(entry: entry, viewport: $0) }
         }
+        // Ties happen only between handhelds whose attach was not activity
+        // (activity 0): the later entry wins, as in the Rust twin (`max_by_key`
+        // keeps the last maximum). An attach again replaces its entry in place.
+        func newest(_ list: [Sized]) -> Sized? {
+            list.enumerated().max { ($0.element.entry.activity, $0.offset) < ($1.element.entry.activity, $1.offset) }?.element
+        }
+        guard let latest = newest(sized) else { return (held, [], .held) }
         switch policy.mode {
         case .latest, .fixed:
-            let owner = newest(counting)
-            return (owner.participant.viewport!, [owner.participant.id], .latest)
+            return (latest.viewport, [latest.entry.participant.id], .latest)
         case .priority:
             for key in policy.priority {
-                let matches = counting.filter { $0.participant.matchesPriorityKey(key) }
-                if !matches.isEmpty {
-                    let owner = newest(matches)
-                    return (owner.participant.viewport!, [owner.participant.id], .priority)
+                let matches = sized.filter { $0.entry.participant.matchesPriorityKey(key) }
+                if let owner = newest(matches) {
+                    return (owner.viewport, [owner.entry.participant.id], .priority)
                 }
             }
-            let owner = newest(counting)
-            return (owner.participant.viewport!, [owner.participant.id], .priorityFallback)
+            return (latest.viewport, [latest.entry.participant.id], .priorityFallback)
         case .smallest, .largest:
-            let pick: ([Int]) -> Int = policy.mode == .smallest ? { $0.min()! } : { $0.max()! }
-            let cols = pick(counting.map { $0.participant.viewport!.cols })
-            let rows = pick(counting.map { $0.participant.viewport!.rows })
-            let owners = counting
-                .filter { $0.participant.viewport!.cols == cols || $0.participant.viewport!.rows == rows }
-                .map(\.participant.id)
+            let pick: ([Int]) -> Int? = policy.mode == .smallest ? { $0.min() } : { $0.max() }
+            guard var cols = pick(sized.map(\.viewport.cols)), let rows = pick(sized.map(\.viewport.rows)) else {
+                return (held, [], .held)
+            }
+            // The phone floor, as in the Rust twin: a counting phone or tablet
+            // never gets a grid narrower than itself; a narrower desktop view
+            // clips instead. Columns only.
+            if policy.mode == .smallest,
+               let floor = sized.filter({ $0.entry.participant.deviceKind.isHandheld }).map(\.viewport.cols).min() {
+                cols = max(cols, floor)
+            }
+            let owners = sized
+                .filter { $0.viewport.cols == cols || $0.viewport.rows == rows }
+                .map(\.entry.participant.id)
             return (TerminalGridSize(cols: cols, rows: rows), owners, policy.mode == .smallest ? .smallest : .largest)
         }
     }
 
     private mutating func publish() -> Bool {
         let counting = entries.filter(counts)
-        let (size, owners, reason) = decide(counting)
-        if reason != .held && reason != .fixed { held = size }
+        let (decided, owners, reason) = decide(counting)
+        var size = decided
+        if reason != .held && reason != .fixed {
+            if counting.contains(where: { ($0.participant.viewport?.cols ?? 0) >= Self.minSharedCols }) {
+                size.cols = max(size.cols, Self.minSharedCols)
+            }
+            held = size
+        }
         let rows = entries.map { TerminalSizingParticipantState(participant: $0.participant, counts: counts($0)) }
         var next = TerminalSizingState(
             generation: state.generation, cols: size.cols, rows: size.rows, reason: reason,

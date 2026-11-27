@@ -43,6 +43,10 @@ public struct IrxClientSession: Sendable {
 /// trigger. The old stack's parallel dial storms (35 of 57 reconnect failures
 /// were "superseded by a newer attempt") cannot happen here by construction.
 public actor IrxPeerEngine {
+    /// A server Retry-After past 2^31 s (68 years) waits that long: a deadline
+    /// near Int.max seconds traps when the clock converts it.
+    static let maximumServerRetryAfterSeconds = 2_147_483_648
+
     public struct Config: Sendable {
         public var initialBackoff: Duration
         public var maxBackoff: Duration
@@ -100,13 +104,20 @@ public actor IrxPeerEngine {
     private var closureObservers: [Int: @Sendable (IrxTermination) async -> Void] = [:]
     private var observerCounter = 0
 
+    // An async closure literal as a default argument is compiled again into
+    // every calling module under the same symbol name, with a different async
+    // context size (Swift 6.3.3; cx-bsue). The linker can then pair one copy's
+    // size with another copy's body, and the call overruns its task
+    // allocation ("freed pointer was not the last allocation"). Defaults are
+    // therefore nil and resolved in the init body, which only this module
+    // compiles.
     public init(
         config: Config = Config(),
         journal: IrxJournal,
         label: String = "",
         applicationActive: Bool = true,
         clockNow: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
-        retrySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        retrySleep: (@Sendable (Duration) async throws -> Void)? = nil,
         dialOnce: @escaping DialOnce
     ) {
         self.config = config
@@ -115,7 +126,7 @@ public actor IrxPeerEngine {
         self.applicationActive = applicationActive
         self.dialOnce = dialOnce
         self.clockNow = clockNow
-        self.retrySleep = retrySleep
+        self.retrySleep = retrySleep ?? { try await Task.sleep(for: $0) }
         backoff = config.initialBackoff
     }
 
@@ -500,7 +511,7 @@ public actor IrxPeerEngine {
                 "code": termination.code,
                 "origin": termination.origin.rawValue,
                 "via": viaKeepalive ? "keepalive" : "termination-watch",
-                "lifetime_s": String(Int(Date().timeIntervalSince(died.establishedAt))),
+                "lifetime_s": Date().timeIntervalSince(died.establishedAt).journalInteger,
             ]
         )
         setState(.closed(code: termination.code))
@@ -534,7 +545,8 @@ public actor IrxPeerEngine {
     private func scheduleRedial(error: any Error) {
         let retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
             .retryAfterSeconds
-        let serverFloor = Duration.seconds(Int64(max(0, retryAfterSeconds ?? 0)))
+        let serverFloor = Duration.seconds(
+            min(max(0, retryAfterSeconds ?? 0), Self.maximumServerRetryAfterSeconds))
         let delay = max(backoff, serverFloor)
         backoff = min(backoff * 2, config.maxBackoff)
         let deadline = clockNow().advanced(by: delay)

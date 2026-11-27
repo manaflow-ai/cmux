@@ -74,27 +74,18 @@ const EMPTY_SELECTION: GraphicsSelection = {
   images: new Set(),
 };
 
-function compareCandidates(
-  left: CandidatePriority,
-  right: CandidatePriority,
-): number {
+function compareCandidates(left: CandidatePriority, right: CandidatePriority): number {
   return compareCandidateValues(left.z, left.order, right.z, right.order);
 }
 
-function compareCandidateValues(
-  leftZ: number,
-  leftOrder: number,
-  rightZ: number,
-  rightOrder: number,
-): number {
+function compareCandidateValues(leftZ: number, leftOrder: number, rightZ: number, rightOrder: number): number {
   return leftZ - rightZ || leftOrder - rightOrder;
 }
 
 function candidateBackingBytesLowerBound(placement: RenderGraphicPlacement): number {
   const width = placement.source_width;
   const height = placement.source_height;
-  if (!Number.isSafeInteger(width) || width <= 0
-    || !Number.isSafeInteger(height) || height <= 0) return 0;
+  if (!Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0) return 0;
   const pixels = width * height;
   const bytes = pixels * 4;
   // Every valid placement plan uses this exact byte count. Returning zero for
@@ -102,11 +93,7 @@ function candidateBackingBytesLowerBound(placement: RenderGraphicPlacement): num
   return Number.isSafeInteger(pixels) && Number.isSafeInteger(bytes) ? bytes : 0;
 }
 
-function heapPush<T>(
-  heap: T[],
-  value: T,
-  comparePriority: (left: T, right: T) => number,
-): void {
+function heapPush<T>(heap: T[], value: T, comparePriority: (left: T, right: T) => number): void {
   heap.push(value);
   let index = heap.length - 1;
   while (index > 0) {
@@ -117,10 +104,7 @@ function heapPush<T>(
   }
 }
 
-function heapPop<T>(
-  heap: T[],
-  comparePriority: (left: T, right: T) => number,
-): T | undefined {
+function heapPop<T>(heap: T[], comparePriority: (left: T, right: T) => number): T | undefined {
   const root = heap[0];
   const tail = heap.pop();
   if (tail === undefined || heap.length === 0) return root;
@@ -140,8 +124,7 @@ function heapPop<T>(
 }
 
 class RenderGraphicCandidateSource {
-  private readonly candidateCache:
-    (RenderGraphicCandidate | null | undefined)[];
+  private readonly candidateCache: (RenderGraphicCandidate | null | undefined)[];
   private readonly minimumBackingBytes: number[];
   private readonly placementIndexes: number[];
 
@@ -151,17 +134,12 @@ class RenderGraphicCandidateSource {
   ) {
     this.placementIndexes = [];
     for (const [order, placement] of placements.entries()) {
-      if (!placement.viewport_visible || !Number.isSafeInteger(placement.z)
-        || !images.has(placement.image_id)) continue;
+      if (!placement.viewport_visible || !Number.isSafeInteger(placement.z) || !images.has(placement.image_id))
+        continue;
       this.placementIndexes.push(order);
     }
-    this.placementIndexes.sort((left, right) =>
-      -compareCandidateValues(
-        placements[left]!.z,
-        left,
-        placements[right]!.z,
-        right,
-      )
+    this.placementIndexes.sort(
+      (left, right) => -compareCandidateValues(placements[left]!.z, left, placements[right]!.z, right),
     );
     this.candidateCache = new Array(this.placementIndexes.length);
 
@@ -184,9 +162,7 @@ class RenderGraphicCandidateSource {
   candidateFrom(
     startPosition: number,
     rejectedImages: ReadonlySet<number>,
-  ):
-    | { candidate: RenderGraphicCandidate; nextPosition: number }
-    | undefined {
+  ): { candidate: RenderGraphicCandidate; nextPosition: number } | undefined {
     for (let position = startPosition; position < this.placementIndexes.length; position += 1) {
       const order = this.placementIndexes[position]!;
       const rawPlacement = this.placements[order]!;
@@ -196,15 +172,16 @@ class RenderGraphicCandidateSource {
       let candidate = this.candidateCache[position];
       if (candidate === undefined) {
         const placement = planRenderGraphicPlacement(image, rawPlacement);
-        candidate = placement === null
-          ? null
-          : {
-            imageId: image.id,
-            placement,
-            order,
-            z: rawPlacement.z,
-            decodedBytes: image.decodedBytes,
-          };
+        candidate =
+          placement === null
+            ? null
+            : {
+                imageId: image.id,
+                placement,
+                order,
+                z: rawPlacement.z,
+                decodedBytes: image.decodedBytes,
+              };
         this.candidateCache[position] = candidate;
       }
       if (candidate === null) continue;
@@ -290,21 +267,22 @@ class GraphicsBudgetRegistry {
       nextImages.set(owner, new Set());
       rejectedImages.set(owner, new Set());
     }
-    const compareGlobal = (
-      left: GlobalCandidateCursor,
-      right: GlobalCandidateCursor,
-    ) => compareCandidates(left.candidate, right.candidate)
-      || right.ownerOrder - left.ownerOrder;
+    const compareGlobal = (left: GlobalCandidateCursor, right: GlobalCandidateCursor) =>
+      compareCandidates(left.candidate, right.candidate) || right.ownerOrder - left.ownerOrder;
     const cursors: GlobalCandidateCursor[] = [];
     for (const [owner, state] of this.candidates) {
       const next = state.source.candidateFrom(0, rejectedImages.get(owner)!);
       if (next !== undefined) {
-        heapPush(cursors, {
-          owner,
-          ownerOrder: state.order,
-          candidate: next.candidate,
-          nextPosition: next.nextPosition,
-        }, compareGlobal);
+        heapPush(
+          cursors,
+          {
+            owner,
+            ownerOrder: state.order,
+            candidate: next.candidate,
+            nextPosition: next.nextPosition,
+          },
+          compareGlobal,
+        );
       }
     }
     let admitted = 0;
@@ -312,12 +290,10 @@ class GraphicsBudgetRegistry {
     let decodedBytes = 0;
     while (cursors.length > 0 && admitted < RENDER_GRAPHIC_CANVAS_COUNT_CAP) {
       const { owner, ownerOrder, candidate, nextPosition } = heapPop(cursors, compareGlobal)!;
-      if (candidate.placement.backingBytes
-        <= RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) {
+      if (candidate.placement.backingBytes <= RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) {
         const images = nextImages.get(owner)!;
         const imageId = candidate.imageId;
-        if (images.has(imageId)
-          || candidate.decodedBytes <= RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) {
+        if (images.has(imageId) || candidate.decodedBytes <= RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) {
           nextPlacements.get(owner)!.add(candidate);
           if (!images.has(imageId)) {
             images.add(imageId);
@@ -331,19 +307,23 @@ class GraphicsBudgetRegistry {
       }
       if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) continue;
       const source = this.candidates.get(owner)?.source;
-      if (source === undefined
-        || !source.canFitBackingFrom(
-          nextPosition,
-          RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes,
-        )) continue;
+      if (
+        source === undefined ||
+        !source.canFitBackingFrom(nextPosition, RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes)
+      )
+        continue;
       const next = source.candidateFrom(nextPosition, rejectedImages.get(owner)!);
       if (next !== undefined) {
-        heapPush(cursors, {
-          owner,
-          ownerOrder,
-          candidate: next.candidate,
-          nextPosition: next.nextPosition,
-        }, compareGlobal);
+        heapPush(
+          cursors,
+          {
+            owner,
+            ownerOrder,
+            candidate: next.candidate,
+            nextPosition: next.nextPosition,
+          },
+          compareGlobal,
+        );
       }
     }
 
@@ -353,13 +333,12 @@ class GraphicsBudgetRegistry {
     }
     for (const [owner, selection] of next) {
       const previous = this.selections.get(owner);
-      const changed = previous === undefined
-        || previous.placements.size !== selection.placements.size
-        || previous.images.size !== selection.images.size
-        || [...selection.placements].some((candidate) =>
-          !previous.placements.has(candidate)
-        )
-        || [...selection.images].some((imageId) => !previous.images.has(imageId));
+      const changed =
+        previous === undefined ||
+        previous.placements.size !== selection.placements.size ||
+        previous.images.size !== selection.images.size ||
+        [...selection.placements].some((candidate) => !previous.placements.has(candidate)) ||
+        [...selection.images].some((imageId) => !previous.images.has(imageId));
       if (!changed) continue;
       this.selections.set(owner, selection);
       this.revisions.set(owner, (this.revisions.get(owner) ?? 0) + 1);
@@ -391,11 +370,7 @@ export function RenderGraphicsBudgetProvider({ children }: { children: ReactNode
     modelBudget: {},
   }));
   useDecoderLifetime(resources.decoder);
-  return (
-    <GraphicsResourcesContext.Provider value={resources}>
-      {children}
-    </GraphicsResourcesContext.Provider>
-  );
+  return <GraphicsResourcesContext.Provider value={resources}>{children}</GraphicsResourcesContext.Provider>;
 }
 
 function useGraphicsResources(): RenderGraphicsResources {
@@ -410,9 +385,7 @@ export function useRenderGraphicsModelBudget(): object {
   return useContext(GraphicsResourcesContext)?.modelBudget ?? defaultModelBudget;
 }
 
-function useImageAdmissionMetadata(
-  images: readonly RenderGraphicImage[],
-): ReadonlyMap<number, ImageAdmissionMetadata> {
+function useImageAdmissionMetadata(images: readonly RenderGraphicImage[]): ReadonlyMap<number, ImageAdmissionMetadata> {
   const previous = useRef<ReadonlyMap<number, ImageAdmissionMetadata>>(new Map());
   return useMemo(() => {
     const metadata = new Map<number, ImageAdmissionMetadata>();
@@ -432,10 +405,12 @@ function useImageAdmissionMetadata(
     if (unchanged) {
       for (const [id, candidate] of metadata) {
         const current = retained.get(id);
-        if (current === undefined
-          || current.decodedBytes !== candidate.decodedBytes
-          || current.width !== candidate.width
-          || current.height !== candidate.height) {
+        if (
+          current === undefined ||
+          current.decodedBytes !== candidate.decodedBytes ||
+          current.width !== candidate.width ||
+          current.height !== candidate.height
+        ) {
           unchanged = false;
           break;
         }
@@ -448,33 +423,24 @@ function useImageAdmissionMetadata(
 }
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
-  const canvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
-    if (canvas === null || typeof ImageData === "undefined") return;
-    const context = canvas.getContext("2d");
-    if (context === null) return;
-    const source = placement.source;
-    canvas.width = source.width;
-    canvas.height = source.height;
-    const pixels = new ImageData(
-      decoded.pixels,
-      decoded.image.width,
-      decoded.image.height,
-    );
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.putImageData(
-      pixels,
-      -source.x,
-      -source.y,
-      source.x,
-      source.y,
-      source.width,
-      source.height,
-    );
-    return () => {
-      canvas.width = 0;
-      canvas.height = 0;
-    };
-  }, [decoded, placement]);
+  const canvasRef = useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      if (canvas === null || typeof ImageData === "undefined") return;
+      const context = canvas.getContext("2d");
+      if (context === null) return;
+      const source = placement.source;
+      canvas.width = source.width;
+      canvas.height = source.height;
+      const pixels = new ImageData(decoded.pixels, decoded.image.width, decoded.image.height);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.putImageData(pixels, -source.x, -source.y, source.x, source.y, source.width, source.height);
+      return () => {
+        canvas.width = 0;
+        canvas.height = 0;
+      };
+    },
+    [decoded, placement],
+  );
 
   return (
     <canvas
@@ -489,36 +455,21 @@ function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
   );
 }
 
-export function RenderGraphics({
-  backgroundChildren,
-  children,
-  graphics,
-  plainChildren,
-}: RenderGraphicsProps) {
+export function RenderGraphics({ backgroundChildren, children, graphics, plainChildren }: RenderGraphicsProps) {
   const { budget: graphicsBudget, decoder } = useGraphicsResources();
   const owner = useRef(Symbol("render-graphics")).current;
   const images = graphics?.images ?? EMPTY_IMAGES;
   const imageMetadata = useImageAdmissionMetadata(images);
   const candidateSource = useMemo(
-    () => new RenderGraphicCandidateSource(
-      graphics?.placements ?? EMPTY_PLACEMENTS,
-      imageMetadata,
-    ),
+    () => new RenderGraphicCandidateSource(graphics?.placements ?? EMPTY_PLACEMENTS, imageMetadata),
     [graphics?.placements, imageMetadata],
   );
   const subscribeBudget = useCallback(
     (listener: () => void) => graphicsBudget.subscribe(owner, listener),
     [graphicsBudget, owner],
   );
-  const budgetSnapshot = useCallback(
-    () => graphicsBudget.snapshot(owner),
-    [graphicsBudget, owner],
-  );
-  const budgetRevision = useSyncExternalStore(
-    subscribeBudget,
-    budgetSnapshot,
-    budgetSnapshot,
-  );
+  const budgetSnapshot = useCallback(() => graphicsBudget.snapshot(owner), [graphicsBudget, owner]);
+  const budgetRevision = useSyncExternalStore(subscribeBudget, budgetSnapshot, budgetSnapshot);
   const selected = graphicsBudget.selected(owner);
   const admittedImages = useMemo(
     () => images.filter((image) => selected.images.has(image.id)),
@@ -531,15 +482,15 @@ export function RenderGraphics({
         const decoded = decodedImages.get(candidate.imageId);
         return decoded === undefined
           ? []
-          : [{
-            decoded,
-            order: candidate.order,
-            placement: resolveRenderGraphicPlacementPlan(candidate.placement),
-          }];
+          : [
+              {
+                decoded,
+                order: candidate.order,
+                placement: resolveRenderGraphicPlacementPlan(candidate.placement),
+              },
+            ];
       })
-      .sort((left, right) =>
-        left.placement.z - right.placement.z || left.order - right.order
-      );
+      .sort((left, right) => left.placement.z - right.placement.z || left.order - right.order);
     const belowBackground: RenderedPlacement[] = [];
     const below: RenderedPlacement[] = [];
     const above: RenderedPlacement[] = [];
@@ -554,17 +505,17 @@ export function RenderGraphics({
     }
     return { belowBackground, below, above };
   }, [budgetRevision, decodedImages, selected]);
-  const registerBudget = useCallback((element: HTMLSpanElement | null) => {
-    if (element === null) return;
-    graphicsBudget.update(owner, candidateSource);
-    return () => graphicsBudget.scheduleRemove(owner);
-  }, [candidateSource, graphicsBudget, owner]);
-  const registration = (
-    <span aria-hidden="true" hidden ref={registerBudget} />
+  const registerBudget = useCallback(
+    (element: HTMLSpanElement | null) => {
+      if (element === null) return;
+      graphicsBudget.update(owner, candidateSource);
+      return () => graphicsBudget.scheduleRemove(owner);
+    },
+    [candidateSource, graphicsBudget, owner],
   );
-  const hasDrawablePlacement = placements.belowBackground.length > 0
-    || placements.below.length > 0
-    || placements.above.length > 0;
+  const registration = <span aria-hidden="true" hidden ref={registerBudget} />;
+  const hasDrawablePlacement =
+    placements.belowBackground.length > 0 || placements.below.length > 0 || placements.above.length > 0;
   if (!hasDrawablePlacement) {
     return (
       <>
@@ -577,39 +528,21 @@ export function RenderGraphics({
   return (
     <>
       {registration}
-      <div
-        aria-hidden="true"
-        className="render-graphics-layer render-graphics-below-background"
-      >
+      <div aria-hidden="true" className="render-graphics-layer render-graphics-below-background">
         {placements.belowBackground.map(({ decoded, placement, order }) => (
-          <RenderGraphicCanvas
-            decoded={decoded}
-            key={`${placement.key}:${order}`}
-            placement={placement}
-          />
+          <RenderGraphicCanvas decoded={decoded} key={`${placement.key}:${order}`} placement={placement} />
         ))}
       </div>
       {backgroundChildren}
-      <div
-        aria-hidden="true"
-        className="render-graphics-layer render-graphics-below"
-      >
+      <div aria-hidden="true" className="render-graphics-layer render-graphics-below">
         {placements.below.map(({ decoded, placement, order }) => (
-          <RenderGraphicCanvas
-            decoded={decoded}
-            key={`${placement.key}:${order}`}
-            placement={placement}
-          />
+          <RenderGraphicCanvas decoded={decoded} key={`${placement.key}:${order}`} placement={placement} />
         ))}
       </div>
       {children}
       <div aria-hidden="true" className="render-graphics-layer render-graphics-above">
         {placements.above.map(({ decoded, placement, order }) => (
-          <RenderGraphicCanvas
-            decoded={decoded}
-            key={`${placement.key}:${order}`}
-            placement={placement}
-          />
+          <RenderGraphicCanvas decoded={decoded} key={`${placement.key}:${order}`} placement={placement} />
         ))}
       </div>
     </>

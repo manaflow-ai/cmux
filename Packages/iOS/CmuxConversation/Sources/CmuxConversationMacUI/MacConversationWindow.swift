@@ -260,7 +260,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         let show = !isConversationDetailsShown
         if show { selected?.details.rebuildIfNeeded() }
         if view.window?.isVisible == true {
-            inspectorItem.animator().isCollapsed = !show
+            inspectorItem.animatorUnlessReduceMotion().isCollapsed = !show
         } else {
             inspectorItem.isCollapsed = !show
         }
@@ -300,7 +300,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
 
     /// Edit > Search > Find… (⌘F): Messages searches every conversation from the sidebar.
     @objc func searchConversations(_ sender: Any?) {
-        if let item = splitViewItems.first, item.isCollapsed { item.animator().isCollapsed = false }
+        if let item = splitViewItems.first, item.isCollapsed { item.animatorUnlessReduceMotion().isCollapsed = false }
         view.window?.makeFirstResponder(sidebar.searchField)
     }
 
@@ -611,7 +611,8 @@ final class MacToolbarTitleView: MacFlippedView {
             .font: NSFont.systemFont(ofSize: 16, weight: .bold), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: centered, .baselineOffset: -1,
         ]))
         nameLabel.attributedStringValue = title
-        nameLabel.toolTip = connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module)
+        // The conversation reconnects on its own: no "Connecting…" (Leo, 2026-11-22).
+        nameLabel.toolTip = nil
         needsLayout = true
     }
 
@@ -777,7 +778,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         table.delegate = self
         let menu = NSMenu()
         menu.delegate = self
-        table.menu = menu
+        table.menu = NSMenu.systemFree(menu)
         table.registerForDraggedTypes([.cmuxConversationID])
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask([], forLocal: false)

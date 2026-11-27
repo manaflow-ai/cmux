@@ -1,0 +1,24 @@
+{
+  "id": "assistant-acts-instead-of-asking",
+  "group": "assistant",
+  "owner": "a676",
+  "about": "A clear bug report gets action, not 'Should I...?'.",
+  "turns": [
+    {
+      "text": "the cmd-opt-ctrl hint pills in the scrolling column don't follow scroll, the sidebar ones do",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(?i)\\b(should i|do you want me to|shall i|would you like)\\b"
+        }
+      ]
+    }
+  ]
+}

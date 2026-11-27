@@ -79,6 +79,7 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         findings = []
 
     run_ids: set[str] = set()
+    run_heads: dict[str, str] = {}
     for index, run in enumerate(runs):
         if not isinstance(run, dict):
             errors.append(f"run[{index}] must be an object")
@@ -87,6 +88,8 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         if run_id in run_ids:
             errors.append(f"duplicate review run id: {run_id}")
         run_ids.add(run_id)
+        if run_id and run_id not in run_heads:
+            run_heads[run_id] = str(run.get("head_sha") or "")
         for key in (
             "worker_id",
             "session_id",
@@ -128,6 +131,11 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         if finding_head and COMMIT_SHA_RE.fullmatch(finding_head) is None:
             errors.append(
                 f"finding {finding_id or index} head_sha must be a full lowercase 40-hex commit SHA"
+            )
+        run_head = run_heads.get(run_id)
+        if run_head and finding_head and run_head != finding_head:
+            errors.append(
+                f"finding {finding_id or index} head_sha does not match run {run_id} head_sha"
             )
         if finding.get("severity") not in SEVERITIES:
             errors.append(f"finding {finding_id or index} has unknown severity {finding.get('severity')!r}")

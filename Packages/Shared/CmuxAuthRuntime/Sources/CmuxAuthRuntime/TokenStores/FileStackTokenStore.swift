@@ -84,7 +84,7 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         log.log("file.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false) \(AccessTokenLifetime.logFields(newAccessToken))")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
-            log.log("file.compareAndSet: cleared definitively-rejected session")
+            log.log("file.compareAndSet: refresh failed with a definitive rejection; cleared the stored session")
         }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
     }

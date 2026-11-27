@@ -1,0 +1,60 @@
+@testable import CmuxVNCWebRTC
+import CoreGraphics
+import Foundation
+import Testing
+
+/// Telepointers (Petal's cursors as metadata): a viewer that draws pointers
+/// says so, the host leaves the cursor out of the picture and sends where
+/// the person's and the agent's pointers are, as fractions of the display.
+struct TelepointerTests {
+    @Test func pointersAreFractionsOfTheStreamedDisplay() {
+        // A second display to the right of a 1728-point-wide main display.
+        let display = CGRect(x: 1728, y: 0, width: 1920, height: 1080)
+        #expect(ScreenStreamHost.fraction(of: CGPoint(x: 1728 + 960, y: 270), in: display) == .init(x: 0.5, y: 0.25))
+        #expect(ScreenStreamHost.fraction(of: CGPoint(x: 100, y: 100), in: display) == nil, "on another display")
+        #expect(ScreenStreamHost.fraction(of: nil, in: display) == nil, "no pointer")
+        #expect(ScreenStreamHost.fraction(of: CGPoint(x: 1800, y: 10), in: nil) == nil, "no display")
+    }
+
+    /// hq#22239's class: a viewer's pointer fraction becomes a VNC pixel without trapping, whatever it carries.
+    @Test func aViewerPointerOfAnyValueIsAPixelOnTheDisplay() {
+        #expect(VNCLoopbackBackend.pixel(0.5, from: 1728, across: 1920) == 1728 + 960)
+        #expect(VNCLoopbackBackend.pixel(nil, from: 10, across: 100) == 10)
+        #expect(VNCLoopbackBackend.pixel(.nan, from: 10, across: 100) == 10)
+        #expect(VNCLoopbackBackend.pixel(.infinity, from: 10, across: 100) == 10)
+        #expect(VNCLoopbackBackend.pixel(1e300, from: 0, across: 1920) == 1920)
+        #expect(VNCLoopbackBackend.pixel(-4, from: 0, across: 1920) == 0)
+    }
+
+    @Test func theMessageCarriesBothPointersAndAnOldViewerIgnoresIt() throws {
+        var message = ScreenHostMessage(t: ScreenHostMessage.telepointersType)
+        message.person = .init(x: 0.25, y: 0.5)
+        let data = try JSONEncoder().encode(message)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["t"] as? String == "telepointers")
+        #expect(object["agent"] == nil, "a pointer off the display is absent")
+        let decoded = try JSONDecoder().decode(ScreenHostMessage.self, from: data)
+        #expect(decoded.person == .init(x: 0.25, y: 0.5) && decoded.agent == nil)
+        // A viewer reads only `displays` and `caps`: telepointers are neither.
+        #expect(!ScreenStreamViewer.isDisplays(decoded))
+        #expect(ScreenStreamViewer.capabilities(in: decoded) == nil)
+    }
+
+    /// The viewer's capability report is a `caps` input carrying `telepointers`.
+    @Test func theViewerReportIsACapsInput() throws {
+        let input = ScreenInput(t: ScreenHostMessage.capabilitiesType, s: ScreenHostMessage.telepointersCapability)
+        let decoded = try JSONDecoder().decode(ScreenInput.self, from: JSONEncoder().encode(input))
+        #expect(decoded.t == "caps" && decoded.s == "telepointers")
+    }
+
+    #if os(macOS)
+    /// The agent's overlay leaves the picture only with the cursor: a viewer
+    /// that draws no pointers still sees both in the video.
+    @Test func theOverlayLeavesThePictureOnlyWithTheCursor() {
+        let helper: @Sendable () -> [pid_t] = { [4242] }
+        #expect(ScreenCaptureBackend.excluded(helper, drawsCursor: true).isEmpty, "an older viewer")
+        #expect(ScreenCaptureBackend.excluded(helper, drawsCursor: false) == [4242])
+        #expect(ScreenCaptureBackend.excluded(nil, drawsCursor: false).isEmpty, "no helper hook")
+    }
+    #endif
+}

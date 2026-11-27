@@ -3,7 +3,7 @@ use cmux_tui_core::{Node, SurfaceKind};
 
 use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
 
-fn tab(surface: SurfaceId, title: &str, unread: bool) -> TabView {
+fn tab(surface: SurfaceId, title: &str, unread: bool, branch: Option<&str>) -> TabView {
     TabView {
         surface,
         public_id: None,
@@ -21,6 +21,9 @@ fn tab(surface: SurfaceId, title: &str, unread: bool) -> TabView {
             level: "info",
             sequence: surface,
         }),
+        program_status: None,
+        attention: None,
+        git_branch: branch.map(str::to_string),
     }
 }
 
@@ -73,17 +76,21 @@ fn tree() -> TreeView {
                 1,
                 "api",
                 vec![
-                    tab(11, "✳ Fix login", true),
-                    tab(12, "⠂ Write tests", false),
-                    tab(13, "zsh", false),
+                    tab(11, "✳ Fix login", true, Some("fix-login")),
+                    tab(12, "⠂ Write tests", false, None),
+                    tab(13, "zsh", false, None),
                 ],
             ),
             workspace(
                 2,
                 "web",
-                vec![tab(21, "Review", true), tab(22, "", false), tab(23, "old", false)],
+                vec![
+                    tab(21, "Review", true, None),
+                    tab(22, "", false, None),
+                    tab(23, "old", false, None),
+                ],
             ),
-            workspace(3, "docs", vec![tab(31, "zsh", false)]),
+            workspace(3, "docs", vec![tab(31, "zsh", false, Some("main"))]),
         ],
         1,
         Some(1),
@@ -156,10 +163,10 @@ fn agents_section_is_an_attention_queue_across_workspaces() {
 }
 
 #[test]
-fn workspace_second_line_is_the_active_pane_title() {
+fn workspace_second_line_leads_with_the_git_branch() {
     let status = SidebarStatus::build(&tree(), &[]);
-    assert_eq!(status.workspace(0).unwrap().subtitle, "Fix login");
+    assert_eq!(status.workspace(0).unwrap().subtitle, "fix-login · Fix login");
     assert_eq!(status.workspace(1).unwrap().subtitle, "Review");
-    assert_eq!(status.workspace(2).unwrap().subtitle, "zsh");
+    assert_eq!(status.workspace(2).unwrap().subtitle, "main · zsh");
     assert!(status.agents().is_empty());
 }

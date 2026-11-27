@@ -180,6 +180,8 @@ final class HeaderView: UIView {
 /// Window chrome: traffic lights and the 1 pt light border.
 final class ChromeView: UIView {
     var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay(); sliceDrawn = nil; setNeedsLayout() } }
+    /// Its window view's inactive-window state (MessagesWindowView.setInactive sets it and redraws): grey lights.
+    var inactive = false
     /// The view's left edge is the window's left edge (true), or it meets a sidebar (false: the
     /// border has no left side and square left corners; only the window's edges get the line).
     var leadingEdgeIsWindowEdge = true {
@@ -220,7 +222,7 @@ final class ChromeView: UIView {
                 // Inactive window: grey lights (measured centre 100, rim lighter).
                 let grey: ((CGFloat, CGFloat, CGFloat), (CGFloat, CGFloat, CGFloat)) = ((92, 92, 92), (104, 103, 103))
                 for (i, c0) in colors.enumerated() {
-                    let c = Fixture.inactive ? grey : c0
+                    let c = self.inactive ? grey : c0
                     let r = CGRect(x: 18.75 + CGFloat(i) * 23, y: 18.75, width: 14, height: 14)
                     func col(_ v: (CGFloat, CGFloat, CGFloat)) -> CGColor {
                         UIColor(red: v.0 / 255, green: v.1 / 255, blue: v.2 / 255, alpha: 1).cgColor

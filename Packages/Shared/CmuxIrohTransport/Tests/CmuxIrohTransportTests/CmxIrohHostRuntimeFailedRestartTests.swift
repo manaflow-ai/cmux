@@ -52,6 +52,10 @@ extension CmxIrohHostRuntimeTests {
         let renewalDeadline = try #require(clock.observedSleepDeadlines().first)
         clock.advance(to: renewalDeadline)
         await broker.waitForRegistrationCount(2)
+        // The teardown notifies the deactivation, then enters `.failed` in the
+        // same actor turn; wait for the notification (an event) first, so the
+        // phase check does not race the whole broker round under load.
+        await deactivations.waitUntil(1)
         try await waitForLifecyclePhase(.failed, runtime: runtime)
 
         #expect(await runtime.snapshot().state == .failed)
@@ -79,9 +83,19 @@ extension CmxIrohHostRuntimeTests {
 
 private actor CmxIrohTestCounter {
     private var count = 0
+    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func increment() {
         count += 1
+        let ready = waiters.filter { $0.target <= count }
+        waiters.removeAll { $0.target <= count }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    /// Returns once `increment()` reached `target`.
+    func waitUntil(_ target: Int) async {
+        guard count < target else { return }
+        await withCheckedContinuation { waiters.append((target, $0)) }
     }
 
     func value() -> Int {

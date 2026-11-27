@@ -2,7 +2,7 @@
 
 Dock is the cmux right sidebar rendered as a full panel container. It uses the **same surface and split system as the main content area** — terminals *and* browsers, tiled with the same split affordances — just docked on the right. Each Dock terminal runs in its own Ghostty-backed surface, so TUIs keep normal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`. Dock browsers share the same browser stack as main-area browser panes (cookies, profile, devtools, navigation).
 
-Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
+Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages.
 
 Dock is enabled by default for every installation, including existing users who never enabled its former beta toggle. The old toggle is ignored after upgrading; to keep Dock out of the mode bar, use Settings > Sidebar > Right Sidebar Tabs (or the mode bar's tab customization menu) to hide it. This visibility choice does not delete Dock layouts or persisted Dock state.
 
@@ -24,29 +24,13 @@ After a Dock has been saved in a session, cmux restores that snapshot instead of
 
 When a Dock pane has keyboard focus, the standard creation/split shortcuts act on the Dock instead of the main content area: New Browser (Cmd+Shift+L), New Surface (Cmd+T), and Split Right / Split Down (Cmd+D / Cmd+Shift+D) create or split inside the focused Dock pane. When the main area is focused, the same shortcuts behave as usual.
 
-## CLI / socket
+## CLI
 
-Dock panes are scriptable through the same creation commands as the main area, with `--placement dock`:
-
-```sh
-cmux new-pane --placement dock                              # split a terminal into the Dock
-cmux new-pane --type browser --placement dock --url https://example.com
-cmux new-surface --type browser --placement dock --url https://example.com   # add a Dock tab
-```
-
-`--placement` accepts `workspace` (default) or `dock`. The Dock hosts terminal and browser panes only.
-
-Dock-created handles are returned as Dock-scoped response fields: `dock_surface_id` and `dock_pane_id`. The ordinary workspace fields `surface_id` and `pane_id` remain `null` in creation responses for backwards compatibility.
-
-Dock panes and surfaces also appear in the ordinary discovery commands:
+The Rust `cmux` has no Dock placement yet. The old `new-pane --placement dock`, `new-surface --placement dock`, `tree`, `list-panes`, and `list-pane-surfaces` verbs were removed with the Swift CLI (see [plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). To show the Dock from a script, run the app action:
 
 ```sh
-cmux tree
-cmux list-panes
-cmux list-pane-surfaces --pane <dock-pane-id>
+cmux sidebar show-dock
 ```
-
-Text output marks them as `[dock:workspace]` or `[dock:global]`. JSON and socket rows carry the additive `dock_scope` field with the stable value `workspace` or `global`; existing non-Dock rows are unchanged. Pane and surface IDs remain stable for the lifetime of their Dock items.
 
 Existing surface-addressed terminal verbs accept these Dock surface IDs directly. In particular, `send`, `send-key`, `read-screen`, `capture-pane`, `focus`, and `close` can target a Dock terminal by its bare surface ID in either Dock scope. No Dock-specific addressing syntax is required.
 
@@ -104,7 +88,7 @@ Fields:
 
 Existing terminal-only configs (no `type`) keep loading unchanged. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 
-For a browser control with `chrome: false`, **Focus Address Bar** is intentionally a no-op. Navigation remains available through the page and through commands such as `cmux browser <surface> goto <url>` and `cmux browser <surface> reload`.
+For a browser control with `chrome: false`, **Focus Address Bar** is intentionally a no-op. Navigation remains available through the page and through `cmux browser <tab_id> navigate <url>` and `cmux browser <tab_id> reload`.
 
 ## Config Precedence
 
@@ -135,13 +119,7 @@ Do not put secrets, tokens, or machine-specific private paths in a shared projec
 
 ## Agent Setup
 
-When asking a coding agent to create a Dock config, tell it to run:
-
-```sh
-cmux docs dock
-```
-
-The agent should inspect the project first, choose project config or global config deliberately, ask the user when the desired controls are unclear, validate the JSON, and summarize each command before the user trusts the config.
+When asking a coding agent to create a Dock config, point it at this document. The agent should inspect the project first, choose project config or global config deliberately, ask the user when the desired controls are unclear, validate the JSON, and summarize each command before the user trusts the config.
 
 ## Naming
 

@@ -27,8 +27,24 @@ public final class UpdateController {
     private let fileManager: FileManager
     private let hostBundle: Bundle
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
-    /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
+    /// the public release appcast. See ``UpdateFeedResolver/isDevLikeBundleIdentifier(_:)``.
     let isDevLikeBundle: Bool
+
+    /// Background mode owns the staged installer so a later feed check can replace it. Keep this
+    /// preference mutation beside the private defaults store; extensions use this narrow seam.
+    @discardableResult
+    func disableSparkleSilentStagingIfNeeded() -> Bool {
+        guard defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return false }
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+        return true
+    }
+
+    /// When Sparkle last checked the feed (by itself or for the person); nil before the first check.
+    public var lastUpdateCheckDate: Date? { updater.lastUpdateCheckDate }
+    /// The scheduled check's interval in seconds, nil while automatic checks are off.
+    public var scheduledCheckInterval: TimeInterval? {
+        updater.automaticallyChecksForUpdates ? updater.updateCheckInterval : nil
+    }
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
@@ -44,6 +60,13 @@ public final class UpdateController {
     private var noUpdateDismissTask: Task<Void, Never>?
     var pendingCheckIntent: UpdateCheckIntent?
     var activeCheckIntent: UpdateCheckIntent?
+    /// A ``checkInBackground()`` that waits for the running session to end.
+    var pendingBackgroundCheck = false
+    /// The wake observer and the pending check after a wake (`UpdateController+Wake.swift`).
+    var wakeObservation: Task<Void, Never>?
+    var wakeCheckTask: Task<Void, Never>?
+    /// Runs after every Sparkle update cycle (scheduled, launch, wake, or asked for).
+    public var onUpdateCycleFinished: (@MainActor () -> Void)?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
@@ -58,7 +81,7 @@ public final class UpdateController {
     let readyRetryDelay: Duration = .milliseconds(250)
     let readyRetryCount = 20
 
-    private var didStartUpdater = false
+    private(set) var didStartUpdater = false
     /// `DisableAutoUpdate` (MDM), read on every start and check request.
     let isDisabledByPolicy: () -> Bool
 
@@ -70,13 +93,13 @@ public final class UpdateController {
     /// - Parameters:
     ///   - log: The update log sink (the app's `UpdateLogStore`).
     ///   - clock: Clock for bounded UI delays. Defaults to ``SystemUpdateClock``.
-    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's hourly check.
+    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's 15-minute check.
     ///   - hostBundle: The bundle Sparkle reads its configuration and version from.
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
     ///     injectable so tests can avoid touching the real filesystem.
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
-    ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
+    ///     which derives it from `hostBundle.bundleIdentifier` via ``UpdateFeedResolver/isDevLikeBundleIdentifier(_:)``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
     /// - Parameter isDisabledByPolicy: The host's `DisableAutoUpdate` managed
     ///   policy. While it returns true the updater is never started and manual
@@ -129,7 +152,7 @@ public final class UpdateController {
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
-        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+        let isDevLikeBundle = isDevLikeBundle ?? UpdateFeedResolver.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
         self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
         if isDevLikeBundle {
@@ -143,7 +166,7 @@ public final class UpdateController {
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
-        self.installWatchdog = InstallWatchdog(clock: clock, timeout: installWatchdogTimeout)
+        self.installWatchdog = InstallWatchdog(clock: clock)
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
@@ -156,6 +179,8 @@ public final class UpdateController {
         stateReactionTask?.cancel()
         noUpdateDismissTask?.cancel()
         readyCheckTask?.cancel()
+        wakeObservation?.cancel()
+        wakeCheckTask?.cancel()
         // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
@@ -196,9 +221,14 @@ public final class UpdateController {
     /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
+        // Terminal states the controller sets itself never pass through the driver.
+        if UpdateDriver.endsInstallRequest(state) {
+            driver.installsWhenStaged = false
+            driver.relaunchIsAutomatic = false
+        }
 
         if attemptCoordinator.isMonitoring {
-            let action = attemptCoordinator.handleStateChange(state)
+            let action = attemptCoordinator.handleStateChange(state.lifecyclePhase)
             // The watchdog guards one specific install attempt. If that attempt just ended
             // without handing an install to Sparkle (the user cancelled the fresh check, or it
             // terminated in notFound/error), disarm now so the leftover deadline can't fire a
@@ -215,7 +245,7 @@ public final class UpdateController {
         }
         // Disarm the install watchdog the moment the flow progresses the install or shows a clear
         // outcome, so a healthy install (or a real error / "no updates") never trips it.
-        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state) {
+        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state.lifecyclePhase) {
             installWatchdog.disarm()
         }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
@@ -275,6 +305,7 @@ public final class UpdateController {
             defaults.removeObject(forKey: UpdateSettings.scheduledCheckIntervalKey)
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
+            defaults.removeObject(forKey: UpdateSettings.intervalMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }
@@ -294,6 +325,7 @@ public final class UpdateController {
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
             startLaunchUpdateProbeIfNeeded()
+            if installsUpdatesInBackground { observeSystemWake() }
             return true
         } catch {
             model.setState(.error(.init(
@@ -315,7 +347,7 @@ public final class UpdateController {
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train; never probe the public
             // appcast (init also disables Sparkle's own scheduled checks). Tear down any probe a
-            // prior path may have started. See `isDevLikeBundleIdentifier(_:)` (#6292).
+            // prior path may have started. See `UpdateFeedResolver.isDevLikeBundleIdentifier(_:)` (#6292).
             log.append("launch update probe skipped (dev/staging build)")
             return
         }
@@ -324,6 +356,14 @@ public final class UpdateController {
             return
         }
 
+        if installsUpdatesInBackground {
+            // Hosts that never prompt check for real at launch: a found update downloads in the
+            // background and waits staged, instead of only being noted until the next scheduled
+            // check (up to an interval later).
+            log.append("starting launch background check")
+            checkInBackground()
+            return
+        }
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")
@@ -382,25 +422,5 @@ public final class UpdateController {
         } catch {
             log.append("Failed creating Sparkle installation cache: \(error)")
         }
-    }
-}
-
-extension UpdateController {
-    /// Whether `bundleIdentifier` is a cmux DEV (`com.cmuxterm.app.debug[.<tag>]`) or staging
-    /// (`com.cmuxterm.app.staging[.<tag>]`) build.
-    ///
-    /// Such builds are produced from local source and are not on the public release train, so
-    /// they must never be compared against the public Sparkle appcast (#6292).
-    ///
-    /// Mirrors `SocketControlSettings.isDebugLikeBundleIdentifier` +
-    /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
-    /// duplicated here deliberately to avoid introducing a `CmuxUpdater → CmuxSettings` package
-    /// dependency edge for a small string check.
-    static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
-        guard let bundleIdentifier else { return false }
-        return bundleIdentifier == "com.cmuxterm.app.debug"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
-            || bundleIdentifier == "com.cmuxterm.app.staging"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 }

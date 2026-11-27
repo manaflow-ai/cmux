@@ -1,5 +1,10 @@
 # The cloud primitives an agent needs
 
+> **CLI note (2026-09-30):** the Mac-side `cmux vm …` verbs named below were removed in
+> the Rust CLI cutover; the Mac reaches machines through the app's `cmux cloud <verb>`
+> actions. In-machine verbs (`cmux self`, `cmux env`, `cmux layout`, `cmux notify`,
+> `cmux agent`) belong to the guest adapter and still ship.
+
 Status: roadmap. Companion to docs/cloud-project-environments.md (`vm dev`) and
 docs/vm-identity-edge-auth.md (machine identity). Maps the product goals to
 primitives, marking what already exists on this branch vs. what's next.
