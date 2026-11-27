@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { IDEMPOTENCY_TTL_MS, memoryLedgerStorage, TenantLedger, type IdempotencyProgress } from "../../src/limits/ledger.ts";
+import { IDEMPOTENCY_HEARTBEAT_MS, IDEMPOTENCY_LEASE_MS, IDEMPOTENCY_TTL_MS, memoryLedgerStorage, TenantLedger, type IdempotencyProgress } from "../../src/limits/ledger.ts";
 
 it("preserves the original client digest across cancellation and starts a fresh binding only after an ordinary record expires", async () => {
   const ledger = new TenantLedger(memoryLedgerStorage());
@@ -79,7 +79,7 @@ it("does not reinterpret an expired legacy pending record as permission for a ne
 
 it("inspects without claiming or renewing and settles committed ownership after the original lease expired", async () => {
   const { ledger } = await held();
-  expect((await ledger.inspect("key"))?.leaseUntilMs).toBe(600001);
+  expect((await ledger.inspect("key"))?.leaseUntilMs).toBe(IDEMPOTENCY_LEASE_MS + 1);
   expect(await ledger.inspect("unknown")).toBeNull();
   await expect(ledger.settleCreation("key", "different", IDEMPOTENCY_TTL_MS + 2)).rejects.toThrow("intent changed");
   expect(await ledger.reserve("vm", 1, 0, IDEMPOTENCY_TTL_MS + 2, "other")).toEqual({ ok: false });
@@ -129,4 +129,25 @@ it("allows a verified rejection to reopen only its own send and refuses legacy c
   const legacy = await held();
   expect(await legacy.ledger.cancelCreation("key", id)).toBe("legacy");
   expect(await legacy.ledger.beginCreateSend("key", id, "unsafe")).toBe(false);
+});
+
+it("lets a same-key resend take over a claim whose request died, without waiting out the old ten-minute lease", async () => {
+  const ledger = new TenantLedger(memoryLedgerStorage());
+  expect(await ledger.begin("cloud-create:m", "request", 0)).toEqual({ state: "new" });
+  // The first request is cut off (deploy) before any provider call: nothing renews its claim.
+  expect(await ledger.begin("cloud-create:m", "request", 30_000)).toEqual({ state: "in_progress" });
+  // Two minutes on, well inside the old ten-minute lease, the resend owns the claim.
+  expect(await ledger.begin("cloud-create:m", "request", 120_000)).toEqual({ state: "new" });
+  // The takeover holds the claim: a further resend waits, and the claim is not handed out twice.
+  expect(await ledger.begin("cloud-create:m", "request", 120_001)).toEqual({ state: "in_progress" });
+});
+
+it("keeps a live request's claim by heartbeat however long it runs, and never revives a lapsed one", async () => {
+  const ledger = new TenantLedger(memoryLedgerStorage());
+  await ledger.begin("live", "request", 0);
+  for (let t = IDEMPOTENCY_HEARTBEAT_MS; t <= 10 * 60_000; t += IDEMPOTENCY_HEARTBEAT_MS) await ledger.renew("live", t);
+  expect(await ledger.begin("live", "request", 10 * 60_000 + 1)).toEqual({ state: "in_progress" });
+  await ledger.begin("dead", "request", 0);
+  await ledger.renew("dead", IDEMPOTENCY_LEASE_MS + 1);
+  expect(await ledger.begin("dead", "request", IDEMPOTENCY_LEASE_MS + 2)).toEqual({ state: "new" });
 });

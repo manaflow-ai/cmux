@@ -6330,7 +6330,11 @@ PACKAGE_JOBS = {
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
                   "schemas/notice-timing/notice-timing.json", "schemas/settings/source/browser.json",
-                  "schemas/terminal-sizing/fixtures.json")
+                  "schemas/terminal-sizing/fixtures.json",
+                  # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
+                  # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
+                  "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')

@@ -376,19 +376,9 @@ impl Relay {
         let mut writer =
             tokio::spawn(Self::write_socket(socket_writer, outbound_receiver, shutdown_receiver));
 
-        let handshake = tokio::time::timeout(
-            self.inner.config.handshake_timeout,
-            self.read_control(&mut socket_reader, &peer),
-        )
-        .await;
-        let result = match handshake {
-            Ok(Ok(control)) => self.dispatch_connection(control, &mut socket_reader, &peer).await,
-            Ok(Err(end)) => Err(end),
-            Err(_) => Err(ConnectionEnd::Failed(RelayError::policy(
-                "handshake-timeout",
-                "first relay control message was not received before the deadline",
-                true,
-            ))),
+        let result = match self.read_attaching_control(&mut socket_reader, &peer).await {
+            Ok(control) => self.dispatch_connection(control, &mut socket_reader, &peer).await,
+            Err(end) => Err(end),
         };
 
         self.disconnect(peer.id).await;
@@ -615,6 +605,40 @@ impl Relay {
                 Err(ConnectionEnd::Closed)
             }
             control = self.read_control(reader, peer) => control,
+        }
+    }
+
+    /// The socket's first attaching control (register, connect, join), each read bounded by
+    /// `handshake_timeout`. While `preattach_hold` lasts, a `Ping` before it is answered and
+    /// the socket keeps waiting: a dialer's standby socket, opened before it knows its
+    /// circuit. Past the hold, or with it off, a `Ping` is a first message like any other
+    /// (`missing-attachment`).
+    async fn read_attaching_control(
+        &self,
+        reader: &mut SplitStream<WebSocket>,
+        peer: &Peer,
+    ) -> ConnectionResult<RelayControl> {
+        let hold_until = Instant::now() + self.inner.config.preattach_hold;
+        loop {
+            let control = tokio::time::timeout(
+                self.inner.config.handshake_timeout,
+                self.read_control(reader, peer),
+            )
+            .await
+            .map_err(|_| {
+                ConnectionEnd::Failed(RelayError::policy(
+                    "handshake-timeout",
+                    "first relay control message was not received before the deadline",
+                    true,
+                ))
+            })??;
+            match control {
+                RelayControl::Ping { nonce } if Instant::now() < hold_until => {
+                    peer.send_control(RelayControl::Pong { nonce })
+                        .map_err(ConnectionEnd::Failed)?;
+                }
+                control => return Ok(control),
+            }
         }
     }
 
@@ -2664,5 +2688,40 @@ mod tests {
         )
         .await;
         assert_eq!(code_of(&receive_control(&mut extra).await), ("standby-capacity", true));
+    }
+
+    #[tokio::test]
+    async fn a_standby_socket_pings_before_it_attaches_while_the_hold_lasts() {
+        let held = TestServer::start(RelayConfig {
+            allow_open: true,
+            preattach_hold: Duration::from_secs(30),
+            ..RelayConfig::default()
+        })
+        .await;
+        let mut socket = held.connect().await;
+        for nonce in [1, 2] {
+            send_control(&mut socket, RelayControl::Ping { nonce }).await;
+            assert!(
+                matches!(receive_control(&mut socket).await, RelayControl::Pong { nonce: n } if n == nonce)
+            );
+        }
+        send_control(
+            &mut socket,
+            RelayControl::Register {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket: "daemon-ticket".into(),
+            },
+        )
+        .await;
+        assert!(matches!(receive_control(&mut socket).await, RelayControl::Registered { .. }));
+
+        // The default, no hold: a Ping first is answered, then the socket is refused.
+        let plain =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
+        let mut socket = plain.connect().await;
+        send_control(&mut socket, RelayControl::Ping { nonce: 3 }).await;
+        assert!(matches!(receive_control(&mut socket).await, RelayControl::Pong { nonce: 3 }));
+        assert_eq!(code_of(&receive_control(&mut socket).await), ("missing-attachment", false));
     }
 }

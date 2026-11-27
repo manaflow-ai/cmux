@@ -18429,7 +18429,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "gallery-health.yml",
             "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
-            "relay-tls.yml", "rust-workspaces.yml", "pool-build-path.yml", "signing-keychain-macos.yml",
+            "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
             "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
@@ -18458,7 +18458,11 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "repro-capsule-journey.yml", "rfd0135-gates.yml", "runnable-link.yml", "tailnet-stable-node-move.yml",
             "vm-hassle.yml", "zero-to-going.yml",
             # RFD 0166's cas/1 replay: cmux-cas's tests and the web bundle replay (reports, does not gate).
-            "cas-replay.yml", "cmux-cas-replay.yml",
+            "cas-replay.yml",
+            # Its W1 row (RFD 0166): the web OTA bundles replayed through cas/1, path-gated on cmux-cas (reports).
+            "cmux-cas-replay.yml",
+            # The pool's first compile (#60943): `cargo check` of the app FFI workspace a change reaches.
+            "pool-build-path.yml",
             # The degenerate lab (#57434): one job per daemon part, scale and load; a red is the product's panic.
             "cmux-next-degenerate-lab.yml",
             # The Windows RD host's build (path-gated on its crates), as cmux-rd-windows.yml.
