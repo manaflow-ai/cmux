@@ -1505,7 +1505,9 @@ jobs:
 
       - name: Validate the App Store Connect ops script (ios-asc-ops.yml)
         if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_asc_ops.py
+        run: |
+          python3 tests/test_ios_asc_ops.py
+          python3 -I tests/test_ios_publication_snapshot.py
 
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}

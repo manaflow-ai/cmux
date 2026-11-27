@@ -1025,6 +1025,10 @@ path = "tests/test_ios_asc_ops.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_publication_snapshot.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_upload_marker.py"
 lane = "linux-guard"
 
