@@ -7,6 +7,10 @@
 # its window job, so it ends cancelled and base-autofix-since.sh passes over it: the next run that repairs
 # diffs from the last successful one and so covers every held push. Runs that never count: cancelled and
 # skipped ones (held runs among them) and the push of this workflow's own repair commit, which repairs nothing.
+# Nor does a completed run that took under NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS (default 300): only its window job
+# ran, so it was held and its cancel was refused. 2026-11-27: that cancel 403s whenever the job token's hour is
+# spent, so held runs ended success, each held the next as "ended success", and base autofix repaired nothing
+# after 01:50Z for over 7 h (run 45971956330 held on 45971940223, itself held). A repair takes ~38 min, a held run <3.
 #
 # Every other case runs, as before the window: a window of 0, a dispatch, a re-run (someone asked for it),
 # and any GitHub read that fails (fail open). A push that changes a Cargo.toml or Cargo.lock also always runs
@@ -17,7 +21,7 @@
 #
 #   base-autofix-window.sh RUN_ID [BRANCH]
 # Env: GH_TOKEN (actions: read), GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_RUN_ATTEMPT,
-#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES, BASE_AUTOFIX_CARGO_CHANGED; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
+#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES, NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS, BASE_AUTOFIX_CARGO_CHANGED; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
 set -uo pipefail
 
 run_id="${1:?usage: base-autofix-window.sh RUN_ID [BRANCH]}"
@@ -25,6 +29,8 @@ branch="${2:-feat-cmux-next}"
 repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
 window="${NEXT_BASE_AUTOFIX_WINDOW_MINUTES:-}"
 [[ -n "$window" ]] || window=120
+held_max="${NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS:-}"
+[[ "$held_max" =~ ^[0-9]+$ ]] || held_max=300
 
 say() { printf 'run=%s\nwhy=%s\n' "$1" "$2"; }
 
@@ -56,7 +62,9 @@ since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" 
 # 2026-11-26 20:00-23:30Z every window read but a few failed open with the job token's hour spent, so 37 repairs
 # ran in 3 h instead of about 2 (about 8.7k runner-min/day of autofix, all red on base reds; run 45910636692).
 url="repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100"
-jq_rows='.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")'
+# The fifth field: a completed run's seconds from start to last update ("" when either time is missing).
+took_jq='if .status == "completed" and .run_started_at and .updated_at then (.updated_at | fromdate) - (.run_started_at | fromdate) else "" end'
+jq_rows=".workflow_runs[] | [.id, .status, (.conclusion // \"\"), .display_title, ($took_jq)] | map(tostring) | join(\"\\u001f\")"
 read_ok="" read_err="" errf="$(mktemp)"
 # shellcheck disable=SC2086 # BASE_AUTOFIX_POOL_TOKENS is a space-separated list
 for token in "${GH_TOKEN:-}" ${BASE_AUTOFIX_POOL_TOKENS:-}; do
@@ -74,7 +82,7 @@ if [[ -z "$read_ok" ]]; then
 fi
 
 # Fields split on the unit separator: a tab is whitespace to read, so an empty conclusion would vanish.
-while IFS=$'\x1f' read -r id status conclusion title; do
+while IFS=$'\x1f' read -r id status conclusion title took; do
   [[ -n "$id" ]] || continue
   # Only older runs hold this one: of two runs that start together, the older decides and the newer follows it.
   (( id < run_id )) || continue
@@ -88,6 +96,8 @@ while IFS=$'\x1f' read -r id status conclusion title; do
   case "$conclusion" in
     cancelled | skipped | "") continue ;;
   esac
+  # Held with its cancel refused: it ended success (or failure) having repaired nothing.
+  [[ "$took" =~ ^[0-9]+$ ]] && (( took < held_max )) && continue
   say false "run $id ended $conclusion within the last ${window} min"
   exit 0
 done <<<"$rows"
