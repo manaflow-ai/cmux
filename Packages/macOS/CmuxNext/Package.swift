@@ -1105,7 +1105,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
-                "CmuxNextHomeModel",
                 "CmuxNextRemote",
                 .product(name: "CmuxChiefList", package: "CmuxChiefList"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),

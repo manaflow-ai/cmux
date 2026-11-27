@@ -1,16 +1,16 @@
-internal import CmuxNextHomeModel
+import CmuxNextHomeEngine
 import CmuxNextRemote
 import Foundation
 
 /// The Hosted Chief's and the server reach's rules, run in Rust (cmux-tui/crates/cmux-home-rules,
-/// `cloud/chiefs.rs` and `cloud/reach.rs`, ops `chiefs_*` and `reach_*`) through ``HomeRules``.
+/// `cloud/chiefs.rs` and `cloud/reach.rs`, ops `chiefs_*` and `reach_*`) through ``HomeEngineRules``.
 /// The Swift types the views use stay; these are the JSON shapes of the ops.
 nonisolated enum ChiefRules {
     /// A rule that cannot fail on its input: a failure is a cmux-app-ffi without the op (its pin
     /// predates it), so debug builds stop and release builds answer `fallback`.
     static func rule<In: Encodable, Out: Decodable>(_ op: String, _ input: In, else fallback: @autoclosure () -> Out) -> Out {
         do {
-            return try HomeRules.call(op, input)
+            return try HomeEngineRules.call(op, input)
         } catch {
             assertionFailure(String(describing: error))
             return fallback()
@@ -18,7 +18,7 @@ nonisolated enum ChiefRules {
     }
 
     static func call<In: Encodable, Out: Decodable>(_ op: String, _ input: In) throws -> Out {
-        try HomeRules.call(op, input)
+        try HomeEngineRules.call(op, input)
     }
 
     // MARK: Chiefs
