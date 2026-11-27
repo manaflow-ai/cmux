@@ -394,6 +394,8 @@
         "design/agent-icons/manifest.json",
         "docs/chief-setup-prompts.md",
         "docs/cmux-next/customize-recipes.md",
+        "docs/cmux-next/guide/llms-full.txt",
+        "docs/cmux-next/guide/pages.json",
         "examples/looks/**",
         "docs/cmux-next/sidebar-customization/**",
         "docs/remote-agents-and-cloud.md",

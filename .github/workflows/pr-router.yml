@@ -59,6 +59,9 @@ jobs:
       land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
+      # ios-fast-status below, which posts the verdict's own result.
+      ios_status: ${{ steps.route.outputs.ios_status }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -93,6 +96,7 @@ jobs:
             scripts/ci/cmux_machine_channel_head_built.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
+            scripts/ci/ios_fast_verdict.py
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/cmux-next/cmux-tui-tree-inputs.txt
             ci/steps.toml
@@ -130,6 +134,8 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
+          CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -221,6 +227,21 @@ jobs:
           echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
           echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
+      # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
+      # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
+      # 2026-11-26 22:32Z: "how can those breaks be prevented in the future?"
+      - name: Post the iOS fast verdict status
+        if: ${{ steps.route.outputs.ios_status != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATE: ${{ steps.route.outputs.ios_status }}
+          DESCRIPTION: ${{ steps.route.outputs.ios_status_description }}
+        run: python3 -I scripts/ci/ios_fast_verdict.py status "$STATE" "$DESCRIPTION"
 
   land-tier-status:
     # Runs only when the route job's post did not get through (spent budget, a refused description): it retries
@@ -378,6 +399,48 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
+
+  # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
+  # error when the verdict never ran (no Mac, the pipeline cancelled). A plan that builds nothing is success.
+  ios-fast-status:
+    name: ios fast verdict status
+    needs: [route, pipeline]
+    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && needs.pipeline.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/ios_fast_verdict.py
+            scripts/ci/ci_steps.py
+            ci/steps.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Post the verdict
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
+          VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
+          SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+        run: |
+          if [ "$RUN" = false ]; then
+            state=success; desc="The plan builds nothing on this head"
+          elif [ "$VERDICT" = success ]; then
+            state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
+          elif [ "$VERDICT" = failure ]; then
+            state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
+          else
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+          fi
+          python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast

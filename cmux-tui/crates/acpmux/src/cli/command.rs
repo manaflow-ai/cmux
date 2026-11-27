@@ -1561,6 +1561,13 @@ pub struct HistoryDeleteArgs {
     /// fails is kept.
     #[arg(long)]
     pub export: Option<PathBuf>,
+    /// List Recently deleted: the deleted chats that can still be restored, and when each is
+    /// purged.
+    #[arg(long, conflicts_with_all = ["dry_run", "older_than_days", "export", "restore"])]
+    pub deleted: bool,
+    /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
+    #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
+    pub restore: Option<String>,
 }
 
 #[derive(Args, Clone, Debug)]
