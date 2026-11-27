@@ -66,6 +66,8 @@ ALL_ID_KEYS = frozenset(k for keys in ID_KEYS.values() for k in keys)
 # cloud.machine.edge_dns (cmux-platform#2242), so a read of the 2026-11-26 21:46Z signed-out machine could not say
 # whether its edge DNS check ran. A read's header now names each dropped msg that is a plain token (unlisted_msgs).
 # A template or computed msg is never here; add one only when it is a literal written by our code.
+# cloud.pass.slow, cloud.verify.slow and cloud.divergence.slow (CloudCore.ts boundedWait) name the machine whose
+# alarm pass outran PASS_WAIT_MS; read at 2026-11-27 10:38Z they were dropped while the drill team's object was overloaded.
 PLATFORM_MSGS = frozenset({
     "after-response work failed",
     "alarm time not finite",
@@ -135,6 +137,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.create.trace_unsent",
     "cloud.divergence.read",
     "cloud.divergence.read_failed",
+    "cloud.divergence.slow",
     "cloud.egress.failed",
     "cloud.egress.org_invalid",
     "cloud.egress.read",
@@ -190,6 +193,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.parked_wake",
     "cloud.parked_wake_failed",
     "cloud.pass.abandoned",
+    "cloud.pass.slow",
     "cloud.pause.page_cache",
     "cloud.person_layer.expired",
     "cloud.platform_stop_allocations_failed",
@@ -198,6 +202,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.pool.refused",
     "cloud.pool.spend_limit_set",
     "cloud.pool.warning",
+    "cloud.prune_probe.long",
+    "cloud.quota.vm_limit",
     "cloud.record.reconcile_failed",
     "cloud.record.stale",
     "cloud.record.unknown",
@@ -227,6 +233,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.submit.cut_off",
     "cloud.usage.report_failed",
     "cloud.usage.reported",
+    "cloud.verify.slow",
     "cloud.wake_echo.note_failed",
     "cloud.wake_served.note_failed",
     "cloud.work_machine.failed",
@@ -466,11 +473,13 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT,
                  # machines.spare.fill's refill timing (cmux-platform lane/spare-fill-log-timing, hq#31487): the create
                  # call, claim to fill start, the fill's age; and how many spares a claim could take.
-                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT}
+                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT,
+                 # cloud.prune_probe.long (cmux-platform#2391): ledger rows pruneAt walked on one commit, and how many abandoned.
+                 "walked": INT, "abandoned": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
-PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled", "found")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
@@ -574,6 +583,10 @@ HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
 AGENT_LAST = frozenset({
     "bind_line", "install_key_failed", "wireguard_key_failed", "waiting_bind_file", "bound_file_unreadable",
     "updater", "no_line", "cloud_other",
+    # cmux-platform NeverBoundProbe updaterClasses: which updater line it was.
+    "updater_flipped", "updater_channel_timeout", "updater_gate_refused", "updater_gate_unreadable",
+    "updater_failed", "updater_updating", "updater_current", "updater_connect_hold", "updater_busy", "updater_off",
+    "updater_exec_failed", "updater_first_ready", "updater_other",
 })
 AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
                         r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
@@ -625,6 +638,11 @@ def probe_facts(out):
             facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
         elif ln.startswith("agent_journal_lines=") and ln.split("=", 1)[1].isdigit():
             facts["agent_journal_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_flips=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_flips"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_cloud_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_cloud_last"] = v if v in AGENT_LAST else "other"
         elif ln.startswith("agent_last="):
             v = ln.split("=", 1)[1]
             facts["agent_last"] = v if v in AGENT_LAST else "other"

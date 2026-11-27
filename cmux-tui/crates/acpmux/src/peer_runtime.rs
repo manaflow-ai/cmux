@@ -46,11 +46,13 @@ impl Peer {
             tunnel: Mutex::new(None),
             #[cfg(test)]
             ssh_mux_override: std::sync::OnceLock::new(),
-            wireguard: std::sync::OnceLock::new(),
+            wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            wg_learner: std::sync::OnceLock::new(),
+            wg_learning: AtomicBool::new(false),
             tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
@@ -171,7 +173,14 @@ impl Peer {
         transport: Arc<crate::wireguard::Transport>,
         address: std::net::SocketAddr,
     ) {
-        let _ = self.wireguard.set((transport, address));
+        *self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((transport, address));
+    }
+
+    pub(crate) fn wireguard_route(
+        &self,
+    ) -> Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)> {
+        self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// What the current (or last) link received (`ReceivedBytes`).
