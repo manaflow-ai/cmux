@@ -934,6 +934,8 @@ class PullRequestRead(unittest.TestCase):
             """)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "true")
+        self.assertEqual(out["layers"], "web")
         self.assertNotIn("graphql", calls)
 
     def test_spent_rest_hour_reads_graphql_without_sleeping(self) -> None:
@@ -959,6 +961,8 @@ class PullRequestRead(unittest.TestCase):
             """)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "false")
+        self.assertEqual(out["layers"], "web")
 
     def test_graphql_jq_maps_the_states(self) -> None:
         text = PR_SH.read_text()

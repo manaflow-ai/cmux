@@ -13277,7 +13277,18 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "Agent: the provider's own session id."
+          "description": "Agent: the provider's own session id. Page: the agent session that drove the visit, when known."
+        },
+        "actor": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "person",
+              "agent"
+            ]
+          },
+          "description": "Page: who drove the visit (RFD 0125 D5)."
         },
         "provider": {
           "required": false,
@@ -31704,6 +31715,19 @@
               "name": "decimal"
             },
             "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          },
+          "actor": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "mine",
+                "agents",
+                "all"
+              ]
+            },
+            "description": "Page visits by who drove them: mine (the person's), agents, or all (RFD 0125 D5). Other kinds are not narrowed.",
+            "default": "mine"
           }
         },
         "extra": false
@@ -32094,6 +32118,28 @@
               "max_length": 256
             },
             "description": "The tab that visited it, <machine>/<tab id>, when the reporter knows it."
+          },
+          "actor": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "person",
+                "agent"
+              ]
+            },
+            "description": "Who drove the visit (RFD 0125 D5). Agent visits never feed the omnibox ranking or frequently visited, and history lists them only under the agents or all filter.",
+            "default": "person"
+          },
+          "session_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "With actor agent: the agent session that drove the tab, when the reporter knows it."
           },
           "at_ms": {
             "required": true,

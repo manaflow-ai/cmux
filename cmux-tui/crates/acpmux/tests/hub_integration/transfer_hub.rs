@@ -314,8 +314,13 @@ async fn a_folder_outside_the_targets_roots_is_refused_and_the_chat_stays_frozen
     assert_eq!(here["moving"], true, "frozen on A: {here}");
     assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel"]);
 
-    // A daemon with no webRoots takes no moved chat at all.
-    b.config.write().await.web_roots.clear();
+    // A daemon with no webRoots that is not a VM host (a Mac, or `vmHost: false`) takes no
+    // moved chat at all.
+    {
+        let mut cfg = b.config.write().await;
+        cfg.web_roots.clear();
+        cfg.vm_host = Some(false);
+    }
     let ack =
         hook(ledger.path(), &["move"]).control(&b, &move_message("m-6", "user-1", &body)).await;
     let ack = ack_json(&ack.unwrap());
