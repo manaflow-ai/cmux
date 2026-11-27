@@ -27,6 +27,8 @@ mod drill_start;
 mod folder;
 #[path = "fresh_tests.rs"]
 mod fresh;
+#[path = "recover_tests.rs"]
+mod recover;
 #[path = "send_wait_tests.rs"]
 mod send_wait;
 
@@ -1148,8 +1150,9 @@ fn a_pending_machine_names_the_command_that_waits_on() {
             json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "provisioning"}]}),
         ),
     ]);
-    // A name no machine has: `start-session --name` makes it.
-    let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait"]);
+    // A name no machine has: `start-session --name` makes it. `--timeout 20` leaves no time for the recovery
+    // table's rerun (recover.rs), so the pending answer itself is what comes back.
+    let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait", "--timeout", "20"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
     assert_eq!(
@@ -2524,8 +2527,11 @@ fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice()
         assert_eq!(error["details"]["creation_id"], "c-1", "{case}: {error}");
 
         // Asked again while the create is still on its way, or after it failed: no second machine.
-        let rerun: Vec<&str> =
+        // `--timeout 9` leaves the one read (5 s) no time for the recovery table's rerun (recover.rs): the answer to that
+        // one ask is what is checked here.
+        let mut rerun: Vec<&str> =
             again.split_whitespace().skip(3).filter(|word| *word != "--json").collect();
+        rerun.extend(["--timeout", "9"]);
         for (status, code, exit) in
             [("creating", "cloud.start_pending", 75), ("failed", "cloud.start_failed", 1)]
         {
@@ -3021,7 +3027,13 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     for (list, mut listed, code) in lists {
         listed["account"] = json!({"signed_in": true});
         for (path, words) in paths {
-            let mut fake = Fake::new(unloaded_lists(listed.clone()));
+            // With a deadline (`--wait`), an unread list is read again by the recovery table (recover.rs) until
+            // `--timeout`: still only lists, and never a start.
+            let mut answers = Vec::new();
+            for _ in 0..40 {
+                answers.extend(unloaded_lists(listed.clone()));
+            }
+            let mut fake = Fake::new(answers);
             let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
                 panic!("{list}, {path}: {:?}", fake.ran)
             };

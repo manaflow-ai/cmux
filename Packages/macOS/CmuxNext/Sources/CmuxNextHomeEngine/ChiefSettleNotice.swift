@@ -1,3 +1,4 @@
+import CmuxNextHomeModel
 import Foundation
 
 /// The Chief conversation's notice while a turn waits for the compactor to
@@ -6,16 +7,45 @@ import Foundation
 /// import the first settle takes minutes; the notice says how far it is.
 /// It also says when a turn's session is slow to start because the machine is
 /// loaded (`startingSecs`): the start keeps going, and silence would look like a hang.
+///
+/// The rule is `chief_brain.settle_notice` in cmux-home-rules; this type turns its answer into
+/// the localized text.
 nonisolated struct ChiefSettleNotice {
-    /// The notice for the file's contents; nil when it is not a wait.
-    static func text(json: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
-        if let seconds = object["startingSecs"] as? Int, seconds >= 0 {
-            return HomeStrings.chiefStillStarting(seconds: seconds)
+    /// The notice for the file's contents (nil: no file), or the compactor's pause
+    /// (`compactorPaused`); nil when it is not a wait.
+    static func text(json: Data?, compactorPaused: Bool) -> String? {
+        let request = Request(json: json.flatMap { String(data: $0, encoding: .utf8) }, compactorPaused: compactorPaused)
+        guard let reply: Reply = try? HomeRules.chiefBrain("settle_notice", request), let notice = reply.notice else {
+            return nil
         }
-        guard let built = object["built"] as? Int, let total = object["total"] as? Int,
-              built >= 0, built < total else { return nil }
-        return HomeStrings.chiefOrganizing(built: built, total: total)
+        switch notice.kind {
+        case "stillStarting":
+            return notice.seconds.map { HomeStrings.chiefStillStarting(seconds: $0) }
+        case "organizing":
+            guard let built = notice.built, let total = notice.total else { return nil }
+            return HomeStrings.chiefOrganizing(built: built, total: total)
+        case "memoryPaused":
+            return HomeStrings.chiefMemoryPaused
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated struct Request: Encodable {
+        var json: String?
+        var compactorPaused: Bool
+    }
+
+    /// `chief_brain::notices::SettleNotice`, flat.
+    private nonisolated struct Notice: Decodable {
+        var kind: String
+        var seconds: Int?
+        var built: Int?
+        var total: Int?
+    }
+
+    private nonisolated struct Reply: Decodable {
+        var notice: Notice?
     }
 }
 
@@ -57,6 +87,6 @@ public nonisolated final class ChiefSettleWatch {
         // settle_status.rs `compactor_fault`), a system notice, never a Chief message (cx-oqnw3).
         // concurrency-allow: the same watch queue.
         let paused = FileManager.default.fileExists(atPath: file.deletingLastPathComponent().appendingPathComponent("compactor.json").path)
-        send(data.flatMap(ChiefSettleNotice.text(json:)) ?? (paused ? HomeStrings.chiefMemoryPaused : nil))
+        send(ChiefSettleNotice.text(json: data, compactorPaused: paused))
     }
 }

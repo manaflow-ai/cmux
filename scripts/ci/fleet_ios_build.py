@@ -44,6 +44,9 @@ QUEUED = {"queued", "pending", "waiting"}
 ENDED = {"done", "failed", "cancelled", "canceled", "error", "timeout", "timed_out", "lost"}
 # The CDN in front of the route ends a request at 100 s; every call here answers at once.
 CALL_TIMEOUT = 30
+# The CDN refuses Python's default `Python-urllib/3.x` agent with HTTP 403 "error code: 1010" (a banned browser
+# signature): every submit failed in 0 s that way (2026-11-26, run 45898219170), so name the client.
+USER_AGENT = "cmux-ci-fleet-ios-build"
 POLL_START, POLL_MAX = 5, 20
 
 
@@ -69,7 +72,7 @@ def call(token, body, opener=urllib.request.urlopen):
     """(status, answer dict, retry_after) for one POST; status 0 when the route did not answer."""
     req = urllib.request.Request(
         ROUTE, data=json.dumps(body).encode(), method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": USER_AGENT})
     try:
         with opener(req, timeout=CALL_TIMEOUT) as resp:
             return resp.status, json.load(resp), None
