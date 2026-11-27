@@ -783,7 +783,9 @@ class Workflow(unittest.TestCase):
                 self.assertLess(first, drop)
                 self.assertLess(drop, again)
                 # Both checkouts take the same inputs.
-                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0] for w in block.split("uses: actions/checkout@")[1:]]
+                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0]
+                         .replace("sparse-checkout: &publisher-sparse", "sparse-checkout:")
+                         for w in block.split("uses: actions/checkout@")[1:]]
                 self.assertEqual(withs[0], withs[1])
 
     def test_the_plan_fetch_tries_a_stalled_transport_again(self) -> None:
@@ -976,7 +978,7 @@ class PullRequestRead(unittest.TestCase):
         self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
         # plan's dispatch, web layer's dispatch, the two pull request reads, and publish's gallery read and
         # one-more-look dispatch.
-        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 6)
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 7)
         target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
         self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
         self.assertIn("permission-pull-requests: read", target)
