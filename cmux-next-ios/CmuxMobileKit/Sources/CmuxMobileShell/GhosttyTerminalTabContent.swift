@@ -241,6 +241,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Voice mode's source for a tab's terminal (its agent's Feed events in, typed prompts out).
     var voiceSourceProvider: (@MainActor (WorkspaceTab, Workspace, TerminalModel) -> (any AgentVoiceSource)?)?
     var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
+    /// Live mode: the tab's upload queue (attachments start sending when picked, cancellable at every stage).
+    var attachmentSenderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any TerminalAttachmentSending)?)?
     var uploaderDirectoryProvider: (@MainActor (WorkspaceTab, _ macID: String) -> String?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
@@ -320,6 +322,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         }
         model.setUploader(live == nil ? nil : uploaderProvider?(tab, workspace.macID),
                           directory: live == nil ? nil : uploaderDirectoryProvider?(tab, workspace.macID))
+        model.attachmentSender = live == nil ? nil : attachmentSenderProvider?(tab, workspace.macID)
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener

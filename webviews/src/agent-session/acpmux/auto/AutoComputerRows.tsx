@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { sizeRow, sleepRow, whyRow, type ComputerStatus } from "./computerStatus";
 import { ReadOnlySizeRow, type SizeRowLook } from "./ReadOnlySizeRow";
 import type { SizeRowView } from "./sizeRowView";
+import { Button } from "../../../ui/Button";
 
 export type SleepChoice = { mode: "auto" } | { mode: "keep_awake"; hours: 1 | 4 };
 
@@ -40,7 +41,8 @@ function PinMark() {
 
 function Choice({ on, onClick, children }: { on: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button
+    <Button
+      bare
       type="button"
       className="acpmux-computer-choice"
       aria-pressed={on}
@@ -48,7 +50,7 @@ function Choice({ on, onClick, children }: { on: boolean; onClick(): void; child
       onClick={onClick}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -120,12 +122,12 @@ export function AutoComputerRows({
       </Row>
       {why ? <Row label={t("computer.row.why")} note={why} /> : null}
       <div className="acpmux-computer-buttons">
-        <button type="button" className="acpmux-computer-button" onClick={onOpenTerminal}>
+        <Button bare type="button" className="acpmux-computer-button" onClick={onOpenTerminal}>
           {t("computer.openTerminal")}
-        </button>
-        <button type="button" className="acpmux-computer-button" onClick={onOpenDetails}>
+        </Button>
+        <Button bare type="button" className="acpmux-computer-button" onClick={onOpenDetails}>
           {t("computer.details")} <span aria-hidden="true">▸</span>
-        </button>
+        </Button>
       </div>
     </div>
   );
