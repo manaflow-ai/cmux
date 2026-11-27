@@ -51,8 +51,11 @@ if os.environ.get("FAKE_CODEX_ARGS"):
     with open(os.environ["FAKE_CODEX_ARGS"], "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
 args = sys.argv[1:]
+profile = None
 # Global options before the subcommand, as codex takes them (`-m <model> app-server`).
 while len(args) >= 2 and args[0] in ("-c", "--config", "-m", "--model", "-p", "--profile"):
+    if args[0] in ("-p", "--profile"):
+        profile = args[1]
     args = args[2:]
 if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")
@@ -209,6 +212,10 @@ for line in sys.stdin:
                 data, cursor = json.load(f), None
         else:
             data, cursor = PAGES[message.get("params", {}).get("cursor")]
+        if profile and cursor is None:
+            data = list(data) + [{"model": profile, "id": profile, "displayName": profile,
+                                  "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+                                  "serviceTiers": ["priority"]}]
         reply({"id": rid, "result": {"data": data, "nextCursor": cursor}})
     elif method == "thread/start":
         thread = {"id": "fake-thread-1", "cwd": message.get("params", {}).get("cwd"), "turns": []}

@@ -20,8 +20,11 @@
 //! the home folder.
 //!
 //! Measured per turn on `turn_result` as `harnessMagic.prefetch.*`: `files`, `tokens`,
-//! `rereadAnyway` (read calls of a prefetched file in that turn), `neverRead` and
-//! `estRequestsSaved`.
+//! `rereadAnyway` (read calls of a prefetched file in that turn), `neverRead`, `hits` (attached
+//! files the turn then read or edited, RFD 0160's hit: `hits / files` is the hit rate) and
+//! `estRequestsSaved`. The turn is stamped `prefetch` in `harnessMagic.enabled` whenever the
+//! switch is on (`hub/harness_magic.rs`), so the scorecard's `byFeature` splits prefetch on
+//! against off.
 //!
 //! Off: `agents.harnessMagic.prefetch.enabled: false` in the settings file, or
 //! `ACPMUX_HM_PREFETCH=0` in the daemon's environment.
@@ -500,6 +503,7 @@ pub struct PrefetchTurn {
     calls: HashSet<String>,
     reread: u64,
     read: HashSet<String>,
+    edited: HashSet<String>,
 }
 
 fn read_verb(command: &str) -> bool {
@@ -513,6 +517,25 @@ fn read_verb(command: &str) -> bool {
             )
         },
     )
+}
+
+/// The paths an edit tool call names: its locations and its input's path keys (Claude's
+/// `file_path`, `notebook_path`; Codex's `apply_patch` lists its files in `locations`).
+fn edit_paths(update: &Value) -> Vec<&str> {
+    let mut paths: Vec<&str> = update
+        .get("locations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l.get("path").and_then(Value::as_str))
+        .collect();
+    let raw = update.get("rawInput");
+    for key in ["file_path", "path", "filePath", "notebook_path"] {
+        if let Some(p) = raw.and_then(|r| r.get(key)).and_then(Value::as_str) {
+            paths.push(p);
+        }
+    }
+    paths
 }
 
 impl PrefetchTurn {
@@ -560,6 +583,17 @@ impl PrefetchTurn {
         let raw = update.get("rawInput");
         let mut hit: Option<usize> = None;
         let is_read = kind == Some("read") || title.starts_with("Read");
+        let is_edit = kind == Some("edit")
+            || ["Edit", "MultiEdit", "Write", "NotebookEdit"].iter().any(|t| title.starts_with(t));
+        if is_edit {
+            let edited: Vec<String> = edit_paths(update)
+                .into_iter()
+                .filter_map(|p| self.matches(p))
+                .filter_map(|i| self.files.get(i).map(|f| f.0.clone()))
+                .collect();
+            self.edited.extend(edited);
+            return;
+        }
         if is_read {
             let mut paths: Vec<&str> = update
                 .get("locations")
@@ -608,6 +642,7 @@ impl PrefetchTurn {
         m.insert("harnessMagic.prefetch.tokens".into(), json!(self.tokens));
         m.insert("harnessMagic.prefetch.rereadAnyway".into(), json!(self.reread));
         m.insert("harnessMagic.prefetch.neverRead".into(), json!(files - self.read.len()));
+        m.insert("harnessMagic.prefetch.hits".into(), json!(self.read.union(&self.edited).count()));
         m.insert(
             "harnessMagic.prefetch.estRequestsSaved".into(),
             json!((saved * 100.0).round() / 100.0),

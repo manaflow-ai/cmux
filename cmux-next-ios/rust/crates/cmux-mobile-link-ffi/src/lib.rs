@@ -32,6 +32,7 @@ mod last_place;
 mod link_progress;
 mod link_side;
 pub mod local_link;
+mod mac_reachability;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
@@ -47,8 +48,12 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vnc;
 mod window_layout;
+mod workspace_arrangement;
 mod workspace_groups;
+mod workspace_moves;
+mod workspace_row_actions;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -74,6 +79,12 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use mac_reachability::{
+    MacLinkFailureKind, MacLinkState, MacReachabilityInput, MacReachabilityKind, MacRecoveryActionKind,
+    MacRecoveryAttemptState, MacRecoveryObservation, MacRecoveryResult, MacRecoveryStep,
+    mac_reachability_action, mac_reachability_late_quiet, mac_reachability_resolve, mac_reachability_span,
+    mac_recovery_advanced, mac_recovery_combined, mac_recovery_timed_out,
+};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use pane_filter::{
     PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
@@ -94,10 +105,19 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
     PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
+pub use workspace_moves::{
+    WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
+    personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
 };
 
 uniffi::setup_scaffolding!();
@@ -1609,6 +1629,16 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+/// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+/// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+/// are kept for this process only. Returns how many hosts the file remembered.
+#[uniffi::export]
+pub fn set_route_literals_path(path: String) -> u32 {
+    let loaded = cmux_mobile_link::route_literals::RouteLiterals::shared().set_file(path);
+    u32::try_from(loaded).unwrap_or(u32::MAX)
 }
 
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
