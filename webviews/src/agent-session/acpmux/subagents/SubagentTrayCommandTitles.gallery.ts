@@ -44,7 +44,7 @@ export default componentEntry<{ scene: CommandTitlesScene }>({
       play: open,
     },
     subagent: {
-      note: "A subagent's commands name it first: 'Reviewer · Waiting 14m · hold'; the chat's own command has no owner.",
+      note: "The owner (Reviewer) has its own row in the tray, so its commands read 'Waiting 14m · hold' beside it, never the owner's name twice (Leo, 2026-11-27, 'acpmux delivery wedged + channel stuck' listed as a terminal row and an agent row: 'this isn't great'). Only a command whose owner has no row leads with the owner's name.",
       props: { scene: "subagent" },
       play: open,
     },
