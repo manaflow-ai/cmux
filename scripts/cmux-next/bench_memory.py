@@ -95,8 +95,10 @@ import os
 import plistlib
 import re
 import shlex
+import hashlib
 import shutil
 import signal
+import stat
 import socket
 import subprocess
 import sys
@@ -459,6 +461,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
             files_before = store_files(bundle)
+            # The files each process holds open for writing, digested: a write through a mapping moves no mtime.
+            held = open_for_write({pid: kind for pid, (kind, _) in owned(app_pid, bundle).items()})
+            held_before = file_digests(held_paths(held))
         time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -515,6 +520,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         # A write that lands outside the roots, or in a file deleted before the window ends, moves no mtime the
         # census reads: the files each process holds open for writing name it.
         result["files_written"]["open_for_write"] = open_for_write({row["pid"]: row["kind"] for row in rows})
+        result["files_written"]["rewritten_in_place"] = rewritten_in_place(held_before, file_digests(held_before))
     return result
 
 
@@ -534,15 +540,72 @@ def store_roots(bundle: str) -> list[str]:
     if saved:
         roots.append(saved)
     roots += [os.path.join(home, ".acpmux"), os.path.join(home, ".cmux")]
-    for parent in ("Library/Application Support", "Library/Caches"):
+    # The account's per-user cache and temp folders too: Metal's shader cache and the app's caches sit there,
+    # keyed by bundle id, outside every home (a 107 MB/h launch-window app write moved no file under the rest).
+    for parent in [os.path.join(home, "Library/Application Support"), os.path.join(home, "Library/Caches"),
+                   *darwin_user_dirs()]:
         try:
-            roots += [os.path.join(home, parent, name) for name in os.listdir(os.path.join(home, parent))
-                      if "cmux" in name.lower()]
+            roots += [os.path.join(parent, name) for name in os.listdir(parent) if "cmux" in name.lower()]
         except OSError:
             pass
     # Nested roots are walked once (the saved state sits under Application Support/cmux-next).
     roots = sorted({os.path.realpath(r) for r in roots if os.path.isdir(r)})
     return [r for r in roots if not any(r != o and r.startswith(o + os.sep) for o in roots)]
+
+
+
+def darwin_user_dirs() -> list[str]:
+    """The account's per-user cache and temp folders (`getconf DARWIN_USER_CACHE_DIR`, `DARWIN_USER_TEMP_DIR`):
+    Metal's shader cache and the app's caches under its bundle id sit there, outside HOME and ~/Library."""
+    found = []
+    for name in ("DARWIN_USER_CACHE_DIR", "DARWIN_USER_TEMP_DIR"):
+        try:
+            out = subprocess.run(["getconf", name], capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if out:
+            found.append(out)
+    return found
+
+
+# A file a process holds open for writing is digested when it is at most this big (a mapped write moves no mtime).
+DIGEST_MAX_BYTES = 64 << 20
+
+
+def file_digests(paths, limit: int = DIGEST_MAX_BYTES) -> dict[str, tuple[int, int, str]]:
+    """Path -> (size, mtime ns, blake2b) for each regular file at most `limit` bytes; others are left out."""
+    found = {}
+    for path in paths:
+        try:
+            st = os.stat(path)
+            if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+                continue
+            h = hashlib.blake2b(digest_size=16)
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+        except OSError:
+            continue
+        found[path] = (st.st_size, st.st_mtime_ns, h.hexdigest())
+    return found
+
+
+def held_paths(held: dict[str, list[str]]) -> list[str]:
+    """Every path in an open_for_write() answer, once."""
+    return sorted({path for paths in held.values() for path in paths})
+
+
+def rewritten_in_place(before: dict, after: dict) -> list[dict]:
+    """Files held open for writing whose bytes changed in the window, the ones whose mtime stayed first: a write
+    through a mapping (Chromium's BrowserMetrics, a disk cache index, an mmap'd store) moves no mtime, so
+    files_written cannot see it, but the account's disk writes still count its page-outs."""
+    changed = []
+    for path, (size, mtime, digest) in after.items():
+        old = before.get(path)
+        if old is not None and old[2] != digest:
+            changed.append({"path": path, "bytes": size, "grew": size - old[0], "mtime_moved": old[1] != mtime})
+    changed.sort(key=lambda row: (row["mtime_moved"], -row["bytes"]))
+    return changed
 
 
 def store_files(bundle: str, limit: int = 200_000) -> dict[str, tuple[int, int]]:
@@ -1838,6 +1901,90 @@ def downloads_dir(scratch: str) -> str:
     return os.path.join(scratch, "downloads")
 
 
+# A shipped bundle's (NIGHTLY, RC, release) defaults domain, set aside for this process's launches and put back at
+# exit (shipped_isolation). One per process: a --relaunch-restored run's second launch keeps the first one's.
+_shipped_aside = None
+
+
+def _fresh_smoke():
+    """scripts/ci/fresh_home_launch_smoke.py, the nightly publish gate's fresh-home launch: from beside this file
+    (perf-idle-ab.sh copies it into its harness folder) or from its place in the checkout."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for folder in (here, os.path.join(here, "..", "ci")):
+        if os.path.isfile(os.path.join(folder, "fresh_home_launch_smoke.py")):
+            if folder not in sys.path:
+                sys.path.insert(0, folder)
+            import fresh_home_launch_smoke  # noqa: PLC0415
+            return fresh_home_launch_smoke
+    raise SystemExit("bench-memory: a shipped bundle needs fresh_home_launch_smoke.py beside this file or in ../ci")
+
+
+def is_shipped(bundle: str) -> bool:
+    """A NIGHTLY, RC or release bundle (any bundle id but a DEV `com.cmuxterm.app.debug[.<tag>]`): its daemon
+    state, keychain and defaults are a person's unless the launch is given its own (shipped_isolation)."""
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = (plistlib.load(handle).get("CFBundleIdentifier") or "").strip()
+    except OSError:
+        return False
+    dev = "com.cmuxterm.app.debug"
+    return bool(bundle_id) and bundle_id != dev and not bundle_id.startswith(dev + ".")
+
+
+def shipped_isolation(bundle: str, env: dict, relaunch: bool) -> None:
+    """A shipped bundle launched as a first install, as the nightly publish gate launches one
+    (fresh_home_launch_smoke.py), so a measure of the published NIGHTLY never reads or joins a person's:
+      - CFFIXED_USER_HOME is the scratch HOME: the app finds its home through homeDirectoryForCurrentUser (not
+        HOME), so Application Support (cmux-tui daemon state, saved workspaces, acpmux home) starts empty;
+      - its own login keychain in that home (no Keychain dialog over the window);
+      - the updater off (CMUX_DISABLE_AUTO_UPDATE) and the control socket at a path of the run's own;
+      - the bundle id's defaults domain (the account's, whatever HOME says) set aside under the gate's per-bundle
+        lock, put back at exit;
+      - refused (exit 3) while another copy of the bundle id runs on this host: a person's NIGHTLY, or any copy
+        that is not a fresh-home smoke's."""
+    global _shipped_aside
+    from pathlib import Path  # noqa: PLC0415
+    smoke = _fresh_smoke()
+    with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+        bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
+    mine = {os.path.realpath(root) for root in bundle_roots(bundle)}
+    others = [copy for copy in smoke.live_copies(bundle_id) if os.path.realpath(copy["bundle"]) not in mine]
+    if others:
+        named = ", ".join(f"pid {copy['pid']} {copy['bundle']}" for copy in others[:5])
+        print(f"bench-memory: another copy of {bundle_id} runs on this host ({named}): not launching beside it",
+              file=sys.stderr, flush=True)
+        raise SystemExit(3)
+    home = env["HOME"]
+    env["CFFIXED_USER_HOME"] = home
+    env[smoke.UPDATER_OFF_VARIABLE] = "1"
+    # Short: a Unix socket path holds at most 104 bytes, and a step's TMPDIR is long. Named cmux*.sock in /tmp,
+    # where launch() looks.
+    env.setdefault("CMUX_NEXT_SOCKET_PATH", f"/tmp/cmux-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
+    for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
+        os.makedirs(os.path.join(home, sub), exist_ok=True)
+    try:
+        smoke.login_keychain(env)
+        if _shipped_aside is None and not relaunch:
+            aside = smoke.DefaultsAside(bundle_id, Path(home))
+            aside.__enter__()
+            _shipped_aside = aside
+            import atexit  # noqa: PLC0415
+            atexit.register(_put_back_shipped_defaults)
+    except smoke.CannotRun as error:
+        print(f"bench-memory: cannot launch {bundle_id} fresh: {error}", file=sys.stderr, flush=True)
+        raise SystemExit(3)
+
+
+def _put_back_shipped_defaults() -> None:
+    global _shipped_aside
+    aside, _shipped_aside = _shipped_aside, None
+    if aside is not None:
+        try:
+            aside.__exit__(None, None, None)
+        except Exception as error:  # the copy stays beside the lock; the next run puts it back first
+            print(f"bench-memory: {error}", file=sys.stderr, flush=True)
+
+
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None,
            scratch: str | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
@@ -1883,6 +2030,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     env.update(extra_env or {})
     # A None in `extra_env` drops that default (CMUX_NEXT_NO_ACTIVATE for a bench that needs the keyboard).
     env = {name: value for name, value in env.items() if value is not None}
+    if is_shipped(bundle):
+        shipped_isolation(bundle, env, relaunch)
     os.makedirs(env["TMPDIR"], exist_ok=True)
     os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under

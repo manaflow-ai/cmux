@@ -7,6 +7,11 @@ we can analyze them".
   web-touched ROOT BASE HEAD   prints `web=true` when a file BASE..HEAD changes is one web-bundle-key.py --routed
                                names (the web bundles' own inputs, imports outside webviews/ included), else
                                `web=false`; the reason goes to stderr.
+  merge-live-base ROOT BASE PR  re-merges the pull request's head onto the base branch's tip as it is now (the
+                               checkout's merge commit is GitHub's, computed when the head last moved: cmux#51044's
+                               was 73 min behind the base, so it did not see the `layoutGeometry` import #60849
+                               landed, and the preflight passed a head that broke the base). Leaves HEAD a merge
+                               commit whose first parent is the live tip; exits 1 on a conflict.
   web-build ROOT OUT           runs scripts/cmux-next/build-web-bundles.sh --out-root OUT (the build the app,
                                NIGHTLY and safe-push.sh run) and, when it fails, names each bundler error as a
                                GitHub annotation, then exits with the build's code.
@@ -76,6 +81,47 @@ def error_lines(log: str) -> list[str]:
     return seen[:MAX_ANNOTATIONS]
 
 
+DEPTHS = (300, 2000, 20000)
+
+
+def git_run(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    cmd = ["git", "-C", str(root)]
+    token = os.environ.get("GIT_AUTH_TOKEN", "")
+    if token and args and args[0] == "fetch":
+        import base64
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        cmd += ["-c", f"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}"]
+    return subprocess.run(cmd + list(args), check=check, capture_output=True, text=True)
+
+
+def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
+    head = git_run(root, "rev-parse", "-q", "--verify", "HEAD^2", check=False)
+    if head.returncode != 0:
+        print("merge-live-base: HEAD is not a merge commit; nothing to re-merge", file=sys.stderr)
+        return 0
+    head_sha = head.stdout.strip()
+    old_base = git_run(root, "rev-parse", "HEAD^1").stdout.strip()
+    git_run(root, "fetch", "--no-tags", "--depth=1", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
+    tip = git_run(root, "rev-parse", f"refs/remotes/origin/{base_ref}").stdout.strip()
+    if tip == old_base:
+        print(f"merge-live-base: the merge commit's base {tip[:12]} is the live tip", file=sys.stderr)
+        return 0
+    git_run(root, "checkout", "-q", "--detach", tip)
+    merged = None
+    for depth in DEPTHS:
+        git_run(root, "fetch", "--no-tags", f"--depth={depth}", "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
+        merged = git_run(root, "-c", "user.name=cmux-ci", "-c", "user.email=ci@cmux.invalid", "merge", "--no-ff",
+                         "--no-edit", "-m", f"Merge {head_sha} into {tip}", head_sha, check=False)
+        if merged.returncode == 0 or "unrelated histories" not in (merged.stderr + merged.stdout):
+            break
+    if merged is None or merged.returncode != 0:
+        text = ((merged.stdout + merged.stderr) if merged else "").strip().splitlines()[-1:] or ["merge failed"]
+        print(f"::error title=live base merge::this head does not merge onto {base_ref} {tip[:12]}: {text[0]}")
+        return 1
+    print(f"merge-live-base: built on {base_ref} {tip[:12]}, not the checkout's {old_base[:12]}")
+    return 0
+
+
 def cmd_web_build(root: Path, out: str) -> int:
     started = time.monotonic()
     proc = subprocess.Popen(["bash", str(root / BUILD_SCRIPT), "--out-root", out], cwd=root,
@@ -100,6 +146,8 @@ def cmd_web_build(root: Path, out: str) -> int:
 def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "web-touched":
         return cmd_web_touched(Path(argv[2]).resolve(), argv[3], argv[4])
+    if len(argv) == 5 and argv[1] == "merge-live-base":
+        return cmd_merge_live_base(Path(argv[2]).resolve(), argv[3], argv[4])
     if len(argv) == 4 and argv[1] == "web-build":
         return cmd_web_build(Path(argv[2]).resolve(), argv[3])
     print(__doc__.strip(), file=sys.stderr)
