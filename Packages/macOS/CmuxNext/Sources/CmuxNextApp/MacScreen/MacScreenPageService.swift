@@ -194,9 +194,10 @@ extension AppServices {
         macScreenPages.follow(settings) { [weak self] in self?.registry.refuse($0) }
     }
 
-    /// Screen Sharing (`macScreen.open`): the home page in the pane the action ran on, else the active window's focused pane.
+    /// Screen Sharing (`macScreen.open`): the home page beside the dock of the pane the action ran on, else of the active window's focused pane, the window off its top page (opened in Home's dock it never showed, walk 45927048373).
     func openMacScreen(for device: String = "", in target: PaneController?) {
-        guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
+        let window = target.flatMap { windowController(showing: $0) } ?? windows.active
+        guard window?.leaveTopPage() != nil, let pane = (target ?? window?.focusedPane).map({ window?.content?.pageTabPane(from: $0) ?? $0 }) else { return registry.refuse(RefusalStrings.noWindowOpen) }
         macScreenTabs.open(macScreenPages.record(forDevice: device, requesting: .view), in: pane, focus: true, byPerson: true)
     }
 

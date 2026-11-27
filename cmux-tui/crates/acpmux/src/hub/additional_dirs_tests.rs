@@ -40,3 +40,25 @@ fn the_setting_adds_existing_folders_after_the_chats_own() {
     let full: Vec<_> = (0..MAX_DIRS).map(|i| home.join(i.to_string())).collect();
     assert_eq!(merged(full.clone(), vec![a]).len(), MAX_DIRS);
 }
+
+#[test]
+fn the_added_folder_is_named_only_when_it_is_among_the_new_ones() {
+    let root = tempfile::tempdir().unwrap();
+    let a = std::fs::canonicalize(root.path()).unwrap().join("a");
+    std::fs::create_dir(&a).unwrap();
+    let dirs = vec![a.clone()];
+    assert_eq!(
+        added(&json!({"added": {"path": a, "from": "~/a"}}), &dirs),
+        Some(json!({"path": a.to_string_lossy(), "from": "~/a"}))
+    );
+    assert_eq!(
+        added(&json!({"added": {"path": a}}), &dirs),
+        Some(json!({"path": a.to_string_lossy()}))
+    );
+    assert_eq!(added(&json!({"added": {"path": "/elsewhere"}}), &dirs), None);
+    assert_eq!(added(&json!({}), &dirs), None);
+    assert_eq!(
+        added(&json!({"added": {"path": a, "from": 3}}), &dirs),
+        Some(json!({"path": a.to_string_lossy()}))
+    );
+}

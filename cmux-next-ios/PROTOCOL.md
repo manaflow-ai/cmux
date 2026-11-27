@@ -651,14 +651,32 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   other party's socket is joined), then `{"type":"peer","online":bool}` when
   it joins or leaves, or at most every 5 s while frames find it absent. A
   client's `ping` is answered `pong` without waking the object.
+- **Early join (`wg-relay` before `wg-init`):** a phone that offers `relay:
+  "first"` sends `wg-relay` (an ordinary signal, nothing else in it) as its
+  dial starts, before the gather that `wg-init` waits for. Being the
+  session's first admitted signal, it binds the session, so both devices can
+  join the relay with the Bearer token alone, before either has sent
+  `wg-init` / `wg-resp`: the phone joins right after sending it, and a Mac
+  that offers `first` opens the session on it and joins at once, then waits
+  for the `wg-init`. No ticket and no new frame are involved (a join presents
+  a relay ticket only if a service ever stamps one). A join that finds the
+  peer absent sends its pending handshake initiation again the moment the
+  relay reports the peer (`joined` `peer:true`), not at the 250 ms repeat. A
+  cue no `wg-init` follows within the dial timeout ends the Mac's session
+  quietly: no `bye` (it could end something the phone still holds).
+  Versioning: an older Mac drops a signal of a session it has not seen, so
+  the cue is lost quietly; it answers `relay: "ready"`, keeps the 3 s rule,
+  and the phone lets its early join go unused. An older phone never sends the
+  cue, and a new Mac joins on its `wg-init` as before. With relay first off on
+  either side, the phone sends no cue or the Mac drops it as an older Mac does.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); as the dial starts when both said `"first"` (the
-  Mac on the phone's `wg-init`, the phone as its tunnel starts on the
-  Mac's `wg-resp`, beside the direct race and TURN; the phone's pending
+  path (`relay: "now"`); as the dial starts when both said `"first"` (both
+  on the phone's early `wg-relay` above; else the Mac on the phone's
+  `wg-init`, the phone as its tunnel starts on the Mac's `wg-resp`; beside the direct race and TURN; the phone's pending
   handshake initiation goes through the relay as it joins, the same
-  message, so a direct answer in flight still completes it; neither asks
-  the other with `wg-relay`, and a join that finds the peer already heard
+  message, so a direct answer in flight still completes it; apart from the
+  early cue neither asks the other with `wg-relay`, and a join that finds the peer already heard
   is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
@@ -1478,7 +1496,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
   "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
   `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
-  the phone's receive, (c) `phone_paint` receive to present, and `total`.
+  the phone's receive, (c) `phone_paint` receive to present, and `total`. It answers the
+  same join on the channel, as `{"kind": "paint-summary", ...}` with `offset_error_ms` (half
+  the chosen probe's round trip) and `last_total_ms` (the newest sample's total) and without
+  `phone` (2026-11-23). A phone that wants it (the DEBUG paint-latency overlay) reads one
+  line after its report, for at most 2 s; one that does not closes, and the answer is dropped.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the
