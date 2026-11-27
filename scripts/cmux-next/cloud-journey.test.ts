@@ -3939,7 +3939,7 @@ describe("rpcFailureReason", () => {
 
 describe("wake-echo own-run cleanup", () => {
   const scope = { repository: "manaflow-ai/cmux", run: "123", attempt: "2", job: "wake-echo", api: "https://staging.example", team: "" };
-  const machine = "vm_1b6259ad1acb4b12572c";
+  const machine = "vm_11111111111111111111";
   const key = "jr-test123-cleanup-delete";
   const withFile = async (run: (file: string) => Promise<void>) => {
     const dir = mkdtempSync(join(tmpdir(), "wake-cleanup-test-"));
