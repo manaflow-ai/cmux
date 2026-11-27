@@ -53,12 +53,39 @@ struct Saved {
     attachments: Vec<Value>,
     #[serde(default)]
     held: BTreeMap<String, Vec<String>>,
+    /// Content replacements use immutable, content-addressed names until their manifest is
+    /// committed. Legacy entries omit this map and keep the original `<id-hash>.<field>` name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    versions: BTreeMap<String, String>,
 }
 
 fn file_name(id: &str, field: &str) -> String {
     let digest = Sha256::digest(id.as_bytes());
     let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
     format!("{hex}.{field}")
+}
+
+fn version_key(id: &str, field: &str) -> String {
+    format!("{id}\0{field}")
+}
+
+fn version_file_name(id: &str, field: &str, contents: &[u8]) -> String {
+    let digest = Sha256::digest(contents);
+    let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    format!("{}.{hex}", file_name(id, field))
+}
+
+fn selected_file_name(saved: &Saved, id: &str, field: &str) -> std::io::Result<String> {
+    let Some(version) = saved.versions.get(&version_key(id, field)) else {
+        return Ok(file_name(id, field));
+    };
+    if version.len() != 32 || !version.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid draft attachment version",
+        ));
+    }
+    Ok(format!("{}.{version}", file_name(id, field)))
 }
 
 fn saved(folder: &Path) -> std::io::Result<Option<Saved>> {
@@ -93,13 +120,14 @@ pub(crate) fn checked(list: &Value) -> Result<Vec<Value>, RpcError> {
 /// The chips kept in `folder`, in order, with every declared contents file restored. A missing
 /// declared file is an error so a transfer cannot commit a partial draft.
 pub(crate) fn read(folder: &Path) -> std::io::Result<Vec<Value>> {
-    let Some(saved) = saved(folder)? else { return Ok(Vec::new()) };
-    let mut chips = saved.attachments;
+    let Some(mut saved) = saved(folder)? else { return Ok(Vec::new()) };
+    let mut chips = std::mem::take(&mut saved.attachments);
     for chip in &mut chips {
         let Some(id) = chip.get("id").and_then(Value::as_str).map(str::to_owned) else { continue };
         let Some(fields) = saved.held.get(&id) else { continue };
         for field in fields.iter().filter(|f| CONTENTS.contains(&f.as_str())) {
-            let contents = std::fs::read_to_string(folder.join(file_name(&id, field)))?;
+            let name = selected_file_name(&saved, &id, field)?;
+            let contents = std::fs::read_to_string(folder.join(name))?;
             if let Some(object) = chip.as_object_mut() {
                 object.insert(field.to_owned(), Value::String(contents));
             }
@@ -135,7 +163,8 @@ pub(crate) fn write(folder: &Path, chips: &[Value]) -> std::io::Result<Vec<Strin
                 continue;
             }
             if chip.get(field).is_none() {
-                let path = folder.join(file_name(id, field));
+                let name = selected_file_name(&before, id, field)?;
+                let path = folder.join(name);
                 if !path.is_file() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
@@ -152,16 +181,59 @@ pub(crate) fn write(folder: &Path, chips: &[Value]) -> std::io::Result<Vec<Strin
         let id = chip.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
         let mut held = Vec::new();
         for field in CONTENTS {
-            let name = file_name(&id, field);
             match chip.as_object_mut().and_then(|o| o.remove(field)) {
                 Some(Value::String(contents)) => {
-                    crate::home_fs::write_json_private(&folder.join(&name), contents.as_bytes())?;
+                    let key = version_key(&id, field);
+                    let previous_name = before
+                        .held
+                        .get(&id)
+                        .is_some_and(|fields| fields.iter().any(|held| held == field))
+                        .then(|| selected_file_name(&before, &id, field))
+                        .transpose()?;
+                    let (name, version) = if let Some(previous_name) = previous_name {
+                        let previous = folder.join(&previous_name);
+                        match std::fs::read(&previous) {
+                            Ok(existing) if existing == contents.as_bytes() => {
+                                (previous_name, before.versions.get(&key).cloned())
+                            }
+                            Ok(_) => {
+                                let name = version_file_name(&id, field, contents.as_bytes());
+                                let version = name.rsplit('.').next().unwrap().to_owned();
+                                (name, Some(version))
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                let name = version_file_name(&id, field, contents.as_bytes());
+                                let version = name.rsplit('.').next().unwrap().to_owned();
+                                (name, Some(version))
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        (file_name(&id, field), None)
+                    };
+                    if !before
+                        .held
+                        .get(&id)
+                        .is_some_and(|fields| fields.iter().any(|held| held == field))
+                        || before.versions.get(&key) != version.as_ref()
+                    {
+                        crate::home_fs::write_json_private(
+                            &folder.join(&name),
+                            contents.as_bytes(),
+                        )?;
+                    }
+                    if let Some(version) = version {
+                        saved.versions.insert(key, version);
+                    }
                     held.push(field.to_owned());
                 }
                 // Sent without it: the file kept before stays, if there is one.
                 None if before.held.get(&id).is_some_and(|f| f.iter().any(|f| f == field))
-                    && folder.join(&name).is_file() =>
+                    && folder.join(selected_file_name(&before, &id, field)?).is_file() =>
                 {
+                    if let Some(version) = before.versions.get(&version_key(&id, field)) {
+                        saved.versions.insert(version_key(&id, field), version.clone());
+                    }
                     held.push(field.to_owned());
                 }
                 _ => {}
@@ -178,7 +250,9 @@ pub(crate) fn write(folder: &Path, chips: &[Value]) -> std::io::Result<Vec<Strin
     let named: std::collections::HashSet<String> = saved
         .held
         .iter()
-        .flat_map(|(id, fields)| fields.iter().map(move |f| file_name(id, f)))
+        .flat_map(|(id, fields)| {
+            fields.iter().filter_map(|field| selected_file_name(&saved, id, field).ok())
+        })
         .chain([LIST.to_owned()])
         .collect();
     if let Ok(entries) = std::fs::read_dir(folder) {
@@ -218,14 +292,15 @@ impl Hub {
     /// the ids whose contents acpmux holds. Answered once they are on disk.
     pub async fn set_draft_attachments(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
         chips: Vec<Value>,
     ) -> Result<Vec<String>, RpcError> {
-        if session.moving().is_some() {
-            return Err(RpcError::invalid_params(queue::moving_error(session).message));
-        }
-        let Some(folder) = self.draft_attachments_folder(session) else {
+        let session = Arc::clone(session);
+        let Some(folder) = self.draft_attachments_folder(&session) else {
             let mut kept = IN_MEMORY.lock().unwrap_or_else(|e| e.into_inner());
+            if session.moving().is_some() {
+                return Err(RpcError::invalid_params(queue::moving_error(&session).message));
+            }
             let before = kept.remove(&session.id).unwrap_or_default();
             if chips.is_empty() {
                 return Ok(Vec::new());
@@ -261,11 +336,15 @@ impl Hub {
         let written = tokio::task::spawn_blocking(move || {
             let turn = turn(&folder);
             let _turn = turn.lock().unwrap_or_else(|e| e.into_inner());
+            if session.moving().is_some() {
+                return Err(RpcError::invalid_params(queue::moving_error(&session).message));
+            }
             write(&folder, &chips)
+                .map_err(|e| RpcError::internal(format!("draft attachments were not kept: {e}")))
         })
         .await
         .map_err(|e| RpcError::internal(format!("draft attachments: {e}")))?;
-        written.map_err(|e| RpcError::internal(format!("draft attachments were not kept: {e}")))
+        written
     }
 
     /// A move's bundle carries the chat's chips (`transfer.rs` export).

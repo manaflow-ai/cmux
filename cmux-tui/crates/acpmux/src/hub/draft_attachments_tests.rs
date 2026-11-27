@@ -63,7 +63,7 @@ fn chat(hub: &Hub, id: &str) -> Arc<Session> {
     hub.insert_test_session(meta)
 }
 
-async fn keep(hub: &Hub, session: &Session) {
+async fn keep(hub: &Hub, session: &Arc<Session>) {
     hub.set_composer_draft(session, &draft_text()).unwrap();
     let held = hub.set_draft_attachments(session, chips()).await.unwrap();
     assert_eq!(held, ["img-1", "paste-3", "pdf-2"], "contents held for every chip");
@@ -137,6 +137,43 @@ fn a_missing_carried_contents_file_rejects_the_write_without_changing_the_manife
     let without_image: Vec<Value> =
         chips().into_iter().filter(|chip| chip["id"] != "img-1").collect();
     write(&folder, &without_image).unwrap();
+}
+
+#[test]
+fn a_failed_manifest_commit_keeps_the_previous_payloads_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join(DIR);
+    write(&folder, &chips()).unwrap();
+    let before = read(&folder).unwrap();
+    let tmp = folder.join(LIST).with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::create_dir(&tmp).unwrap();
+
+    let mut changed = chips();
+    changed[0]["data"] = json!("changed");
+    assert!(write(&folder, &changed).is_err(), "the occupied list temp blocks the commit");
+    assert_eq!(read(&folder).unwrap(), before, "the old manifest still names old bytes");
+    assert_eq!(std::fs::read_to_string(folder.join(file_name("img-1", "data"))).unwrap(), "iVBO");
+
+    std::fs::remove_dir(&tmp).unwrap();
+    write(&folder, &changed).unwrap();
+    assert_eq!(read(&folder).unwrap(), changed, "the retry commits the staged replacement");
+}
+
+#[tokio::test]
+async fn a_write_that_reaches_the_folder_after_a_move_starts_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = disk_hub(dir.path());
+    let s = chat(&hub, "freeze-race");
+    keep(&hub, &s).await;
+    let folder = hub.store.session_path("freeze-race").unwrap().join(DIR);
+    let lock = turn(&folder);
+    let guard = lock.lock().unwrap();
+    let mut write = Box::pin(hub.set_draft_attachments(&s, chips()));
+    tokio::task::yield_now().await;
+    *s.moving.lock().unwrap() = Some("moving-now".into());
+    drop(guard);
+    assert!(write.await.is_err(), "a queued write cannot cross the move freeze");
+    *s.moving.lock().unwrap() = None;
 }
 
 #[tokio::test]
