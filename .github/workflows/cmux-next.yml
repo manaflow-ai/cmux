@@ -316,6 +316,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -690,6 +691,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py

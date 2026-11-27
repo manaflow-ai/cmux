@@ -25,12 +25,12 @@ const MAX_REPLY: u64 = 1 << 20;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Ask for more vCPU or memory for THIS cmux Cloud machine (`cmux machine request`). Answers at once: fits (has it), grow (resizing now, within the plan), over_plan (the plan's largest, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines made now, as a handle with each machine id), or unavailable.",
+        "description": "Ask for more vCPU or memory for THIS cmux Cloud machine (`cmux machine request`). Answers at once: fits (has it), grow (resizing now, within the plan), over_plan (the plan's largest, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines made now, a handle with each id), or unavailable. Cloud machines only.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "vcpu": {"type": "integer", "minimum": 1, "description": "Total vCPUs wanted."},
-                "mem_gib": {"type": "integer", "minimum": 1, "description": "Total GiB (default 2 per vCPU)."},
+                "mem_gib": {"type": "integer", "minimum": 1, "description": "Total memory GiB (default 2 per vCPU)."},
                 "fanout": {"type": "integer", "minimum": 1, "maximum": 64, "description": "Split over this many machines."},
                 "kind": {"type": "string", "enum": ["linux", "mac", "gpu"]},
                 "for": {"type": "string", "description": "What it is for."},
