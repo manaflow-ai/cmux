@@ -188,13 +188,12 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
         pass::scan(&skipped, &config.store)?
     };
     for item in &mut scan.report.items {
-        // Something kept inside a worktree keeps it too; only one that
-        // would go is walked.
-        let held = never.holds(&config.home, &item.path).or_else(|| {
-            (item.verdict.action != Action::Keep)
-                .then(|| never.guards_inside(&config.home, &item.path))
-                .flatten()
-        });
+        // Only a worktree that would go is walked for something kept inside.
+        let held = if item.verdict.action == Action::Keep {
+            never.holds(&config.home, &item.path)
+        } else {
+            never.holds_tree(&config.home, &item.path)
+        };
         if let Some(glob) = held {
             item.verdict.action = Action::Keep;
             item.verdict.reason = format!("never-delete: {glob}");
@@ -264,7 +263,12 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
             let before = (scan.report.freed, cache_report.freed);
             match candidate.slot {
                 Slot::Worktree(index) => {
-                    pass::act_on(&mut scan, index, &options, &config.store);
+                    pass::act_on_guarded(&mut scan, index, &options, &config.store, &|path| {
+                        match never.holds_tree(&config.home, path) {
+                            Some(why) => Err(format!("never-delete: {why}")),
+                            None => Ok(()),
+                        }
+                    });
                     if let Some(item) = scan.report.items.get(index) {
                         rows.push(worktree_row(item));
                     }

@@ -2,12 +2,9 @@
 //! worktree): the one family whose content can be unique. Before one goes,
 //! its work is checked and archived:
 //!
-//! - uncommitted, untracked or ignored local files (a `.env`, notes; build
-//!   output such as `target/` or `node_modules/` aside): the clone stays
-//!   (this archive keeps commits, not loose files);
-//! - linked worktrees of its own: the clone stays (they would lose their
-//!   repository);
-//! - commits on no remote branch, a detached `HEAD` included: kept in a bundle in the archive store
+//! - uncommitted, untracked or ignored changes: the clone stays (this archive keeps
+//!   commits, not loose files);
+//! - commits on no remote branch: kept in a bundle in the archive store
 //!   (`clones/<id>.bundle`), verified, before the folder goes;
 //! - nothing of its own: nothing to keep.
 //!
@@ -39,9 +36,9 @@ const REBUILT: &[&str] = &[
     ".DS_Store",
 ];
 
-/// What `git rev-list` and `git bundle` read: every local ref and `HEAD`
-/// (a detached checkout's commits are on no branch), minus what remotes have.
-const LOCAL_ONLY: &[&str] = &["HEAD", "--branches", "--tags", "--not", "--remotes"];
+/// What `git bundle` keeps: every local branch and tag, minus what remotes
+/// have (a detached `HEAD` keeps the clone, see [`work`]).
+const LOCAL_ONLY: &[&str] = &["--branches", "--tags", "--not", "--remotes"];
 
 /// The first ignored path in `git status --ignored` output that is not
 /// build output, if any.
@@ -66,9 +63,10 @@ pub enum Work {
 
 /// What is in `clone` that would be lost, or why it cannot be said or must stay.
 pub fn work(clone: &Path) -> Result<Work, String> {
-    let status = crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall"], LIMIT)?;
+    let status =
+        crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall", "--ignored"], LIMIT)?;
     if !status.is_empty() {
-        return Err("it has uncommitted or untracked changes".into());
+        return Err("it has uncommitted, untracked or ignored changes".into());
     }
     // Ignored files are local too (`.env`, secrets, notes): only build
     // output may go with the clone.
@@ -96,11 +94,34 @@ pub fn work(clone: &Path) -> Result<Work, String> {
     if remotes.is_empty() {
         return Err("it has no remote to compare with".into());
     }
-    let mut rev_list = vec!["rev-list"];
-    rev_list.extend_from_slice(LOCAL_ONLY);
-    let ahead = crate::git::user_git(clone, &rev_list, LIMIT)?;
+    // Other worktrees and submodules may keep their only index or object
+    // database under this clone's .git; a branch bundle does not save those.
+    let worktrees = crate::git::user_git(clone, &["worktree", "list", "--porcelain", "-z"], LIMIT)?;
+    if worktrees.split(|byte| *byte == 0).filter(|field| field.starts_with(b"worktree ")).count()
+        != 1
+    {
+        return Err("it owns linked worktrees or their registration is unreadable".into());
+    }
+    match std::fs::symlink_metadata(clone.join(".git/modules")) {
+        Ok(_) => return Err("it has a submodule object store".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("cannot inspect submodule object stores: {error}")),
+    }
+    // Bundles below retain branches and tags, not a detached HEAD.
+    crate::git::user_git(clone, &["symbolic-ref", "--quiet", "HEAD"], LIMIT)
+        .map_err(|_| "its HEAD is detached or unreadable; it stays".to_string())?;
+    let ahead = crate::git::user_git(
+        clone,
+        &["rev-list", "--branches", "--tags", "--not", "--remotes"],
+        LIMIT,
+    )?;
     let count = String::from_utf8_lossy(&ahead).lines().filter(|l| !l.trim().is_empty()).count();
     Ok(if count == 0 { Work::Pushed } else { Work::Unpushed(count) })
+}
+
+/// References captured around archival, to detect work committed during it.
+pub(crate) fn references(clone: &Path) -> Result<Vec<u8>, String> {
+    crate::git::user_git(clone, &["show-ref", "--head"], LIMIT)
 }
 
 /// Keeps the clone's local-only commits in a verified bundle; the archive id,
@@ -182,6 +203,64 @@ mod tests {
     }
 
     #[test]
+    fn detached_commits_keep_the_clone() {
+        let (base, clone) = clone_pair("clone-detached-preserve");
+        git(&clone, &["checkout", "--detach", "-q"]);
+        std::fs::write(clone.join("a"), "detached work").unwrap();
+        git(&clone, &["commit", "-qam", "detached"]);
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
+    fn ignored_local_data_keeps_the_clone() {
+        let (base, clone) = clone_pair("clone-ignored-preserve");
+        std::fs::write(clone.join(".git/info/exclude"), ".env\nlocal-db/\n").unwrap();
+        std::fs::create_dir_all(clone.join("local-db")).unwrap();
+        std::fs::write(clone.join("local-db/data"), "local data").unwrap();
+        std::fs::write(clone.join(".env"), "local config").unwrap();
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
+    fn linked_worktree_data_keeps_the_common_clone() {
+        let (base, clone) = clone_pair("clone-linked-preserve");
+        git(&clone, &["worktree", "add", "-qb", "linked", "../linked"]);
+        let linked = base.join("linked");
+        std::fs::write(linked.join("a"), "staged only").unwrap();
+        git(&linked, &["add", "a"]);
+        std::fs::write(linked.join("a"), "1").unwrap();
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
+    fn submodule_object_stores_keep_the_clone() {
+        let (base, clone) = clone_pair("clone-modules-preserve");
+        git(
+            &clone,
+            &["-c", "protocol.file.allow=always", "submodule", "add", "-q", "../origin", "dep"],
+        );
+        git(&clone, &["commit", "-qam", "add submodule"]);
+        git(&clone, &["push", "-q", "origin", "HEAD:refs/heads/with-module"]);
+        let module = clone.join("dep");
+        git(&module, &["checkout", "-qb", "local-only"]);
+        std::fs::write(module.join("a"), "local module work").unwrap();
+        git(&module, &["commit", "-qam", "local module commit"]);
+        git(&module, &["checkout", "--detach", "-q", "HEAD~1"]);
+        assert!(
+            crate::git::user_git(&clone, &["status", "--porcelain=v1"], LIMIT).unwrap().is_empty()
+        );
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
     fn dirty_stashed_or_remoteless_clones_are_kept() {
         let (base, clone) = clone_pair("clone-dirty");
         std::fs::write(clone.join("loose"), "x").unwrap();
@@ -206,28 +285,6 @@ mod tests {
         std::fs::write(clone.join(".env"), "SECRET=1").unwrap();
         let error = work(&clone).unwrap_err();
         assert!(error.contains("ignored local files") && error.contains(".env"), "{error}");
-    }
-
-    #[test]
-    fn a_detached_commit_is_counted_and_bundled() {
-        let (base, clone) = clone_pair("clone-detached");
-        git(&clone, &["checkout", "-q", "--detach"]);
-        std::fs::write(clone.join("d"), "3").unwrap();
-        git(&clone, &["add", "d"]);
-        git(&clone, &["commit", "-q", "-m", "detached"]);
-        assert_eq!(work(&clone).unwrap(), Work::Unpushed(1));
-        let store = Store::open(base.join("store")).unwrap();
-        let id = archive(&clone, &store, 7).unwrap().expect("archived");
-        let bundle = store.dir.join("clones").join(format!("{id}.bundle"));
-        let heads = crate::git::user_git(
-            &clone,
-            &["bundle", "list-heads", &bundle.to_string_lossy()],
-            LIMIT,
-        )
-        .unwrap();
-        let head = crate::git::user_git(&clone, &["rev-parse", "HEAD"], LIMIT).unwrap();
-        let head = String::from_utf8_lossy(&head).trim().to_string();
-        assert!(String::from_utf8_lossy(&heads).contains(&head));
     }
 
     #[test]

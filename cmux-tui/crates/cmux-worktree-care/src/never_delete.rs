@@ -8,9 +8,7 @@
 //!   folder; one with no `/` matches any entry with that name; `*` is any
 //!   run of characters inside one path part, `**` any run of parts, `?` one
 //!   character. A path is kept when it matches a glob, or lies inside a
-//!   folder that does, or holds something that does: a path glob whose
-//!   fixed start lies inside it, or an entry within [`INSIDE_DEPTH`] levels
-//!   and the first [`INSIDE_ENTRIES`] entries that a glob or name holds.
+//!   folder that does.
 //!
 //! A file that cannot be read keeps nothing extra but is reported by
 //! [`NeverDelete::load`]'s second value, so a status can say so.
@@ -27,6 +25,7 @@ const FLEET_NAMES: &[&str] =
 #[derive(Debug, Clone, Default)]
 pub struct NeverDelete {
     globs: Vec<String>,
+    problems: Vec<String>,
 }
 
 impl NeverDelete {
@@ -46,16 +45,19 @@ impl NeverDelete {
                 Err(e) => problems.push(format!("{}: {e}", file.display())),
             }
         }
-        (Self { globs }, problems)
+        (Self { globs, problems: problems.clone() }, problems)
     }
 
     /// From glob lines, for a caller that has them already.
     pub fn from_globs(globs: impl IntoIterator<Item = String>) -> Self {
-        Self { globs: globs.into_iter().collect() }
+        Self { globs: globs.into_iter().collect(), problems: Vec::new() }
     }
 
     /// Why `path` must stay, if it must: the glob or name that holds it.
     pub fn holds(&self, home: &Path, path: &Path) -> Option<String> {
+        if let Some(problem) = self.problems.first() {
+            return Some(format!("could not read protection rules: {problem}"));
+        }
         let text = path.to_string_lossy();
         if let Some(name) = text.rsplit('/').find(|part| !part.is_empty()) {
             let lower = text.to_ascii_lowercase();
@@ -76,42 +78,55 @@ impl NeverDelete {
         None
     }
 
-    /// Why `path` must stay because of something inside it, if it must: a
-    /// path glob whose fixed start lies under `path`, or an entry within
-    /// [`INSIDE_DEPTH`] levels (the first [`INSIDE_ENTRIES`] read, symlinks
-    /// not followed) that [`Self::holds`] keeps.
-    pub fn guards_inside(&self, home: &Path, path: &Path) -> Option<String> {
-        let under = format!("{}/", path.to_string_lossy().trim_end_matches('/'));
-        for glob in &self.globs {
-            let absolute = expand(glob, home);
-            if !absolute.contains('/') {
-                continue;
+    /// A recursive deletion must preserve protected descendants too. An
+    /// incomplete inspection keeps the candidate; links are never followed.
+    pub fn holds_tree(&self, home: &Path, path: &Path) -> Option<String> {
+        self.inspect_tree(
+            home,
+            path,
+            100_000,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+        )
+    }
+
+    fn inspect_tree(
+        &self,
+        home: &Path,
+        path: &Path,
+        mut remaining: usize,
+        deadline: std::time::Instant,
+    ) -> Option<String> {
+        let mut inspect = || -> Result<Option<String>, String> {
+            if let Some(why) = self.holds(home, path) {
+                return Ok(Some(why));
             }
-            let fixed = absolute.split(['*', '?']).next().unwrap_or_default();
-            if fixed.starts_with(&under) {
-                return Some(format!("{glob} (inside it)"));
+            if !std::fs::symlink_metadata(path).map_err(|e| e.to_string())?.is_dir() {
+                return Ok(None);
             }
+            let mut stack = vec![std::fs::read_dir(path).map_err(|e| e.to_string())?];
+            while !stack.is_empty() {
+                if remaining == 0 || std::time::Instant::now() >= deadline || stack.len() > 64 {
+                    return Err("descendant inspection limit reached".into());
+                }
+                let Some(entry) = stack.last_mut().and_then(Iterator::next) else {
+                    stack.pop();
+                    continue;
+                };
+                remaining -= 1;
+                let entry = entry.map_err(|e| e.to_string())?;
+                if let Some(why) = self.holds(home, &entry.path()) {
+                    return Ok(Some(why));
+                }
+                if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+                    stack.push(std::fs::read_dir(entry.path()).map_err(|e| e.to_string())?);
+                }
+            }
+            Ok(None)
+        };
+        match inspect() {
+            Ok(why) => why,
+            Err(error) => Some(format!("cannot rule out protected descendants: {error}")),
         }
-        let mut seen = 0usize;
-        let mut queue = vec![(path.to_path_buf(), 0usize)];
-        while let Some((dir, depth)) = queue.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-            for entry in entries.flatten() {
-                seen += 1;
-                if seen > INSIDE_ENTRIES {
-                    return None;
-                }
-                let child = entry.path();
-                if let Some(glob) = self.holds(home, &child) {
-                    return Some(format!("{glob} (inside it: {})", child.display()));
-                }
-                let real_dir = entry.file_type().is_ok_and(|t| t.is_dir());
-                if real_dir && depth + 1 < INSIDE_DEPTH {
-                    queue.push((child, depth + 1));
-                }
-            }
-        }
-        None
     }
 
     pub fn len(&self) -> usize {
@@ -123,13 +138,8 @@ impl NeverDelete {
     }
 }
 
-/// How deep [`NeverDelete::guards_inside`] looks inside a candidate.
-pub const INSIDE_DEPTH: usize = 4;
-/// How many entries [`NeverDelete::guards_inside`] reads inside a candidate.
-pub const INSIDE_ENTRIES: usize = 20_000;
-
 /// Nothing held but the built-in names; for tests and callers with no home.
-pub static NONE: NeverDelete = NeverDelete { globs: Vec::new() };
+pub static NONE: NeverDelete = NeverDelete { globs: Vec::new(), problems: Vec::new() };
 
 pub fn user_file(home: &Path) -> PathBuf {
     home.join(".cmux/care-never-delete")
@@ -144,7 +154,11 @@ fn parse(text: &str) -> Vec<String> {
 
 /// Whether `glob` holds `path`: `path` or any folder above it matches.
 fn matches_glob(glob: &str, home: &Path, path: &Path) -> bool {
-    let absolute = expand(glob, home);
+    let absolute = if let Some(rest) = glob.strip_prefix("~/") {
+        home.join(rest).to_string_lossy().into_owned()
+    } else {
+        glob.to_string()
+    };
     let by_name = !absolute.contains('/');
     let mut current = Some(path);
     while let Some(candidate) = current {
@@ -159,15 +173,6 @@ fn matches_glob(glob: &str, home: &Path, path: &Path) -> bool {
         current = candidate.parent();
     }
     false
-}
-
-/// A glob with `~/` made absolute.
-fn expand(glob: &str, home: &Path) -> String {
-    if let Some(rest) = glob.strip_prefix("~/") {
-        home.join(rest).to_string_lossy().into_owned()
-    } else {
-        glob.to_string()
-    }
 }
 
 /// `*` within a part, `**` across parts, `?` one character.
@@ -235,28 +240,37 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_holding_something_kept_is_kept() {
-        let home = scratch("never-inside");
-        let never =
-            NeverDelete::from_globs(["~/.cache/tool/precious".to_string(), "golden-*".to_string()]);
-        let cache = home.join(".cache");
-        // A path glob under the candidate: held without reading the disk.
-        let held = never.guards_inside(&home, &cache).expect("held by a path glob");
-        assert!(held.contains("precious"), "{held}");
-        assert!(never.holds(&home, &cache).is_none());
-        // A name glob found by the walk.
-        let other = home.join("other");
-        std::fs::create_dir_all(other.join("a/golden-run")).unwrap();
-        let held = never.guards_inside(&home, &other).expect("held by a name glob");
-        assert!(held.contains("golden-*"), "{held}");
-        // A fleet name found by the walk.
-        let third = home.join("third");
-        std::fs::create_dir_all(third.join("x/chromium")).unwrap();
-        assert!(never.guards_inside(&home, &third).is_some());
-        // Nothing kept inside: free to go.
-        let plain = home.join("plain");
-        std::fs::create_dir_all(plain.join("a/b")).unwrap();
-        assert!(never.guards_inside(&home, &plain).is_none());
+    fn recursive_protection_is_bounded_and_fails_closed() {
+        use std::time::{Duration, Instant};
+        let home = scratch("never-tree");
+        let tree = home.join("tree");
+        std::fs::create_dir_all(tree.join("nested")).unwrap();
+        std::fs::write(tree.join("nested/keep.txt"), "precious").unwrap();
+        for glob in ["~/tree/nested/keep.txt", "keep.*", "~/tree/**/keep.txt"] {
+            let never = NeverDelete::from_globs([glob.into()]);
+            assert!(never.holds_tree(&home, &tree).is_some(), "{glob}");
+        }
+        assert!(NONE.holds_tree(&home, &tree).is_none());
+        assert!(
+            NONE.inspect_tree(&home, &tree, 0, Instant::now() + Duration::from_secs(1)).is_some()
+        );
+        assert!(NONE.inspect_tree(&home, &tree, 100, Instant::now()).is_some());
+        assert!(NONE.holds_tree(&home, &home.join("missing")).is_some());
+        std::fs::create_dir(tree.join("nested/depot_tools")).unwrap();
+        assert!(NONE.holds_tree(&home, &tree).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_protection_does_not_follow_links_outside_the_tree() {
+        let home = scratch("never-tree-link");
+        let tree = home.join("tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::create_dir(home.join("outside")).unwrap();
+        std::fs::write(home.join("outside/keep.txt"), "precious").unwrap();
+        std::os::unix::fs::symlink(home.join("outside"), tree.join("link")).unwrap();
+        let never = NeverDelete::from_globs(["keep.txt".into()]);
+        assert!(never.holds_tree(&home, &tree).is_none());
     }
 
     #[test]
@@ -266,5 +280,6 @@ mod tests {
         let (never, problems) = NeverDelete::load(&home);
         assert_eq!(problems.len(), 1);
         assert!(!never.is_empty());
+        assert!(never.holds(&home, &home.join("anything")).is_some());
     }
 }

@@ -199,7 +199,9 @@ pub fn decide(
         let stale = settings.headless
             && now_ms.saturating_sub(session.updated_ms.max(facts.last_activity_ms))
                 >= hours(settings.recent_hours, pressure);
-        if session.open && !stale {
+        // Archived sessions still need the base's proof and intact-checkout
+        // parking, even when their headless activity timestamp is old.
+        if session.open && (!stale || session.archived_checkout.is_some()) {
             if pr_archived
                 || !session
                     .archived_checkout

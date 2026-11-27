@@ -215,9 +215,20 @@ pub fn scan(options: &Options, store: &Store) -> Result<Scan, String> {
 
 /// Acts on item `index` of a scan (see [`act`]), recording its outcome.
 pub fn act_on(scan: &mut Scan, index: usize, options: &Options, store: &Store) {
+    act_on_guarded(scan, index, options, store, &|_| Ok(()));
+}
+
+/// Acts on a scanned item, checking preservation immediately before each deletion.
+pub fn act_on_guarded(
+    scan: &mut Scan,
+    index: usize,
+    options: &Options,
+    store: &Store,
+    preserve: &archive::Preservation<'_>,
+) {
     let Some(item) = scan.report.items.get(index) else { return };
     let Some(repo) = scan.slots.get(index).and_then(|slot| scan.repos.get(*slot)) else { return };
-    let result = act(repo, &item.path, &item.verdict, options, scan.pressure, store);
+    let result = act(repo, &item.path, &item.verdict, options, scan.pressure, store, preserve);
     let done = outcome(result);
     scan.report.freed += done.freed;
     if let Some(item) = scan.report.items.get_mut(index) {
@@ -250,6 +261,7 @@ fn act(
     options: &Options,
     pressure: Pressure,
     store: &Store,
+    preserve: &archive::Preservation<'_>,
 ) -> Result<(u64, Option<String>), String> {
     let processes = (options.uses)()?;
     let fresh = inventory::rescan(repo, path)?;
@@ -268,8 +280,9 @@ fn act(
     let facts = fresh.facts.as_ref().map_err(Clone::clone)?;
     match verdict.action {
         Action::Keep => Ok((0, None)),
-        Action::Trim => archive::trim(&fresh, facts, &*options.uses).map(|freed| (freed, None)),
-        Action::Reclaim | Action::Archive | Action::Park => archive::reclaim(
+        Action::Trim => archive::trim_guarded(&fresh, facts, &*options.uses, preserve)
+            .map(|freed| (freed, None)),
+        Action::Reclaim | Action::Archive | Action::Park => archive::reclaim_guarded(
             repo,
             &fresh,
             facts,
@@ -278,6 +291,7 @@ fn act(
             store,
             &*options.uses,
             &*options.open,
+            preserve,
         )
         .map(|manifest| (manifest.freed, Some(manifest.id))),
     }

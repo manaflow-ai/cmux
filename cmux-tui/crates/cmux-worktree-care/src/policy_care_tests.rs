@@ -224,3 +224,28 @@ fn headless_an_idle_process_inside_does_not_keep_it() {
     let v = decide(&worktree(pushed(1000)), None, &[], &processes, Pressure::High, &settings, NOW);
     assert_eq!(v.action, Action::Reclaim);
 }
+
+#[test]
+fn headless_stale_archived_sessions_require_proof_and_park_intact() {
+    let w = worktree(Facts { git_dir: "/r/.git/worktrees/a".into(), ..pushed(1000) });
+    let mut session = Session {
+        name: "archived".into(),
+        cwd: w.path.clone(),
+        open: true,
+        archived_checkout: Some(ArchivedCheckout {
+            root: w.path.clone(),
+            common_dir: "/r/.git".into(),
+            branch: w.branch.clone().unwrap(),
+            head: w.head.clone().unwrap(),
+        }),
+        updated_ms: NOW - 1000 * HOUR_MS,
+        ids: Vec::new(),
+    };
+    let settings = Settings { headless: true, ..Settings::default() };
+    let verdict = |session: &Session| {
+        decide(&w, None, std::slice::from_ref(session), &[], Pressure::High, &settings, NOW)
+    };
+    assert_eq!(verdict(&session).action, Action::Park);
+    session.archived_checkout.as_mut().unwrap().head = "2".repeat(40);
+    assert_eq!(verdict(&session).action, Action::Keep);
+}

@@ -182,7 +182,7 @@ fn open_files(folder: &Path, depth: &str) -> Result<Option<u32>, String> {
     command
         .env("PATH", path)
         .args(["-w", "-t"])
-        // A folder by `depth`; a lone file by itself.
+        // Preserve recursive checks for PR archives; lone files use lsof's operand form.
         .args(if folder.is_dir() { [depth] } else { ["--"] })
         .arg(folder)
         .stdin(Stdio::null())

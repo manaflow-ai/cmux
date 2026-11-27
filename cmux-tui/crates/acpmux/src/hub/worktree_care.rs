@@ -121,10 +121,11 @@ use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::policy::Settings as CareSettings;
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 
-const MINUTE_MS: u64 = 60 * 1000;
-
 /// How long a session's start waits on its submodules coming back.
 const RESTORE_SUBMODULES: Duration = Duration::from_secs(120);
+
+/// Milliseconds per minute for removal log durations.
+const MINUTE_MS: u64 = 60 * 1000;
 
 /// This process's cleanup state: one pass at a time in this process (the
 /// machine-wide claim is `schedule`), when this process last started one (a
@@ -371,8 +372,6 @@ impl Hub {
                     pressure: None,
                 },
             );
-            // A PR-archived checkout moves whole: its tree, not its top level, is checked
-            // open, and the archive is rechecked right before it goes.
             config.pass.open = Arc::new({
                 let home = home.clone();
                 move |root| {
