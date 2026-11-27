@@ -82,8 +82,20 @@ impl Claude {
             Ok(entries) => {
                 let mut dropins = Vec::new();
                 for entry in entries {
-                    match entry {
-                        Ok(entry) => dropins.push(entry.path()),
+                    // Claude reads visible *.json files and symlinks. A backup or a dotfile
+                    // must never be treated as evidence that Claude's sandbox is enabled.
+                    let candidate = entry.and_then(|entry| {
+                        let name = entry.file_name();
+                        let name = name.as_encoded_bytes();
+                        if name.starts_with(b".") || !name.ends_with(b".json") {
+                            return Ok(None);
+                        }
+                        let kind = entry.file_type()?;
+                        Ok((kind.is_file() || kind.is_symlink()).then(|| entry.path()))
+                    });
+                    match candidate {
+                        Ok(Some(path)) => dropins.push(path),
+                        Ok(None) => {}
                         Err(error) => {
                             listing_error.get_or_insert(error);
                         }

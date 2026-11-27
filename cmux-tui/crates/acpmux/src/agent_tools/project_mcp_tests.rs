@@ -161,9 +161,18 @@ fn managed_dropin_discovery_distinguishes_absence_from_an_unreadable_listing() {
     std::fs::create_dir(&directory).unwrap();
     let dropin = directory.join("10-policy.json");
     std::fs::write(&dropin, "{}").unwrap();
+    let backup = directory.join("10-policy.json.bak");
+    let hidden = directory.join(".draft.json");
+    let subdir = directory.join("archive.json");
+    std::fs::write(&backup, "{}").unwrap();
+    std::fs::write(&hidden, "{}").unwrap();
+    std::fs::create_dir(&subdir).unwrap();
     let (files, complete) = discover();
     complete.unwrap();
     assert!(files.managed.contains(&dropin));
+    for ignored in [backup, hidden, subdir] {
+        assert!(!files.managed.contains(&ignored), "{}", ignored.display());
+    }
 }
 
 /// Every managed policy source counts: a drop-in's deny by command keeps its server unwrapped,
