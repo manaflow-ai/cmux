@@ -180,6 +180,9 @@ pub(crate) struct AgentSessions {
     link_shares: proxy::shares::LinkShares,
     /// Unix connections past their first line: a proxy binds only on its first.
     spoken: Mutex<HashSet<u64>>,
+    /// Bound tailnet teammates whose bind asked for presence (`labs.chatMultiplayer`): their
+    /// typing and view reach acpmux as their own. Set only by the bind, never by `set-client-info`.
+    proxy_presence: Mutex<HashSet<u64>>,
     /// A tab's session changes under the write side; every write to or for a teammate's
     /// attachment checks the tab under the read side, so none lands after a rebind.
     rebinding: RwLock<()>,
@@ -274,6 +277,7 @@ impl AgentSessions {
             }
         }
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -284,6 +288,16 @@ impl AgentSessions {
         for attachment in gone {
             attachment.end(None);
         }
+    }
+
+    /// The bind asked for presence for `client` (`agent_session_proxy::bind`).
+    pub(super) fn set_proxy_presence(&self, client: u64) {
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
+    }
+
+    /// Whether `client`'s bind asked for presence.
+    pub(super) fn proxy_presence(&self, client: u64) -> bool {
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }
 
     fn remove(&self, attachment: &Attachment) {
@@ -340,6 +354,21 @@ impl Attachment {
         self.mux.upgrade().is_some_and(|mux| {
             mux.control_clients.supports_capability(self.client, AGENT_SESSION_PRESENCE_CAPABILITY)
         })
+    }
+
+    /// Whether acpmux's who-is-here set goes to this attachment: the owner's app that echoed
+    /// `agent-session-presence-v1`, or a tailnet teammate whose bind asked for presence
+    /// (`labs.chatMultiplayer`, design chat-multiplayer phase 1b), so both people see each
+    /// other's face. A link guest and a Cloud member hear it on no path here.
+    fn hears_presence(&self) -> bool {
+        match &self.author {
+            None => self.wants_presence(),
+            Some(author) if proxy::is_guest(author) || proxy::is_member(author) => false,
+            Some(_) => self
+                .mux
+                .upgrade()
+                .is_some_and(|mux| mux.control_clients.agent_sessions.proxy_presence(self.client)),
+        }
     }
 
     fn stamp(&self, mut params: Value) -> Value {
@@ -1545,8 +1574,20 @@ mod proxy;
 use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
-    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+    TRANSFER_FIELD, abort_transferred_chat_shares, close_chat_shares, close_listed_chat_shares,
+    close_unlisted_chat_shares, detach_transferred_chat_shares, finish_transferred_chat_shares,
+    freeze_transferred_chat_shares, open_chat_shares, reconcile_transferred_chat_shares,
+    stage_transferred_chat_shares,
 };
+
+#[cfg(test)]
+pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option<Value> {
+    mux.control_clients
+        .agent_sessions
+        .link_shares
+        .export_for_transfer(mux.session_state_directory().as_deref(), session)
+}
+
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
@@ -1613,12 +1654,17 @@ fn run_on_worker(
         return refuse(writer, id, Refusal::NotTrusted);
     }
     // A teammate (a bound proxy author) never answers the host's asks: an allow
-    // would run a tool on the owner's machine (design section 7). Nor does it say it types or
-    // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
-    // view carry its author.
+    // would run a tool on the owner's machine (design section 7). Without presence it does not
+    // say it types or views either. A link guest's typing and view carry its author.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     // A Cloud team member's typing and view carry its own author (acpmux presence), like a guest's.
     let member = attachment.author.as_ref().is_some_and(proxy::is_member);
+    // A tailnet teammate whose bind asked for presence (`labs.chatMultiplayer`, design
+    // chat-multiplayer phase 1b) types and views as its own author too; without it, as before.
+    let teammate_presence = attachment.author.is_some()
+        && !guest
+        && !member
+        && mux.control_clients.agent_sessions.proxy_presence(attachment.client);
     // Only the owner answers an ask or decides a held prompt (acpmux refuses an author too).
     if attachment.author.is_some()
         && matches!(
@@ -1631,7 +1677,8 @@ fn run_on_worker(
         return refuse(writer, id, if member { Refusal::OwnerOnly } else { Refusal::NotTrusted });
     }
     if attachment.author.is_some()
-        && (!(guest || member) || matches!(&command, AgentSessionCommand::Permission(_)))
+        && (!(guest || member || teammate_presence)
+            || matches!(&command, AgentSessionCommand::Permission(_)))
         && matches!(
             &command,
             AgentSessionCommand::Permission(_)
@@ -1811,8 +1858,7 @@ fn submit_steering_prompt(
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
     }
-    // The owner's and a team member's steer. A link guest never steers: its prompt waits for
-    // the owner (acpmux holds it whatever the flag says; the flag is not even sent).
+    // Only the owner and team members steer. Even a Drive invite submits ordinary prompts.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     if steer
         && !guest
@@ -1849,8 +1895,11 @@ fn submit_steering_prompt(
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
             // `steered`, `queued` or `started` (acpmux's own word; null from an older acpmux).
             "state": accepted.get("state").cloned().unwrap_or(Value::Null),
-            // Held for the owner's approval (a link guest's prompt).
-            "awaiting_owner": accepted.get("awaitingOwner").cloned().unwrap_or(json!(false)),
+            // A replay or older acpmux may omit the marker. A Talk prompt still awaits the owner
+            // until its queue decision is observed.
+            "awaiting_owner": accepted.get("awaitingOwner").and_then(Value::as_bool)
+                .unwrap_or_else(|| attachment.author.as_ref().is_some_and(|author|
+                    proxy::is_guest(author) && author.get("role").and_then(Value::as_str) != Some("drive"))),
         })),
         Ok(Err(error)) => Err(Refused::of_prompt(error)),
         Err(_) => Err(Refusal::Timeout.into()),

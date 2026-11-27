@@ -385,7 +385,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // `presence` comes with it.
     Capability {
         id: CHAT_PRESENCE,
-        wire: &[method::MUX_TYPING, method::MUX_PRESENCE, method::MUX_ROOMS, method::MUX_ROOM],
+        wire: &[
+            method::MUX_TYPING,
+            method::MUX_PRESENCE,
+            method::MUX_ROOMS,
+            method::MUX_ROOM,
+            method::MUX_FOLLOW,
+        ],
     },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
     Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
@@ -537,6 +543,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // A listen on another member's agent address: open, list, close, and read what it receives
     // (`server/team.rs` `listen`), under the same team-messaging gate.
     Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
+    // RFD 0170 phase 1: the team navigator, recipient picker and Session Info, under the same
+    // team-messaging gate (`server/team_directory.rs`).
+    Capability {
+        id: "team-directory-v1",
+        wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -647,6 +659,18 @@ pub const CAPABILITIES: &[Capability] = &[
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
+    // A delete that asks for it (`grace: true` on `_acpmux/kill` with `purge`, or on
+    // `session/delete`) keeps the chat 7 days, restorable (`hub/soft_delete.rs`). Older daemons
+    // ignore `grace` and delete at once.
+    Capability {
+        id: crate::hub::soft_delete::FEATURE,
+        wire: &[
+            method::MUX_KILL,
+            method::SESSION_DELETE,
+            method::MUX_UNDELETE,
+            method::MUX_DELETED,
+        ],
+    },
 ];
 
 /// The capabilities of this build, including the local stream listener.

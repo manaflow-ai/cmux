@@ -1,4 +1,4 @@
-import CmuxNextSettings
+@testable import CmuxNextSettings
 import Testing
 
 /// The agent chat's look (Settings > Appearance > Agent Chat, the chat's ··· menu Text & Width
@@ -41,6 +41,8 @@ struct AgentPaneDisplaySettingTests {
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
         Row(key: "agentPane.display.compactShortTurns", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.sendPop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // A sent prompt scrolls to the top with room below for the reply: off, the view follows the bottom.
+        Row(key: "agentPane.display.sendScrollsToTop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
@@ -131,6 +133,20 @@ struct AgentPaneDisplaySettingTests {
         #expect(!TranscriptTokensSetting.accepts(.object(["fill": .bool(true)])))
         let bad: JSONValue = ["agentPane": ["display": ["transcriptLook": .string("retro")]]]
         #expect(AgentPaneDisplaySetting(fileRoot: bad).values[look] == nil)
+    }
+
+    /// The reply streaming style (`agentPane.display.streaming`, webviews streamingStyle.ts): a theme
+    /// or profile file's value reaches the page, and a value outside words, lines and instant does not.
+    @Test func theStreamingStyleComesFromTheEffectiveRootAndTakesItsThreeValues() {
+        let key = "agentPane.display.streaming"
+        let themed: JSONValue = ["agentPane": ["display": ["streaming": .string("instant")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: ["agentPane": ["display": ["width": .number(900)]]], lookRoot: themed).values[key] == .string("instant"))
+        #expect(ThemeFileOverlay.lookKeys.contains(key))
+        let lines: JSONValue = ["agentPane": ["display": ["streaming": .string("lines")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: lines).values[key] == .string("lines"))
+        let bad: JSONValue = ["agentPane": ["display": ["streaming": .string("typewriter")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: bad).values[key] == nil)
+        #expect(SettingsSchema.descriptor(for: ["agentPane", "display", "streaming"])?.defaultValue == .string("words"))
     }
 
     @Test(arguments: rows)

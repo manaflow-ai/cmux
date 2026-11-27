@@ -157,6 +157,15 @@ out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || stat
 printf '%s\nagent_screen_detection_url=https://example.com/cmux-agent-screen-detection\nagent_screen_detection_sha256=%s\n' "$good" "$(printf 'e%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
 out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh agent-screen-detection-path --pin)
 [[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-agent-screen-detection ]] || { printf 'agent-screen-detection-path --pin printed %s\n' "$out" >&2; exit 1; }
+# The optional launch pre-read pin fields are paired and path-routed like the other companions.
+printf '%s\nlaunch_preread_sha256=%s\n' "$good" "$(printf 'f%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+status=0
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || status=$?
+[[ "$status" == 1 ]] && grep -q 'launch_preread_url= and launch_preread_sha256= go together' <<<"$out" \
+  || { printf 'a half launch_preread pin was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+printf '%s\nlaunch_preread_url=https://example.com/cmux-launch-preread\nlaunch_preread_sha256=%s\n' "$good" "$(printf 'f%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh launch-preread-path --pin)
+[[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-launch-preread ]] || { printf 'launch-preread-path --pin printed %s\n' "$out" >&2; exit 1; }
 # An old pin without the plugin fields stays valid.
 printf '%s\n' "$good" > "$pin_dir/cmux-tui.pin"
 (cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show >/dev/null) || { echo 'a pin without plugin fields was refused' >&2; exit 1; }

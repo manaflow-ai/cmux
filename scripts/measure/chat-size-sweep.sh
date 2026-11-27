@@ -18,10 +18,22 @@
 # "size", "sizes", "sha", "host", "at"}, value null when a size or axis had no reading. Publish it from a lane VM:
 #   cmux-ci test --artifact DIR -- bash scripts/measure/chat-size-sweep.sh 1M,100M,1G
 #   python3 tools/fleet-reconcilers/now_hand_measures.py chat-size DIR/chat-size-row.json --step JOB   (cmuxterm-hq)
+#
+# The heap behind a number: CHAT_SIZE_DHAT=1 builds the daemon with `--features dhat-heap` (line tables, so inlined
+# frames have names) and the harness adds each size's allocation sites, cold (`heap`) and restarted
+# (`restartHeap`), to its CHAT-SIZE line. Its RSS readings are dhat's allocator, not the shipped one: profile
+# with it, measure without it.
+#   cmux-ci test --timeout 7200 -- env CHAT_SIZE_DHAT=1 ACPMUX_GOD_DHAT_FRAMES=6 bash scripts/measure/chat-size-sweep.sh 1G
 set -euo pipefail
 sizes="${1:-1M,100M,1G,4G}"
+features=()
+if [ "${CHAT_SIZE_DHAT:-}" = 1 ]; then
+  features=(--features dhat-heap)
+  export ACPMUX_GOD_DHAT=1 CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
+fi
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out_dir="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}"
+mkdir -p "$out_dir"
 log="$out_dir/chat-size-sweep.log"
 [ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$log") 2>&1
 head_sha="$(git -C "$root" rev-parse HEAD)"
@@ -42,7 +54,7 @@ run_log="$(mktemp)"
 trap 'rm -f "$run_log"' EXIT
 code=0
 ACPMUX_CHAT_SIZES="$sizes" ACPMUX_CHAT_SIM_BIN="$sim_bin" \
-  cargo test -p acpmux --release --test god_daemon chat_size_sweep -- --ignored --nocapture 2>&1 | tee "$run_log" \
+  cargo test -p acpmux --release ${features[@]+"${features[@]}"} --test god_daemon chat_size_sweep -- --ignored --nocapture 2>&1 | tee "$run_log" \
   || code=$?
 # The row any runner publishes: the harness's last `infinite_chat_size_ratio_max <ratio> <axis> <size>` line.
 python3 - "$run_log" "$out_dir/chat-size-row.json" "$sizes" "$head_sha" "$(hostname -s 2>/dev/null || hostname)" <<'PY'

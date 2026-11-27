@@ -64,6 +64,41 @@ pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
     base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
 }
 
+/// Between looks on a machine nobody uses: no agent turn runs or waits and no
+/// carrier session is attached ([`busy_sessions`] answered empty). Leo,
+/// 2026-11-27: "we defo dont wanna waste the freestyle vms TOO much". Each
+/// [`INTERVAL`] look is a GET of the channel, outbound traffic, and the
+/// provider pauses a VM only after `idleTimeoutSeconds` (300 s) with none, so
+/// the 15 s look alone kept every idle machine that the platform did not pause
+/// itself running for days (staging, 2026-11-27: 77 running VMs showed
+/// traffic in the last 2 minutes, 23 of one team's 24 older than a day). This
+/// is longer than any provider idle timeout, so an idle machine goes quiet
+/// and pauses. A wake (`Resumed`), a bind (`Bound`) or a channel change sends
+/// [`Msg::Check`] and the worker looks at once, so a machine someone comes back
+/// to still takes a merged fix within seconds, and a busy machine keeps the
+/// 15 s look.
+pub(super) const IDLE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// Whether a look that ended in `outcome` read (or tried to read) the channel
+/// over the network: only those keep a VM awake.
+pub(super) fn read_channel_look(outcome: &Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Current(_) | Outcome::Older | Outcome::RolledBackBefore | Outcome::Failed(_)
+    )
+}
+
+/// [`next_look`] for a machine the look after `outcome` found `idle`:
+/// [`IDLE_INTERVAL`] (plus [`JITTER`]) after a look that read the channel, so
+/// its GETs stop holding the VM awake; otherwise [`next_look`].
+pub(super) fn next_look_when(outcome: &Outcome, idle: bool, draw: u64) -> Duration {
+    if idle && read_channel_look(outcome) {
+        IDLE_INTERVAL + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+    } else {
+        next_look(outcome, draw)
+    }
+}
+
 /// A fresh random draw for [`next_look`] (std's per-process random hash keys).
 fn jitter_draw() -> u64 {
     use std::hash::{BuildHasher as _, Hasher as _};
@@ -678,6 +713,7 @@ impl Role for UpdaterRole {
                 u64::MAX
             }
         };
+        LIVE_GENERATION.store(generation, Ordering::SeqCst);
         let thread = std::thread::Builder::new()
             .name("cmux-host-updater".to_owned())
             .spawn(move || {
@@ -769,11 +805,64 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = next_look(&outcome, jitter_draw());
+        // Local looks only (acpmux and the session host's admin channel): an
+        // idle machine stops reading the channel until a wake or a bind.
+        let idle = read_channel_look(&outcome)
+            && matches!(busy_sessions(paths), Ok(busy) if busy.is_empty());
+        let next = next_look_when(&outcome, idle, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
     }
+}
+
+/// The worker generation the role started last ([`UpdaterRole::start`]); `u64::MAX` while no
+/// worker ever started in this process.
+static LIVE_GENERATION: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// `realtime - boottime` and the pause count when [`adopt_before_bind`] last decided the
+/// channel's build (current, or flipped to it): a restore since moves the first by the stopped
+/// time ([`restored_between`]) on a provider whose boot clock stops, and the pause watch counts
+/// it on one whose boot clock runs through.
+static STEPPED_AT: Mutex<Option<(i128, u64)>> = Mutex::new(None);
+
+/// The Cloud role's first bind runs the step before the first bind itself, unless it already
+/// ran since this machine's last restore. A machine restored from the image's snapshot gets
+/// its bind token and its supervisor `Resumed` in the same moments, and the worker only looks
+/// after the `Resumed` reaches it: when the bind went first, its connect hold refused the step
+/// ("the restart gate: connect hold, 299 s left") and the new machine served the image's build
+/// through its first five minutes (development read-back, 2026-11-26: most guests). Here the
+/// step comes first; a flip queues the service's restart, the gate then refuses the bind, and
+/// the restarted service binds on the channel's build. It runs as the live worker's
+/// generation, so a stopped updater flips nothing ([`stopped`]), and ends by
+/// [`super::first_ready::RESTORE_BOUND`].
+pub(crate) fn before_first_bind(paths: &Paths) {
+    let generation = LIVE_GENERATION.load(Ordering::SeqCst);
+    if generation == u64::MAX {
+        return;
+    }
+    let stepped = *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let (offset, boot) = (crate::linux::realtime_minus_boottime_ns(), crate::linux::boottime_ns());
+    if stepped_since_restore(stepped, offset, crate::agent::PAUSES.seen(), boot) {
+        return;
+    }
+    let before = WORKER_GENERATION.with(|g| g.replace(Some(generation)));
+    let _ = adopt_before_bind(paths);
+    WORKER_GENERATION.with(|g| g.set(before));
+}
+
+/// Whether the step decided the channel's build (`stepped`, [`STEPPED_AT`]) with no stop of
+/// this machine since: `realtime - boottime` is `offset` now, the pause watch as `seen` at boot
+/// time `boot`. A watch still waking may not have counted the stop yet.
+pub(super) fn stepped_since_restore(
+    stepped: Option<(i128, u64)>,
+    offset: i128,
+    seen: PauseSeen,
+    boot: i128,
+) -> bool {
+    !seen.waking(boot)
+        && stepped
+            .is_some_and(|(at, seq)| seq == seen.pauses && !restored_between(Some(at), offset))
 }
 
 /// The channel's build at once on a machine never bound to Cloud that a
@@ -820,6 +909,10 @@ fn adopt_before_bind(paths: &Paths) -> Option<Duration> {
         })
     });
     use super::first_ready::First;
+    if matches!(first, First::Current(_) | First::Flipped(_)) {
+        *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((crate::linux::realtime_minus_boottime_ns(), crate::agent::PAUSES.pause_seq()));
+    }
     let outcome = match first {
         First::NotFirst(_) => return None,
         First::Current(commit) => Outcome::Current(commit),
@@ -990,7 +1083,7 @@ fn check_inner(
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -1117,7 +1210,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
