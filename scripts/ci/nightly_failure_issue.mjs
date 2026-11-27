@@ -258,7 +258,7 @@ async function superseding({ github, owner, repo, releaseTag, sha, ref }) {
 // `releaseTag`, a failure that the channel's publication supersedes (an older
 // run that failed after a newer one published, or an older RC line) is not an
 // incident.
-export async function report({ github, owner, repo, channel, appName, ref, sha, body, runUrl = '', releaseTag = null, log = () => {} }) {
+async function reportIncident({ github, owner, repo, channel, appName, ref, sha, body, runUrl = '', releaseTag = null, log = () => {} }) {
   const label = `${channel}-failure`;
   if (releaseTag) {
     const by = await superseding({ github, owner, repo, releaseTag, sha, ref });
@@ -307,7 +307,7 @@ export async function report({ github, owner, repo, channel, appName, ref, sha, 
 
 // Resolves each open incident of the channel when the publication of `sha` on
 // `ref` covers every failure that counts on it, and comments when it does not.
-export async function close({ github, owner, repo, channel, appName, ref, sha, runUrl, log = () => {} }) {
+async function closeIncident({ github, owner, repo, channel, appName, ref, sha, runUrl, log = () => {} }) {
   const label = `${channel}-failure`;
   const published = { sha: sha.toLowerCase(), ref };
   const closed = [];
@@ -345,3 +345,76 @@ export async function close({ github, owner, repo, channel, appName, ref, sha, r
   }
   return closed;
 }
+
+// Rate limits. This runs after a publication, so a GitHub API rate limit must
+// never turn a published run red: each call waits out the limit (bounded by
+// x-ratelimit-reset / retry-after, capped at MAX_WAIT_MS in total), and if the
+// limit outlasts that, the step warns and returns. Real errors still throw.
+export const MAX_WAIT_MS = 4 * 60 * 1000;
+
+export function isRateLimit(error) {
+  const status = error && error.status;
+  const message = String((error && error.message) || '').toLowerCase();
+  if (message.includes('rate limit') || message.includes('abuse detection') || message.includes('secondary rate')) return true;
+  if (status === 429) return true;
+  if (status === 403) {
+    const h = (error.response && error.response.headers) || {};
+    return h['retry-after'] !== undefined || h['x-ratelimit-remaining'] === '0';
+  }
+  return false;
+}
+
+// Milliseconds to wait before the next try; null when the headers give none.
+export function retryDelayMs(error, now = Date.now()) {
+  const h = (error && error.response && error.response.headers) || {};
+  if (h['retry-after'] !== undefined && Number.isFinite(Number(h['retry-after']))) return Number(h['retry-after']) * 1000 + 1000;
+  if (h['x-ratelimit-reset'] !== undefined && Number.isFinite(Number(h['x-ratelimit-reset']))) {
+    return Math.max(0, Number(h['x-ratelimit-reset']) * 1000 - now) + 1000;
+  }
+  return null;
+}
+
+// `github` whose calls wait out rate limits. Functions keep their properties
+// (paginate needs `.endpoint`), so github.paginate(github.rest.x.y, ...) works.
+export function withRateLimitRetry(github, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxWaitMs = MAX_WAIT_MS, log = () => {}, now = () => Date.now() } = {}) {
+  const budget = { waited: 0 };
+  const retrying = (fn, self) => new Proxy(fn, {
+    apply: async (target, thisArg, args) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await Reflect.apply(target, thisArg === undefined ? self : thisArg, args);
+        } catch (error) {
+          if (!isRateLimit(error)) throw error;
+          const wait = Math.min(retryDelayMs(error, now()) ?? 2000 * 2 ** attempt, maxWaitMs);
+          if (budget.waited + wait > maxWaitMs) throw error;
+          budget.waited += wait;
+          log(`GitHub API rate limit: waiting ${Math.ceil(wait / 1000)}s (attempt ${attempt + 1})`);
+          await sleep(wait);
+        }
+      }
+    },
+  });
+  const wrap = (obj) => new Proxy(obj, {
+    get(target, key) {
+      const value = Reflect.get(target, key);
+      if (typeof value === 'function') return retrying(value, target);
+      if (value && typeof value === 'object') return wrap(value);
+      return value;
+    },
+  });
+  return wrap(github);
+}
+
+async function guarded(fn, { github, log = () => {}, warn, sleep, maxWaitMs, now, ...rest }, what) {
+  const emit = warn || ((m) => console.log(`::warning::${m}`));
+  try {
+    return await fn({ ...rest, log, github: withRateLimitRetry(github, { log, sleep, maxWaitMs, now }) });
+  } catch (error) {
+    if (!isRateLimit(error)) throw error;
+    emit(`${what} skipped: GitHub API rate limit persisted (${error.message}). The publication is unaffected; the incident is not updated by this run.`);
+    return null;
+  }
+}
+
+export const report = (args) => guarded(reportIncident, args, 'Nightly failure issue report');
+export const close = (args) => guarded(closeIncident, args, 'Nightly failure issue close');

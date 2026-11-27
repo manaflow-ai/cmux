@@ -247,8 +247,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))["jobs"]
         expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                     "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || "
-                    "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
-                    "fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || "
                     "'blacksmith-2vcpu-ubuntu-2404' }}")
         for job in ("request", "unstick"):
             with self.subTest(job=job):

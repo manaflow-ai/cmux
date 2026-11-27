@@ -656,10 +656,10 @@ def main(argv: list[str]) -> int:
                 report(result)
     except KeyboardInterrupt:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        report = running_report()
+        still_running = running_report()
         print(f"cmux guards: interrupted after {time.monotonic() - started:.1f}s, "
-              f"{len(results)} steps done, {len(report)} still running:", flush=True)
-        for line in report:
+              f"{len(results)} steps done, {len(still_running)} still running:", flush=True)
+        for line in still_running:
             print(line, flush=True)
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
