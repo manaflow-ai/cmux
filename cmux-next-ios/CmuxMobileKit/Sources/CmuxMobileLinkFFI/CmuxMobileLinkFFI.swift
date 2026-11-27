@@ -14264,10 +14264,6 @@ public struct SizingViewInput: Equatable, Hashable {
      */
     public var hasState: Bool
     /**
-     * `latest`, `smallest`, `largest`, `priority`, `fixed`, `held`, `priority-fallback`.
-     */
-    public var reason: String
-    /**
      * The participants that set a dimension.
      */
     public var owners: [String]
@@ -14292,9 +14288,6 @@ public struct SizingViewInput: Equatable, Hashable {
          * False while the daemon has published no size state: no rows, no reason.
          */hasState: Bool, 
         /**
-         * `latest`, `smallest`, `largest`, `priority`, `fixed`, `held`, `priority-fallback`.
-         */reason: String, 
-        /**
          * The participants that set a dimension.
          */owners: [String], participants: [SizingParticipant], 
         /**
@@ -14307,7 +14300,6 @@ public struct SizingViewInput: Equatable, Hashable {
          * This phone's device id.
          */thisDeviceId: String?) {
         self.hasState = hasState
-        self.reason = reason
         self.owners = owners
         self.participants = participants
         self.selfParticipant = selfParticipant
@@ -14332,7 +14324,6 @@ public struct FfiConverterTypeSizingViewInput: FfiConverterRustBuffer {
         return
             try SizingViewInput(
                 hasState: FfiConverterBool.read(from: &buf), 
-                reason: FfiConverterString.read(from: &buf), 
                 owners: FfiConverterSequenceString.read(from: &buf), 
                 participants: FfiConverterSequenceTypeSizingParticipant.read(from: &buf), 
                 selfParticipant: FfiConverterOptionString.read(from: &buf), 
@@ -14343,7 +14334,6 @@ public struct FfiConverterTypeSizingViewInput: FfiConverterRustBuffer {
 
     public static func write(_ value: SizingViewInput, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.hasState, into: &buf)
-        FfiConverterString.write(value.reason, into: &buf)
         FfiConverterSequenceString.write(value.owners, into: &buf)
         FfiConverterSequenceTypeSizingParticipant.write(value.participants, into: &buf)
         FfiConverterOptionString.write(value.selfParticipant, into: &buf)
@@ -25358,12 +25348,14 @@ public func terminalSizingOrderRows(input: SizingViewInput, order: [String]) -> 
 })
 }
 /**
- * Why the grid has its size; none without a size state.
+ * Why the grid has its size. Swift formats the owning viewers' names with
+ * the system list formatter before passing them here.
  */
-public func terminalSizingReason(input: SizingViewInput) -> String?  {
-    return try!  FfiConverterOptionString.lift(try! rustCall() {
+public func terminalSizingReason(reason: String, namedOwners: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_reason(
-        FfiConverterTypeSizingViewInput_lower(input),$0
+        FfiConverterString.lower(reason),
+        FfiConverterOptionString.lower(namedOwners),$0
     )
 })
 }
@@ -26076,7 +26068,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_order_rows() != 36552) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reason() != 40900) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reason() != 13155) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reordered() != 17482) {

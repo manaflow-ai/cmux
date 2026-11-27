@@ -22,7 +22,6 @@ fn participant(
 fn input() -> SizingViewInput {
     SizingViewInput {
         has_state: true,
-        reason: "smallest".into(),
         owners: vec!["c2".into()],
         participants: vec![
             participant("c1", "mac", Some("Mac mini"), None, Some((120, 39))),
@@ -57,7 +56,6 @@ fn rows_name_each_viewer_and_its_size() {
 fn no_state_draws_nothing() {
     let none = SizingViewInput { has_state: false, ..input() };
     assert!(terminal_sizing_rows(none.clone()).is_empty());
-    assert_eq!(terminal_sizing_reason(none.clone()), None);
     assert_eq!(tokens(&terminal_sizing_order_rows(none, vec![])), ["mac", "device:ios-1"]);
 }
 
@@ -86,29 +84,25 @@ fn unnamed_viewers_read_as_their_kind() {
 
 #[test]
 fn reason_names_who_sets_the_grid() {
-    assert_eq!(terminal_sizing_reason(input()).as_deref(), Some("Fits the smallest viewer: This iPhone"));
-    let with = |reason: &str, owners: &[&str]| {
-        terminal_sizing_reason(SizingViewInput {
-            reason: reason.into(),
-            owners: owners.iter().map(|s| (*s).into()).collect(),
-            ..input()
-        })
-        .unwrap()
-    };
-    assert_eq!(with("latest", &["c1"]), "Set by This Mac");
-    assert_eq!(with("latest", &[]), "Set by the device active last");
-    assert_eq!(with("largest", &["c1", "c4"]), "Fits the largest viewer: This Mac and Another Mac");
+    let with =
+        |reason: &str, names: Option<&str>| terminal_sizing_reason(reason.into(), names.map(str::to_owned));
+    assert_eq!(with("latest", Some("This Mac")), "Set by This Mac");
+    assert_eq!(with("latest", None), "Set by the device active last");
     assert_eq!(
-        with("smallest", &["c1", "c2", "c3"]),
+        with("largest", Some("This Mac et Another Mac")),
+        "Fits the largest viewer: This Mac et Another Mac"
+    );
+    assert_eq!(
+        with("smallest", Some("This Mac, This iPhone, and Test iPhone")),
         "Fits the smallest viewer: This Mac, This iPhone, and Test iPhone"
     );
-    assert_eq!(with("smallest", &[]), "Fits the smallest viewer");
-    assert_eq!(with("fixed", &["c1"]), "Fixed size");
-    assert_eq!(with("held", &["c1"]), "Kept from the last viewer");
-    assert_eq!(with("priority", &["c3"]), "Set by Test iPhone, first in order");
-    assert_eq!(with("priority", &[]), "Set by the first device in order");
-    assert_eq!(with("priority-fallback", &["c3"]), "Set by Test iPhone, active last");
-    assert_eq!(with("priority-fallback", &[]), "Set by the device active last");
+    assert_eq!(with("smallest", None), "Fits the smallest viewer");
+    assert_eq!(with("fixed", Some("This Mac")), "Fixed size");
+    assert_eq!(with("held", Some("This Mac")), "Kept from the last viewer");
+    assert_eq!(with("priority", Some("Test iPhone")), "Set by Test iPhone, first in order");
+    assert_eq!(with("priority", None), "Set by the first device in order");
+    assert_eq!(with("priority-fallback", Some("Test iPhone")), "Set by Test iPhone, active last");
+    assert_eq!(with("priority-fallback", None), "Set by the device active last");
 }
 
 #[test]

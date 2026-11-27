@@ -5,10 +5,7 @@ import Testing
 /// The phone's view of a shared terminal's size (cmux-next-ios/PROTOCOL.md
 /// "Terminal sizing policy"): the Connected Devices rows say who is
 /// connected, the size each one asks for and who sets the grid; the
-/// Priority Order list ranks every device in sight by its token. The rules
-/// are Rust's terminal_sizing_view (its tests hold every case); these check
-/// the bridge, on the iOS simulator where the Rust library links.
-#if os(iOS)
+/// Priority Order list ranks every device in sight by its token.
 @MainActor @Suite struct TerminalSizingPresentationTests {
     /// This Mac's pane (c1), this phone (c2, device ios-1), another phone
     /// that left the screen (c3, device ios-2) and another Mac (c4).
@@ -56,6 +53,13 @@ import Testing
         latest.state?.reason = "latest"
         latest.state?.owners = ["c1"]
         #expect(latest.reasonText == "Set by This Mac")
+        latest.state?.owners = ["c4", "c1"]
+        #if canImport(Darwin)
+        let owners = ListFormatter.localizedString(byJoining: ["This Mac", "Another Mac"])
+        #else
+        let owners = "This Mac and Another Mac"
+        #endif
+        #expect(latest.reasonText == "Set by \(owners)")
     }
 
     @Test func priorityOrderListsStoredTokensThenEveryDeviceInSight() throws {
@@ -70,6 +74,7 @@ import Testing
         // Drag This iPhone to the top.
         let order = TerminalSizingPresentation.reordered(rows, from: IndexSet(integer: 1), to: 0)
         #expect(order == ["device:ios-1", "mac", "device:ios-2"])
+        #expect(TerminalSizingPresentation.reordered(rows, from: IndexSet(integer: 8), to: 8) == rows.map(\.token))
         // Drag This Mac to the end.
         #expect(TerminalSizingPresentation.reordered(rows, from: IndexSet(integer: 0), to: 3) == ["device:ios-1", "device:ios-2", "mac"])
     }
@@ -98,4 +103,3 @@ import Testing
         #expect(live.selfIsOwner == false)
     }
 }
-#endif
