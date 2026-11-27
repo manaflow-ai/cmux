@@ -34,6 +34,7 @@
 use super::*;
 
 pub(in crate::hub) mod revive;
+pub(in crate::hub) mod scratch;
 
 /// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
 /// naming the folder in its message and data. Retryable: a folder can come back (put back
@@ -545,6 +546,24 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         let meta = session.meta();
+        // A proven peer's scratch folder in the temp dir, gone with it (a reboot): made again,
+        // so a restart's continuation of its cut turn runs (`worktree_care/scratch.rs`).
+        #[cfg(unix)]
+        if meta.worktree.is_none() && !meta.remote_origin {
+            let cwd = meta.cwd.clone();
+            let made =
+                tokio::task::spawn_blocking(move || scratch::revive_peer_scratch(&cwd)).await;
+            match made {
+                Ok(Ok(true)) => {
+                    gone::forget(&meta.cwd);
+                    self.append(session, "mux", "scratch_recreated", json!({"cwd": meta.cwd}));
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(session = %session.id, cwd = %meta.cwd.display(), "peer scratch folder not made again: {e}")
+                }
+                _ => {}
+            }
+        }
         if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
             gone::forget(&meta.cwd);
         } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {

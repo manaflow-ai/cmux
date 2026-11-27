@@ -184,7 +184,7 @@ import {
 } from "./folderContinuation";
 import type { BrowseRequest } from "./browseProject";
 import { cloudRepositoryPick } from "./sourcePickerModel";
-import { onHandedBackRecorded } from "./handedBack";
+import { noteHandedBack, onHandedBackRecorded, wasRecorded } from "./handedBack";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -655,7 +655,7 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./floatin
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, type FailedRun } from "./sendFailure";
-import { clientWaiter } from "./lostPrompt";
+import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { sessionReplay } from "./replay/replay.experiment";
 import { readSteerLog, type SteerAct } from "./steerQueue/log";
 import { steerQueue } from "./steerQueue/model";
@@ -732,6 +732,7 @@ import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, cachedSnapshot } from "./snapshotCache";
+import { shownChrome } from "./shownChrome";
 import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
@@ -812,6 +813,10 @@ const reportTabRowTools = (width: number, need: number) =>
 /// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
 /// composer (Leo 2026-10-21: "I LOAD IN AND IT'S A BLACK SCREEN").
 const CHAT_DRAW_HOLD_MS = 10_000;
+
+/// The connection each trust-held prompt a dropped connection lost went on (App `sendTrustHeldNow`):
+/// the hold waits for the host's resend on a later one (lostPrompt.ts `resentAfterLoss`).
+const trustHeldLostOn = new WeakMap<object, AcpmuxDirectClient | undefined>();
 
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
@@ -1964,16 +1969,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const rulesLocal = snapshot.summary !== undefined && healthLocal;
   useEffect(() => {
     const client = directClient.current;
+    // The same rules again (every chat switch reads them) keep the list held: a new but equal list
+    // rendered the whole pane once more before a chat switch's first frame painted.
+    const show = (next: ForumRule[]) =>
+      setRules((held) => (JSON.stringify(held) === JSON.stringify(next) ? held : next));
     if (!connected || !client || !rulesLocal) {
-      setRules([]);
+      show([]);
       return;
     }
     let live = true;
     void Promise.resolve()
       .then(() => client.forumRules())
-      .then((reply) => live && setRules(forumRules(reply)))
+      .then((reply) => live && show(forumRules(reply)))
       // An older acpmux without the forum, or a failed read: no rules rather than stale ones.
-      .catch(() => live && setRules([]));
+      .catch(() => live && show([]));
     return () => {
       live = false;
     };
@@ -3871,6 +3880,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => onHandedBackRecorded((back) => composerHandle.current?.withdraw(back.text, back.attachments)), []);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
+  /// A chat's chrome the page drew before its attach answered stays drawn until then (shownChrome.ts):
+  /// what the page showed first (the reload copy) until the first frame replaces it, then the last one.
+  const [chrome] = useState(() => shownChrome());
+  const firstShown = useRef<AcpmuxSnapshot | undefined>(clientSnapshot);
   const turnActions = useMemo<TurnActions>(
     () =>
       turnActionsFrom({
@@ -6671,6 +6684,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     putBack: (entries, behind) => void giveBackTrustHeld.current(entries, behind),
     refusedForTrust: isTrustRefusal,
     keptElsewhere: keptInChat,
+    // A held prompt a dropped connection lost waits for the host's resend on the next connection,
+    // under its own id, before anything gives it back (`trustHeldLostOn`: the client it went on).
+    resent: async (error) => {
+      const lost = lostPrompt(error);
+      if (!lost || !error || typeof error !== "object") return undefined;
+      return (await resentAfterLoss(error, connectedClients, trustHeldLostOn.get(error))) ? lost.sessionId : undefined;
+    },
   });
   const trustHeldNow = useRef(trustHeld);
   trustHeldNow.current = trustHeld;
@@ -6757,6 +6777,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     closing = false,
     until = Date.now() + DRAFT_SETTLE_MS,
   ) => {
+    // One acpmux recorded already (its record came while its sender gave it up) goes nowhere: in a
+    // composer or a draft the next Send would carry it again (Leo, 2026-11-25).
+    entries = entries.filter((entry) => !wasRecorded(entry.id));
+    if (!entries.length) return [];
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
     const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
@@ -6764,8 +6788,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const writes: Promise<unknown>[] = [];
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
     // behind what is there, the first goes first.
-    for (const entry of behind ? where.composer : [...where.composer].reverse())
+    for (const entry of behind ? where.composer : [...where.composer].reverse()) {
       composer?.restore(entry.text, entry.attachments, behind);
+      // acpmux may still record it (a send that timed out, or one the host's journal sends again):
+      // then its copy leaves the composer again, words and chips (handedBack.ts).
+      if (composer) noteHandedBack(entry.id, { text: entry.text, attachments: entry.attachments });
+    }
     // The next composer gets them only while that new chat shows, and they join its typed text
     // the host keeps. With another chat shown they stay in the host's draft of the new chat's tab,
     // where the hold put them (`newChatDraft`), out of that chat's composer.
@@ -7408,6 +7436,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     let tookIn: string | undefined;
     let accept: (session: string | undefined) => void = () => undefined;
     const taken = new Promise<string | undefined>((resolve) => (accept = resolve));
+    // The connection it goes on: lost there, the hold waits for its resend on a later one.
+    const sentOn = directClient.current;
     const turn = callNative("chat.send", {
       text: entry.text,
       attachments: entry.attachments,
@@ -7429,6 +7459,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         (error as { message?: unknown } | null)?.message === "agent_session.changed_during_send"
       )
         throw movedOn(startsChat ? made : undefined);
+      if (lostPrompt(error) && error && typeof error === "object") trustHeldLostOn.set(error, sentOn);
       throw error;
     }
   };
@@ -8066,6 +8097,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       thoughtEpoch,
       pendingPaneDraw,
       snapshotRef,
+      chrome,
+      firstShown,
       readSendAgain,
       readInterruptedResume,
       opensSideChat,
@@ -8122,6 +8155,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quoteReply,
     inheritedFolderRef,
     pendingPaneDraw,
+    chrome,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
