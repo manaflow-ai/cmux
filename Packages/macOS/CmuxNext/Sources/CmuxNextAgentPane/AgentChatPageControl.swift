@@ -1,6 +1,6 @@
 public import CmuxNextControl
 public import CmuxNextSettings
-import AppKit
+public import AppKit
 import UniformTypeIdentifiers
 
 /// `agent.chat.page.query` and `agent.chat.page.screenshot` on the app control socket (`cmux app chat
