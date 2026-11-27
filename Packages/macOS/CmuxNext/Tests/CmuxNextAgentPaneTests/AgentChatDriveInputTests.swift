@@ -128,6 +128,66 @@ struct AgentChatDriveInputTests {
         #expect(await input.release() == outcome)
     }
 
+    /// A wait is cut to the run's time left, and with none left there is no wait.
+    @Test func aWaitIsCutToTheTimeLeft() {
+        let now = ContinuousClock.now
+        let bound = AgentChatDriveInput.wheelWait
+        #expect(AgentChatDriveInput.bounded(bound, before: nil, now: now) == bound)
+        #expect(AgentChatDriveInput.bounded(bound, before: now + .seconds(5), now: now) == bound)
+        #expect(AgentChatDriveInput.bounded(bound, before: now + .milliseconds(120), now: now) == .milliseconds(120))
+        #expect(AgentChatDriveInput.bounded(bound, before: now, now: now) == nil)
+        #expect(AgentChatDriveInput.bounded(bound, before: now - .seconds(1), now: now) == nil)
+    }
+
+    /// A tick's two WebKit waits (its presentation update, then its pending events) can't outlast the run:
+    /// on a covered window each would run its whole bound, so 200 ticks went about 200 s past `seconds`.
+    /// Each is cut to the time the run has left, and a tick with none left sends without waiting.
+    @Test func aTicksWaitsAreBoundedByTheRunsTimeLeft() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        var input = AgentChatDriveInput(webView: page.webView)
+        var waits: [Duration] = []
+        input.presentationUpdate = { _, bound in waits.append(bound) }
+        input.pendingMouseEvents = { _, bound in
+            waits.append(bound)
+            return true
+        }
+        let center = try await page.boxCenter()
+
+        #expect(await input.wheel(at: center, deltaY: 40, before: ContinuousClock.now + .milliseconds(100)))
+        #expect(waits.count == 2 && waits.allSatisfy { $0 > .zero && $0 <= .milliseconds(100) }, "\(waits)")
+        waits = []
+        #expect(await input.wheel(at: center, deltaY: 40, before: ContinuousClock.now - .milliseconds(1)))
+        #expect(waits.isEmpty, "a tick with no time left waited \(waits)")
+        waits = []
+        #expect(await input.wheel(at: center, deltaY: 40))
+        #expect(waits == [AgentChatDriveInput.wheelWait, AgentChatDriveInput.wheelWait])
+    }
+
+    /// The settle after the last tick can't outlast the run either: its two 1 s waits ran whole after the
+    /// ticks had reached `seconds`, so an occluded run ended about 2 s late. Each is cut to the time left,
+    /// and with none left the run reads the page without waiting.
+    @Test func theSettleAfterTheTicksIsBoundedByTheRunsTimeLeft() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        var input = AgentChatDriveInput(webView: page.webView)
+        var waits: [Duration] = []
+        input.presentationUpdate = { _, bound in waits.append(bound) }
+        input.pendingMouseEvents = { _, bound in
+            waits.append(bound)
+            return true
+        }
+
+        await input.settle(before: ContinuousClock.now + .milliseconds(100))
+        #expect(waits.count == 2 && waits.allSatisfy { $0 > .zero && $0 <= .milliseconds(100) }, "\(waits)")
+        waits = []
+        await input.settle(before: ContinuousClock.now - .milliseconds(1))
+        #expect(waits.isEmpty, "a settle with no time left waited \(waits)")
+        waits = []
+        await input.settle()
+        #expect(waits == [.seconds(1), .seconds(1)])
+    }
+
     /// A wheel tick under the held point is one trusted `wheel` with the tick's sign, and the box
     /// under it scrolls. WebKit holds a native wheel for a window that cannot present, so the window
     /// is on a screen: ordered in behind every other window (never front, never key).
