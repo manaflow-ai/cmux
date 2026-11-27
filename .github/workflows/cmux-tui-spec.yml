@@ -1170,6 +1170,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
+        id: rust-cache
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -1183,6 +1184,56 @@ jobs:
           # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
           add-rust-environment-hash-key: false
+
+      # acpmux-sim built cold on every sampled run on 2026-11-26 (566-587 crates, 12-16 min): rust-cache's save is evicted
+      # as acpmux-tests' was. acpmux-tests' R2 build is the same test profile and dependency graph; only acpmux itself
+      # rebuilds for the sim feature. Read only, as the protocol IR job: this job saves nothing.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && steps.tree.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          inputs="$( { git ls-files -z -- 'cmux-tui/Cargo.lock' 'cmux-tui/**/Cargo.lock' 'cmux-tui/rust-toolchain.toml' '.cargo/config.toml' \
+            | xargs -0 sha256sum; rustc -Vv; cargo -V; } | sha256sum | cut -c1-16)"
+          workspace="$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -c1-8)"
+          prefix="cmux-tui-spec-acpmux-tests-cargo-v1-$workspace-"
+          {
+            echo "target-prefix=$prefix"
+            echo "target-key=$prefix$inputs"
+            echo "registry-prefix=cmux-tui-spec-cargo-registry-v1-"
+            echo "registry-key=cmux-tui-spec-cargo-registry-v1-$inputs"
+            echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+          } >> "$GITHUB_OUTPUT"
+
+      # Only when rust-cache found nothing: a hit there is the same build, nearer.
+      - name: Restore the cargo build from R2
+        id: r2-cargo-target
+        if: ${{ steps.tree.outputs.hit != 'true' && steps.r2-cargo-key.outputs.target-key != '' && steps.rust-cache.outputs.cache-hit != 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      - name: Restore the cargo registry from R2
+        id: r2-cargo-registry
+        if: ${{ steps.tree.outputs.hit != 'true' && steps.r2-cargo-key.outputs.registry-key != '' && steps.rust-cache.outputs.cache-hit != 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
