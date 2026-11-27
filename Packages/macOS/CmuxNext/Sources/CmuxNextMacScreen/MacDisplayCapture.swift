@@ -65,7 +65,7 @@ public final class MacDisplayCapture {
     /// fails or the display is gone. ``stop()`` ends it with no `ended`.
     public func start(frame: @escaping @MainActor (CVPixelBuffer) -> Void, ended: @escaping @MainActor (String) -> Void) {
         guard backend == nil else { return }
-        let backend = ScreenCaptureBackend(log: { line in logger.info("\(line, privacy: .public)") })
+        let backend = ScreenCaptureBackend(log: { line in logger.info("\(line, privacy: .public)") }, rules: MacScreenRules.rules)
         // SECURITY: the windows only the person at this Mac may see stay out of the picture, and the
         // list is read again within `CaptureExcludedWindows.recheck` while the capture runs.
         backend.excludedWindowIDs = { CaptureExcludedWindows().windowIDs }

@@ -58,7 +58,9 @@ extension NewFrontendBrowserTabRequest: DaemonCreatingRequest {
 
 extension CreateWorkspaceRequest: DaemonCreatingRequest {
     public func createdObjects(in response: WorkspaceMutationResult) -> [DaemonCreatedObject] {
+        // The first tab a `create-workspace {first_tab}` made is created too (Open Desktop's `created` names it).
         [DaemonCreatedObject(.workspace, response.key.rawValue)]
+            + (response.firstTab.map { [DaemonCreatedObject(.tab, $0.surface.description)] } ?? [])
     }
 }
 
