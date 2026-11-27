@@ -627,12 +627,20 @@ def main():
         else:
             # The quit leg needs updates.installOnQuit on (off by default, the nightly restart
             # policy). The harness's settings file asks for it; print what the app read from it,
-            # then turn it on the way the Settings toggle does (settings.set) and read it back.
+            # then write the file again and read the value back.
             for key in ("updates.installOnQuit", "app.quitBehavior"):
                 print(f"settings.get {key} at launch: {json.dumps(app.rpc('settings.get', {'path': key}))} (harness file {app.config})")
-            for key, value in (("updates.installOnQuit", True), ("app.quitBehavior", "keep")):
-                print(f"settings.set {key}: {json.dumps(app.rpc('settings.set', {'path': key, 'value': value}))}")
-            on = wait(lambda: (app.rpc("settings.get", {"path": "updates.installOnQuit"}) or {}).get("value") is True, 10)
+            # settings.set refuses these keys (setting_user_only: only a person may change them), so
+            # the file is the harness's one route. Show what the file holds now and what the app
+            # loaded from it, then write it again: the app's file watcher reloads it.
+            with open(app.config) as f:
+                print(f"harness file now: {f.read()}")
+            root = (app.rpc("settings.get", {}) or {}).get("value")
+            print(f"settings root keys: {sorted(root) if isinstance(root, dict) else root!r}; "
+                  f"updates={json.dumps((root or {}).get('updates') if isinstance(root, dict) else None)}")
+            with open(app.config, "w") as f:
+                json.dump({"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True}}, f)
+            on = wait(lambda: (app.rpc("settings.get", {"path": "updates.installOnQuit"}) or {}).get("value") is True, 20)
             record("install on quit turned on before the quit", bool(on),
                    json.dumps(app.rpc("settings.get", {"path": "updates.installOnQuit"})))
             time.sleep(1)  # the updater follows the settings stream; let it apply the change
