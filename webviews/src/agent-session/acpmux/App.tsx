@@ -9973,8 +9973,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   }
                                                                   sinceKey={childRows ? undefined : sinceKey}
                                                                   promptAuthor={directClient.current?.presence.selfId}
-                                                                  readThrough={childRows ? undefined : snapshot.readThrough}
-                                                                  onSeenThrough={childRows ? undefined : noteSeenThrough}
+                                                                  readThrough={
+                                                                    childRows ? undefined : snapshot.readThrough
+                                                                  }
+                                                                  onSeenThrough={
+                                                                    childRows ? undefined : noteSeenThrough
+                                                                  }
                                                                   onJumpToSince={jumpToSince}
                                                                   onSeenRows={childRows ? undefined : seenRows}
                                                                   clockOffset={snapshot.clockOffsetMs ?? 0}
