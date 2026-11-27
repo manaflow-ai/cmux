@@ -85,7 +85,8 @@ export const measureDisclosureChevrons = (page: Page): Promise<ChevronPair[]> =>
       // Its control, or (a transcript row's chevron beside its toggle) the box it sits in.
       const trigger =
         chevron.parentElement?.closest(TRIGGER) ?? (chevron.closest(".acpmux-row") ? chevron.parentElement : null);
-      if (!trigger) continue;
+      // A gallery's "before" row draws the old look on purpose: not a shipped control.
+      if (!trigger || trigger.closest("[data-chevron-before]")) continue;
       const glyph = ink(chevron);
       if (!glyph || glyph.width === 0 || glyph.height === 0) continue;
       const middle = (glyph.top + glyph.bottom) / 2;

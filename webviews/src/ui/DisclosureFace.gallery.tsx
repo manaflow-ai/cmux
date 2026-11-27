@@ -14,7 +14,7 @@ function Chips({ gap }: Props) {
   const style = gap ? ({ "--ui-disclosure-gap": gap } as CSSProperties) : undefined;
   return (
     <div className="dface-stage" style={style}>
-      <div className="dface-row">
+      <div className="dface-row" data-chevron-before="">
         <span className="dface-caption">Before (text glyph)</span>
         <button type="button" className="dface-chip">
           acpmux<span className="dface-old-chevron">⌄</span>

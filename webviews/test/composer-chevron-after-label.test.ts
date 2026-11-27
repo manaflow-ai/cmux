@@ -21,7 +21,9 @@ await requireBrowserLane("composer-chevron-after-label.test.ts", async () => {
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
   const SCENES: { entry: string; variant: string }[] = [
     { entry: "agent-pane.composer-context", variant: "closed" },
-    { entry: "agent-pane.composer", variant: "idle" },
+    // The composer with a remote host: its location, folder and branch chips (the plain idle composer
+    // draws no label-then-chevron control to measure).
+    { entry: "agent-pane.composer-any-host", variant: "remote-rest" },
   ];
   const WIDTHS = [760, 420];
   /** The chevron glyphs a label-then-chevron control draws (ComposerPickers ChevronIcon's path). */

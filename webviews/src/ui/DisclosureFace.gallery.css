@@ -22,7 +22,7 @@
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  height: 26px;
+  height: var(--ds-control-compact);
   padding: 0 var(--ds-space-2);
   border: 0;
   border-radius: 8px;
@@ -35,9 +35,9 @@
   display: inline-grid;
   place-items: center;
   min-width: 22px;
-  height: 22px;
+  height: var(--ds-control-icon);
   margin-inline-end: var(--ds-space-1);
-  border-radius: 7px;
+  border-radius: var(--ds-radius-md);
   background: color-mix(in srgb, currentcolor 10%, transparent);
 }
 .dface-muted { color: var(--cmux-text-secondary, GrayText); }
