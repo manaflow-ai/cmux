@@ -96,20 +96,48 @@ impl Records {
         let key: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
         let slot_path = dir.join(format!("{surface}-{key}.json"));
         let Some(tab) = tab.filter(|tab| is_file_word(tab)) else {
-            let lock = take_lock(&slot_path)?;
-            return Ok(Self { path: slot_path, _lock: lock, _slot_lock: None });
+            // No tab answered (a source restarted since, so the slot is stale, or one too old):
+            // the slot's name may be an alias of the tab-filed record a run by the tab left.
+            let slot_lock = take_lock(&slot_path)?;
+            if let Ok(target) = std::fs::read_link(&slot_path)
+                && let Some(name) = target.file_name().filter(|name| {
+                    name.to_str().and_then(|name| name.strip_suffix(".json")).is_some_and(|stem| {
+                        stem.strip_suffix(&format!("-{key}")).is_some_and(is_file_word)
+                    })
+                })
+            {
+                let path = dir.join(name);
+                let lock = take_lock(&path)?;
+                return Ok(Self { path, _lock: lock, _slot_lock: Some(slot_lock) });
+            }
+            return Ok(Self { path: slot_path, _lock: slot_lock, _slot_lock: None });
         };
         let path = dir.join(format!("{tab}-{key}.json"));
         let lock = take_lock(&path)?;
         let slot_lock = take_lock(&slot_path)?;
         let records = Self { path, _lock: lock, _slot_lock: Some(slot_lock) };
+        let slot_kind = std::fs::symlink_metadata(&slot_path).map(|meta| meta.file_type());
         if records.load()?.is_none()
+            && slot_kind.as_ref().is_ok_and(std::fs::FileType::is_file)
             && let Ok(bytes) = std::fs::read(&slot_path)
             && serde_json::from_slice::<Record>(&bytes)
                 .is_ok_and(|kept| kept.source_tab.as_deref().is_none_or(|kept| kept == tab))
         {
             std::fs::rename(&slot_path, &records.path)
                 .context("cannot take over the move record")?;
+        }
+        // The slot's name becomes an alias of this record, so a rerun by this slot that no
+        // longer names the tab (its source restarted since) still finds the move. A slot file
+        // of another tab's unended move (an older pump's) is left alone.
+        let slot_free = match std::fs::symlink_metadata(&slot_path) {
+            Ok(meta) => meta.file_type().is_symlink(),
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        };
+        if slot_free && let Some(name) = records.path.file_name() {
+            let alias = slot_path.with_extension("json.alias");
+            let _ = std::fs::remove_file(&alias);
+            std::os::unix::fs::symlink(name, &alias).context("cannot name the move record")?;
+            std::fs::rename(&alias, &slot_path).context("cannot name the move record")?;
         }
         Ok(records)
     }

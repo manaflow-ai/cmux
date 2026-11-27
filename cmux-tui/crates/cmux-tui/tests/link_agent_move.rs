@@ -937,6 +937,56 @@ mod agent_move {
     }
 
     #[test]
+    fn a_rerun_by_a_third_slot_after_a_rerun_by_the_old_one_finds_one_record() {
+        // The alias the tab-filed record leaves for its first slot is followed and kept whole:
+        // a rerun by the old slot (no tab answered) saves through it, and a later rerun by the
+        // tab's next slot reads that same record, not an older copy.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let files = |world: &World| {
+            let mut names: Vec<String> = std::fs::read_dir(&world.state)
+                .map(|dir| {
+                    dir.filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .filter(|name| name.ends_with(".json"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let before = files(&world);
+        assert_eq!(before.len(), 2, "the tab's record and its slot alias: {before:?}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+        assert!(
+            std::fs::read_dir(&world.state)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| std::fs::read(entry.path()).is_err()
+                    || !entry.file_name().to_string_lossy().ends_with(".json")),
+            "the ended move leaves no record: {:?}",
+            files(&world)
+        );
+    }
+
+    #[test]
     fn a_source_still_restarting_when_the_chat_is_given_back_is_waited_for() {
         // kill-mid-move drill kill-src (run 45435064422): the source was killed mid-copy, the
         // give back found its daemon still down (connection refused), and the chat stayed frozen.
