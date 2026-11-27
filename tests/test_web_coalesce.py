@@ -725,10 +725,15 @@ class WorkflowTests(unittest.TestCase):
         # early base replay of the same merge parent, a pull-request-only job too).
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
-        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
-        self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
-        self.assertTrue(ci_web["jobs"]["react-apps-base-early"]["if"].startswith(
-            "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')"))
+        # #61532: the replay reads the head and base bundles the per-PR bundle jobs built once.
+        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard",
+                                         "react-apps-head-bundles", "react-apps-base-bundles"])
+        self.assertTrue(base["if"].startswith("${{ !cancelled() && needs.react-apps-check-shard.result == 'success' "
+                                               "&& github.event_name == 'pull_request' && "))
+        early = ci_web["jobs"]["react-apps-base-early"]["if"]
+        self.assertTrue(early.startswith("${{ !cancelled() && ("))
+        self.assertIn(" && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, "
+                      "'full-ci')", early)
 
 
 if __name__ == "__main__":
