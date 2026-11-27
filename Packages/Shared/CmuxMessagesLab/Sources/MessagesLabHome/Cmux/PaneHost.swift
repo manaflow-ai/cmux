@@ -252,13 +252,13 @@ final class HostView: NSView {
 
     // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)
 
-    /// While the pane is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
-    /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
-    /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
-    /// view's own bounds do not, except a top fade (a bare top's, HeaderGlass.swift `useBareTop`, or a top fade style's
-    /// `topMaskStops`, HostView+TopFade.swift), which pauses during the window's resize. The empty field keeps its text
-    /// width (ComposeTextView `deferWidth`). All of it comes back when the resize ends (the still pixels are the resting
-    /// ones).
+    /// While the pane is resized live: the transcript clip has no mask (a divider drag keeps one that fades, below), and
+    /// the chrome's border is its nine-part image (ChromeView.liveResizing; Home hides the chrome), so no width makes
+    /// the render server draw the transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips
+    /// nothing that the window view's own bounds do not, except a top fade (a bare top's, HeaderGlass.swift
+    /// `useBareTop`, or a top fade style's `topMaskStops`, HostView+TopFade.swift), which pauses during the window's
+    /// resize. The empty field keeps its text width (ComposeTextView `deferWidth`). All of it comes back when the resize
+    /// ends (the still pixels are the resting ones).
     ///
     /// cmux: the live resizes this pane follows: its window's (AppKit's `viewWillStartLiveResize` to
     /// `viewDidEndLiveResize`) and a person's drag of the pane's divider or edge (`followPaneResize`, from the cmux
@@ -282,6 +282,8 @@ final class HostView: NSView {
         super.viewWillStartLiveResize()
         windowLiveResize = true
         syncLiveResize()
+        // The paths may be on already, from the pane's resize the layout told first: the window's resize pauses a fade.
+        if liveApplied { takeClipMaskOff() }
     }
 
     override func viewDidEndLiveResize() {
@@ -307,7 +309,12 @@ final class HostView: NSView {
         demo.chrome.liveResizing = true
         let fades = demo.topFade > 0 || !demo.topMaskStops.isEmpty
         if fades, !windowLiveResize, window?.inLiveResize != true { return }
-        guard restingClipMask == nil, let m = demo.clip.layer.mask else { return }
+        takeClipMaskOff()
+    }
+
+    /// The transcript clip's mask comes off until the live resize ends (`liveResizeEnded` puts it back).
+    private func takeClipMaskOff() {
+        guard let demo, restingClipMask == nil, let m = demo.clip.layer.mask else { return }
         restingClipMask = m
         CATransaction.begin(); CATransaction.setDisableActions(true)
         demo.clip.layer.mask = nil
