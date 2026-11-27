@@ -3,7 +3,7 @@
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23,
 since lifted)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, time, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1348,6 +1348,42 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(wake.find_key(made, "terminal_id"), "term_9")
         self.assertEqual(wake.find_key(made, "workspace_id"), "ws_1")
         self.assertIsNone(wake.find_key({}, "terminal_id"))
+
+    def test_the_wake_bench_types_into_a_bare_shell_after_its_prompt_and_says_where_an_echo_got_lost(self):
+        """The first cron run (step 343b7e82) typed into the scratch-HOME terminal before any prompt and every view
+        stayed empty (missed_rounds 3, no terminal_echo value): the bench now starts `zsh -f`, waits for its prompt on
+        the daemon's screen, and a missed echo keeps the write's answer, the screen and each view in the report."""
+        spec2 = importlib.util.spec_from_file_location("wake_proxy", os.path.join(HERE, "..", "wake-proxy-bench.py"))
+        wake = importlib.util.module_from_spec(spec2)
+        with mock.patch.dict("sys.modules", {"bench_memory": mock.MagicMock()}):
+            spec2.loader.exec_module(wake)
+        app = mock.MagicMock(cli_path="/x/cmux", socket="/tmp/s")
+        pane = {"kind": "terminal", "workspace": "ws_1", "focused": True, "presence": "visible", "pane": "p1",
+                "shown_tab": "tab_1", "text": "", "surface": {"drawing": True}}
+        app.call.return_value = {"windows": [{"panes": [pane]}]}
+        term = wake.Terminal(app)
+        calls, screens = [], iter(["", "", "% "])
+
+        def cli(*args, timeout=30):
+            calls.append(args)
+            if args[:3] == ("--json", "workspace", "create"):
+                return subprocess.CompletedProcess(args, 0, json.dumps({"result": {"workspace_id": "ws_1",
+                                                                                    "terminal_id": "term_9"}}), "")
+            if args[-2:] == ("screen", "read"):
+                return subprocess.CompletedProcess(args, 0, next(screens, "% echo wake-3\nwake-3\n% "), "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with mock.patch.object(term, "cli", side_effect=cli), mock.patch.object(wake.time, "sleep"):
+            self.assertEqual(term.open(), "term_9")
+            create = next(c for c in calls if c[1:3] == ("workspace", "create"))
+            self.assertEqual(create[create.index("--shell") + 1], "exec /bin/zsh -f", "no rc files, no new-user menu")
+            self.assertGreaterEqual(sum(1 for c in calls if c[-2:] == ("screen", "read")), 3, "it waited for the prompt")
+            term.last_write = {"exit": 1, "stderr": "no such terminal"}
+            diag = term.diagnose("wake-3")
+        self.assertEqual(diag["write"]["stderr"], "no such terminal", "a refused write is named")
+        self.assertTrue(diag["expect_on_screen"], "the shell printed it")
+        self.assertFalse(diag["expect_in_view"], "but the view never drew it")
+        self.assertEqual(diag["panes"][0]["shown_tab"], "tab_1")
         term = wake.Terminal(mock.MagicMock(cli_path="/b/cmux", socket="/s.sock"))
         self.assertEqual(term.argv("x")[:3], ["/b/cmux", "--app-socket", "/s.sock"], "the app socket, not the daemon's")
         # The views of its own workspace, else the focused terminal; never another workspace's text.
