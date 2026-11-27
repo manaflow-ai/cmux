@@ -352,15 +352,6 @@ try {
       viewport: { width: 1200, height: 800 },
       deviceScaleFactor: REVEAL ? 2 : 1,
     });
-    // The page's own errors, for a run that never settles (named in the timeout's page state).
-    const pageErrors: string[] = [];
-    page.on("pageerror", (error) => pageErrors.push(String(error.stack ?? error).slice(0, 600)));
-    page.on("console", (message) => {
-      if (message.type() === "error") pageErrors.push(`console: ${message.text().slice(0, 600)}`);
-    });
-    page.on("response", (response) => {
-      if (response.status() >= 400) pageErrors.push(`${response.status()} ${response.url().slice(0, 300)}`);
-    });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
@@ -718,46 +709,19 @@ try {
         })
       : page.goto(url);
     await typed;
-    await page
-      .waitForFunction(
-        (remoteTail) => {
-          const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
-          const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
-          return (
-            state.latest > 0 &&
-            (!remoteTail || remote.reconciled > 0) &&
-            performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
-          );
-        },
-        REMOTE_TAIL,
-        { timeout: 120_000, polling: 100 },
-      )
-      .catch(async (error: unknown) => {
-        // A timeout alone says nothing (`log: []`); name which condition never held.
-        const seen = await page
-          .evaluate((latestText) => {
-            const w = window as unknown as { __open?: Record<string, unknown>; __remoteTail?: Record<string, unknown> };
-            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll");
-            const body = document.body.textContent ?? "";
-            return {
-              now: Math.round(performance.now()),
-              open: w.__open,
-              remote: w.__remoteTail,
-              latestInBody: body.includes(latestText),
-              rows: document.querySelectorAll("[data-row-id]").length,
-              scroll: scroll ? { top: scroll.scrollTop, height: scroll.scrollHeight } : null,
-              bodyTail: body.slice(-300),
-            };
-          }, LATEST)
-          .catch((e: unknown) => ({ evaluateFailed: String(e) }));
-        const daemonCalls = calls.slice(-40);
-        throw new Error(
-          `chat-open: the newest message never settled; page state: ${JSON.stringify({ ...seen, daemonCalls, pageErrors: pageErrors.slice(0, 10) })}`,
-          {
-            cause: error,
-          },
+    await page.waitForFunction(
+      (remoteTail) => {
+        const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
+        const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
+        return (
+          state.latest > 0 &&
+          (!remoteTail || remote.reconciled > 0) &&
+          performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
         );
-      });
+      },
+      REMOTE_TAIL,
+      { timeout: 120_000, polling: 100 },
+    );
     const got = await page.evaluate(() => {
       const state = (
         window as unknown as {
