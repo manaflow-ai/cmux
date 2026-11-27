@@ -1203,3 +1203,30 @@ fn a_repo_with_no_remote_moves_as_a_bundle_with_its_changes_and_no_remote() {
     assert!(again.starts_with(&format!("{top}.moved.")), "{again}");
     assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2", "untouched");
 }
+
+/// Leo: "any chat moves Mac↔Cloud and back in one action, keeping its live state". The way
+/// back from a machine reached only through the team hub, `--from MACHINE --machine local`,
+/// asks that machine as `MACHINE/ID` does instead of needing an ssh peer.
+#[test]
+fn from_a_hub_machine_names_its_chats_on_that_machine() {
+    let mut args = MoveArgs {
+        sessions: vec!["01a21a8f".into(), "other-host/abc".into()],
+        host: "local".into(),
+        all_idle: false,
+        interrupt: false,
+        after_turn: false,
+        turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
+        leave_dirty: false,
+        carry_changes: false,
+        cwd: None,
+        dry_run: false,
+        resume_there: false,
+        from: Some("gcp-agent-lane-19".into()),
+        from_snapshot: false,
+        as_harness: None,
+    };
+    from_hub_machine(&mut args, "gcp-agent-lane-19");
+    assert_eq!(args.sessions, vec!["gcp-agent-lane-19/01a21a8f", "other-host/abc"]);
+    assert_eq!(args.from, None);
+}
