@@ -362,16 +362,20 @@ fn future_managed_dropins_are_protected_before_they_exist() {
 #[test]
 fn missing_credential_and_policy_paths_resolve_existing_symlink_ancestors() {
     let t = tempfile::tempdir().unwrap();
-    let cwd = std::fs::canonicalize(t.path()).unwrap();
-    let real = cwd.join("real");
+    let root = std::fs::canonicalize(t.path()).unwrap();
+    let cwd = root.join("chat");
+    let real = root.join("real");
+    std::fs::create_dir(&cwd).unwrap();
     std::fs::create_dir(&real).unwrap();
     std::os::unix::fs::symlink(&real, cwd.join("alias")).unwrap();
     let env = BTreeMap::from([
+        ("HOME".into(), "alias/new/../home".into()),
         ("GH_CONFIG_DIR".into(), "alias/new/../gh".into()),
         ("XDG_CONFIG_HOME".into(), "alias/new/../xdg".into()),
         ("CLAUDE_CONFIG_DIR".into(), "alias/new/../claude".into()),
     ]);
     let bound = bound(&[], &cwd, &env).unwrap();
+    assert_eq!(bound.agent_home, real.join("home"));
     assert_eq!(bound.gh_config_dir, real.join("gh"));
     assert_eq!(bound.xdg_gh_config_dir, real.join("xdg/gh"));
     assert!(bound.policy_files.contains(&real.join("claude/settings.json")));

@@ -566,9 +566,12 @@ pub(crate) fn prefix(
 /// profile would allow writes to all of it, so such a chat runs as before.
 pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Option<Bound> {
     let home = canonical(&dirs::home_dir()?);
-    let agent_home = env.get("HOME").filter(|h| !h.is_empty()).map(|h| canonical(Path::new(h)));
-    let agent_home = agent_home.unwrap_or_else(|| home.clone());
     let cwd = canonical(cwd);
+    let agent_home = env
+        .get("HOME")
+        .filter(|h| !h.is_empty())
+        .map(|h| canonical(&absolute(&cwd, PathBuf::from(h))));
+    let agent_home = agent_home.unwrap_or_else(|| home.clone());
     if home.starts_with(&cwd) || agent_home.starts_with(&cwd) {
         return None;
     }
