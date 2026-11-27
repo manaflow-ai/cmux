@@ -149,11 +149,26 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/ci/tip-test-compile.sh
-            .github/actions/fleet-client
             .gitmodules
           sparse-checkout-cone-mode: false
 
-      - uses: ./.github/actions/fleet-client
+      # The fleet client action comes from this workflow's own commit, not the commit under test: a bisect probe
+      # of a commit older than the action (#59069) otherwise fails before any suite runs, a red on every probe.
+      - name: Checkout the fleet client action (this workflow's commit)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .fleet-client-src
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            /.github/actions/fleet-client/
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.fleet-client-src/.github/actions/fleet-client
         with:
           controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 

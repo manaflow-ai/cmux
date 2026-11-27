@@ -26,6 +26,10 @@ git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
+import sys as _step_sys  # noqa: E402
+from pathlib import Path as _StepPath  # noqa: E402
+_step_sys.path.insert(0, str(_StepPath(__file__).resolve().parent))  # tests/cmux_next_step_text.py
+from cmux_next_step_text import inline_steps  # noqa: E402
 NEXT_WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 RUNNER = "mini-glaeda-2"
 
@@ -802,7 +806,7 @@ class Scratch(unittest.TestCase):
             self.reserve.start()
 
     def test_the_fast_tier_builds_in_the_leased_root(self):
-        text = NEXT_WORKFLOW.read_text()
+        text = inline_steps(NEXT_WORKFLOW.read_text())
         job = text[text.index("\n  fast-tier:\n"):text.index("\n  fast-tier-cargo:\n")]
         self.assertIn("owned_spm_scratch.py lease", job)
         self.assertNotIn("owned_spm_scratch.py link", job)
@@ -1037,7 +1041,7 @@ class SeedRoot(unittest.TestCase):
         self.assertEqual(self.names(), ["new", "old"])
 
     def test_the_workflow_names_the_off_switch_on_every_seed_lease(self):
-        text = NEXT_WORKFLOW.read_text()
+        text = inline_steps(NEXT_WORKFLOW.read_text())
         self.assertEqual(text.count("CMUX_FAST_TIER_OWNED_SEED:"), text.count("CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}"))
 
     def test_the_jobs_own_workspace_is_never_the_seed_root(self):
@@ -1128,7 +1132,7 @@ class SeedRoot(unittest.TestCase):
             block = text[text.index(f"- name: {name}\n"):]
             block = block[:block.index("\n      - name:", 10)]
             self.assertIn("working-directory: ${{ matrix.workspace }}", block, name)
-        self.assertEqual(NEXT_WORKFLOW.read_text().count(
+        self.assertEqual(inline_steps(NEXT_WORKFLOW.read_text()).count(
             "CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  #"), 2)
 
     def test_a_restored_seed_is_reported_seeded(self):
@@ -1139,7 +1143,7 @@ class SeedRoot(unittest.TestCase):
         self.assertEqual((payload["state"], payload["reason"]), ("seeded", "base seed"))
 
     def test_the_workflow_restores_the_seed_on_an_owned_mini_behind_the_setting(self):
-        text = NEXT_WORKFLOW.read_text()
+        text = inline_steps(NEXT_WORKFLOW.read_text())
         job = text[text.index("\n  fast-tier:\n"):text.index("\n  fast-tier-cargo:\n")]
         self.assertIn("CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}", job)
         for step in ("Compute fast-tier cache keys", "Restore the CmuxNext build"):
@@ -1154,7 +1158,7 @@ class SeedRoot(unittest.TestCase):
     def test_generated_files_builds_and_checks_in_the_seed_root(self):
         """note-410: generated files takes the seed root like the fast tier, restores the seed there, and
         every step that reads the build or writes the checkout runs in that root, not the slot's workspace."""
-        text = NEXT_WORKFLOW.read_text()
+        text = inline_steps(NEXT_WORKFLOW.read_text())
         start = text.index("\n  generated-files:\n")
         job = text[start:text.index("\n  generated-verdict:\n", start)]
 
