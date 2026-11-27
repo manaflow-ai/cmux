@@ -1126,16 +1126,16 @@ impl Hub {
         extras
             .push(("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build()))));
         extras.push(("hostBuild", json!(host_build)));
-        // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
-        extras.push((
-            "respawnPending",
-            json!(
-                session
-                    .profile_respawn
-                    .load(Ordering::SeqCst)
-                    .then_some(super::profile_respawn::PROFILE_CHANGED)
-            ),
-        ));
+        // A profile change keeps its specific reason; route, credential, gateway, capacity and
+        // stale-host changes expose the generic quiet wait so a long-lived background task is
+        // visible while it safely finishes (`idle.rs`).
+        let profile_pending = session
+            .profile_respawn
+            .load(Ordering::SeqCst)
+            .then_some(super::profile_respawn::PROFILE_CHANGED);
+        let quiet_pending =
+            session.respawn_when_quiet.load(Ordering::SeqCst).then_some("restart when quiet");
+        extras.push(("respawnPending", json!(profile_pending.or(quiet_pending))));
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` in `render_row`.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
         RowInputs { summary, extras, notice, with_tools, limits }

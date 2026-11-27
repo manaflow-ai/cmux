@@ -307,20 +307,62 @@ impl Hub {
 
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
+        let _ = self.detach_child_if_current(session, None).await;
+    }
+
+    /// Stop the child only while an automatic retry generation remains current. The generation
+    /// is checked again under the child-slot lock, so Stop cannot race the final kill.
+    pub(in crate::hub) async fn detach_child_if_current(
+        &self,
+        session: &Arc<Session>,
+        generation: Option<u64>,
+    ) -> bool {
         // A shutdown that hands this agent to the next daemon began: the agent, its turn and its
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
         // this detach done or nothing of it.
-        let mut slot = session.child.lock().await;
-        if self.hands_off(session) {
-            return;
-        }
-        // Held through the agent's end, so no new agent starts beside the one ending; a shutdown
-        // that meets the lock meanwhile waits for this end (`detaching`).
-        session.detaching.store(true, Ordering::SeqCst);
+        // Stop takes the retry mark before it waits for this child slot. A generation-fenced
+        // teardown therefore takes the slot without waiting, then tries the mark; if either
+        // operation is busy it returns and the retry handoff rechecks after the competitor
+        // releases its lock. The guard stays alive through the asynchronous kill.
+        let mut slot = match generation {
+            Some(_) => match session.child.try_lock() {
+                Ok(slot) => slot,
+                Err(_) => return false,
+            },
+            None => session.child.lock().await,
+        };
+        let child = if let Some(generation) = generation {
+            // Shutdown scheduling takes `shutdown_plan` and then the retry mark
+            // (`before_shutdown(|| set_retry(...))`). Take the plan fence first here
+            // as well; taking the retry mark and then calling `hands_off` inverted
+            // that order and could deadlock a late retry against shutdown.
+            let Some(child) = self.before_shutdown(|| {
+                session.auto_resume.try_with_current(generation, || {
+                    session.detaching.store(true, Ordering::SeqCst);
+                    slot.take()
+                })
+            }) else {
+                return false;
+            };
+            let Some(child) = child else {
+                return false;
+            };
+            child
+        } else {
+            if self.hands_off(session) {
+                return false;
+            }
+            // Held through the agent's end, so no new agent starts beside the one ending; a
+            // shutdown that meets the lock meanwhile waits for this end (`detaching`).
+            session.detaching.store(true, Ordering::SeqCst);
+            slot.take()
+        };
+        // Permission state is independent of the retry mark. Keep it outside that mark's
+        // critical section, while the child slot remains held through the asynchronous kill.
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
-        if let Some(child) = slot.take() {
+        if let Some(child) = child {
             child.kill().await;
             // A host that never took the terminate still runs its agent: it is ended by its
             // nonce, within a bound too, and what waited on the agent is answered (no exit is
@@ -339,5 +381,6 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, NotWaiting::Idle);
         }
+        true
     }
 }

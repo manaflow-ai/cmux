@@ -224,6 +224,10 @@ impl Hub {
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            self.auto_resume_disabled.store(
+                current.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty),
+                std::sync::atomic::Ordering::SeqCst,
+            );
             current.capacity_fallback_after = capacity_fallback_after;
             // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
             current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;

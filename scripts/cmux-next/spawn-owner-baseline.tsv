@@ -107,7 +107,7 @@ cmux-tui/crates/acpmux/src/hub/prompt_coach.rs	1
 cmux-tui/crates/acpmux/src/hub/question_replies.rs	1
 cmux-tui/crates/acpmux/src/hub/queue.rs	2
 cmux-tui/crates/acpmux/src/hub/races.rs	1
-cmux-tui/crates/acpmux/src/hub/route_switch.rs	2
+cmux-tui/crates/acpmux/src/hub/route_switch.rs	1
 cmux-tui/crates/acpmux/src/hub/secrets.rs	1
 cmux-tui/crates/acpmux/src/hub/silent_turn.rs	1
 cmux-tui/crates/acpmux/src/hub/stale_host_respawn.rs	1
@@ -126,7 +126,7 @@ cmux-tui/crates/acpmux/src/hub/turn_cap.rs	2
 cmux-tui/crates/acpmux/src/hub/turn_retry.rs	1
 cmux-tui/crates/acpmux/src/hub/turns.rs	1
 cmux-tui/crates/acpmux/src/hub/usage_view.rs	1
-cmux-tui/crates/acpmux/src/hub/vm_host.rs	1
+cmux-tui/crates/acpmux/src/hub/vm_host.rs	0
 cmux-tui/crates/acpmux/src/hub/watch_tick.rs	1
 cmux-tui/crates/acpmux/src/hub/watches.rs	1
 cmux-tui/crates/acpmux/src/hub/withdraw.rs	1

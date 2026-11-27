@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. A live agent whose harness profile's launch (its argv and
 //! env, `HarnessProfile::launch_digest`) changed since it started restarts on the new profile
-//! and resumes the same conversation (`claude --resume`, ACP `session/load`), the way an update's
-//! restart does (`route_switch.rs` `restart_harnesses`): between turns now, in a turn when the
-//! turn ends, never cancelled. Checked when the catalog reloads (a profile file changed,
+//! and resumes the same conversation (`claude --resume`, ACP `session/load`). Every idle gate
+//! and the process census must find it quiet (`idle.rs`); it then hibernates until the next
+//! prompt. Never cancelled. Checked when the catalog reloads (a profile file changed,
 //! `cmux harness reload`, `_acpmux/reload_config`) and once the daemon has adopted the agents
 //! the previous one left, by the digest each session keeps on disk (`SessionMeta::launch_digest`).
 //! Until the new agent starts, lists say `respawn pending: profile changed`.
@@ -13,9 +13,9 @@
 
 use super::*;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-/// What `respawnPending` says while a respawn waits for the turn to end.
+/// What `respawnPending` says while a respawn waits for all work to end.
 pub(crate) const PROFILE_CHANGED: &str = "profile changed";
 
 /// The log record a respawn's mark writes, a change every list and watcher sees.
@@ -37,7 +37,7 @@ impl Hub {
                 })
                 .collect()
         };
-        let mut stale = BTreeSet::new();
+        let mut marked = 0;
         for session in self.sessions() {
             let meta = session.meta();
             // A Home Chief session is never swept, as Update Everything never sweeps one.
@@ -52,24 +52,20 @@ impl Hub {
             if !changed || session.child.lock().await.is_none() {
                 continue;
             }
-            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed since its agent started: respawning it at its turn end");
+            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed: hibernating now if quiet, otherwise waiting");
             self.mark_profile_respawn(&session);
-            // A background process or subagent at work would end with the harness, at the turn's
-            // end too: it restarts once nothing runs in it instead (`idle.rs` `respawn_when_quiet`),
-            // as an agent on a replaced binary does (`stale_host_respawn.rs`).
-            if self.holds_work_below(&session) {
+            // A reload of an idle chat should take effect immediately. Work can start after
+            // this snapshot, including an unreported child; the shared quietness/census path
+            // rechecks every gate before ending it and leaves a mark when it refuses.
+            if !self.end_quiet_stale(&session, "profile-changed", None).await {
                 self.respawn_when_quiet(&session);
-                continue;
+                marked += 1;
             }
-            stale.insert(session.id.clone());
         }
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
+        HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
     }
 
-    /// The session's agent restarts on its profile's new launch at its turn end. Lists and
+    /// The session's agent hibernates when quiet, then starts on its profile's new launch. Lists and
     /// watchers see it (`respawnPending`, a `respawn_pending` record) until the new agent starts.
     pub(super) fn mark_profile_respawn(&self, session: &Session) {
         if !session.profile_respawn.swap(true, Ordering::SeqCst) {
@@ -80,8 +76,12 @@ impl Hub {
     /// The session's agent ended or a start runs the profile as it is now: no respawn waits.
     pub(super) fn settle_profile_respawn(&self, session: &Session) {
         // So does a restart that waited for its agent to be quiet (`idle.rs` `quiet_respawn`).
-        session.respawn_when_quiet.store(false, Ordering::SeqCst);
-        if session.profile_respawn.swap(false, Ordering::SeqCst) {
+        let quiet_was = session.respawn_when_quiet.swap(false, Ordering::SeqCst);
+        session.respawn_required.store(false, Ordering::SeqCst);
+        // Clear both marks independently: a quiet restart can be set alongside the profile mark,
+        // and short-circuiting the second swap leaves `profile_respawn` stuck until a later spawn.
+        let profile_was = session.profile_respawn.swap(false, Ordering::SeqCst);
+        if quiet_was || profile_was {
             // The next list is built anew; the start's own records follow.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
             self.events.row_changed(session);

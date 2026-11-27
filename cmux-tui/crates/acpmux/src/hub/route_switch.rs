@@ -234,29 +234,6 @@ impl Hub {
         self.child_for(session).await.map(|_| ())
     }
 
-    /// A restart left for a turn's end (a route switch, an update's `restart_harnesses`, an
-    /// unproven host's `restart_unproven`) when work runs below the chat as its turn ends
-    /// (`idle.rs` `holds_work_below`: a background subagent or process, a sub-session at work),
-    /// which the harness's exit would end: it waits. The agent restarts once nothing runs in it
-    /// (`Session::respawn_when_quiet`), or at the end of a later turn that leaves nothing below;
-    /// `route_switch` stays set for that turn. True when it waits.
-    ///
-    /// Before, the turn's end restarted it whatever ran below, though `restart_harnesses` says
-    /// such a session keeps its agent: on cosmic-gray (2026-11-26) a coordinator's agent ended at
-    /// 11:54, 12:19, 12:39 and 13:38Z, each at its first turn end after a cmux NIGHTLY install
-    /// and the restart that followed, and about 15 background subagents with it each time.
-    pub(super) fn restart_waits_for_work_below(self: &Arc<Self>, session: &Session) -> bool {
-        if !self.holds_work_below(session) {
-            return false;
-        }
-        tracing::info!(
-            session = %session.id,
-            "a restart left for the turn's end waits: work runs below it; it restarts once quiet"
-        );
-        self.respawn_when_quiet(session);
-        true
-    }
-
     /// `_acpmux/sessions/restart_harness {harnesses?, sessions?}` (Update
     /// Everything, cx-1mbnu; a chat's "Restart chat"): every live session of
     /// this daemon (none mirrored from a peer; none of the Home Chief's unless
@@ -336,30 +313,15 @@ impl Hub {
 impl Hub {
     /// An adopted agent whose host (an older build) recorded no caller token
     /// cannot prove its session, so its sub-session tools are refused. It
-    /// restarts as `acpmux session restart` asks, in the same conversation
-    /// and keeping its sub-sessions, once it is between turns: a recovered
-    /// turn ends its process when it ends (`hosts.rs`), a later turn moves it
-    /// before the next one (`turns.rs`), and an idle agent ends now and starts
-    /// again at its next prompt. Never during a turn or an open permission
-    /// prompt.
+    /// hibernates only after the idle gates and process census find no work. The next
+    /// prompt starts it with a caller token on the same conversation, keeping its
+    /// sub-sessions. A turn ending alone is not proof that it is quiet.
     pub(super) fn restart_unproven(self: &Arc<Self>, session: &Arc<Session>, proven: bool) {
         if proven {
             return;
         }
-        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): restarting it between turns for its sub-session tools");
-        session.route_switch.store(true, Ordering::SeqCst);
-        let hub = self.clone();
-        let session = session.clone();
-        tokio::spawn(async move {
-            let _turn = session.turn_lock.lock().await;
-            if session.turn().is_none()
-                && session.pending_permissions().is_empty()
-                && !hub.restart_waits_for_work_below(&session)
-                && session.route_switch.swap(false, Ordering::SeqCst)
-            {
-                hub.detach_child(&session).await;
-            }
-        });
+        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): waiting for quiet to restart it for its sub-session tools");
+        self.respawn_when_quiet_required(session);
     }
 }
 
@@ -479,9 +441,9 @@ impl Hub {
                     session,
                     "mux",
                     "route_changed",
-                    json!({"from": id, "to": next.id, "when": "after-turn", "reason": "fallback"}),
+                    json!({"from": id, "to": next.id, "when": "when-quiet", "reason": "fallback"}),
                 );
-                session.route_switch.store(true, Ordering::SeqCst);
+                self.respawn_when_quiet_required(session);
                 out.set_path(&["fallback", "applied"], json!(true));
             }
         }

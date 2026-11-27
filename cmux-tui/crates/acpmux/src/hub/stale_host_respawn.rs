@@ -91,7 +91,8 @@ impl Hub {
     /// may be closed and whose CA the agent trusts, is gone with it. On one machine
     /// (2026-11-21 21:44Z) 20 chats went `harness_unavailable` on `ECONNREFUSED` this way after
     /// daemon restarts, each retried in the same process until the retries ran out. Idle ones
-    /// end and start fresh when opened or sent to; the rest restart between turns, never in one.
+    /// hibernate only after the idle gates and census find no work, then start fresh when
+    /// opened or sent to.
     pub(crate) async fn respawn_stale_proxies(self: &Arc<Self>) -> HarnessRestarts {
         let mut stale = BTreeSet::new();
         for session in self.sessions() {
@@ -102,26 +103,28 @@ impl Hub {
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
-        let mut slept: usize = 0;
-        for id in stale.clone() {
-            if let Ok(session) = self.resolve(&id)
-                && self.end_idle_stale_for(&session, "stale-proxy").await
-            {
-                stale.remove(&id);
-                slept = slept.saturating_add(1);
+        let mut now = 0;
+        let mut marked = 0;
+        for id in &stale {
+            if let Ok(session) = self.resolve(id) {
+                // A proxy can become stale while a chat is between turns. Reuse the
+                // full quietness/census path immediately in that case; active work stays
+                // marked and is hibernated only after it really becomes quiet.
+                if self.end_quiet_stale(&session, "stale-proxy", None).await {
+                    now += 1;
+                } else {
+                    self.respawn_when_quiet_required(&session);
+                    marked += 1;
+                }
             }
         }
         tracing::info!(
             code = "vault.egress_stale_agents",
-            count = stale.len(),
-            slept,
-            "agents were sent through a vault egress proxy an earlier daemon ran: the idle ones \
-             ended and start fresh when opened or sent to; the rest restart between turns"
+            now,
+            after_turn = marked,
+            "agents on a stale proxy wait for quiet and hibernate before their next prompt"
         );
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
+        HarnessRestarts { now, after_turn: marked, ..HarnessRestarts::default() }
     }
 
     /// Whether `session`'s live agent was started on another start of this machine's vault
@@ -137,26 +140,37 @@ impl Hub {
     /// Before an automatic retry of a cut turn (`auto_resume.rs`): an agent [`Self::proxy_stale`]
     /// ends first, so the retry's prompt starts a fresh one on this daemon's proxy and resumes
     /// the same conversation, instead of sending the retry into the process that cannot reach
-    /// it. Only between turns: a turn, an open question or a start under way leaves it as it
-    /// is. Whether it ended the agent.
-    pub(super) async fn end_stale_proxy_before_retry(&self, session: &Arc<Session>) -> bool {
+    /// it. The idle gates and census must find no work; only this firing continuation is
+    /// exempt, since its prompt starts the replacement. Whether it ended the agent.
+    pub(super) async fn end_stale_proxy_before_retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        fired_gen: u64,
+    ) -> bool {
         if !self.proxy_stale(session).await {
             return false;
         }
-        let turn = session.turn_lock.try_lock();
-        let using = session.harness_use.try_write();
-        let spawning = session.spawn_lock.try_lock();
-        if turn.is_err()
-            || using.is_err()
-            || spawning.is_err()
-            || session.turn().is_some()
-            || !session.pending_permissions().is_empty()
-        {
+        let ended = self.end_quiet_stale(session, "stale-proxy-retry", Some(fired_gen)).await;
+        if !ended {
+            self.respawn_when_quiet_required(session);
+        }
+        ended
+    }
+
+    /// A route, credential or gateway change marks a live harness to restart when quiet. An
+    /// automatic continuation is the one prompt that must not run on the old environment, so it
+    /// may hibernate that marked harness immediately before firing. The continuation itself is
+    /// exempted by [`Self::retry_restart_eligible`]; every other idle gate and the process census
+    /// still applies, and a queued prompt, question or descendant keeps the old harness alive.
+    pub(super) async fn end_marked_restart_before_retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        fired_gen: u64,
+    ) -> bool {
+        if !session.respawn_when_quiet.load(Ordering::SeqCst) {
             return false;
         }
-        tracing::info!(session = %session.id, code = "vault.egress_stale_agent_restart", "its agent was sent through an earlier daemon's vault egress proxy: restarting it before the retry");
-        self.detach_child(session).await;
-        true
+        self.end_quiet_stale(session, "restart-when-quiet-retry", Some(fired_gen)).await
     }
 
     /// Ends `session`'s agent when it is idle as the idle pass judges it (`idle.rs`
@@ -168,22 +182,55 @@ impl Hub {
     }
 
     async fn end_idle_stale_for(&self, session: &Arc<Session>, cause: &'static str) -> bool {
+        self.end_quiet_stale(session, cause, None).await
+    }
+
+    /// The immediate automatic exit uses the same leases, activity checks, census and
+    /// hibernation as the idle pass. Unknown descendants keep the agent alive. Only the
+    /// firing retry caller may omit its own continuation from the eligibility check.
+    pub(super) async fn end_quiet_stale(
+        &self,
+        session: &Arc<Session>,
+        cause: &'static str,
+        firing_retry: Option<u64>,
+    ) -> bool {
+        let eligible = || {
+            if self.shutting_down() {
+                return false;
+            }
+            if let Some(generation) = firing_retry {
+                session.auto_resume.current(generation) && self.retry_restart_eligible(session)
+            } else {
+                self.idle_eligible(session)
+            }
+        };
+        if !eligible() {
+            return false;
+        }
+        let Some(child) = session.child.lock().await.clone() else { return false };
+        let sidecars = self.sidecars(session, &child).await;
         let turn = session.turn_lock.try_lock();
         let using = session.harness_use.try_write();
         let spawning = session.spawn_lock.try_lock();
-        if turn.is_err() || using.is_err() || spawning.is_err() || !self.idle_eligible(session) {
+        let same = session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child));
+        if turn.is_err() || using.is_err() || spawning.is_err() || !same || !eligible() {
             return false;
         }
-        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
-        self.detach_child(session).await;
-        if session.status() == SessionStatus::Closed {
-            self.clear_hibernation(session);
-            return true;
+        let seen = session.last_active.load(Ordering::SeqCst);
+        let census = self.idle_census(child.pid, sidecars).await;
+        if !matches!(census, super::idle_census::Census::Clear) {
+            self.note_refusal(session, &census);
+            return false;
         }
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
-            crate::store::now_ms().max(1);
-        self.save_meta(session);
-        tracing::info!(session = %session.id, cause, "hibernated: its agent was stale and idle; a fresh one starts when it is opened or sent to");
+        Self::drain_inbound(session).await;
+        if session.last_active.load(Ordering::SeqCst) != seen || !eligible() {
+            return false;
+        }
+        let link_lost = child.host_record().is_some() && !child.is_alive().await;
+        if !self.hibernate_held(session, link_lost, Some(seen), firing_retry).await {
+            return false;
+        }
+        tracing::info!(session = %session.id, cause, "hibernated: stale agent passed every quietness gate and the census");
         true
     }
 
