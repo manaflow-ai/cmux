@@ -104,7 +104,7 @@ pub(crate) fn mark_if_reached(home: &Path, socket: &str, token: &str, answer: &V
     }
     let path = mark_path(home, socket, token);
     let Some(dir) = path.parent() else { return };
-    if std::fs::create_dir_all(dir).is_err() {
+    if crate::home_fs::create_dir_all(dir, 0o700).is_err() {
         return;
     }
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -116,11 +116,11 @@ pub(crate) fn mark_if_reached(home: &Path, socket: &str, token: &str, answer: &V
                 .and_then(|t| t.elapsed().ok())
                 .is_some_and(|age| age > MARK_TTL);
             if old {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
     }
-    let _ = std::fs::write(&path, b"");
+    let _ = crate::home_fs::write(&path, b"");
 }
 
 #[cfg(test)]
