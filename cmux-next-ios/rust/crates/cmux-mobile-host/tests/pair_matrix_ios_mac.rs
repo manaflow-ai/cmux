@@ -75,7 +75,9 @@ use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::testing::{
     FakeOptions, FakeSignaling, LinkProfile, TestTurn, is_test_relay, set_link_profile, shape_by_profile,
 };
-use cmux_mobile_link::{ChannelEvent, Connected, DialOptions, LinkConfig, SignalingClient, TransportKind};
+use cmux_mobile_link::{
+    ChannelEvent, Connected, DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind,
+};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, watch};
@@ -556,7 +558,13 @@ impl Chat {
         after: Option<u64>,
         seen: &Arc<Seen>,
         deadline: Instant,
+        timeline: Option<&Timeline>,
     ) -> Result<(Self, Instant), String> {
+        let mark = |name: &str| {
+            if let Some(timeline) = timeline {
+                timeline.mark(name);
+            }
+        };
         let channel = tokio::time::timeout_at(
             deadline,
             connected.link.open("acpmux", json!({"compression": "deflate"})),
@@ -564,6 +572,7 @@ impl Chat {
         .await
         .map_err(|_| "acpmux channel open timed out".to_owned())?
         .map_err(|e| format!("acpmux channel: {e:?}"))?;
+        mark("chat_channel_open");
         let (sender, receiver) = channel.split();
         let (replies_tx, replies) = mpsc::unbounded_channel();
         let reader = tokio::spawn(read_chat(receiver, replies_tx, Arc::clone(seen), session.to_owned()));
@@ -577,7 +586,9 @@ impl Chat {
         .await?;
         chat.post("watch", "_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
         chat.answer("init", deadline).await?;
+        mark("chat_init_answered");
         chat.answer("watch", deadline).await?;
+        mark("chat_watch_answered");
         let mut params = json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": ["transcript"],
                                 "eventStream": true});
         match after {
@@ -589,6 +600,7 @@ impl Chat {
         }
         chat.post("attach", "_acpmux/attach", params).await?;
         let (at, reply) = chat.answer("attach", deadline).await?;
+        mark("chat_attach_answered");
         let rows = reply["result"]["events"].as_array().map(Vec::len).unwrap_or_default();
         if after.is_none() && rows == 0 {
             return Err("attach page had no rows".into());
@@ -722,13 +734,17 @@ impl Rig {
     }
 
     async fn dial(&self, deadline: Instant) -> Result<Connected, String> {
-        let dial = dial::connect(
-            &self.phone,
-            &self.mac_id,
-            TransportKind::WireGuard,
-            &self.options,
-            LinkConfig::default(),
-        );
+        self.dial_timed(deadline, None).await
+    }
+
+    /// [`Rig::dial`] marking the dialer's legs on `timeline` (`PAIRLEGS`).
+    async fn dial_timed(&self, deadline: Instant, timeline: Option<&Timeline>) -> Result<Connected, String> {
+        let options = match timeline {
+            Some(timeline) => DialOptions { timeline: timeline.clone(), ..self.options.clone() },
+            None => self.options.clone(),
+        };
+        let dial =
+            dial::connect(&self.phone, &self.mac_id, TransportKind::WireGuard, &options, LinkConfig::default());
         match tokio::time::timeout_at(deadline, dial).await {
             Err(_) => Err("dial timed out".into()),
             Ok(Err(error)) => Err(format!("dial: {error:?}")),
@@ -748,10 +764,18 @@ struct Phone {
 }
 
 impl Phone {
-    async fn open(rig: &Rig, session: &str, deadline: Instant) -> Result<(Self, Instant), String> {
+    /// The first dial and attach, each leg marked on `timeline` (the dialer's marks, then
+    /// the chat's: `chat_channel_open`, `chat_init_answered`, `chat_watch_answered`,
+    /// `chat_attach_answered`).
+    async fn open(
+        rig: &Rig,
+        session: &str,
+        deadline: Instant,
+        timeline: &Timeline,
+    ) -> Result<(Self, Instant), String> {
         let seen = Seen::new();
-        let connected = rig.dial(deadline).await?;
-        let (chat, at) = Chat::open(&connected, session, None, &seen, deadline).await?;
+        let connected = rig.dial_timed(deadline, Some(timeline)).await?;
+        let (chat, at) = Chat::open(&connected, session, None, &seen, deadline, Some(timeline)).await?;
         Ok((
             Self {
                 connected,
@@ -770,7 +794,7 @@ impl Phone {
         self.redials += 1;
         let connected = rig.dial(deadline).await?;
         let after = self.seen.last();
-        let (chat, _) = Chat::open(&connected, &self.session, after, &self.seen, deadline).await?;
+        let (chat, _) = Chat::open(&connected, &self.session, after, &self.seen, deadline, None).await?;
         self.connected.link.close("redialed");
         self.connected = connected;
         self.chat = chat;
@@ -827,6 +851,15 @@ impl Cell<'_> {
             line["error"] = json!(error);
         }
         println!("PAIRCELL {line}");
+    }
+
+    /// `PAIRLEGS {json}`: every mark of the first dial and attach, ms from the dial start.
+    fn legs(&self, timeline: &Timeline) {
+        let marks: serde_json::Map<String, Value> =
+            timeline.marks().into_iter().map(|(name, at)| (name, json!(ms(at)))).collect();
+        let line = json!({"pair": PAIR, "path": self.path.name(), "condition": self.label, "load": self.load,
+                          "run": self.run, "seed": self.seed, "marks": marks});
+        println!("PAIRLEGS {line}");
     }
 
     fn aux(&self, fields: Value) {
@@ -980,7 +1013,10 @@ async fn run_cell(cell: &Cell<'_>) {
     let mut rig = Rig::start(cell.path, turns, acpmux).await;
     let session = rig.acpmux.session_id(0);
     let began = Instant::now();
-    let opened = Phone::open(&rig, &session, began + BOUND).await;
+    // The dial's legs from the same start as `ttfc_ms` (`PAIRLEGS`, one line per run).
+    let timeline = Timeline::starting_at(began.into_std());
+    let opened = Phone::open(&rig, &session, began + BOUND, &timeline).await;
+    cell.legs(&timeline);
     let (mut phone, attached) = match opened {
         Ok(opened) => opened,
         Err(error) => {
