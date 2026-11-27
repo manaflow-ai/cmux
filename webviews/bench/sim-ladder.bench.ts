@@ -871,7 +871,9 @@ function rssMB(pid: number): number {
 /// A profile's scene: its pages, sessions and load. `mix` set, runAxis builds this one scene and measures it once.
 /// `visible` of the chats are shown (each in a window of its own) and stream a reply a delta every `streamMs`.
 type Mix = { chats: number; visible: number; tabs: number; hogs: number; streamMs: number | null };
-type Scene = { sample: Sample; agentRssMB: number; churn: boolean };
+// mainBusyPct: the focused chat's renderer main thread, its task time over the window's wall time (CDP TaskDuration), %:
+// the reading replay-under-load.bench.ts publishes as renderer_main_busy_pct (NOW's renderer-main-busy goal).
+type Scene = { sample: Sample; agentRssMB: number; mainBusyPct: number | null; churn: boolean };
 
 async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undefined> {
   const chrome = await launchChrome();
@@ -1040,10 +1042,25 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
                 .catch((error: unknown) => ({ error: String(error) })),
             );
       try {
+        const taskSeconds = async () => {
+          const { metrics } = (await items[0]!.cdp.send("Performance.getMetrics")) as {
+            metrics: { name: string; value: number }[];
+          };
+          return metrics.find((m) => m.name === "TaskDuration")?.value ?? null;
+        };
+        const taskBefore = await taskSeconds();
+        const wallBefore = performance.now();
         const sample = await measure(rootPid, items, focused, browserCdp);
+        const taskAfter = await taskSeconds();
+        const wallMs = performance.now() - wallBefore;
+        const mainBusyPct =
+          taskBefore !== null && taskAfter !== null && wallMs > 0
+            ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10
+            : null;
         return {
           sample,
           agentRssMB: Math.round(rssMB(agentPid)),
+          mainBusyPct,
           churn: hasChurn,
         };
       } finally {
@@ -1206,6 +1223,14 @@ async function runProfile() {
     renderer_cpu_ms_per_s: {
       sim: scene.sample.cpu_ms_per_s,
       app: appCpu === null ? null : Math.round(appCpu * 10),
+      extra: true,
+    },
+    // NOW's renderer-main-busy goal reads this off replay-under-load (perf_sensor.vm_replay) and, from the app,
+    // perf_sensor.leo_nightly.renderer_main_busy_pct; a profile without it leaves the pair the sim's alone.
+    renderer_main_busy_pct: {
+      sim: scene.mainBusyPct,
+      app: fromProfile("renderer_main_busy_pct"),
+      why: "UNMEASURED: the app's profile gives no renderer main-thread busy %",
       extra: true,
     },
   };

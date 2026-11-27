@@ -80,7 +80,15 @@ public final class LanguagePackService {
     private func ensure(language: String, manifest: URL, cache: URL, connection: DaemonConnection) async {
         do {
             switch try await LanguagePacksClient(connection: connection).ensure(language: language, manifest: manifest, cache: cache) {
-            case .ready(let root):
+            case .ready(let root, let chromiumPak):
+                // Chromium reads the language's pak from outside the signed app, the next time it
+                // starts (`ChromiumLocalePaks`); the copy needs no activation, so it comes first.
+                if let chromiumPak {
+                    let folder = ChromiumLocalePaks.directory(bundleID: bundleID)
+                    // task-owner: awaited here; one file copy off the main thread
+                    let copied = await Task.detached(priority: .utility) { ChromiumLocalePaks.install(pak: chromiumPak, into: folder) }.value
+                    if copied == nil { logger.error("Chromium locale pak for \(language, privacy: .public) was not installed") }
+                }
                 // The setting may have changed while the download was in flight. Do not activate
                 // an older answer and briefly show the wrong language; the observation loop will
                 // request the current one after this await returns.
