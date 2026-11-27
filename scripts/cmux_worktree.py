@@ -132,7 +132,7 @@ def libc():
     return _libc
 
 
-def clone_path(src: Path, dst: Path) -> None:
+def clone_path(src: Path, dst: Path, reflink: str = "always") -> None:
     """Clone a file or a whole folder tree (dst must not exist).
 
     macOS: clonefile(2), which clones a folder tree in one call on APFS.
@@ -145,9 +145,10 @@ def clone_path(src: Path, dst: Path) -> None:
             code = ctypes.get_errno()
             raise OSError(code, f"clonefile {src} -> {dst}: {os.strerror(code)}")
         return
-    # always, never auto: where the volume has no reflinks a copy would write every byte twice
-    # (the seed and the worktree) instead of once; clone_supported() sends that case to a checkout.
-    result = subprocess.run(["cp", "-a", "--reflink=always", str(src), str(dst)], capture_output=True, text=True)
+    # always for the seed's files: where the volume has no reflinks a copy would write every byte
+    # twice (the seed and the worktree) instead of once; clone_supported() sends that case to a
+    # checkout. --cargo passes auto: a copied target still saves the build.
+    result = subprocess.run(["cp", "-a", f"--reflink={reflink}", str(src), str(dst)], capture_output=True, text=True)
     if result.returncode != 0:
         raise OSError(errno.EIO, f"cp {src} -> {dst}: {result.stderr.strip()}")
 
@@ -563,9 +564,9 @@ def seed_cargo_target(repo: Path, dest: Path, crate_dir: str) -> dict:
                     (mine / "target" / item.name).mkdir()
                     for sub in item.iterdir():
                         if sub.name != "incremental":
-                            clone_path(sub, mine / "target" / item.name / sub.name)
+                            clone_path(sub, mine / "target" / item.name / sub.name, reflink="auto")
                 else:
-                    clone_path(item, mine / "target" / item.name)
+                    clone_path(item, mine / "target" / item.name, reflink="auto")
             report["from"] = str(target)
             return report
         finally:
