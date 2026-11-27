@@ -9030,6 +9030,53 @@ class WsCheckPerTest(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
                     self.judge()
 
+    def test_a_main_status_ending_in_its_published_failed_set_is_read(self):
+        # 2026-11-27: leo-workspace tools/ws-check publish_failed ends main's red status with " [fails N: HASHES]";
+        # read as part of the step, every red main verdict was "does not match", so no main commit had a readable
+        # verdict and lw#8374 at 110e5ff6 was refused "none of the 30 newest main commits has a ws-check verdict".
+        for description in (f"1 of 77 steps failed: {self.RELAY}"[:100] + " [fails 1: Iaih2]",
+                            f"1 of 77 steps failed: {self.RELAY}"[:80] + " [fails 3: Iaih2bS04fLm3fh]"):
+            with self.subTest(description=description):
+                self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, description=description)
+                self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        # The set dropped, a description naming another step still does not match.
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()},
+                        description=f"1 of 77 steps failed: {self.DEPLOY} [fails 1: Iaih2]")
+        with self.assertRaisesRegex(excuse.Refused, "none of the 30 newest main commits"):
+            self.judge()
+
+    def learned_red(self, description):
+        """HEAD red on DEPLOY's units test_a.py, test_b.py and test_c.py, its own base pass seeing only test_a.py fail
+        on main; main red on test_a and test_c. tools/ws-check also discounted test_c.py, learned from another run of
+        the same main (learn_base_reds), so its status DESCRIPTION counts one more discount than this log shows."""
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                       "test_c.py": self.ws_deploy("test_c")}})
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                "test_b.py": self.ws_deploy("test_b"),
+                                                "test_c.py": self.ws_deploy("test_c")}}, description=description)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [test_a.py] (exit 1, ran 4, skipped 0, "
+                              "gh calls 0)",
+                      stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 3 failed units fail on main too (9.0 s)"]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_a_long_discounted_status_counting_learned_discounts_is_read(self):
+        main8 = self.gh.TIP[:8]
+        self.learned_red(f"1 failed after discounting 2 on main {main8}: test_b.py")
+        with self.assertRaisesRegex(excuse.Refused, "test_b") as caught:  # read: test_b is the head's own red
+            self.judge()
+        self.assertNotIn("does not match", str(caught.exception))
+        for description in (f"2 failed after discounting 2 on main {main8}: test_b.py",  # counts split no log
+                            f"1 failed after discounting 2 on main {main8}: test_a.py",  # a unit main fails
+                            f"1 failed after discounting 2 on main {'0' * 8}: test_b.py",  # another main
+                            f"3 failed after discounting 0 on main {main8}: test_b.py"):  # less than the log's pass
+            with self.subTest(description=description):
+                self.learned_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
     def own_base_red(self, *, on_main=("test_a.py", "test_b.py")):
         """HEAD red on DEPLOY's units test_a.py and test_b.py, its own run's base pass having reran both in main's
         tree and seen ON_MAIN fail there too; no main commit has a ws-check verdict at all."""
