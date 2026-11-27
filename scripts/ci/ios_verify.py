@@ -128,11 +128,18 @@ def delegated(selection: dict) -> list[dict]:
 # ---------- run ----------
 
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
-    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
+
+    The worker is part of the key only under --pin-strict, where the host is the evidence: the same work
+    sent to cmux22 and aws-m4pro-4 is one step, and the fleet's idempotency key dedupes it instead of
+    queueing it twice (ios-sim-queue red, 11-27: pairs c71f2d2b1a45/dc356492a3bf, 7f3a4f1e9b47/45c3414ad5f8).
+    The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
+    queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    workload = json.dumps([SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+    pinned = f"-{step['worker']}" if strict else ""
+    return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
 
 
 def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:

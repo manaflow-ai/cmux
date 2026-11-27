@@ -148,7 +148,9 @@ class Plan(unittest.TestCase):
             self.assertEqual(key, dispatch())
         self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
         self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
-        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        # The same work on another worker is one step (dedupes in the queue) unless the run is pinned strict.
+        self.assertEqual(key, dispatch(worker="aws-m4pro-4"))
+        self.assertNotEqual(dispatch(strict=True), dispatch(strict=True, worker="cmux23"))
         self.assertNotEqual(key, dispatch(strict=True))
         self.assertNotEqual(key, dispatch(attempt="2"))
         self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
@@ -166,6 +168,9 @@ class Plan(unittest.TestCase):
         moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
         self.assertFalse(set(keys) & set(moved))
         self.assertTrue(all(HEAD[:12] in k for k in keys))
+        # A newer head's key differs only in its head field, so cmux-ci's supersede (commits aside) replaces
+        # the older queued step instead of queueing both.
+        self.assertEqual([k.replace(HEAD, "") for k in keys], [k.replace(OTHER, "") for k in moved])
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
