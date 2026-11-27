@@ -4,7 +4,7 @@ import CmuxVNC
 /// A stand-in for cmux-vnc's rules (the real ones and their known answers are tested in Rust,
 /// cmux-tui/crates/cmux-vnc): enough of `vnc_version` and the security choice to drive the
 /// Swift handshake, and a password "response" that is not DES but agrees between this client
-/// and the demo server. No Apple DH.
+/// and the demo server (whose own ops are FixtureDemoRules). No Apple DH.
 extension VNCRules {
     static let fixture = VNCRules { operation, request in
         let object = (try? JSONSerialization.jsonObject(with: request)) as? [String: Any] ?? [:]
@@ -35,6 +35,8 @@ extension VNCRules {
             let key = Array(((object["password"] as? String) ?? "").utf8.prefix(8)) + [UInt8](repeating: 0, count: 8)
             let response = bytes("challenge").enumerated().map { $0.element ^ key[$0.offset % 8] ^ 0x5A }
             return answer(["response": Data(response).base64EncodedString()])
+        case let demo where demo.hasPrefix("vnc_demo_"):
+            return answer(FixtureDemoRules.answer(demo, object))
         default:
             return answer(NSNull())
         }

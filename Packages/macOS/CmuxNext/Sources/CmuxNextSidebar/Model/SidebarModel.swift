@@ -275,6 +275,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// Today's changes read as an age (`2h`), not a time (`sidebar.relativeTimestamps`, off by default).
+    public var relativeTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
@@ -847,7 +849,7 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         expanded = preferences.density == .expanded
         detailedStatus = preferences.detailedStatusIcons
-        showsTimestamps = preferences.showTimestamps
+        (showsTimestamps, relativeTimestamps) = (preferences.showTimestamps, preferences.relativeTimestamps)
         settlesFinished = preferences.settleFinished
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
@@ -887,7 +889,10 @@ public final class SidebarModel {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
         }
-        o.now = Calendar.current.startOfDay(for: Date())
+        // Relative times (`2h`) count from this minute; otherwise the start of today, so options stay equal all day.
+        o.relativeTimes = showsTimestamps && relativeTimestamps
+        o.now = o.relativeTimes ? Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+            : Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         if listsArchived { (o.archiveSection, o.foldsArchived) = (false, false) }
         return o
@@ -929,5 +934,16 @@ public final class SidebarModel {
             return
         }
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+
+    /// ``toggle()`` timed from this key press or click to the first frame its slide resizes the panes in (`side_open`,
+    /// `side_close`; the layout's `ScreenContentView+FrameTiming`). A toggle that moves no pane (a floating sidebar, the
+    /// rail's overlay) times nothing: its arm lapses. Measurement only.
+    public func toggle(timing: TransitionFrameLog?) {
+        if let timing {
+            timing.arm(isHidden ? .sideOpen : .sideClose)
+            timing.input()
+        }
+        toggle()
     }
 }
