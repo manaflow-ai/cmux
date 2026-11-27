@@ -1424,6 +1424,16 @@ def cmd_judge(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------- revert
 
 
+def takes_back_line(pr: str, job: str, branch: str, piece: str = "") -> list[str]:
+    """The `Takes back #N: <why>` line risk_tier.py's risk evidence needs before a pull request undoing a recent
+    merge may land (TAKES_BACK there). Without it every batch revert and swap-out went red on risk evidence and
+    never merged: all 8 the batch opened 11-22..27 (cmux#62601, #62421, #62292, ...); each red was fixed forward."""
+    if not pr:
+        return []
+    what = f"its `{piece}` piece" if piece else "it"
+    return [f"Takes back #{pr}: the post-merge batch bisected `{job}` red on {branch} to it and confirmed it; this undoes {what} so the base is green again."]
+
+
 def revert_title(subject: str, job: str, branch: str) -> str:
     return f'Revert "{subject}" (post-merge batch: {job} red on {branch})'
 
@@ -1588,6 +1598,7 @@ def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, 
             f"Swaps out one piece of {who} (`{culprit}`), not the whole commit: `{piece.id}` ({piece.cls}, swaps {piece.swap}; "
             f"{', '.join(f'`{f}`' for f in piece.files)}). The post-merge batch run {origin} found `{args.job}` red on {args.branch}, "
             f"the bisect named {who} as its first red commit, and the piece drill-down ({this}) named this piece.",
+            *takes_back_line(pr, args.job, args.branch, piece.id),
             "Stays in: " + (", ".join(f"`{k}`" for k in kept) or "(no other piece)") + ".",
             f"Swap it back in: revert this pull request's commit. The whole revert, the owner's fallback (proposed, never run here):\n\n"
             f"```\n{ps.whole_revert_command(culprit, args.branch, ps.parents(culprit))}\n```",
@@ -1661,6 +1672,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         + [
             f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
             f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
+            *takes_back_line(pr, args.job, args.branch),
             f"{land} If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
             "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert itself.",
         ]

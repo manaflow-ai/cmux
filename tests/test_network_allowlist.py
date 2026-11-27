@@ -20,6 +20,12 @@ named is no longer in the code (named_in "code") or a relay left the catalog (na
 exact, when an entry is malformed, and when the doc differs from the JSON. An entry named_in "server-answer" is a
 host a server hands out at run time (Cloudflare's TURN host in the /v1/ice answer); no scan can find it.
 
+On a pull request (CMUX_GUARDS_BASE_SHA set) the coverage check reads only the files the change touched, at the
+base and at the head (tests/guard_delta.py): a connectivity host they gained with no entry fails, and a host they
+lost is looked up across the tree (outbound hosts' git grep, and one for its ICE URIs) before a named_in "code"
+entry is called stale. A change to RULES (the list, the relay catalog, docs/privacy.md, the scanners) scans
+everything, as does a branch's own run.
+
 Run it: python3 tests/test_network_allowlist.py. Rewrite the doc after editing the JSON: --write.
 Print the counts: --json.
 """
@@ -37,12 +43,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_classic_cloud_routes import clean, in_scope  # noqa: E402
+import guard_delta  # noqa: E402
 import test_outbound_hosts as outbound  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "config" / "network" / "allowlist.json"
 DOC = ROOT / "docs" / "network-requirements.md"
 CATALOG = ROOT / "config" / "iroh" / "managed-relay-catalog.json"
+# A change to one of these scans everything: what the coverage check reads besides the code (guard_delta.py adds
+# itself).
+RULES = ["tests/test_network_allowlist.py", *outbound.RULES, "config/network/allowlist.json",
+         "config/iroh/managed-relay-catalog.json", "docs/privacy.md"]
 FIRST_PARTY = ("cmux.dev", "cmux.com", "chatmux.dev", "debussy.workers.dev")
 CONNECTIVITY_WORD = re.compile(r"stun|turn|relay|signal|rtc")
 # Servers whose ICE lists reach the clients: the iPhone pairing API's /v1/ice and the device hub.
@@ -76,6 +87,29 @@ def ice_hosts(root: Path = ROOT) -> dict[str, list[str]]:
         for host in sorted(ice_hosts_in(path.read_text(encoding="utf-8", errors="replace"), rel)):
             found.setdefault(host, []).append(rel)
     return found
+
+
+def ice_found_in(texts: dict[str, str]) -> dict[str, list[str]]:
+    found: dict[str, list[str]] = {}
+    for rel in sorted(texts):
+        if in_scope(rel, ICE_SCOPE):
+            for host in sorted(ice_hosts_in(texts[rel], rel)):
+                found.setdefault(host, []).append(rel)
+    return found
+
+
+def ice_named_anywhere(hosts: set[str], root: Path = ROOT) -> set[str]:
+    """Which of `hosts` an ICE URI in scope names: a git grep for each, then the matcher on those files."""
+    if not hosts:
+        return set()
+    argv = ["git", "-C", str(root), "grep", "-I", "-l", "-z", "-i", "-F"]
+    for host in sorted(hosts):
+        argv += ["-e", host]
+    p = subprocess.run([*argv, "--", *ICE_SCOPE["include"]], capture_output=True)
+    if p.returncode not in (0, 1):
+        raise RuntimeError(p.stderr.decode(errors="replace"))
+    rels = [r for r in p.stdout.decode().split("\0") if r]
+    return set(ice_found_in(guard_delta.text_at_head(rels, root, errors="replace"))) & hosts
 
 
 def ice_hosts_in(text: str, rel: str) -> set[str]:
@@ -167,6 +201,40 @@ def coverage_problems(data: dict, code: dict[str, list[str]], ice: dict[str, lis
     return out
 
 
+def change_problems(base: str, paths: list[str], data: dict, privacy_doc: str, relays: set[str],
+                    root: Path = ROOT) -> list[str]:
+    """The coverage problems the change since `base` added, from the touched files alone (RULES unchanged, so the
+    list, the catalog and the privacy rows are the base's)."""
+    head_texts = guard_delta.text_at_head(paths, root, errors="replace")
+    base_texts = guard_delta.blobs_at(base, paths, root, errors="replace")
+    outbound_scope = lambda texts: {r: t for r, t in texts.items() if in_scope(r, outbound.SCAN)}  # noqa: E731
+    head, was = outbound.found_in(outbound_scope(head_texts)), outbound.found_in(outbound_scope(base_texts))
+    head_ice, was_ice = ice_found_in(head_texts), ice_found_in(base_texts)
+    gained = {h: f for h, f in {**code_hosts(head, privacy_doc), **head_ice}.items()
+              if h not in was and h not in was_ice}
+    lost = (set(was) | set(was_ice)) - set(head) - set(head_ice)
+    code_entries = {e["host"] for e in data["hosts"] if e["named_in"] == "code"}
+    stale = code_entries & lost
+    named = set(outbound.named_anywhere(stale, root)) | ice_named_anywhere(stale, root)
+    # Keep every entry for exact and wildcard coverage. Only lost code names can become stale;
+    # the remaining entries' naming status belongs to the base, not this change.
+    named |= code_entries - stale
+    return coverage_problems(data, gained, {}, relays, named | set(head) | set(head_ice))
+
+
+def coverage(root: Path = ROOT) -> list[str]:
+    """The coverage problems: on a pull request the change's own, else the whole tree's."""
+    data, privacy_doc, relays = load(root / ALLOWLIST.relative_to(ROOT)), (root / "docs/privacy.md").read_text(), \
+        relay_hosts(root / CATALOG.relative_to(ROOT))
+    base = guard_delta.base_commit(root)
+    paths = guard_delta.changed(RULES, root, base) if base else None
+    if base and paths is not None:
+        guard_delta.note("network allowlist", base, paths)
+        return change_problems(base, paths, data, privacy_doc, relays, root)
+    found = outbound.scan(root)
+    return coverage_problems(data, code_hosts(found, privacy_doc), ice_hosts(root), relays, set(found))
+
+
 def ports_text(e: dict) -> str:
     return "<br>".join(f"`{p['port']}` {p['use']}" for p in e["ports"])
 
@@ -234,9 +302,7 @@ class NetworkAllowlist(unittest.TestCase):
         self.assertFalse(bad, "\n" + "\n".join(bad))
 
     def test_every_connectivity_host_in_the_code_is_listed(self):
-        found = outbound.scan()
-        code = code_hosts(found, outbound.DOC.read_text())
-        bad = coverage_problems(load(), code, ice_hosts(), relay_hosts(), set(found))
+        bad = coverage()
         self.assertFalse(bad, "\n" + "\n".join(bad))
 
     def test_the_doc_is_rendered_from_the_list(self):
