@@ -20,7 +20,7 @@ nonisolated enum RustSidebarDocListing {
     static func key(_ ref: SidebarDocWorkspaceRef) -> String { ref.sessionID + "\n" + ref.workspaceID }
 
     /// The projection's band groups and the open members another window lists (`SidebarDocDrag.listedElsewhere`).
-    static func bandGroups(_ projection: SidebarDocProjection, drag: SidebarDocDrag) -> (groups: [BandGroup], elsewhere: [String]) {
+    @MainActor static func bandGroups(_ projection: SidebarDocProjection, drag: SidebarDocDrag) -> (groups: [BandGroup], elsewhere: [String]) {
         var elsewhere = Set<String>()
         let groups = projection.bandGroups.map { group in
             for member in group.openMembers where drag.listedElsewhere(member) { elsewhere.insert(key(member)) }
