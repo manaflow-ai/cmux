@@ -42880,7 +42880,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your GitHub login %1$@ can't reach %2$@. Sign in with GitHub to give Cloud access to it."
+            "value": "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it."
           }
         },
         "ar": {

@@ -318,7 +318,7 @@ async fn an_address_change_silences_live_connections_and_stalls_new_ones() {
     // Dialed inside the stall: its first round trip lands only after the stall ends.
     let mut new = TcpStream::connect(shaper.addr()).await.unwrap();
     round_trip(&mut new, 10).await;
-    let now = tokio::time::Instant::now();
+    let now = Instant::now();
     assert!(now >= flows, "answered {:?} before the stall ended", flows - now);
 }
 
@@ -342,7 +342,7 @@ async fn internet_down_kills_the_internet_path_and_leaves_the_lan() {
     round_trip(&mut internet, 10).await;
 
     let back = shaper.disrupt().unwrap();
-    assert!(back <= tokio::time::Instant::now(), "the LAN link never drops");
+    assert!(back <= Instant::now(), "the LAN link never drops");
     // The live internet connection goes silent.
     internet.write_all(b"ping").await.unwrap();
     let mut answer = [0_u8; 4];
