@@ -965,6 +965,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-region-pick"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-relay-snapshot"
 version = "0.1.0"
 dependencies = [

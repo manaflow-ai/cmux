@@ -33,6 +33,7 @@
 
 use super::*;
 
+mod pr_archive;
 pub(in crate::hub) mod revive;
 pub(in crate::hub) mod scratch;
 
@@ -114,32 +115,17 @@ use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
+use cmux_worktree_care::Store as ArchiveStore;
+use cmux_worktree_care::care;
 use cmux_worktree_care::inventory::now_ms;
-use cmux_worktree_care::pass::{self, Options};
-use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
+use cmux_worktree_care::policy::Settings as CareSettings;
 use cmux_worktree_care::schedule::{self, Claim, Refused};
-use cmux_worktree_care::{Store as ArchiveStore, caches, disk};
-
-/// The setting that turns automatic passes off.
-pub const SETTING_AUTO_CLEANUP: &str = "worktrees.autoCleanup";
-
-/// The setting that lets a pass also remove the machine's idle build caches
-/// (`cmux_worktree_care::caches`). Off by default: they are always reported.
-pub const SETTING_CLEAN_BUILD_CACHES: &str = "worktrees.cleanBuildCaches";
-
-const MINUTE_MS: u64 = 60 * 1000;
 
 /// How long a session's start waits on its submodules coming back.
 const RESTORE_SUBMODULES: Duration = Duration::from_secs(120);
 
-/// The least time between two automatic passes at each pressure.
-fn spacing(pressure: Pressure) -> u64 {
-    match pressure {
-        Pressure::Normal => 6 * 60 * MINUTE_MS,
-        Pressure::High => 60 * MINUTE_MS,
-        Pressure::Critical => 10 * MINUTE_MS,
-    }
-}
+/// Milliseconds per minute for removal log durations.
+const MINUTE_MS: u64 = 60 * 1000;
 
 /// This process's cleanup state: one pass at a time in this process (the
 /// machine-wide claim is `schedule`), when this process last started one (a
@@ -175,18 +161,9 @@ impl Drop for Running<'_> {
     }
 }
 
-/// Whether automatic passes are on: the setting, else on. An unreadable
-/// settings file turns them off: a removal must not follow a guess.
+/// Whether automatic passes are on (`care_machine`).
 pub fn auto_cleanup_enabled() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Missing => true,
-        crate::user_settings::Settings::Unreadable(_) => false,
-        crate::user_settings::Settings::Parsed(doc) => {
-            crate::user_settings::value(&doc, SETTING_AUTO_CLEANUP)
-                .and_then(|value| value.as_bool())
-                .unwrap_or(true)
-        }
-    }
+    crate::care_machine::auto_cleanup_enabled()
 }
 
 /// A pass report's line for each folder it removed: its path, why, how
@@ -220,19 +197,6 @@ fn removals(report: &Value) -> Vec<String> {
         .collect()
 }
 
-/// Whether a pass may remove idle build caches: the setting, else off. An
-/// unreadable settings file keeps them.
-pub fn clean_build_caches_enabled() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => {
-            crate::user_settings::value(&doc, SETTING_CLEAN_BUILD_CACHES)
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false)
-        }
-        _ => false,
-    }
-}
-
 fn archive_store() -> Result<ArchiveStore, RpcError> {
     let dir = ArchiveStore::default_dir()
         .ok_or_else(|| RpcError::internal("no home folder for the worktree archive"))?;
@@ -249,6 +213,10 @@ impl Hub {
             SessionStatus::Closed => "session_close",
             _ => return,
         };
+        self.care_wake(why);
+    }
+
+    pub(super) fn care_wake(&self, why: &'static str) {
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = why;
         CARE.wake.notify_one();
     }
@@ -271,8 +239,12 @@ impl Hub {
             let hub = hub.clone();
             async move {
                 loop {
-                    CARE.wake.notified().await;
-                    let why = *CARE.why.lock().unwrap_or_else(|e| e.into_inner());
+                    let why = tokio::select! {
+                        () = CARE.wake.notified() => {
+                            *CARE.why.lock().unwrap_or_else(|e| e.into_inner())
+                        }
+                        () = tokio::time::sleep(Duration::from_secs(crate::care_machine::TICK_SECS)) => "tick",
+                    };
                     crate::supervise::panic_point("worktree care", why);
                     let Some(hub) = hub.upgrade() else { return };
                     hub.care_if_due(why).await;
@@ -281,20 +253,13 @@ impl Hub {
         })
     }
 
-    async fn care_if_due(&self, why: &'static str) {
+    async fn care_if_due(self: &Arc<Self>, why: &'static str) {
         let Some(_running) = Running::claim(&CARE.running) else { return };
         let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
                 return None;
             }
             let home = dirs::home_dir()?;
-            let used = disk::usage(&home).map_or(0.0, |usage| usage.used_fraction());
-            let pressure = CareSettings::default().pressure(used);
-            let now = now_ms();
-            let floor = CARE.last_started_ms.load(Ordering::Relaxed);
-            if now.saturating_sub(floor) < spacing(pressure) {
-                return None;
-            }
             let store = match archive_store() {
                 Ok(store) => store,
                 Err(e) => {
@@ -302,8 +267,15 @@ impl Hub {
                     return None;
                 }
             };
-            match schedule::claim(&store.dir, now, Some(spacing(pressure)), true) {
-                Ok(claim) => Some(claim),
+            // The cheap half: a disk sample every look, the spacing from the budget plan.
+            let look = care::look(&home, &store, &CareSettings::default())?;
+            let now = now_ms();
+            let floor = CARE.last_started_ms.load(Ordering::Relaxed);
+            if now.saturating_sub(floor) < look.plan.spacing_ms {
+                return None;
+            }
+            match care::due(&store, &look) {
+                Ok(claim) => Some((claim, look)),
                 Err(Refused::Unavailable(error)) => {
                     tracing::warn!(why, "worktree cleanup skipped: {error}");
                     None
@@ -314,9 +286,9 @@ impl Hub {
         .await
         .ok()
         .flatten();
-        let Some(claim) = claim else { return };
+        let Some((claim, look)) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
-        match self.care_run(claim, true, Vec::new()).await {
+        match self.care_run(claim, true, Vec::new(), Some(look)).await {
             Ok(report) => {
                 // One line per folder that went, so a search of the journal
                 // for a missing checkout finds what removed it (hq#13316).
@@ -357,73 +329,92 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))??;
-        self.care_run(claim, apply, only).await
+        self.care_run(claim, apply, only, None).await
     }
 
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
     /// which ends with the pass.
     async fn care_run(
-        &self,
+        self: &Arc<Self>,
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
+        look: Option<care::Look>,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
-        let live = self.care_sessions();
+        let hub = Arc::clone(self);
         let daemon_home = crate::config::home();
         let only_given = !only.is_empty();
         let report = tokio::task::spawn_blocking(move || {
-            let mut sessions = live;
-            sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
-            let configs = crate::worktree_sessions::state_configs(&home);
-            let options = Options {
-                roots: crate::worktree_sessions::default_roots(&home),
-                sessions,
-                uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
-                    &home, &configs,
-                )),
-                open: Arc::new(cmux_worktree_care::procs::open_inside),
-                // A recorded session on the Desktop: no git there unasked (LAUNCH-NO-TCC-PROMPTS).
-                guarded: Arc::new(crate::protected_folders::in_protected_location),
-                settings: CareSettings::default(),
-                apply,
-                pressure: None,
-                only,
-                measure: !apply,
-            };
+            let managed = pr_archive::managed_root(&home);
+            let rules = super::auto_settle::read_rules();
+            let live = hub.care_sessions(managed.as_deref(), &rules);
+            let released: std::collections::HashMap<_, _> = live
+                .iter()
+                .filter_map(|s| s.archived_checkout.as_ref().map(|c| (c.root.clone(), c.clone())))
+                .collect();
             let store = archive_store()?;
-            let report = pass::run(&options, &store);
-            // The machine's build caches, on a whole pass only (not a clean
-            // of named worktrees): reported always, removed only with the
-            // setting on.
-            let caches_on = clean_build_caches_enabled();
-            let caches = match (&report, only_given) {
-                (Ok(report), false) => Some(caches::run(&caches::Options {
-                    families: caches::default_families(&home),
-                    pressure: report.pressure,
-                    now_ms: now_ms(),
-                    apply: apply && caches_on,
-                    uses: options.uses.as_ref(),
-                    open: options.open.as_ref(),
-                    measure: !apply,
-                })),
-                _ => None,
-            };
+            let mut config = crate::care_machine::config(
+                &home,
+                store,
+                live,
+                Some(&daemon_home),
+                crate::care_machine::Ask {
+                    apply,
+                    only,
+                    // A clean of named worktrees leaves the other families alone.
+                    only_families: if only_given {
+                        vec![care::WORKTREES.into()]
+                    } else {
+                        Vec::new()
+                    },
+                    roots: Vec::new(),
+                    pressure: None,
+                },
+            );
+            config.pass.open = Arc::new({
+                let home = home.clone();
+                move |root| {
+                    if let Some(expected) = released.get(root) {
+                        let open = cmux_worktree_care::procs::open_tree(root)?;
+                        hub.recheck_pr_archive(expected, &home, managed.as_deref())?;
+                        return Ok(open);
+                    }
+                    cmux_worktree_care::procs::open_inside(root)
+                }
+            });
+            let caches_on = config.clean_caches;
+            let report = care::run(&config, look.as_ref());
             if let Err(error) = claim.finish(now_ms()) {
                 tracing::warn!("worktree cleanup could not record its pass: {error}");
             }
             let report = report.map_err(RpcError::internal)?;
-            Ok::<_, RpcError>((report, caches, auto_cleanup_enabled(), caches_on))
+            Ok::<_, RpcError>((report, auto_cleanup_enabled(), caches_on))
         })
         .await
         .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))?;
-        let (report, caches, auto, caches_on) = report?;
-        let mut value = serde_json::to_value(&report).unwrap_or(Value::Null);
+        let (report, auto, caches_on) = report?;
+        // Backward compatible: the worktree pass's own report is the body, the
+        // caches, budget, forecast and families are added beside it.
+        let mut value = serde_json::to_value(&report.worktrees).unwrap_or(Value::Null);
         if let Some(object) = value.as_object_mut() {
-            if let Some(caches) = caches {
-                object
-                    .insert("caches".into(), serde_json::to_value(&caches).unwrap_or(Value::Null));
-            }
+            object.insert(
+                "caches".into(),
+                serde_json::to_value(report.caches).unwrap_or(Value::Null),
+            );
+            object.insert(
+                "budget".into(),
+                serde_json::to_value(report.budget).unwrap_or(Value::Null),
+            );
+            object.insert(
+                "forecast".into(),
+                serde_json::to_value(report.forecast).unwrap_or(Value::Null),
+            );
+            object.insert(
+                "families".into(),
+                serde_json::to_value(report.families).unwrap_or(Value::Null),
+            );
+            object.insert("projectedFraction".into(), json!(report.projected_fraction));
             object.insert("cleanBuildCaches".into(), json!(caches_on));
             object.insert("autoCleanup".into(), json!(auto));
             object.insert("at".into(), json!(now_ms()));
@@ -456,28 +447,6 @@ impl Hub {
     /// The last pass's report, if one ran since the daemon started.
     pub(crate) fn care_last_report(&self) -> Option<Value> {
         CARE.last_report.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-
-    /// This daemon's sessions, as cleanup sees them.
-    fn care_sessions(&self) -> Vec<care_policy::Session> {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions
-            .values()
-            .map(|session| {
-                let meta = session.meta();
-                care_policy::Session {
-                    name: meta.name.clone(),
-                    cwd: meta.cwd.clone(),
-                    open: meta.status != SessionStatus::Closed,
-                    updated_ms: meta.updated_at,
-                    ids: std::iter::once(&meta.id)
-                        .chain(meta.agent_session_id.as_ref())
-                        .chain(&meta.previous_agent_session_ids)
-                        .cloned()
-                        .collect(),
-                }
-            })
-            .collect()
     }
 
     /// Before a session's harness starts: its folder back, when cleanup
@@ -667,9 +636,11 @@ mod care_tests {
 
     #[test]
     fn care_passes_come_sooner_as_the_disk_fills() {
-        assert!(spacing(Pressure::Normal) > spacing(Pressure::High));
-        assert!(spacing(Pressure::High) > spacing(Pressure::Critical));
-        assert_eq!(spacing(Pressure::Critical), 10 * MINUTE_MS);
+        use cmux_worktree_care::budget::spacing_ms;
+        assert!(spacing_ms(0.5) > spacing_ms(0.75));
+        assert!(spacing_ms(0.75) > spacing_ms(0.85));
+        assert!(spacing_ms(0.85) > spacing_ms(0.95));
+        assert_eq!(spacing_ms(0.95), 3 * 60_000);
     }
 
     #[test]
@@ -693,7 +664,7 @@ mod care_tests {
     #[test]
     fn care_each_removed_worktree_is_one_log_line_with_its_reason_idle_age_and_archive() {
         use cmux_worktree_care::pass::{Item, Outcome, Report};
-        use cmux_worktree_care::{Action, Verdict};
+        use cmux_worktree_care::{Action, Pressure, Verdict};
         let item = |path: &str, action, reason: &str, outcome| Item {
             path: path.into(),
             repository: "/m/cmux.git".into(),
