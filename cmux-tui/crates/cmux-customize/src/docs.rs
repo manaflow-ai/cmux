@@ -354,16 +354,14 @@ fn settings_items() -> Vec<Item> {
     let schema = Schema::current();
     let mut sections: Vec<(String, usize, usize)> = Vec::new();
     for setting in &schema.settings {
-        let index = match sections.iter().position(|(name, ..)| *name == setting.section) {
-            Some(index) => index,
-            None => {
-                sections.push((setting.section.clone(), 0, 0));
-                sections.len() - 1
-            }
-        };
-        sections[index].1 += 1;
-        if setting.agent_settable {
-            sections[index].2 += 1;
+        let settable = usize::from(setting.agent_settable);
+        if let Some((_, keys, editable)) =
+            sections.iter_mut().find(|(name, ..)| *name == setting.section)
+        {
+            *keys += 1;
+            *editable += settable;
+        } else {
+            sections.push((setting.section.clone(), 1, settable));
         }
     }
     sections
@@ -411,54 +409,60 @@ fn slots() -> Value {
 /// Every slot id with its variant ids, as the registry lists them.
 pub fn slot_variants() -> Vec<(String, Vec<String>)> {
     let slots = slots();
-    slots["slots"]
-        .as_array()
+    slots
+        .get("slots")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .map(|slot| {
-            let variants = slot["variants"]
-                .as_array()
+            let variants = slot
+                .get("variants")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter_map(|variant| variant["id"].as_str().map(str::to_owned))
+                .filter_map(|variant| variant.get("id").and_then(Value::as_str).map(str::to_owned))
                 .collect();
-            (slot["id"].as_str().unwrap_or_default().to_owned(), variants)
+            (slot.get("id").and_then(Value::as_str).unwrap_or_default().to_owned(), variants)
         })
         .collect()
 }
 
 fn slot_items() -> Vec<Item> {
     let registry = slots();
-    let mut items: Vec<Item> = registry["slots"]
-        .as_array()
+    let mut items: Vec<Item> = registry
+        .get("slots")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .map(|slot| {
-            let variants: Vec<&str> = slot["variants"]
-                .as_array()
+            let variants: Vec<&str> = slot
+                .get("variants")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter_map(|variant| variant["id"].as_str())
+                .filter_map(|variant| variant.get("id").and_then(Value::as_str))
                 .collect();
             item(
-                slot["id"].as_str().unwrap_or_default(),
+                slot.get("id").and_then(Value::as_str).unwrap_or_default(),
                 Reach::Drawn,
                 format!(
                     "{}: variants {} (default {}); a theme pack picks one with \"slots\": {{ID: VARIANT}}",
-                    slot["title"].as_str().unwrap_or_default(),
+                    slot.get("title").and_then(Value::as_str).unwrap_or_default(),
                     variants.join(", "),
-                    slot["defaultVariant"].as_str().unwrap_or("default"),
+                    slot.get("defaultVariant").and_then(Value::as_str).unwrap_or("default"),
                 ),
             )
         })
         .collect();
-    items.extend(registry["next"].as_array().into_iter().flatten().map(|next| {
-        item(
-            next["id"].as_str().unwrap_or_default(),
-            Reach::Missing,
-            first_sentence(next["docs"].as_str().unwrap_or_default()),
-        )
-    }));
+    items.extend(registry.get("next").and_then(Value::as_array).into_iter().flatten().map(
+        |next| {
+            item(
+                next.get("id").and_then(Value::as_str).unwrap_or_default(),
+                Reach::Missing,
+                first_sentence(next.get("docs").and_then(Value::as_str).unwrap_or_default()),
+            )
+        },
+    ));
     items
 }
 
@@ -519,7 +523,9 @@ fn motion_items() -> Vec<Item> {
         },
     ));
     let registry = slots();
-    if let Some(durations) = registry["tokens"]["durations"].as_object() {
+    if let Some(durations) =
+        registry.get("tokens").and_then(|tokens| tokens.get("durations")).and_then(Value::as_object)
+    {
         let names: Vec<&str> =
             durations.keys().filter(|key| !key.starts_with('$')).map(String::as_str).collect();
         items.push(item(
@@ -554,15 +560,15 @@ pub fn interfaces() -> Vec<(String, u64, String)> {
         .filter_map(|(_, text)| serde_json::from_str::<Value>(text).ok())
         .map(|file| {
             // The file's name carries its version (`cmux.section/1`).
-            let full = file["name"].as_str().unwrap_or_default();
+            let full = file.get("name").and_then(Value::as_str).unwrap_or_default();
             let (name, version) = match full.rsplit_once('/') {
                 Some((name, version)) => (name, version.parse().ok()),
                 None => (full, None),
             };
             (
                 name.to_owned(),
-                version.or_else(|| file["version"].as_u64()).unwrap_or(1),
-                file["docs"].as_str().unwrap_or_default().to_owned(),
+                version.or_else(|| file.get("version").and_then(Value::as_u64)).unwrap_or(1),
+                file.get("docs").and_then(Value::as_str).unwrap_or_default().to_owned(),
             )
         })
         .collect();
@@ -604,22 +610,20 @@ pub fn scene_api() -> (Vec<(String, String)>, Vec<String>) {
         doc.clear();
     }
     let mut modifiers = Vec::new();
-    if let Some(start) = types.find("interface CmuxView {") {
-        let block = &types[start + "interface CmuxView {".len()..];
-        let block = &block[..block.find("\n}").unwrap_or(block.len())];
+    if let Some((_, body)) = types.split_once("interface CmuxView {") {
+        let block = body.split_once("\n}").map_or(body, |(block, _)| block);
         for line in block
             .lines()
             .map(str::trim)
             .filter(|line| !line.starts_with("/**") && !line.starts_with('*'))
         {
             for part in line.split("; ") {
-                let name: String =
-                    part.trim().chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
-                if !name.is_empty()
-                    && part.trim()[name.len()..].starts_with('(')
-                    && !modifiers.contains(&name)
+                if let Some((name, _)) = part.trim().split_once('(')
+                    && !name.is_empty()
+                    && name.chars().all(|c| c.is_ascii_alphanumeric())
+                    && !modifiers.iter().any(|existing| existing == name)
                 {
-                    modifiers.push(name);
+                    modifiers.push(name.to_owned());
                 }
             }
         }
@@ -690,8 +694,8 @@ fn behavior_items() -> Vec<Item> {
 
 fn first_sentence(text: &str) -> String {
     let text = text.trim();
-    match text.find(". ") {
-        Some(end) => text[..=end].to_owned(),
+    match text.split_once(". ") {
+        Some((sentence, _)) => format!("{sentence}."),
         None => text.to_owned(),
     }
 }
@@ -803,10 +807,10 @@ pub fn motion_problems(script: &str) -> Vec<String> {
         (".loop(\"", "loop"),
     ] {
         let mut rest = script;
-        while let Some(start) = rest.find(method) {
-            rest = &rest[start + method.len()..];
-            let Some(end) = rest.find('"') else { break };
-            let value = Value::String(rest[..end].to_owned());
+        while let Some((_, argument)) = rest.split_once(method) {
+            rest = argument;
+            let Some((literal, _)) = argument.split_once('"') else { break };
+            let value = Value::String(literal.to_owned());
             if let Some(Err(error)) = cmux_app_host::motion::normalize_prop(key, &value) {
                 found.push(format!("{key}({value}): {error}"));
             }
