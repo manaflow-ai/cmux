@@ -226,6 +226,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
             Ok(json!({"json": canonical_json(value)}))
         }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
+        "session_routing" => crate::session_routing::call(request).ok_or(ERR_INVALID),
         // A pane's own op without a pane.
         op if PANE_OPS.contains(&op) => Err(ERR_NULL),
         _ => Err(ERR_UNKNOWN_OP),
