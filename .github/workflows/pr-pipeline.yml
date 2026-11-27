@@ -663,9 +663,11 @@ jobs:
   # vars.CI_IOS_FAST_VERDICT=0 turns it off. format() because GitHub compares an unset variable (null) to '0' as
   # 0 == 0: the bare comparison skipped this job whenever the variable was unset, the pipeline
   # with it on a landing head, and left `cmux/ios-fast` pending at the head (cmux#57010, run 45957942340).
+  # !cancelled(): in a called workflow the implicit success() also reads the caller's needs, and pr-router.yml's
+  # pipeline needs fast-gates, which skips on a landing head (cmux#57755, router run 45952045688).
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    if: ${{ !cancelled() && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:

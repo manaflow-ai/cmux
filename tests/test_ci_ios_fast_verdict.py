@@ -316,6 +316,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
 
+    def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
+        # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
+        # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
+        self.assertTrue(self.jobs["ios-fast-runner"]["if"].startswith("${{ !cancelled() && "))
+
     def test_the_mac_job_runs_the_plan_warm(self) -> None:
         job = self.jobs["ios-fast"]
         self.assertEqual(job["name"], "ios fast verdict")
@@ -362,7 +367,7 @@ class WorkflowTest(unittest.TestCase):
         cond = gh_expr.condition(self.jobs["ios-fast-runner"]["if"])
         for value, runs in ((None, True), ("", True), ("1", True), ("0", False)):
             with self.subTest(value=value):
-                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}})), runs)
+                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}}, {"cancelled": False})), runs)
 
     def test_a_pending_the_route_started_is_always_answered(self) -> None:
         # The route posted pending because it started pr-pipeline.yml: a skipped pipeline (red fast gates, or a job

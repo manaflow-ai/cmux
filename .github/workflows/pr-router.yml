@@ -576,7 +576,7 @@ jobs:
           elif [ "$VERDICT" = failure ]; then
             state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
           else
-            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
           fi
           if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
             IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
