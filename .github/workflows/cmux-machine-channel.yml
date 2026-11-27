@@ -10,9 +10,14 @@ name: cmux machine channel
 # with it. cmux#54889 (71933dda) waited 75 of its 97 merge-to-channel minutes for that window
 # (cmuxterm-hq goals/cloud-fix-to-machine.md, "Where the time goes"). Here nothing waits for it.
 #
-# Cost: one group per ref with cancel-in-progress false, so at most one run builds and one waits; a
-# newer push replaces the waiting one (only the newest tree matters: the point is forward-only). The
-# plan job skips the build when the channel already names this commit's tree or a later commit.
+# Cost: one job-level group per ref and stage on a push (plan, each target's build, the channel writers), with
+# cancel-in-progress false: GitHub keeps one running and one pending job in each, and a newer push replaces the
+# pending one (only the newest tree matters: the point is forward-only), so at most about 3 thin builds an hour per
+# target. The plan job skips the build when the channel already names this commit's tree or a later commit.
+# Until 2026-11-26 one workflow-level group held the whole run, so the next build waited for this run's journey
+# verdict (about 15 more minutes after the point, at its timeout): runs 45891396585/45895943472 pointed at 20:53Z,
+# held the group to 21:09Z, and the next build started 21:11Z. Merge-to-channel was p50 45.7 min, p90 112 over 800
+# pushes (10:43-21:13Z, scripts/ci/cmux_machine_channel_latency.py); a stage's group frees when its stage ends.
 #
 # LINUX_X86_64_FIRST (cmux#55570): each thin musl target is its own build call, so point-x86_64 moves
 # the channel for x86_64 machines when that leg is done, and an aarch64 failure never holds it back;
@@ -43,23 +48,47 @@ on:
     paths-ignore:
       - "cmux-tui/docs/**"
   # pr-router.yml's caller job (scripts/ci/pr_router.json): a full-tier pull request head, built and never pointed.
+  # The router's route job answers the plan (scripts/ci/cmux-machine-channel-pr-plan.sh) and passes it here, so
+  # the plan job takes no runner on a pull request; with no answer (build empty) the plan job runs it instead.
   workflow_call:
+    inputs:
+      build:
+        type: string
+        default: ""
+      x86_64_target_set:
+        type: string
+        default: ""
+      aarch64_target_set:
+        type: string
+        default: ""
+      lto:
+        type: string
+        default: ""
+      artifact_prefix:
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: cmux-machine-channel-${{ github.ref }}
-  # A pull request's newer head supersedes its build (pr-router.yml cancels its run too); a push waits.
+  # A pull request's newer head supersedes its build (pr-router.yml cancels its run too). A push is never held
+  # as a whole run: its stages wait in the job-level groups below, so a run's journey never holds the next build.
+  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:
     name: does the machine channel need this commit
-    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    # A pull request's router already answered (inputs.build): no runner here.
+    if: ${{ github.repository == 'manaflow-ai/cmux' && (inputs.build || '') == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A merge waits here for its head's build still running (PR_HEAD_FAST_LANE, at most 25 min).
     timeout-minutes: 30
+    # A push's stage group (see the header); a pull request's run is already one group of its own.
+    concurrency:
+      group: cmux-machine-channel-plan-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      cancel-in-progress: false
     permissions:
       contents: read
       # The merged PR's head (commits/SHA/pulls) and its pr-router run's jobs and artifacts.
@@ -73,7 +102,7 @@ jobs:
       lto: ${{ steps.plan.outputs.lto }}
       artifact_prefix: ${{ steps.plan.outputs.artifact_prefix }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 200
@@ -113,31 +142,17 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # PR_HEAD_FAST_LANE, when the router passed no answer: the same script its route job runs.
+            scripts/ci/cmux-machine-channel-pr-plan.sh
+            exit 0
+          fi
           # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel, as tree-preflight reads it.
           python3 -c '
           import json
           p = json.load(open("scripts/cmux-next/cmux-tui-build-profiles.json"))["machine_channel"]
           for k in ("x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix"):
               print(f"{k}={p[k]}")' >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            # PR_HEAD_FAST_LANE: build the head when it is this repository's, into feat-cmux-next, and its
-            # merge with the base (this checkout) changes the v2 tree key; never point (the point jobs are push-only).
-            build=false
-            tk=scripts/ci/cmux_tui_tree_key.py
-            if [[ "$HEAD_REPO" == "$GITHUB_REPOSITORY" && "$GITHUB_BASE_REF" == feat-cmux-next ]]; then
-              mine="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 HEAD 2>/dev/null)" || mine=""
-              base="$(scripts/ci/timeout.sh 90 python3 "$tk" --version v2 HEAD^1 2>/dev/null)" || base=""
-              # An unread key builds (fail open) but says so: a CLI misuse read as "keys differ" built
-              # every land-tier head for a day (cmux_tui_tree_key.py takes no `key` subcommand).
-              if [[ -z "$mine" || -z "$base" ]]; then
-                echo "::warning title=machine channel PR head build::no v2 tree key (merge ${mine:-none}, base ${base:-none}): building"
-              fi
-              if [[ -z "$mine" || -z "$base" || "$mine" != "$base" ]]; then build=true; fi
-            fi
-            echo "::notice title=machine channel PR head build::build=$build (merge key ${mine:-none}, base key ${base:-none})"
-            echo "build=$build" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           # The channel's commit (an unverified read: it only decides whether to build; a wrong
           # answer at worst leaves the move to point-machine-channel after publish).
           chan="$(curl -fsS --max-time 20 https://files.cmux.com/cmux-tui/channels/cloud-machine.json | python3 -c '
@@ -176,7 +191,12 @@ jobs:
     # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
     name: build-machine-channel
     needs: plan
-    if: ${{ needs.plan.outputs.build == 'true' }}
+    # A push's stage group (see the header); a pull request's run is already one group of its own.
+    concurrency:
+      group: cmux-machine-channel-build-x86_64-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      cancel-in-progress: false
+    # The router's answer on a pull request (plan skipped), else plan's.
+    if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}
     permissions:
       contents: read
       # The reusable package workflow's permission ceiling.
@@ -195,16 +215,21 @@ jobs:
       package_npm: false
       package_pypi: false
       include_windows: false
-      target_set: ${{ needs.plan.outputs.x86_64_target_set }}
-      lto: ${{ needs.plan.outputs.lto }}
-      artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
+      target_set: ${{ inputs.x86_64_target_set || needs.plan.outputs.x86_64_target_set }}
+      lto: ${{ inputs.lto || needs.plan.outputs.lto }}
+      artifact_prefix: ${{ inputs.artifact_prefix || needs.plan.outputs.artifact_prefix }}
       linux_runner: cmux-linux
 
   build-aarch64:
     # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
     name: build-machine-channel
     needs: plan
-    if: ${{ needs.plan.outputs.build == 'true' }}
+    # A push's stage group (see the header); a pull request's run is already one group of its own.
+    concurrency:
+      group: cmux-machine-channel-build-aarch64-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      cancel-in-progress: false
+    # The router's answer on a pull request (plan skipped), else plan's.
+    if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}
     permissions:
       contents: read
       # The reusable package workflow's permission ceiling.
@@ -223,9 +248,9 @@ jobs:
       package_npm: false
       package_pypi: false
       include_windows: false
-      target_set: ${{ needs.plan.outputs.aarch64_target_set }}
-      lto: ${{ needs.plan.outputs.lto }}
-      artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
+      target_set: ${{ inputs.aarch64_target_set || needs.plan.outputs.aarch64_target_set }}
+      lto: ${{ inputs.lto || needs.plan.outputs.lto }}
+      artifact_prefix: ${{ inputs.artifact_prefix || needs.plan.outputs.artifact_prefix }}
       linux_runner: cmux-linux
 
   point-x86_64:
@@ -235,6 +260,10 @@ jobs:
       deployment: false
     name: point the Cloud machine channel at this commit's x86_64 Linux build
     needs: [plan, build-x86_64]
+    # One channel writer of this workflow at a time on a push (both points share it); a pull request's run is already one group of its own.
+    concurrency:
+      group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      cancel-in-progress: false
     # This run's build, or the merged PR head's (PR_HEAD_FAST_LANE); a pull request run points nothing.
     if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -244,7 +273,7 @@ jobs:
       # Another run's artifacts (the merged PR head's build, PR_HEAD_FAST_LANE).
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -315,6 +344,10 @@ jobs:
       deployment: false
     name: point the Cloud machine channel at this commit's Linux builds
     needs: [plan, build-x86_64, build-aarch64, point-x86_64]
+    # One channel writer of this workflow at a time on a push (both points share it); a pull request's run is already one group of its own.
+    concurrency:
+      group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      cancel-in-progress: false
     if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
@@ -323,7 +356,7 @@ jobs:
       # Another run's artifacts (the merged PR head's build, PR_HEAD_FAST_LANE).
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

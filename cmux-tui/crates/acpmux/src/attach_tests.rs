@@ -82,6 +82,28 @@ async fn a_held_message_keeps_its_files_until_it_is_dropped_or_its_release_never
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[tokio::test]
+async fn preparation_deadline_keeps_shared_uploads_and_cleans_inline_files() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, root.path()).unwrap();
+    let hub = crate::hub::Hub::new(cfg, store);
+    let upload = root.path().join("upload");
+    let inline = root.path().join("inline");
+    std::fs::create_dir(&upload).unwrap();
+    std::fs::create_dir(&inline).unwrap();
+    let guard = Saved::new("s", vec![upload.clone()]).in_dir(inline.clone());
+    let timeout = RpcError::deadline_exceeded("journal", std::time::Duration::from_secs(5));
+    guard.settle(&hub, &Err(timeout)).await;
+    assert!(upload.is_dir());
+    assert!(!inline.exists());
+    Saved::new("s", vec![upload.clone()])
+        .settle(&hub, &Err(RpcError::invalid_params("permanent refusal")))
+        .await;
+    assert!(!upload.exists());
+}
+
 /// A prompt the session took and that then never ran (withdrawn from its queue, or refused
 /// when its turn came) deletes the uploads it named as its own; one that ran keeps them.
 #[tokio::test]
