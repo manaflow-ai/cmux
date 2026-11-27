@@ -221,6 +221,20 @@ class LiveModeTests(unittest.TestCase):
         self.assertEqual(live_mode.read_state(root), {"mode": "live", "binary": "b"})
         self.assertEqual(sorted(p.name for p in root.iterdir()), ["state.json"])
 
+    def test_the_preview_names_the_live_build_socket_only_while_live(self):
+        # acpmux's turn frames read this file (hub/turn_frames.rs LIVE_PREVIEW) to shoot the
+        # live-code build's window in the chat's preview window (RFD 0152).
+        root = Path(self.dir) / "Library/Caches/cmux-next/live-mode" / "mine"
+        named = root.parent / "preview.json"
+        live_mode.write_state(root, {"mode": "live", "binary": "b", "tag": "Mine"})
+        self.assertEqual(json.loads(named.read_text()),
+                         {"socket": live_mode.tagged_socket("mine"), "tag": "Mine"})
+        live_mode.write_state(root, {"mode": "live", "binary": None, "tag": "Mine"})
+        self.assertFalse(named.exists(), "a failed swap leaves no preview name")
+        live_mode.write_state(root, {"mode": "live", "binary": "b", "tag": "Mine"})
+        live_mode.write_state(root, {"mode": "normal", "binary": "c", "tag": "Mine"})
+        self.assertFalse(named.exists(), "stop takes the preview back to the chat's app")
+
     def test_the_live_folder_and_cache_follow_the_account_home_not_home(self):
         os.environ["HOME"] = str(Path(self.dir) / "step")
         self.assertEqual(live_mode.live_folder(), self.home / "Library/Caches/cmux-next/live-code")

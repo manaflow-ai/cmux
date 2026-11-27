@@ -21,6 +21,14 @@ fn a_picture_round_trips_through_png() {
 }
 
 #[test]
+fn a_look_picture_encodes_as_jpeg() {
+    let picture = split(40, 20, 10);
+    let bytes = encode_jpeg(&picture).unwrap();
+    assert!(bytes.starts_with(&[0xff, 0xd8]), "not a JPEG: {bytes:02x?}");
+    assert!(bytes.ends_with(&[0xff, 0xd9]), "missing JPEG end marker");
+}
+
+#[test]
 fn an_rgba_png_decodes_to_rgb() {
     let mut bytes = Vec::new();
     {
@@ -173,6 +181,21 @@ fn a_live_build_from_an_unknown_source_is_refused() {
     assert_eq!(reply["asked"], false);
     assert!(reply["reason"].as_str().unwrap().contains("rust"), "{reply}");
     assert!(!turns()[session].chrome);
+}
+
+#[test]
+fn window_frames_follow_the_swift_live_build_only_while_its_socket_is_there() {
+    let home = tempfile::tempdir().unwrap();
+    assert_eq!(live_socket(home.path()), None);
+    let named = home.path().join(LIVE_PREVIEW);
+    std::fs::create_dir_all(named.parent().unwrap()).unwrap();
+    let socket = home.path().join("cmux-debug-swift-ui.sock");
+    std::fs::write(&named, json!({"socket": socket, "tag": "swift-ui"}).to_string()).unwrap();
+    assert_eq!(live_socket(home.path()), None, "a stale name whose socket is gone");
+    std::fs::write(&socket, b"").unwrap();
+    assert_eq!(live_socket(home.path()), Some(socket));
+    std::fs::write(&named, b"{\"socket\": \"\"}").unwrap();
+    assert_eq!(live_socket(home.path()), None);
 }
 
 #[test]

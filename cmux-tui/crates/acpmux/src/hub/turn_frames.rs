@@ -25,7 +25,8 @@
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
 
 use super::Session;
-use super::turn_shots::{capture_page, prune, segment};
+use super::turn_shots::{CapturedPage, capture_page, prune, segment};
+use base64::Engine as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -210,6 +211,18 @@ pub(crate) fn encode(picture: &Rgb) -> Option<Vec<u8>> {
         let mut writer = encoder.write_header().ok()?;
         writer.write_image_data(&picture.pixels).ok()?;
     }
+    Some(bytes)
+}
+
+/// Encode the agent-facing `look` response as a compact JPEG. Persisted frames and the preview
+/// strip stay PNG so their lossless pixel data and existing consumers are unchanged.
+pub(crate) fn encode_jpeg(picture: &Rgb) -> Option<Vec<u8>> {
+    let width = u16::try_from(picture.width).ok()?;
+    let height = u16::try_from(picture.height).ok()?;
+    let mut bytes = Vec::new();
+    jpeg_encoder::Encoder::new(&mut bytes, 80)
+        .encode(&picture.pixels, width, height, jpeg_encoder::ColorType::Rgb)
+        .ok()?;
     Some(bytes)
 }
 
@@ -496,15 +509,14 @@ fn ask(session: &str, trigger: &'static str) {
 /// Takes one frame of `session`'s current turn and keeps it unless it is the same picture as the
 /// last kept. The kept frame, or none. Blocking.
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
-    let (turn_id, _, dir, picture) = shoot(session, repl)?;
-    keep(session, &turn_id, &dir, &picture, trigger, None)
+    let (turn_id, page, dir, picture) = shoot(session, repl)?;
+    keep(session, &turn_id, &dir, &picture, trigger, page.url)
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
-/// drives the iOS Simulator, its screen, else, in a turn that customizes the app, the app's window.
-/// The turn, what was shot (a tab id, `simulator` or `window`), the turn's folder and the picture.
-/// Blocking.
-fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
+/// customizes the app, the app's window. The turn, captured tab metadata (or `window`), the turn's
+/// folder and the picture. Blocking.
+fn shoot(session: &str, repl: &str) -> Option<(String, CapturedPage, PathBuf, Rgb)> {
     let (turn_id, workspace, chrome, simulator) = {
         let all = turns();
         let turn = all.get(session)?;
@@ -516,10 +528,10 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
     let raw = dir.join(format!("{repl}.capture.png"));
     let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
     if shown.is_none() && simulator && simulator_shot(&raw) {
-        shown = Some("simulator".to_owned());
+        shown = Some(CapturedPage { id: "simulator".to_owned(), url: None });
     }
     if shown.is_none() && chrome && window_shot(&raw) {
-        shown = Some("window".to_owned());
+        shown = Some(CapturedPage { id: "window".to_owned(), url: None });
     }
     let bytes = shown.as_ref().and_then(|_| std::fs::read(&raw).ok());
     let _ = crate::home_fs::remove_file(&raw);
@@ -527,8 +539,23 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
     Some((turn_id, shown?, dir, picture))
 }
 
+/// Where Swift live mode (`scripts/live-code/live-mode.py`) names the tagged Debug build it runs:
+/// `~/Library/Caches/cmux-next/live-mode/preview.json`, `{"socket", "tag"}`, there only while live
+/// mode is on (RFD 0152: Swift Debug live-code in the preview window).
+pub(crate) const LIVE_PREVIEW: &str = "Library/Caches/cmux-next/live-mode/preview.json";
+
+/// The control socket of the Swift live-code build the agent is patching, when live mode is on
+/// and that socket is there: the window frames show, instead of the app the chat runs in.
+pub(crate) fn live_socket(user_home: &Path) -> Option<PathBuf> {
+    let bytes = std::fs::read(user_home.join(LIVE_PREVIEW)).ok()?;
+    let named: Value = serde_json::from_slice(&bytes).ok()?;
+    let socket = PathBuf::from(named.get("socket")?.as_str().filter(|s| !s.is_empty())?);
+    socket.exists().then_some(socket)
+}
+
 /// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
-/// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
+/// (`ScreenshotHandlers.swift`); while Swift live mode runs, the live-code build's window
+/// ([`live_socket`]). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
 fn window_shot(out: &Path) -> bool {
     let binary =
         std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
@@ -557,6 +584,12 @@ fn simulator_shot_with(xcrun: &std::ffi::OsStr, out: &Path) -> bool {
 fn bounded_shot(binary: &std::ffi::OsStr, args: &[&str], out: &Path) -> bool {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
     let mut command = tokio::process::Command::new(binary);
+    if let Some(socket) = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .and_then(|home| live_socket(Path::new(&home)))
+    {
+        command.env("CMUX_SOCKET_PATH", socket);
+    }
     command
         .args(args)
         .arg(out)
@@ -721,22 +754,23 @@ fn look_now(session: &str) -> Value {
         turn.chrome = true;
         turn.simulator = true;
     }
-    let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
+    let Some((turn_id, page, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
         return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
-    let kept = keep(session, &turn_id, &dir, &picture, "look", None);
+    let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone());
     let hash = dhash(&picture);
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));
     let small = shrink(&picture, LOOK_EDGE, Some(LOOK_EDGE));
-    let Some(png) = encode(&small) else {
+    let Some(jpeg) = encode_jpeg(&small) else {
         return json!({"error": "the picture could not be encoded"});
     };
     json!({
-        "image": picture_value(&png),
+        "image": json!({"mimeType": "image/jpeg", "data": base64::engine::general_purpose::STANDARD.encode(jpeg)}),
         "width": small.width,
         "height": small.height,
-        "tab": tab,
+        "tab": page.id,
+        "url": page.url,
         "movedBits": moved,
         "kept": kept.map(|f| f.index),
         "turnId": turn_id,
