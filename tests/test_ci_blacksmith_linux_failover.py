@@ -98,6 +98,12 @@ def covered(value: str) -> bool:
         return True
     if "${{" not in value:
         return LABEL.search(value) is None
+    # `contains(fromJSON('["blacksmith-..."]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER`
+    # reads the switched variable through an allowlist: its double-quoted labels are JSON,
+    # not runner literals (12 workflows since #49215; their fallback names no literal).
+    value = re.sub(r'"' + LABEL.pattern + r'"', '""', value)
+    if LABEL.search(value) is None:
+        return True
     # A failover target is itself a Blacksmith literal; it is the fallback, not a primary,
     # but at least one primary must remain (a lone failover resolves empty when unset).
     primaries = [

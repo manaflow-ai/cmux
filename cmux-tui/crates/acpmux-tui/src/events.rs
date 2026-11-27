@@ -356,9 +356,24 @@ impl App {
                     }
                 }
             }
-            AppMsg::DraftFailed => {
+            AppMsg::DraftFailed { draft, images } => {
                 for d in self.drafts.iter_mut() {
                     d.creating = false;
+                }
+                if let Some(d) = self.drafts.iter_mut().find(|d| d.id == draft)
+                    && d.images.is_empty()
+                {
+                    d.images = images;
+                }
+            }
+            AppMsg::StartLost { draft, text, images } => {
+                for d in self.drafts.iter_mut().filter(|d| d.id == draft) {
+                    d.creating = false;
+                }
+                self.start_after_reconnect = Some((draft, text, images));
+                // A connection that is already back (the client was replaced) runs it now.
+                if !self.client.is_closed() {
+                    self.start_lost_draft_again();
                 }
             }
             AppMsg::Info(s) => self.status = s,
