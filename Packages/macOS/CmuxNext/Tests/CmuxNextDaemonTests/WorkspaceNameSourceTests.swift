@@ -69,7 +69,7 @@ struct WorkspaceNameSourceTests {
 
     @Test func automaticRenameRequestUsesDecimalRevision() throws {
         let request = RenameWorkspaceRequest(workspace: .key(WorkspaceKey(rawValue: "auto")), name: "Deploy API",
-                                              source: .auto, expectedNameRevision: "7", release: false, mutation: nil)
+                                              source: .auto, expectedNameRevision: 7, release: false, mutation: nil)
         let object = try Self.object(request)
 
         #expect(object["source"] as? String == "auto")

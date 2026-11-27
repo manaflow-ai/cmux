@@ -607,11 +607,16 @@
             "height_permille": {
               "name": "heightPermille",
               "type": "Int"
-            },
-            "transaction": {
-              "type": "ClientTransactionID"
             }
-          }
+          },
+          "initializer": {
+            "labels": {
+              "heightPermille": "height"
+            }
+          },
+          "omit": [
+            "transaction"
+          ]
         }
       }
     },
@@ -2129,6 +2134,12 @@
             "transaction": {
               "type": "ClientTransactionID"
             }
+          },
+          "initializer": {
+            "explicit": [
+              "endTerminals",
+              "mutation"
+            ]
           }
         }
       },
@@ -2308,7 +2319,15 @@
             "if_empty": {
               "encode": "when_true"
             }
-          }
+          },
+          "initializer": {
+            "explicit": [
+              "mutation"
+            ]
+          },
+          "omit": [
+            "report_closed_ids"
+          ]
         },
         "move-workspace": {
           "name": "MoveWorkspaceRequest",
@@ -2328,6 +2347,11 @@
             "index": {
               "type": "Int"
             }
+          },
+          "initializer": {
+            "explicit": [
+              "mutation"
+            ]
           }
         },
         "rename-workspace": {
@@ -2350,7 +2374,15 @@
           "fields": {
             "release": {
               "encode": "when_true"
+            },
+            "expected_name_revision": {
+              "encode": "decimal_uint64"
             }
+          },
+          "initializer": {
+            "explicit": [
+              "mutation"
+            ]
           }
         },
         "set-workspace-metadata": {
@@ -2386,6 +2418,11 @@
             "title": {
               "update": true
             }
+          },
+          "initializer": {
+            "explicit": [
+              "mutation"
+            ]
           }
         }
       }
@@ -3347,6 +3384,16 @@
                 "Extra environment for the child only (`terminal-env-v1`); stored on disk with the receipt, so never pass secrets."
               ]
             }
+          },
+          "initializer": {
+            "explicit": [
+              "mutation"
+            ],
+            "post_init": [
+              "shellArgs",
+              "createWorkspace",
+              "workspaceName"
+            ]
           }
         },
         "new-pane": {
@@ -3373,7 +3420,7 @@
           "protocol": "TerminalSpawningRequest",
           "response": "SurfaceCreated",
           "doc": [
-            "Adds a new scrolling column to the right (`viewport-splits-v1`), or to the left with `side: .left`."
+            "Adds a scrolling column after the pane, or before it when `left` is true."
           ],
           "order": [
             "pane",
@@ -3386,7 +3433,19 @@
               "type": "SpawnOptions",
               "default": "SpawnOptions()"
             }
-          }
+          },
+          "fields": {
+            "side": {
+              "name": "left",
+              "encode": {
+                "when_true": "left"
+              }
+            }
+          },
+          "omit": [
+            "kind",
+            "url"
+          ]
         },
         "new-screen": {
           "name": "NewScreenRequest",
@@ -3405,14 +3464,25 @@
           "fields": {
             "workspace": {
               "type": "WorkspaceHandle"
-            },
-            "group": {
-              "type": "TabGroupID"
-            },
-            "terminal_id": {
-              "type": "TerminalID"
             }
-          }
+          },
+          "initializer": {
+            "explicit": [
+              "workspace"
+            ]
+          },
+          "omit": [
+            "color",
+            "cwd",
+            "env",
+            "group",
+            "icon",
+            "index",
+            "pinned",
+            "screen_name",
+            "shell_args",
+            "terminal_id"
+          ]
         },
         "new-tab": {
           "name": "NewTabRequest",
@@ -3428,14 +3498,15 @@
               "default": "SpawnOptions()"
             }
           },
-          "fields": {
-            "place": {
-              "type": "JSONValue"
-            },
-            "transaction": {
-              "type": "ClientTransactionID"
-            }
-          }
+          "initializer": {
+            "explicit": [
+              "pane"
+            ]
+          },
+          "omit": [
+            "place",
+            "transaction"
+          ]
         },
         "split": {
           "name": "SplitRequest",
@@ -3448,6 +3519,7 @@
           "order": [
             "pane",
             "dir",
+            "tab",
             "options",
             "before"
           ],
@@ -3464,7 +3536,20 @@
             "before": {
               "encode": "when_true"
             }
-          }
+          },
+          "extra": {
+            "tab": {
+              "type": "SurfaceID?",
+              "default": "nil",
+              "doc": [
+                "Retained for source compatibility. Moving an existing tab uses `move-tab-to-split`; this property is never sent."
+              ]
+            }
+          },
+          "omit": [
+            "kind",
+            "url"
+          ]
         }
       }
     }

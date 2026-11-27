@@ -15,13 +15,13 @@ struct CloseWorkspaceRequestWireTests {
     }
 
     @Test func reasonIsOmittedWhenTerminalsAreKept() throws {
-        let sent = try fields(CloseWorkspaceRequest(workspace: .key(Self.key), reason: .sessionEnd))
+        let sent = try fields(CloseWorkspaceRequest(workspace: .key(Self.key), reason: .sessionEnd, mutation: nil))
         #expect(sent["end_terminals"] == nil)
         #expect(sent["reason"] == nil)
     }
 
     @Test func reasonIsSentWithEndTerminals() throws {
-        let sent = try fields(CloseWorkspaceRequest(workspace: .key(Self.key), endTerminals: true, reason: .sessionEnd))
+        let sent = try fields(CloseWorkspaceRequest(workspace: .key(Self.key), endTerminals: true, reason: .sessionEnd, mutation: nil))
         #expect(sent["end_terminals"] == .bool(true))
         #expect(sent["reason"] == .string("session_end"))
     }
