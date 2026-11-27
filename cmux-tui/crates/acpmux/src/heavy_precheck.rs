@@ -190,11 +190,7 @@ fn job_of(argv: &[&str], cwd: Option<&str>) -> Option<Job> {
         {
             Some(Job::Project(Project::Rustc))
         }
-        // A whole tree's build (`//...`, `//foo/...`); one target (`//foo:bar`) is not a big one.
-        "bazel" | "bazelisk"
-            if positional().next() == Some("build")
-                && args.iter().any(|a| a.starts_with("//") && a.ends_with("...")) =>
-        {
+        "bazel" | "bazelisk" if positional().next() == Some("build") && args.contains(&"//...") => {
             Some(Job::BigBuild)
         }
         "cargo" if positional().next() == Some("build") => Some(Job::BigBuild),
