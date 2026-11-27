@@ -3462,10 +3462,139 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.status).toBe(2);
     expect(seen.filter((m: any) => m.method === "session/new")).toHaveLength(1);
   });
-  test("no acpmux socket is a failed start that names the paths it tried", () => {
+  // Run 45881843733 (own-host microVM, 2026-11-26): session/new came back daemon.restarting, retryable, "Send the
+  // request again in a few seconds", and the start gave up as @@nostart. It sends again now, and still stops on a
+  // refusal that is not retryable.
+  const FAKE_ACPMUX_RESTARTING = String.raw`
+import json, os, socket, sys, time
+path, out, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+if mode == 'late':
+    # acpmux mid-restart: a socket file nobody listens on (ECONNREFUSED, run 45882763507), then the new daemon.
+    stale = socket.socket(socket.AF_UNIX); stale.bind(path); stale.close()
+    time.sleep(1.5)
+    os.unlink(path)
+srv = socket.socket(socket.AF_UNIX); srv.bind(path); srv.listen(4)
+seen = []
+news = 0
+while True:
+    c, _ = srv.accept(); f = c.makefile('r')
+    def send(m): c.sendall((json.dumps(m) + '\n').encode())
+    done = False
+    for line in f:
+        m = json.loads(line); seen.append(m['method'])
+        if m['method'] == 'session/prompt':
+            # Run 45883411021: acpmux restarted between the start and its first prompt.
+            seen[-1] += ':' + m['params']['_meta']['acpmux']['promptId']
+            prompts = sum(1 for x in seen if x.startswith('session/prompt'))
+            if prompts == 1:
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': {'errorKind': 'daemon.restarting', 'retryable': True}}})
+                break
+            send({'jsonrpc': '2.0', 'method': '_acpmux/prompt_accepted', 'params': {'sessionId': 's-2', 'promptId': m['params']['_meta']['acpmux']['promptId']}})
+            done = True
+            break
+        if m['method'] == '_acpmux/resolve':
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'session': {'sessionId': 's-1', 'name': m['params']['query']}}})
+            done = True
+            break
+        if m['method'] == 'session/new':
+            news += 1
+            if mode == 'made-then-cut':
+                # Run 45885585817: the first start made the session, then acpmux restarted before it answered.
+                if news == 1:
+                    send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': {'errorKind': 'daemon.restarting', 'retryable': True}}})
+                else:
+                    send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                continue
+            if mode == 'taken':
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                done = True
+                break
+            if news == 1 and mode not in ('late', 'prompt-cut'):
+                data = {'errorKind': 'daemon.restarting', 'retryable': True} if mode == 'retryable' else {'errorKind': 'refused', 'retryable': False}
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': data}})
+                done = mode != 'retryable'
+                break
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-2'}})
+            done = mode != 'prompt-cut'
+            if done:
+                break
+            continue
+        send({'jsonrpc': '2.0', 'id': m['id'], 'result': {}})
+    c.close()
+    if done:
+        break
+open(out, 'w').write(json.dumps(seen))
+`;
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken") => {
+    const home = mkdtempSync("/tmp/jr-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_RESTARTING);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", mode === "prompt-cut" ? "hi" : undefined);
+      const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+  test("a start cut by acpmux's restart (retryable) is sent again and starts", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("retryable");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
+  });
+  test("a start refused for good (not retryable) is never sent again", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("refused");
+    expect(r.stdout).not.toContain("@@retry");
+    expect(r.stdout).toContain("@@nostart");
+    expect(r.status).toBe(1);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
+  // Run 45882763507 (own-host microVM, 2026-11-26): the socket refused the connection while acpmux restarted, and the
+  // start gave up as @@nostart. A refused connect or a missing socket cannot have made a session; it is sent again.
+  test("a socket that refuses while acpmux restarts is tried again and starts", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("late");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("Connection refused");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
+  test("a first prompt cut by acpmux's restart is sent again with the same promptId", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("prompt-cut");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.stdout).toContain("@@retry session/prompt");
+    expect(r.stdout).toContain("@@prompted");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+    const prompts = seen.filter((m) => m.startsWith("session/prompt:"));
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toBe(prompts[1]);
+  });
+  test("a start whose session was made before acpmux's restart cut its answer takes that session", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("made-then-cut");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("@@adopted s-1");
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
+    expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+  });
+  test("a taken name with no cut start before it stays a failed start", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("taken");
+    expect(r.stdout).toContain("@@nostart");
+    expect(r.stdout).not.toContain("@@adopted");
+    expect(r.status).toBe(1);
+    expect(seen).not.toContain("_acpmux/resolve");
+  });
+  test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
     try {
-      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8" });
+      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home, CMUX_JOURNEY_START_RETRY_S: "3" }, encoding: "utf8" });
+      expect(r.stdout).toContain("@@retry no acpmux socket at");
       expect(r.status).toBe(1);
       expect(r.stdout).toContain("@@nostart no acpmux socket at");
     } finally {

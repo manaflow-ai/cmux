@@ -27,6 +27,8 @@ mod drill_start;
 mod folder;
 #[path = "fresh_tests.rs"]
 mod fresh;
+#[path = "recover_tests.rs"]
+mod recover;
 #[path = "send_wait_tests.rs"]
 mod send_wait;
 
@@ -353,6 +355,39 @@ impl Runner for Fake {
             stderr: internal::bounded::past_deadline().to_string(),
         }
     }
+    /// [`Fake::cmux_by`], whose `until` may move as `internal::bounded::output_by_unless` moves it: the step's
+    /// answer is taken when it starts, and `later` runs its own steps (taking their time) at each `until`.
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        mut until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
+        let done = self.clock + self.cost(args);
+        self.ran.push(args.to_vec());
+        let answer = self.answers.pop_front().expect("an answer for every step");
+        loop {
+            if done <= until {
+                self.clock = self.clock.max(done);
+                return answer;
+            }
+            self.clock = self.clock.max(until);
+            let moved = later(self);
+            match moved.filter(|moved| *moved > self.clock) {
+                Some(moved) => until = moved,
+                None => {
+                    return Ran {
+                        code: internal::bounded::PAST_DEADLINE,
+                        stdout: String::new(),
+                        stderr: internal::bounded::past_deadline().to_string(),
+                    };
+                }
+            }
+        }
+    }
     fn say(&mut self, line: &str) {
         self.said.push(line.to_owned());
     }
@@ -636,6 +671,35 @@ fn a_link_that_closes_mid_turn_falls_back_to_exec() {
     };
     assert_eq!(answer["reply"], "4");
     assert_eq!(answer["wait_route"], "exec");
+    assert!(answer.get("turn_ms").is_none(), "no first output was read: {answer}");
+}
+
+/// The link read the reply's first output, then closed before the turn ended (hq run 45241258907): the exec
+/// route reads the end, and the answer keeps the first output the link saw, the only first-text time there is.
+#[test]
+fn a_link_that_closes_after_the_first_output_keeps_it_on_the_exec_route() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    let chunk = json!({"seq": 2, "at": 3_200, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "4"}}}}});
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+    ], "last_seq": 1, "ended": "timeout"})));
+    fake.pushes.push_back(Ok(json!({"records": [chunk], "last_seq": 2, "ended": "closed"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["wait_route"], "exec");
+    assert_eq!(answer["turn_ms"], json!({"first_output": 2_200}));
 }
 
 /// No app answers the link's socket (an older app) or the link cannot be observed: the turn is read through the
@@ -1115,8 +1179,9 @@ fn a_pending_machine_names_the_command_that_waits_on() {
             json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "provisioning"}]}),
         ),
     ]);
-    // A name no machine has: `start-session --name` makes it.
-    let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait"]);
+    // A name no machine has: `start-session --name` makes it. `--timeout 20` leaves no time for the recovery
+    // table's rerun (recover.rs), so the pending answer itself is what comes back.
+    let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait", "--timeout", "20"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
     assert_eq!(
@@ -1451,6 +1516,169 @@ fn a_pushed_turn_that_ends_cancelled_without_a_reply_is_a_turn_failure() {
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.turn_failed", "{error}");
     assert_eq!(error["message"], "the turn ended cancelled");
+}
+
+/// The SR2 gateway's capacity error (production probe cloud-chat-replies-production, 2026-11-25 19:40Z), which
+/// the guest's acpmux waits out and continues in the same chat (`hub/auto_resume.rs`).
+const CAPACITY: &str = "API Error: 503 no non-exhausted claude accounts available; next account frees up in \
+                        18m (retry after 1055s)";
+
+fn capacity_failed_history(seq: u64) -> String {
+    format!(
+        "@@wait 0\n@@history\n{{\"turns\":[{{\"seq\":{seq},\"endedAt\":9,\"status\":\"failed\",\
+         \"error\":\"{CAPACITY}\"}}]}}\n@@last\nno reply\n@@lastexit 1\n"
+    )
+}
+
+/// Leo: "Fix the cause". A turn that failed on capacity is not the chat's end: the wait goes on for the
+/// continuation acpmux runs by itself, its reply is the answer, and the answer says a capacity wait happened.
+#[test]
+fn a_capacity_failure_waits_for_the_resumed_turn() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(&capacity_failed_history(3)),
+        exec_out(
+            "@@startedexit 0\n@@started\nrunning\n@@wait 0\n@@history\n{\"turns\":[{\"seq\":4,\
+             \"status\":\"completed\",\"endedAt\":19}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["turn"]["seq"], 4);
+    assert_eq!(answer["capacity_wait"]["retry_after_s"], 1055, "{answer}");
+    assert_eq!(answer["capacity_wait"]["resumed"], true);
+    assert_eq!(answer["capacity_wait"]["failed_turns"], 1);
+    // The read after the failure waits for the continuation to start, not for the failed turn's end.
+    assert!(fake.ran[4][5].contains("--until running"), "{:?}", fake.ran[4]);
+}
+
+/// A capacity wait no continuation ended before `--timeout`: the retryable wait_timeout, with the wait recorded.
+#[test]
+fn a_capacity_failure_with_no_resume_before_the_deadline_is_a_wait_timeout() {
+    let still = "@@startedexit 3\n@@started\n\n@@wait 3\n@@history\n{\"turns\":[{\"seq\":3,\"endedAt\":9,\
+                 \"status\":\"failed\",\"error\":\"x\"}]}\n@@last\nno reply\n@@lastexit 1\n";
+    let mut answers = vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(&capacity_failed_history(3)),
+    ];
+    answers.extend((0..20).map(|_| exec_out(still)));
+    let mut fake = Fake::new(answers);
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "30"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(exit, 3);
+    assert_eq!(error["code"], "chat.wait_timeout", "{error}");
+    let wait = &error["details"]["answer"]["capacity_wait"];
+    assert_eq!(wait["retry_after_s"], 1055, "{error}");
+    assert_eq!(wait["resumed"], false);
+    assert!(error["message"].as_str().unwrap().contains("--after 3"), "{error}");
+}
+
+/// A failure that is not capacity (a refused request, a typed `errorKind`) still ends the wait at once.
+#[test]
+fn a_non_capacity_failure_is_failed_at_once() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"endedAt\":9,\"status\":\"failed\",\
+             \"error\":\"API Error: 400 invalid_request_error\"}]}\n@@last\nno reply\n@@lastexit 1\n",
+        ),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    assert!(error["details"].get("capacity_wait").is_none(), "{error}");
+    assert_eq!(fake.ran.len(), 4);
+}
+
+fn pushed_capacity_failure(fake: &mut Fake) {
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+        {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error", "msg": {"error": CAPACITY}},
+        {"seq": 3, "at": 1_600, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "error"}},
+    ], "last_seq": 3, "ended": "turn_end"})));
+}
+
+/// The link route: the capacity failure's continuation (`<id>~resume-1`) ends well, and its reply is the answer.
+#[test]
+fn a_pushed_capacity_failure_waits_for_the_resumed_turn() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    pushed_capacity_failure(&mut fake);
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 4, "at": 2_000, "dir": "mux", "kind": "auto_resume_scheduled", "msg": {"reason": "capacity"}},
+    ], "last_seq": 4})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 5, "at": 9_000, "dir": "mux", "kind": "user_message", "msg": {"text": "continue"}},
+        {"seq": 6, "at": 9_500, "dir": "in", "kind": "notification", "msg": {"method": "session/update",
+            "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "4"}}}}},
+        {"seq": 7, "at": 9_600, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 7, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4", "{answer}");
+    assert_eq!(answer["turn"]["seq"], 7);
+    assert_eq!(answer["capacity_wait"]["retry_after_s"], 1055, "{answer}");
+    assert_eq!(answer["capacity_wait"]["resumed"], true);
+}
+
+/// The link route: no continuation before `--timeout` is the retryable wait_timeout, the capacity wait recorded.
+#[test]
+fn a_pushed_capacity_failure_with_no_resume_is_a_wait_timeout() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    pushed_capacity_failure(&mut fake);
+    for _ in 0..200 {
+        fake.pushes.push_back(Ok(json!({"records": [], "last_seq": 3})));
+    }
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "30"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(exit, 3);
+    assert_eq!(error["code"], "chat.wait_timeout", "{error}");
+    let wait = &error["details"]["answer"]["capacity_wait"];
+    assert_eq!(wait["retry_after_s"], 1055, "{error}");
+    assert_eq!(wait["resumed"], false);
+}
+
+/// The link route: a failure acpmux typed (`errorKind`) is not capacity, whatever its words: failed at once.
+#[test]
+fn a_pushed_typed_failure_is_failed_at_once() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+        {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error",
+         "msg": {"error": "HTTP 503: agent process closed", "errorKind": "agent.exited"}},
+    ], "last_seq": 2, "ended": "turn_end"})));
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    assert!(error["details"].get("capacity_wait").is_none(), "{error}");
+    assert_eq!(fake.pushes.len(), 0);
 }
 
 #[test]
@@ -2328,8 +2556,11 @@ fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice()
         assert_eq!(error["details"]["creation_id"], "c-1", "{case}: {error}");
 
         // Asked again while the create is still on its way, or after it failed: no second machine.
-        let rerun: Vec<&str> =
+        // `--timeout 9` leaves the one read (5 s) no time for the recovery table's rerun (recover.rs): the answer to that
+        // one ask is what is checked here.
+        let mut rerun: Vec<&str> =
             again.split_whitespace().skip(3).filter(|word| *word != "--json").collect();
+        rerun.extend(["--timeout", "9"]);
         for (status, code, exit) in
             [("creating", "cloud.start_pending", 75), ("failed", "cloud.start_failed", 1)]
         {
@@ -2825,7 +3056,13 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     for (list, mut listed, code) in lists {
         listed["account"] = json!({"signed_in": true});
         for (path, words) in paths {
-            let mut fake = Fake::new(unloaded_lists(listed.clone()));
+            // With a deadline (`--wait`), an unread list is read again by the recovery table (recover.rs) until
+            // `--timeout`: still only lists, and never a start.
+            let mut answers = Vec::new();
+            for _ in 0..40 {
+                answers.extend(unloaded_lists(listed.clone()));
+            }
+            let mut fake = Fake::new(answers);
             let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
                 panic!("{list}, {path}: {:?}", fake.ran)
             };
