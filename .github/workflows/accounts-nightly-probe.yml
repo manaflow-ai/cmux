@@ -1,0 +1,63 @@
+name: Accounts NIGHTLY probe
+
+# Non-gating evidence run: it exercises the published signed NIGHTLY and uploads the person-path receipt.
+# It never promotes, rolls back, or changes the NIGHTLY feed.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Optional CFBundleVersion to probe; empty uses the newest arm64 appcast item
+        required: false
+        default: ''
+        type: string
+      dmg:
+        description: Optional signed NIGHTLY DMG URL (overrides build)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accounts-nightly-probe
+  cancel-in-progress: false
+
+environment: cmux-next-cloud-journey
+
+jobs:
+  probe:
+    name: Accounts flow on published NIGHTLY
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    timeout-minutes: 35
+    env:
+      CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+      CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+      CMUX_GITHUB_TEST_LOGIN: ${{ secrets.CMUX_GITHUB_TEST_LOGIN }}
+      CMUX_GITHUB_TEST_PASSWORD: ${{ secrets.CMUX_GITHUB_TEST_PASSWORD }}
+      CMUX_GITHUB_TEST_TOTP_SEED: ${{ secrets.CMUX_GITHUB_TEST_TOTP_SEED }}
+      CMUX_CLOUD_API: ${{ vars.CMUX_CLOUD_API || 'https://cloud-api-staging.cmux.dev' }}
+    steps:
+      - name: Checkout probe
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run fresh-install Accounts probe
+        env:
+          BUILD: ${{ inputs.build }}
+          DMG: ${{ inputs.dmg }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$DMG" ]; then args+=("dmg=$DMG"); elif [ -n "$BUILD" ]; then args+=("build=$BUILD"); fi
+          scripts/measure/accounts-nightly-probe.sh "${args[@]}"
+      - name: Upload Accounts evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accounts-nightly-probe-${{ github.run_id }}
+          path: .build/accounts-nightly-probe/report.tgz
+          if-no-files-found: warn
+          retention-days: 14
