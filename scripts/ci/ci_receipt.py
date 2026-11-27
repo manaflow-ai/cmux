@@ -743,12 +743,14 @@ def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
 
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
-    # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
-    # neither tested nor named, so refuse it rather than claim a tree the edit is not in.
+    # The receipt names a commit's tree, and the merge is made from that commit in a worktree of its own
+    # (merge_worktree): a tracked edit not in the commit is neither tested nor named, so the receipt is true of the
+    # commit that is pushed. Refusing a dirty checkout here cost 4 of 78 lane pushes their receipt on one lane VM
+    # (2026-11-27, ~/.cache/wt-push/receipts), each a land run re-running the gates for a commit that had passed.
     dirty = git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip()
     if dirty:
-        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); commit them first")
-        return 2
+        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); they are not "
+            "tested: the receipt covers the commit")
     head = tested_head(repo)
     started = time.monotonic()
     sweep_dead_holders("ci-receipt-")
