@@ -217,6 +217,8 @@
 .acpmux-hat-questions__pager {
   --acpmux-hat-step: var(--ds-control-compact, 24px);
   --acpmux-hat-step-gap: var(--ds-space-1, 4px);
+  /* How far a step overhangs the 20 px head row on each side; a negative margin hands it back. */
+  --acpmux-hat-step-bleed: calc((var(--ds-control-icon, 20px) - var(--acpmux-hat-step)) / 2);
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -243,7 +245,7 @@
   place-items: center;
   width: var(--acpmux-hat-step);
   height: var(--acpmux-hat-step);
-  margin-block: calc((var(--ds-control-icon, 20px) - var(--acpmux-hat-step)) / 2);
+  margin-block: var(--acpmux-hat-step-bleed);
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-md, 6px);
