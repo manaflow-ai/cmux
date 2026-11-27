@@ -1712,6 +1712,20 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             .saturating_add(SSH_MASTER_AUTH_TIMEOUT.saturating_mul(ssh_authentications))
     }
 
+    /// Every route this client can authenticate on but the link's own. Without the route race
+    /// (`CMUX_REMOTE_ROUTE_RACE=0`, or a grant that is single-use) a redial is not raced either.
+    fn alternates(&self) -> Option<usize> {
+        self.race?;
+        let auth = followup_auth_kind(&self.options.auth);
+        let routes = self
+            .options
+            .routes
+            .iter()
+            .filter(|candidate| candidate.supports_client_auth(auth))
+            .count();
+        Some(routes.saturating_sub(1))
+    }
+
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
@@ -1871,10 +1885,20 @@ pub(crate) async fn next_reconnect_route_skipping<T: Send>(
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<T, ProviderError> {
-    let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
+    // A raced pass moves `next` only when it ends: a redial that asks for the next route and
+    // is dropped by a network change a moment later (`ClientConnection::race_redial`) asks
+    // again and must get the same route, not the one after it. A pass that tries its routes
+    // one at a time still moves on before it starts, so one dropped on a hung route does not
+    // start on that route again.
+    let from = if race.is_some() {
+        next.load(Ordering::Relaxed)
+    } else {
+        next.fetch_add(1, Ordering::Relaxed)
+    };
+    let Some(start) = from.checked_rem(routes.len()) else {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     };
-    let (index, group) = route_race::select_reconnect_routes_skipping(
+    let selected = route_race::select_reconnect_routes_skipping(
         routes,
         start,
         skip,
@@ -1884,9 +1908,19 @@ pub(crate) async fn next_reconnect_route_skipping<T: Send>(
         auth,
         attempt,
     )
-    .await?;
-    next.store(index.saturating_add(1), Ordering::Relaxed);
-    Ok(group)
+    .await;
+    match selected {
+        Ok((index, group)) => {
+            next.store(index.saturating_add(1), Ordering::Relaxed);
+            Ok(group)
+        }
+        Err(error) => {
+            if race.is_some() {
+                next.store(start.saturating_add(1), Ordering::Relaxed);
+            }
+            Err(error)
+        }
+    }
 }
 
 struct RuntimeReconnectRouteAttempt<'a> {

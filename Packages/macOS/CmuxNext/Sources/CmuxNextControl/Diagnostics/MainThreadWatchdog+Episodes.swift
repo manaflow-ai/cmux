@@ -89,7 +89,7 @@ extension MainThreadWatchdog {
     }
 
     /// The hang of `beat`'s load so far: the main thread's CPU (`cpuNanos`) and the process's
-    /// page-ins since the watchdog first sampled the stall. Watchdog thread only.
+    /// page-ins and the host's memory since the watchdog first sampled the stall. Watchdog thread only.
     func load(beat: UInt64, cpuNanos: UInt64?) -> HangLoad {
         let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
         guard let base = stallEvents.withLock({ $0 }), base.beat == beat, let counts = base.counts else {
@@ -97,6 +97,7 @@ extension MainThreadWatchdog {
         }
         var load = counts.load(to: TaskEventCounts.current(), cpu: cpu)
         load.host = HostLoad.current()
+        if let start = base.memory, let now = HostMemory.current() { load.memory = HostMemoryDelta(from: start, to: now) }
         return load
     }
 }

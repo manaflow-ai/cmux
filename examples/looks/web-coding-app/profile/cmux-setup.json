@@ -1,0 +1,44 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/web-coding-app-profile",
+  "name": "Web coding app",
+  "tagline": "Looks and works like a light web coding agent: white page, one-line session list, a centered chat column, unified diffs and its keys.",
+  "description": "A whole profile built only from public surfaces: the web-coding-app theme file, a cmux.agentPane.style/1 stylesheet for the chat's paint, settings for the sidebar, tabs, chat column, diffs and attention, and keybindings for new chat, session stepping, reopen, unread, model and effort. README.md lists every feature and motion of the reference, matched, partial or missing, with the gap that blocks each one. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/web-coding-app/profile",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "web-coding-app",
+
+    // The session list: every workspace is one line in the sidebar (sidebar.workspacesAsTabs is a
+    // one-line sidebar list, not a tab strip across the top), grouped by folder, with
+    // Shift-Command-[ and ] stepping through them and Command-1 to 9 picking one.
+    "sidebar.workspacesAsTabs": true,
+    "sidebar.density": "compact",
+    "sidebar.showSpaces": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.cards.tips": false,
+    "sidebar.groupBy": "folder",
+    "tabs.commandDigits": "workspaces",
+    "tabs.hideLoneChatTab": true,
+    "tabs.newTabPosition": "afterCurrent",
+    "tabs.overflow": "scroll",
+
+    // The chat: messages with your prompt in a gray bubble, Inter at 14, a centered 760-point column.
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.ui": "inter",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+
+    // Review: the turn's changed files fold into one card, and diffs read unified.
+    "agentPane.editedFiles.show": "collapsed",
+    "diff.layout": "unified",
+    "notifications.attention.agentChats": "ring",
+
+    // The theme sets hover entry and exit to 150 ms. Keep system Reduce Motion effective.
+    "ui.animations.enabled": true
+  }
+}

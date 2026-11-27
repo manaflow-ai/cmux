@@ -126,7 +126,8 @@ impl Hub {
             if has_tag(m, ARCHIVED_TAG, now) {
                 return Err("archived");
             }
-            if KEPT_TAGS.iter().any(|tag| has_tag(m, tag, now)) {
+            // Pinned in the person's list (`_acpmux/pin`) keeps it as the `pinned` tag does.
+            if m.pinned || KEPT_TAGS.iter().any(|tag| has_tag(m, tag, now)) {
                 return Err("kept");
             }
             if m.updated_at > cutoff {

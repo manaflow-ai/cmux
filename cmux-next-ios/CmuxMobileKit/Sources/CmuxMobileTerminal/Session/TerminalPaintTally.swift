@@ -31,8 +31,13 @@ public struct TerminalPaintTally: Sendable, Equatable {
     public private(set) var handed = 0
     /// Marks dropped: never painted within ``maxWaitMs``, or past ``maxMarks``.
     public private(set) var dropped = 0
+    /// How old the oldest sample may get before a report goes (``reportEveryMs`` unless the DEBUG
+    /// overlay wants its number sooner).
+    public var reportIntervalMs: Double
 
-    public init() {}
+    public init(reportIntervalMs: Double = Self.reportEveryMs) {
+        self.reportIntervalMs = reportIntervalMs
+    }
 
     /// `count` more bytes went to the screen.
     public mutating func handed(_ count: Int) {
@@ -77,7 +82,7 @@ public struct TerminalPaintTally: Sendable, Equatable {
     /// The samples to report now, if a report is due at `nowMs`.
     public mutating func takeReport(nowMs: Double) -> [Sample]? {
         guard let first = firstSampleMs,
-              samples.count >= Self.maxSamples || nowMs - first >= Self.reportEveryMs else { return nil }
+              samples.count >= Self.maxSamples || nowMs - first >= reportIntervalMs else { return nil }
         let out = Array(samples.prefix(Self.maxSamples))
         samples.removeFirst(out.count)
         firstSampleMs = samples.isEmpty ? nil : nowMs

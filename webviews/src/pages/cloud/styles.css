@@ -1047,6 +1047,11 @@ select {
   font-weight: 600;
 }
 
+/* Beside Sign In: what it signs in to ("Signs in to cmux.com"). */
+.cloud-store-cta .ui-sign-in__backend {
+  align-self: center;
+}
+
 .cloud-store-art {
   flex: none;
   width: min(240px, 38%);
@@ -1455,7 +1460,7 @@ select {
 
 .cloud-pool-used {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1467,7 +1472,7 @@ select {
   padding: 6px 8px;
   border-radius: 6px;
   border: 1px solid var(--cloud-warn);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .cloud-pool-alert strong {
