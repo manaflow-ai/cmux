@@ -44,6 +44,9 @@ impl Peer {
                     // A plain ssh machine that is also a paired install gets the cmux link as
                     // its backup path (`peer_overlay.rs`).
                     me.learn_overlay(&v);
+                    // Where both ends run the WireGuard transport, a route beside ssh
+                    // (`peer_wg_learn.rs`).
+                    me.learn_wireguard(&v);
                     Some(trim(v))
                 }
                 // It answered with an error while still connected: a build
