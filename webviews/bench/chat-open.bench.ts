@@ -364,6 +364,8 @@ try {
       viewport: { width: 1200, height: 800 },
       deviceScaleFactor: REVEAL ? 2 : 1,
     });
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
@@ -720,20 +722,47 @@ try {
           );
         })
       : page.goto(url);
-    await typed;
-    await page.waitForFunction(
-      (remoteTail) => {
-        const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
-        const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
-        return (
-          state.latest > 0 &&
-          (!remoteTail || remote.reconciled > 0) &&
-          performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
-        );
-      },
-      REMOTE_TAIL,
-      { timeout: 120_000, polling: 100 },
-    );
+    try {
+      await typed;
+      await page.waitForFunction(
+        (remoteTail) => {
+          const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
+          const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
+          return (
+            state.latest > 0 &&
+            (!remoteTail || remote.reconciled > 0) &&
+            performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
+          );
+        },
+        REMOTE_TAIL,
+        { timeout: 120_000, polling: 100 },
+      );
+    } catch (error) {
+      const diagnostic = await page
+        .evaluate((expectedRow) => {
+          const state = window as unknown as {
+            __open?: { latest: number; activity: number };
+            __remoteTail?: { reconciled: number };
+            __composer?: unknown;
+          };
+          const scroll = document.querySelector(".acpmux-scroll");
+          return {
+            expectedRow,
+            now: performance.now(),
+            open: state.__open,
+            remote: state.__remoteTail,
+            composer: state.__composer,
+            rows: [...document.querySelectorAll("[data-row-id]")].map((row) => ({
+              id: row.getAttribute("data-row-id"),
+              text: row.textContent?.slice(0, 160),
+            })),
+            scroll: scroll && { top: scroll.scrollTop, height: scroll.scrollHeight, client: scroll.clientHeight },
+          };
+        }, LATEST_ROW)
+        .catch((cause) => ({ evaluationError: String(cause) }));
+      console.error("chat-open failed", JSON.stringify({ diagnostic, pageErrors, calls }));
+      throw error;
+    }
     const got = await page.evaluate(() => {
       const state = (
         window as unknown as {
