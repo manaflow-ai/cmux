@@ -62,8 +62,8 @@ on:
         default: capture
       plan_only:
         description: "With target journey-production: only set that account's operator plan (pro or next_pro; next_pro = 32 machines running at once). No rotation, nothing sealed"
-        type: choice
-        options: ["", pro, next_pro]
+        type: string
+        required: false
         default: ""
       team_only:
         description: "With target production-team: only make the existing account a member of the company team (no rotation, no bundle)"
