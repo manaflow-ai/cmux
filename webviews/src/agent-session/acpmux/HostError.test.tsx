@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HostError, HostUnavailableLine } from "./HostError";
+import { type FlickerEvent, resetFlickerLogForTests, startFlickerLog } from "./flickerLog";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
@@ -237,4 +238,30 @@ test("the wait reads as minutes and seconds", () => {
   expect(waitedText(0)).toBe("0:00");
   expect(waitedText(25_400)).toBe("0:25");
   expect(waitedText(605_000)).toBe("10:05");
+});
+
+test("a host line records when it shows and when it goes, and a self-retrying failure records nothing", async () => {
+  const container = installDom();
+  const sent: FlickerEvent[] = [];
+  const win = dom!.window as unknown as Window;
+  startFlickerLog(win, (events) => void sent.push(...events));
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<HostUnavailableLine message="refused" onRetry={() => undefined} />);
+    });
+    await act(async () =>
+      root!.render(<HostUnavailableLine message="refused" onRetry={() => undefined} selfRetrying={false} />),
+    );
+    await act(async () => root!.render(<HostUnavailableLine message="refused" onRetry={() => undefined} />));
+    win.dispatchEvent(new dom!.window.Event("pagehide"));
+    const lines = sent.filter((event) => event.kind === "host-line");
+    expect(lines.map((event) => [event.line, event.state])).toEqual([
+      ["unavailable", "shown"],
+      ["unavailable", "cleared"],
+    ]);
+    expect(typeof lines[1]!.ms).toBe("number");
+  } finally {
+    resetFlickerLogForTests();
+  }
 });

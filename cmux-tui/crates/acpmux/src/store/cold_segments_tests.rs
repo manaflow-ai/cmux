@@ -117,6 +117,90 @@ fn cold_segments_page_back_as_before() {
     assert_eq!(all(&reopened), expected(1501));
 }
 
+/// A chat of `total` records with a `turn_result` every 50th, the rest agent output.
+fn chat_with_turns(total: u64) -> (tempfile::TempDir, PathBuf, LocalStore) {
+    let home = tempfile::tempdir().unwrap();
+    let sessions = home.path().join("sessions");
+    let store = store(&sessions);
+    for seq in 1..=total {
+        store.append(ID, &turn_record(seq)).unwrap();
+    }
+    store.close_log(ID);
+    (home, sessions, store)
+}
+
+fn turn_record(seq: u64) -> EventRecord {
+    if seq % 50 == 0 {
+        EventRecord {
+            seq,
+            at: seq,
+            dir: "mux".into(),
+            kind: "turn_result".into(),
+            msg: serde_json::json!({"status": "failed", "turnId": format!("t{seq}")}),
+            host_seq: None,
+        }
+    } else {
+        record(seq)
+    }
+}
+
+/// Every `turn_result` back from the end through the copies (`scan_back_indexed`, a log load's
+/// catch-up and rate hold), and the raw bytes of cold chunks the read decoded.
+fn results_back(store: &LocalStore) -> (Vec<u64>, u64) {
+    DECODED.with(|n| n.set(0));
+    let mut seqs = Vec::new();
+    store
+        .scan_back_indexed(ID, 0, u64::MAX, &|_, kind| kind != b"turn_result", &mut |rec| {
+            seqs.push(rec.seq);
+            true
+        })
+        .unwrap();
+    (seqs, DECODED.with(std::cell::Cell::get))
+}
+
+/// A read back over a chat's history for indexed kinds reads a cold segment's copy, carried over
+/// from its `.ndjson` when it went cold, and decodes none of its chunks: each such read (a log
+/// load's catch-up, rate hold and resume, on every start) decoded every cold segment of the chat,
+/// about 1 GB of allocations on the first start after a 1 GB chat went cold (goal
+/// infinite-chats, `restartPeakRss` 1.41x). A segment that lost its copy gets one by the next
+/// kinds scan, so only that scan decodes it.
+#[test]
+fn a_read_back_for_indexed_kinds_reads_cold_segments_copies_not_their_chunks() {
+    let (_home, sessions, store) = chat_with_turns(1500);
+    let want: Vec<u64> = (1..=1500).rev().filter(|s| s % 50 == 0).collect();
+    // Every sealed segment has its copy (the append path's, `store/segment_writer.rs`).
+    assert_eq!(results_back(&store).0, want);
+    let moved = move_all(&store);
+    assert!(moved > 3, "{moved} segments went cold");
+    assert_eq!(results_back(&store), (want.clone(), 0), "a read back decoded cold chunks");
+    // A store opened again (a restart) reads the same copies.
+    let reopened = self::store(&sessions);
+    assert_eq!(results_back(&reopened), (want.clone(), 0));
+    // A forward scan for indexed kinds (a log load's) reads them too.
+    let forward = |store: &LocalStore| {
+        DECODED.with(|n| n.set(0));
+        let mut seqs = Vec::new();
+        store
+            .scan_kinds(ID, &["turn_result"], &mut |rec| {
+                seqs.push(rec.seq);
+                true
+            })
+            .unwrap();
+        (seqs.len(), DECODED.with(std::cell::Cell::get))
+    };
+    assert_eq!(forward(&reopened), (30, 0), "a kinds scan decoded cold chunks");
+    // A cold segment whose copy is gone: the next kinds scan decodes it once and makes the copy
+    // again, as it does a local segment's; the reads after it decode nothing.
+    let copy = sessions.join(ID).join(super::kind_index::DIR).join("000001.ndjson");
+    std::fs::remove_file(&copy).unwrap();
+    let (n, decoded) = forward(&reopened);
+    assert_eq!(n, 30);
+    assert!(decoded > 0, "the copy was made without reading the segment");
+    assert!(copy.exists(), "no copy was made for the cold segment");
+    assert_eq!(forward(&reopened), (30, 0));
+    assert_eq!(results_back(&reopened), (want, 0));
+}
+
 /// `tail_after` reads newest first through every segment, cold ones too.
 #[test]
 fn tail_after_counts_cold_segments() {
