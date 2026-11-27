@@ -17,6 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -731,7 +732,12 @@ pub(super) fn run_action(
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
         };
         match name {
-            "wait" | "no-wait" | "interactive" => {
+            "wait" | "no-wait" | "interactive" | "join-only" => {
+                if name == "join-only" {
+                    params.insert("join_only".into(), json!(true));
+                    index += 1;
+                    continue;
+                }
                 let key = if name == "interactive" { "interactive" } else { "wait" };
                 params.insert(key.into(), json!(name != "no-wait"));
                 index += 1;
@@ -1581,9 +1587,9 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     if let Some(session) = set("CMUX_AGENT_SESSION") {
         let mut caller = json!({ "agent_session": session });
         if home_chat {
-            caller["home_chat"] = json!(true);
+            caller.set("home_chat", json!(true));
         } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
-            caller["workspace"] = json!(workspace);
+            caller.set("workspace", json!(workspace));
         }
         return Some(caller);
     }

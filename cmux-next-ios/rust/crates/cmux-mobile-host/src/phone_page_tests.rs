@@ -141,3 +141,14 @@ fn lines_split_across_frames_and_refuse_a_runaway() {
     );
     assert!(lines.push(&[b'x'; 65], 64).is_err());
 }
+
+#[test]
+fn fragmented_large_line_is_linear_and_within_the_limit() {
+    let mut lines = Lines::default();
+    for _ in 0..128 {
+        assert!(lines.push(&[b'x'; 64 * 1024], cmux_phone_page::MAX_LINE).is_ok());
+    }
+    let result = lines.push(b"\n", cmux_phone_page::MAX_LINE).expect("the complete line");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].len(), 8 * 1024 * 1024);
+}

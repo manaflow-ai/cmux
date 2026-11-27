@@ -135,6 +135,8 @@ final class ShellModel {
     struct CloudChatsPresentation: Identifiable {
         let id = UUID()
         let attention: CloudChatAttention?
+        /// A New Task on a Cloud machine: its chat starts with this first message.
+        var task: CloudChatTask? = nil
     }
     /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
     var macScreenLink: MacScreenLinkPresentation?
@@ -327,6 +329,7 @@ final class ShellModel {
         creator.onTaskNotDelivered = { [weak self] workspace, task, failure in
             self?.taskNotDelivered(workspace, task: task, failure: failure)
         }
+        wireCloudTasks()
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
@@ -482,6 +485,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            terminalTabs.uploaderDirectoryProvider = { [weak live] tab, macID in live?.terminalDirectory(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
             live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
@@ -550,6 +554,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.uploaderDirectoryProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }
