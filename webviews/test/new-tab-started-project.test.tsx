@@ -846,3 +846,18 @@ test("a chat page with no New Tab context asks the app for Cloud's last pick, an
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(cloudPickChoices()).toEqual([]);
 });
+
+// A chat start that settles after a newer folder pick (another page, while this chat was starting) leaves the
+// newer pick as the next New Tab's default.
+test("a slow chat start never overwrites a folder picked after its send", async () => {
+  const { rememberStartedProject, rememberedStartedProject } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
+  const post = () => Promise.resolve();
+  const sentAt = Date.now() - 1_000;
+  rememberStartedProject("/Users/you/src/billing", post);
+  rememberStartedProject(PICKED, post, sentAt);
+  expect(rememberedStartedProject()).toBe("/Users/you/src/billing");
+  // A start sent after the pick still writes its folder.
+  rememberStartedProject(PICKED, post, Date.now() + 1);
+  expect(rememberedStartedProject()).toBe(PICKED);
+});

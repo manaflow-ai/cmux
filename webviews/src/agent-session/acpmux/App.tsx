@@ -132,6 +132,7 @@ import {
   startedByPerson,
   folderFields,
   isAgentHome,
+  isTemporaryFolder,
   placeFields,
   projectLabel,
   SessionsBy,
@@ -9298,6 +9299,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
+    // A newer folder pick made while this chat starts stays the next New Tab's default.
+    const sentAt = Date.now();
     // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
     // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, #48541): decided before a
     // folder grant or anything else spends the send's gesture, and the page keeps its text.
@@ -9345,7 +9348,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
             isCurrent,
           ).then((session) => {
-            if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative);
+            if (isCurrent() && session && remembers) rememberStartedProject(folder, callNative, sentAt);
             return session;
           });
           // A refusal before any chat opened fails the switch: the page comes back with the reason
@@ -9396,7 +9399,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return;
         }
         if (!isCurrent()) return;
-        if (started && remembers) rememberStartedProject(folder, callNative);
+        if (started && remembers) rememberStartedProject(folder, callNative, sentAt);
         if (asks) await callNative("chat.send", message);
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
@@ -9417,7 +9420,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // no longer lists gives way. The first default the list or the ask names ends it (the page takes the
         // first one known, newtab/startedProject.ts).
         const page = newTabNow.current;
-        const ownFolder = page?.cwd !== undefined && page.cwd !== page.home && !isAgentHome(page.cwd);
+        // A temporary folder (the tab beside a scratch chat in /tmp) gives way to the default, as the page does.
+        const ownFolder =
+          page?.cwd !== undefined && page.cwd !== page.home && !isAgentHome(page.cwd) && !isTemporaryFolder(page.cwd);
         if (!machine && page?.home !== undefined && !page.startsRemote && !ownFolder) {
           const listed = new Set(projects.map((project) => project.cwd));
           for (const folder of startedProjectChoices(page.startedProject)) {
@@ -9456,7 +9461,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const keptProjects = useMemo(
     () => {
       const kept = sharesProjectList ? storedProjectList() : undefined;
-      return kept ? listedProjects(kept) : undefined;
+      // Names and checkouts only: a kept GitHub origin may be out of date, and a Cloud pick reads it to choose
+      // the repository a chat starts in. The page's own answer brings the origin.
+      return kept
+        ? listedProjects(kept).map(({ repo, ...project }): Project =>
+            repo ? { ...project, repo: (({ github: _github, ...rest }) => rest)(repo) } : project,
+          )
+        : undefined;
     },
     // Read again for each page the view becomes (a spare adopted for another screen).
     // eslint-disable-next-line react-hooks/exhaustive-deps
