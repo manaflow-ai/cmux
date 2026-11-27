@@ -3337,17 +3337,24 @@ pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Resu
             step_result(&runner.cmux(&resume))?;
             // The resume can answer before the machine's record runs: a refusal for its state while it comes up
             // is asked again, every RESUME_PAUSE, for at most RESUME_BOUND (and never past the run's deadline).
+            // A try is only made when it can end inside the bound: the pause and the last try's own time both count,
+            // so the final ask never runs past RESUME_BOUND.
             let woke = runner.now();
             loop {
-                match step_result(&runner.cmux(&args)) {
+                let asked = runner.now();
+                let ran = runner.cmux(&args);
+                let took = runner.now().saturating_duration_since(asked);
+                match step_result(&ran) {
                     Err(error)
                         if (machine_not_running(&error)
                             || at(&error, "code").as_str() == Some("vm_state_conflict"))
-                            && runner.now().saturating_duration_since(woke) + RESUME_PAUSE
+                            && runner.now().saturating_duration_since(woke)
+                                + RESUME_PAUSE
+                                + took
                                 < RESUME_BOUND
                             && runner
                                 .until()
-                                .is_none_or(|until| runner.now() + RESUME_PAUSE < until) =>
+                                .is_none_or(|until| runner.now() + RESUME_PAUSE + took < until) =>
                     {
                         runner.pause(RESUME_PAUSE);
                     }
