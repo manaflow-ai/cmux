@@ -5,6 +5,7 @@ import type { Env } from "./env.ts"
 import { MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE, MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
 import { locationHintOf, relayPlacement, relayRoomName } from "./placement.ts"
+import { RegionLearner } from "./region-pick.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
@@ -36,6 +37,8 @@ export interface Ingress {
   /** Cloudflare's geolocation of the client, rounded to 0.1 degree (about 11 km); relay placement only. */
   lat?: number | null
   lon?: number | null
+  /** The client's network's AS number (`req.cf.asn`): with `colo`, the hub's central region pick keys on it (region-pick.ts). */
+  asn?: number | null
   /** The client's own netcheck, round-trip ms per Durable Object region (`placement.ts` parseNetcheck). */
   rtt?: Partial<Record<string, number>>
 }
@@ -359,6 +362,8 @@ export class TeamHub extends DurableObject<Env> {
   /** Sessions whose relay this instance prewarmed (`prewarmRelay`), in memory only. */
   private readonly prewarmed = new Set<string>()
   private ownerKey: string | null | undefined
+  /** The central relay region pick's learner (RFD 0142 O2); its tables are made on first use, only with `LINK_RELAY_CENTRAL_PICK=on`. */
+  private regionLearner: RegionLearner | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -672,6 +677,7 @@ export class TeamHub extends DurableObject<Env> {
     this.sessions.clear()
     this.ownerKey = undefined
     await this.ctx.storage.deleteAll()
+    this.regionLearner?.reset()
     this.schema()
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('retired', '1')`)
     return { closed }
@@ -769,7 +775,19 @@ export class TeamHub extends DurableObject<Env> {
     const line = linkStatLine(f, att.kind, att.ingress, await this.hubColo())
     if (!line) return
     this.linkStats.set(ws, now)
+    const learner = this.centralPick()
+    if (learner && line.path === "https-relay" && typeof line.rttN === "number" && typeof line.rttP50 === "number") {
+      const region = learner.credit(att.deviceId, line.rttP50, line.rttN, now)
+      if (region) line.relayRegion = region
+    }
     console.log(JSON.stringify(line))
+  }
+
+  /** The central pick's learner when `LINK_RELAY_CENTRAL_PICK` is `on`, else undefined (off: nothing is stored). */
+  private centralPick(): RegionLearner | undefined {
+    if (this.env.LINK_RELAY_CENTRAL_PICK !== "on") return undefined
+    this.regionLearner ??= new RegionLearner(this.sql)
+    return this.regionLearner
   }
 
   /** The owner's Macs with presence; only one team's when `teamId` is given. */
@@ -1267,8 +1285,21 @@ export class TeamHub extends DurableObject<Env> {
     if (!owner) return
     if (this.prewarmed.size >= PREWARMED_MAX) this.prewarmed.clear()
     this.prewarmed.add(id)
-    const placed = relayPlacement(from.ingress, this.attach(target)?.ingress, locationHintOf(from.ingress))
-    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), placed.hint ? { locationHint: placed.hint } : undefined)
+    const to = this.attach(target)
+    const placed = relayPlacement(from.ingress, to?.ingress, locationHintOf(from.ingress))
+    let hint = placed.hint
+    // RFD 0142 O2: with the switch on, the user's own measured relay round trips for this network pair move the
+    // relay off the estimate when another region ran clearly faster (region-pick.ts; nothing learned: unchanged).
+    const learner = this.centralPick()
+    const phone = from.kind === "phone" ? from : to?.kind === "phone" ? to : undefined
+    const mac = from.kind === "mac" ? from : to?.kind === "mac" ? to : undefined
+    if (learner && phone && mac) {
+      const picked = learner.place(phone.deviceId, phone.ingress, mac.ingress, from.ingress, to?.ingress, placed.hint)
+      if (picked.region !== placed.hint)
+        console.log(JSON.stringify({ event: "relay_central_pick", by: picked.by, region: picked.region ?? null, estimate: placed.hint ?? null, ms: picked.ms ?? null }))
+      hint = picked.region
+    }
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), hint ? { locationHint: hint } : undefined)
     this.ctx.waitUntil(
       room.fetch("https://link-relay/prewarm", { method: "POST" }).then(
         (r) => r.body?.cancel(),
