@@ -143,19 +143,48 @@ async fn held_upstream() -> (String, oneshot::Receiver<()>, oneshot::Sender<()>)
         let (mut sock, _) = listener.accept().await.unwrap();
         let mut seen = Vec::new();
         let mut buf = [0u8; 4096];
-        while !String::from_utf8_lossy(&seen).contains(r#"{"model":"m"}"#) {
+        loop {
             let n = sock.read(&mut buf).await.unwrap();
             assert!(n > 0, "the gateway closed the call before its body arrived");
             seen.extend_from_slice(&buf[..n]);
+
+            // The gateway warms this origin with HEAD before sending the model call.  Consume
+            // and answer that request on the same keep-alive socket so the test still holds the
+            // subsequent POST response behind `released`.
+            while let Some(end) = seen.windows(4).position(|window| window == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&seen[..end]).to_ascii_lowercase();
+                let content_length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .map_or(0, |value| value.trim().parse::<usize>().unwrap());
+                let frame_len = end + 4 + content_length;
+                if seen.len() < frame_len {
+                    break;
+                }
+                let request = seen.drain(..frame_len).collect::<Vec<_>>();
+                if head.starts_with("head ") {
+                    // HEAD responses carry no body, even when they advertise a representation
+                    // length.  Keep the socket open for reqwest's first real call.
+                    sock.write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: keep-alive\r\n\r\n",
+                    )
+                    .await
+                    .unwrap();
+                    continue;
+                }
+                if String::from_utf8_lossy(&request).contains(r#"{"model":"m"}"#) {
+                    let _ = reached_tx.send(());
+                    let _ = released.await;
+                    sock.write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\nconnection: close\r\n\r\n{\"a\":1}",
+                    )
+                    .await
+                    .unwrap();
+                    sock.shutdown().await.unwrap();
+                    return;
+                }
+            }
         }
-        let _ = reached_tx.send(());
-        let _ = released.await;
-        sock.write_all(
-            b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\nconnection: close\r\n\r\n{\"a\":1}",
-        )
-        .await
-        .unwrap();
-        sock.shutdown().await.unwrap();
     });
     (base, reached, release)
 }
