@@ -399,7 +399,7 @@ jobs:
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
             auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
             GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-              git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+              git fetch --no-tags --filter=blob:none --depth=256 origin "$BASE" "$HEAD_SHA"
           fi
           python3 -I - <<'PY'
           import fnmatch, json, os, subprocess
@@ -408,10 +408,15 @@ jobs:
           base, head = os.environ['BASE'], os.environ['HEAD_SHA']
           manifest = 'scripts/ci/pr_router.json'
           config = json.loads(git('show', f'{base}:{manifest}'))['callees']['ios-link-ffi-linux.yml']
-          changed = git('diff', '--name-only', '--no-renames', base, head).splitlines()
+          if os.environ['EVENT_NAME'] == 'pull_request':
+              # The checkout is GitHub's merge ref: exclude changes made only on base.
+              route_base, route_head = 'HEAD^1', 'HEAD'
+          else:
+              route_base, route_head = git('merge-base', base, head).strip(), head
+          changed = git('diff', '--name-only', '--no-renames', route_base, route_head).splitlines()
           def admits(key, path):
               return any(fnmatch.fnmatchcase(path, pattern) for pattern in config[key])
-          required = (git('rev-parse', f'{base}:{manifest}') != git('rev-parse', f'{head}:{manifest}')
+          required = (git('rev-parse', f'{route_base}:{manifest}') != git('rev-parse', f'{route_head}:{manifest}')
                       or any(admits('paths', path) and admits('affects', path) for path in changed))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print(f'required={str(required).lower()}', file=output)
