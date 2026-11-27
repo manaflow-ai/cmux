@@ -157,7 +157,7 @@ public final class AgentPaneDroppedPaths {
     }
 
     /// The same one-shot record with the pinned recording bytes for the model's local upload.
-    func takeItems(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> [Item]? {
+    func takeItemsWithID(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> (id: UUID, items: [Item])? {
         guard var records = held[kind] else { return nil }
         let record: Record
         if let gestureAt {
@@ -175,14 +175,19 @@ public final class AgentPaneDroppedPaths {
         guard now() - record.at <= Self.lifetime, record.items.count == names.count else { return nil }
         // WebKit hands the page the pasteboard's files in its order: a folder and a zip of the same
         // name (both `name.zip` to the page) stay apart.
-        if zip(record.items, names).allSatisfy({ Self.named($0.0.url, $0.1) }) { return record.items }
+        if zip(record.items, names).allSatisfy({ Self.named($0.0.url, $0.1) }) { return (record.id, record.items) }
         var left = record.items
         var picked: [Item] = []
         for name in names {
             guard let index = left.firstIndex(where: { Self.named($0.url, name) }) else { return nil }
             picked.append(left.remove(at: index))
         }
-        return picked
+        return (record.id, picked)
+    }
+
+    /// The one-shot native record without exposing its identity to older callers.
+    func takeItems(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> [Item]? {
+        takeItemsWithID(kind, names: names, gestureAt: gestureAt)?.items
     }
 
     /// The window event that hands the page a native drop's files with the drop itself
@@ -220,7 +225,7 @@ public final class AgentPaneDroppedPaths {
         }
         if putTokens.count > Self.linkedLimit { putTokens.removeFirst(putTokens.count - Self.linkedLimit) }
         if local { linked(record.items.map(\.url.path)) }
-        return ["local": local, "items": items]
+        return ["local": local, "id": record.id.uuidString, "items": items]
     }
 
     /// The file of pushed token `token`, once, when the page names it `name`; nil otherwise.

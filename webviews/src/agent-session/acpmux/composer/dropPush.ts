@@ -24,12 +24,12 @@ export const PUSH_WAIT_MS = 250;
 /// token for putting it there.
 export type PushedItem = { path: string; folder: boolean; token?: string };
 /// The host's push: `local` when the chat runs on this Mac (its files link where they are).
-export type PushedDrop = { local: boolean; items: PushedItem[] };
+export type PushedDrop = { id?: string; local: boolean; items: PushedItem[] };
 
-type Held = { at: number; local: boolean; items: (PushedItem & { taken?: boolean })[] };
+type Held = { at: number; id?: string; local: boolean; items: (PushedItem & { taken?: boolean })[] };
 let held: Held[] = [];
 let lastDrop: { at: number; names: Set<string> } | undefined;
-type IgnoredPush = { at: number; dropAt: number; names: string[] };
+type IgnoredPush = { at: number; id: string };
 /// A fallback answer won a DOM drop. A native push for that same drop may still arrive after the
 /// answer (Chromium), and must not be left around to satisfy a later same-basename drop.
 let ignored: IgnoredPush[] = [];
@@ -43,20 +43,9 @@ const fresh = () => {
   ignored = ignored.filter((drop) => now - drop.at <= LIFETIME_MS);
 };
 
-const namesMatch = (items: readonly PushedItem[], names: readonly string[]) => {
-  if (items.length !== names.length) return false;
-  const left = [...names];
-  return items.every((item) => {
-    const at = left.findIndex((name) => named(item.path, name));
-    if (at < 0) return false;
-    left.splice(at, 1);
-    return true;
-  });
-};
-
 /// Takes the host's push (the window event's detail).
 export function receivePushedDrop(detail: unknown): void {
-  const drop = (detail ?? {}) as { local?: unknown; items?: unknown };
+  const drop = (detail ?? {}) as { id?: unknown; local?: unknown; items?: unknown };
   if (!Array.isArray(drop.items)) return;
   const items = drop.items.flatMap((entry: unknown) => {
     const { path, folder, token } = (entry ?? {}) as { path?: unknown; folder?: unknown; token?: unknown };
@@ -68,11 +57,16 @@ export function receivePushedDrop(detail: unknown): void {
   const at = performance.now();
   // The fallback may have answered before Chromium delivers its native push. Keep that push from
   // becoming a stale record that a later same-basename drop could accidentally take.
-  if (drop.local === true && ignored.some((entry) => at >= entry.at && namesMatch(items, entry.names))) {
-    return;
+  const id = typeof drop.id === "string" && drop.id ? drop.id : undefined;
+  if (id) {
+    const ignoredAt = ignored.findIndex((entry) => at >= entry.at && entry.id === id);
+    if (ignoredAt >= 0) {
+      ignored.splice(ignoredAt, 1);
+      return;
+    }
   }
   lastPushAt = at;
-  held.push({ at: lastPushAt, local: drop.local === true, items });
+  held.push({ at: lastPushAt, id, local: drop.local === true, items });
   for (const wake of waiting) wake();
 }
 
@@ -179,7 +173,6 @@ export function pushedDropPaths(
   files: readonly File[],
   ask: () => Promise<KnownPaths | undefined>,
 ): Promise<KnownPaths | undefined> {
-  const dropAt = lastDrop?.at;
   const now = takeLocal(files);
   if (now) return Promise.resolve(now);
   // The host pushed these files for a chat on another machine: nothing links, and nothing waits.
@@ -207,25 +200,20 @@ export function pushedDropPaths(
     }, PUSH_WAIT_MS);
     void ask().then(
       (items) => {
+        if (done) return;
         asked = true;
         if (items) {
-          // The older host answered for this DOM drop. Consume a push already held for it and
-          // tombstone a late one so a later same-basename file cannot inherit this drop's path.
-          if (dropAt !== undefined) {
-            const names = files.map((file) => file.name.normalize("NFC"));
-            held.forEach((drop) => {
-              if (drop.local && namesMatch(drop.items, names)) {
-                drop.items.forEach((item) => (item.taken = true));
-              }
-            });
-            ignored.push({ at: performance.now(), dropAt, names });
-          }
+          // The older host answered for this DOM drop. Tombstone the native record by its host
+          // identity so a later same-basename drop remains eligible.
+          const dropId = (items as KnownPaths).dropId;
+          if (typeof dropId === "string" && dropId) ignored.push({ at: performance.now(), id: dropId });
           finish(items);
         }
         // Past the wait, or the drop's push already came and named other files: none come.
         else if (waited || (lastDrop && lastPushAt >= lastDrop.at)) finish(undefined);
       },
       () => {
+        if (done) return;
         asked = true;
         if (waited) finish(undefined);
       },

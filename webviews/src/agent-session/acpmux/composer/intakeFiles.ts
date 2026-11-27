@@ -262,11 +262,13 @@ export async function droppedPaths(
 ): Promise<KnownPaths | undefined> {
   try {
     const names = files.map((file) => file.name);
-    const items = linkItems(
-      await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) }),
-    );
+    const reply = await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) });
+    const items = linkItems(reply);
     if (items.length === 0) return undefined;
-    return alignPaths(files, items);
+    const paths = alignPaths(files, items) as KnownPaths;
+    const dropId = (reply as { dropId?: unknown } | null | undefined)?.dropId;
+    if (typeof dropId === "string" && dropId) Object.defineProperty(paths, "dropId", { value: dropId });
+    return paths;
   } catch {
     return undefined;
   }
