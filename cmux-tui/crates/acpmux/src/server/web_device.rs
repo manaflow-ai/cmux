@@ -273,8 +273,8 @@ async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcErro
         "wgPublicKey": key,
         "capabilities": [],
     });
-    if let Some(device_key) = device_key {
-        body["deviceKey"] = json!(device_key);
+    if let (Some(device_key), Some(fields)) = (device_key, body.as_object_mut()) {
+        fields.insert("deviceKey".to_owned(), json!(device_key));
     }
     let body: cmux_cloud_client::types::JoinRedeem = serde_json::from_value(body)
         .map_err(|_| RpcError::internal("the join request is not the hub's shape"))?;
