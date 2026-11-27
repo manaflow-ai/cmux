@@ -41,19 +41,24 @@ const AGENTS: readonly Subagent[] = [
   running("Benchmark the transcript's streaming path", 2, "Run bench:stream", "codex"),
 ];
 
-const snapshotOf = (agents: readonly Subagent[], withCommand: boolean) =>
-  chat([
-    user("Fan the review out and keep the checks running while I look", 12),
-    row(SUBAGENTS, 12, { subagents: [...agents] }),
-    ...(withCommand ? [activity([command("bun test --watch", "Watch the tests", 8)], 11)] : []),
-    assistant("The reviewers keep running in the background.", 1),
-    summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
-  ]);
+const snapshotOf = (agents: readonly Subagent[], withCommand: boolean, working = false) =>
+  chat(
+    [
+      user("Fan the review out and keep the checks running while I look", 12),
+      row(SUBAGENTS, 12, { subagents: [...agents] }),
+      ...(withCommand ? [activity([command("bun test --watch", "Watch the tests", 8)], 11)] : []),
+      assistant("The reviewers keep running in the background.", 1),
+      // A turn that ended leaves only the background runs the harness reports; a live one keeps the crowd.
+      ...(working ? [] : [summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 })]),
+    ],
+    working ? { isWorking: true } : {},
+  );
 
 const MANY = snapshotOf(
   Array.from({ length: 14 }, (_, index) =>
     running(`Audit package ${index + 1}`, 19 - index, "Read package.json", ["claude", "codex", "gemini"][index % 3]),
   ),
+  true,
   true,
 );
 const THREE = snapshotOf(AGENTS.slice(0, 3), false);
