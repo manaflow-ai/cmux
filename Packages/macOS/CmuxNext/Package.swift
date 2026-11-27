@@ -76,6 +76,7 @@ import PackageDescription
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
+//   CmuxNextCloudStart -> Cloud, Daemon (the Cloud start's launch and creation calls into Rust; no UI)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Onboarding, Pages,
@@ -402,6 +403,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCloudCredentials",
                 "CmuxNextCloudPlace",
+                "CmuxNextCloudStart",
                 "CmuxNextCloudUI",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
@@ -804,6 +806,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // CmuxNextCloudStart: the Cloud start's launch and creation calls into Rust
+        // (CloudStartCore launch gate, create params, backoff, approval step machine).
+        .target(
+            name: "CmuxNextCloudStart",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCloud",
+                "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings
         ),

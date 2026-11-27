@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 

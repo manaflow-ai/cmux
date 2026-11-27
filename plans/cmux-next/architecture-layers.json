@@ -26,6 +26,7 @@
     "CmuxNextCloud": {"layer": "service"},
     "CmuxNextCloudCredentials": {"layer": "domain"},
     "CmuxNextCloudPlace": {"layer": "service"},
+    "CmuxNextCloudStart": {"layer": "service"},
     "CmuxNextRemote": {"layer": "service"},
     "CmuxNextCodeRouter": {"layer": "service"},
     "CmuxNextMobile": {"layer": "service"},

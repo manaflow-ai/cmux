@@ -3,8 +3,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
-// Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings).
-@_exported import CmuxNextCloudUI
+// Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings) and the start's Rust calls (CloudStartCore launch/creation).
+@_exported import CmuxNextCloudStart; @_exported import CmuxNextCloudUI
 import CmuxNextCloudPlace; import CmuxNextControl // LaunchIdentity, for the acpmux home warm-home reads
 import CmuxNextDaemon
 import CmuxNextDesign
