@@ -859,46 +859,9 @@ impl Supervisor {
 }
 
 #[cfg(test)]
-mod new_tab_tests {
-    use serde_json::json;
-
-    /// The store offers Use as New Tab only for an app whose manifest implements `cmux.newtab/1`.
-    #[test]
-    fn only_a_newtab_implementation_draws_new_tab() {
-        let drawn = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
-        assert!(super::draws_new_tab(&drawn));
-        let other = json!({ "implements": { "cmux.section/1": { "export": "render" } } });
-        assert!(!super::draws_new_tab(&other));
-        assert!(!super::draws_new_tab(&json!({})));
-    }
-}
+#[path = "store_new_tab_tests.rs"]
+mod new_tab_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn kinds(widget: Value) -> Vec<(&'static str, String)> {
-        widget_contributions(&widget, "Clock")
-            .into_iter()
-            .map(|row| (row.kind, row.title))
-            .collect()
-    }
-
-    /// A widget shows up once per place it names, in both places when it
-    /// names none; a place cmux does not know is skipped, not an error.
-    #[test]
-    fn a_widget_shows_up_once_per_place() {
-        let clock = |kind| (kind, "Clock".to_string());
-        let sidebar = json!({ "options": { "places": ["sidebar"], "sizes": ["small"] } });
-        assert_eq!(kinds(sidebar), [clock("sidebarWidget")]);
-        assert_eq!(kinds(json!({})), [clock("newTab"), clock("sidebarWidget")]);
-        let titled = json!({
-            "title": { "en": "World Clock", "ja": "世界時計" },
-            "options": { "places": ["newtab", "sidebar", "newtab", "dock"] },
-        });
-        let world = |kind| (kind, "World Clock".to_string());
-        assert_eq!(kinds(titled), [world("newTab"), world("sidebarWidget")]);
-        assert!(kinds(Value::Null).is_empty());
-    }
-}
+#[path = "store_tests.rs"]
+mod tests;
