@@ -231,6 +231,22 @@ fi
 # restarts the clock at the next FFI commit, which the newer run then covers.
 # A failed read re-pins as before. When the holding run's re-pin job fails, its failure step starts app-ffi-repin.yml.
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
+# oldest_unpinned PIN RELEASE: the commit time of the oldest commit in PIN..RELEASE that changes an FFI input. This
+# checkout is treeless (filter: tree:0), so that walk fetches the trees of every commit one at a time; with the pin
+# 501 min behind it ran from 13:19Z until the job's timeout cancelled it at 13:47Z, and nothing re-pinned (app FFI
+# release run 46002456039, 2026-11-27; GIT_HTTP_LOW_SPEED_TIME never fires, as bytes keep coming). Past
+# REPIN_INPUT_WALK_S it reads the oldest commit in the range instead, which needs no tree and is never younger, so the
+# bound below ends a hold no later than with the walk.
+oldest_unpinned() {
+  local walk_s="${REPIN_INPUT_WALK_S:-60}" oldest
+  if oldest="$(timeout -k 5 "$walk_s" git log --format=%ct "$1..$2" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+      [[ "$oldest" =~ ^[0-9]+$ ]]; then
+    echo "$oldest"
+    return 0
+  fi
+  echo "the walk of the FFI inputs in ${1:0:12}..${2:0:12} did not finish in $walk_s s: the clock reads the range's oldest commit" >&2
+  git log --format=%ct "$1..$2" 2>/dev/null | tail -n 1
+}
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh_retry gh api "$@"; }
 pending_newer() {
   local runs id head age jobs pin_time pin_age oldest
@@ -240,7 +256,7 @@ pending_newer() {
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
     if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
-        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+        oldest="$(oldest_unpinned "$current" "$pin_sha")" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
     fi

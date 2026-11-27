@@ -254,7 +254,7 @@ pub(super) async fn machines(app: &str) -> Value {
             Err(_) => ok(out.trim().to_owned(), json!({})),
         },
         Err(CliError::Late) => error_result(format!(
-            "machine ls did not answer in {} s; try again",
+            "machine ls did not answer in {} s: this machine's acpmux daemon is busy or not running",
             MACHINES_WAIT.as_secs()
         )),
         Err(CliError::Failed(why)) => error_result(why),
