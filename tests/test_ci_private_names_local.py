@@ -61,6 +61,23 @@ class PrivateNamesLocal(unittest.TestCase):
             self.assertEqual(rest, 1, f"{count} files: only the files page is a REST read")
             self.assertEqual(git, count)
 
+    def test_prefetch_uses_the_promisor_remote(self):
+        # private-names.yml names its remote pr-head (the pool's git shim rewrites an origin of cmux into a fetch
+        # without --depth or --filter); the batched blob fetch has to ask that remote, not origin.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "h.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(repo)], check=True)
+            self.assertEqual(local.promisor_remote(str(repo)), "origin")
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "pr-head", "https://example.invalid/r.git"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "remote.pr-head.promisor", "true"], check=True)
+            self.assertEqual(local.promisor_remote(str(repo)), "pr-head")
+
+    def test_workflow_remote_is_not_origin(self):
+        workflow = (SCRIPT.parent.parent.parent / ".github/workflows/private-names.yml").read_text()
+        self.assertIn('remote add pr-head "https://github.com/', workflow)
+        self.assertIn("--filter=blob:none pr-head", workflow)
+        self.assertNotIn("remote add origin", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
