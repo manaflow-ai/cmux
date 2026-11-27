@@ -16,6 +16,7 @@
 import {
   type RefObject,
   useContext,
+  useCallback,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -24,6 +25,7 @@ import {
   useEffect,
   useReducer,
 } from "react";
+import { useLiveUpdates } from "../../../ui/liveUpdates";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
@@ -73,6 +75,8 @@ function useQuiet(
   now: () => number = Date.now,
   pulse?: LiveLinePulse,
 ): boolean {
+  const active = useLiveUpdates();
+  const wasActive = useRef(active);
   const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
   const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
   // The key the line mounted with: only that one is timed from `since`; a later key just moved.
@@ -85,15 +89,26 @@ function useQuiet(
   // The line reads "Writing" before that commit paints; an effect would leave one frame of
   // "Thinking" under the first token. The timer remains an ordinary effect so it never blocks layout.
   useLayoutEffect(() => {
-    if (key === undefined) {
+    const resumed = active && !wasActive.current;
+    wasActive.current = active;
+    if (!active) return;
+    let currentKey = key;
+    if (resumed && key !== undefined) {
+      const line = pulse?.line();
+      if (line?.quietKey !== undefined && line.quietAt !== undefined) {
+        currentKey = line.quietKey;
+        latest.current = { key: currentKey, until: line.quietAt + ms };
+      }
+    }
+    if (currentKey === undefined) {
       latest.current = undefined;
       setQuiet(true);
       return;
     }
     // When the window ends: `ms` after the key last moved. The timer looks again when it fires, so a
     // chunk heard in between only moves this, never a timer.
-    if (latest.current?.key !== key)
-      latest.current = { key, until: now() + (key === mounted.current ? ms - age() : ms) };
+    if (latest.current?.key !== currentKey)
+      latest.current = { key: currentKey, until: now() + (currentKey === mounted.current ? ms - age() : ms) };
     const span = latest.current;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = () => {
@@ -120,7 +135,7 @@ function useQuiet(
       if (timer !== undefined) clearTimeout(timer);
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
-  }, [key, ms, pulse]);
+  }, [active, key, ms, pulse]);
   return quiet;
 }
 
@@ -128,10 +143,14 @@ function useQuiet(
 /// without a draw (liveLinePulse.ts `heard`); undefined off the transcript. It draws the line at most
 /// once a second while events stream, as its clock does, and at once when a silent line hears one.
 function useHeardPulse(pulse: LiveLinePulse | undefined): number | undefined {
+  const active = useLiveUpdates();
+  const subscribe = useCallback(
+    (notify: () => void) => (active && pulse ? pulse.subscribe(notify) : () => {}),
+    [active, pulse],
+  );
   const heard = () => pulse?.heard();
-  return useSyncExternalStore(pulse?.subscribe ?? noSubscription, heard, heard);
+  return useSyncExternalStore(subscribe, heard, heard);
 }
-const noSubscription = () => () => {};
 
 /// When `key` last changed while the line was mounted (on `now`'s clock), or undefined while it is
 /// still the key the line mounted with: the moment the line saw a new event or a new state, for
@@ -227,6 +246,7 @@ function pickSays(props: ThinkingProps): Says {
 /// clock that stands still (a frozen `now`) never holds the words for good. Reduced or no motion shows
 /// each change at once: nothing rolls there.
 function useLineDwell(props: ThinkingProps): ThinkingProps {
+  const active = useLiveUpdates();
   const key = saysKey(props);
   const clock = props.now ?? Date.now;
   // A wake since the shown words were set means their dwell ran out.
@@ -237,6 +257,7 @@ function useLineDwell(props: ThinkingProps): ThinkingProps {
     const at = clock();
     hold =
       // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
+      active &&
       !rollsNothing(props) &&
       !rollsNothing(shown.says) &&
       at - shown.at < LINE_DWELL_MS &&
@@ -534,9 +555,11 @@ const SETTLE_MS = 400;
 /// True from the render the chat stops waiting on the person until the dot's shrink ends (`done`)
 /// or SETTLE_MS passes: the line draws the shrinking dot before its words for that long.
 function useAnswered(waiting: WaitingOn | undefined): [boolean, () => void] {
+  const active = useLiveUpdates();
   const [answered, setAnswered] = useState(false);
   const was = useRef(waiting);
   useLayoutEffect(() => {
+    if (!active) return;
     const before = was.current;
     was.current = waiting;
     if (waiting || !before) {
@@ -546,7 +569,7 @@ function useAnswered(waiting: WaitingOn | undefined): [boolean, () => void] {
     setAnswered(true);
     const timer = setTimeout(() => setAnswered(false), SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [waiting]);
+  }, [active, waiting]);
   return [answered, () => setAnswered(false)];
 }
 
@@ -554,9 +577,11 @@ function useAnswered(waiting: WaitingOn | undefined): [boolean, () => void] {
 /// dot's grow ends (`done`) or SETTLE_MS passes. A line that mounts waiting (a chat opened mid-ask)
 /// draws the dot still: only an ask that opens while the person watches grows in.
 function useAsked(waiting: WaitingOn | undefined): [boolean, () => void] {
+  const active = useLiveUpdates();
   const [asked, setAsked] = useState(false);
   const was = useRef(waiting);
   useLayoutEffect(() => {
+    if (!active) return;
     const before = was.current;
     was.current = waiting;
     if (!waiting || before) {
@@ -566,7 +591,7 @@ function useAsked(waiting: WaitingOn | undefined): [boolean, () => void] {
     setAsked(true);
     const timer = setTimeout(() => setAsked(false), SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [waiting]);
+  }, [active, waiting]);
   return [asked, () => setAsked(false)];
 }
 

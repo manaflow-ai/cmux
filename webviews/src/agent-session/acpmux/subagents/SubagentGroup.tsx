@@ -9,7 +9,7 @@ import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { type Subagent } from "./subagentFold";
-import { agentTone, AgentTonesContext } from "./agentTones";
+import { agentTone, useAgentTones } from "./agentTones";
 import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
@@ -122,7 +122,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const pane = useContext(SubagentPaneContext);
   const open = pane ?? nav;
   const stop = useContext(SubagentStopContext);
-  const tones = useContext(AgentTonesContext);
+  const tones = useAgentTones();
   const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   const now = useNow(agent ? ticking(agent) : false);

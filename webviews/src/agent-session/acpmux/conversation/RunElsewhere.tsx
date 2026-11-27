@@ -6,6 +6,7 @@
 // below the row as a disclosure does.
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
+import { useLiveUpdates } from "../../../ui/liveUpdates";
 import { Button } from "../../../ui/Button";
 import { translate, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -34,8 +35,10 @@ let lastMachine: string | undefined;
 
 /** Whether `due` has passed, re-rendering once when it does (one timer, gone on unmount). */
 function usePast(due: number | undefined, now: () => number = Date.now): boolean {
+  const active = useLiveUpdates();
   const [past, setPast] = useState(() => due !== undefined && now() >= due);
   useEffect(() => {
+    if (!active) return;
     if (due === undefined) {
       setPast(false);
       return;
@@ -48,7 +51,7 @@ function usePast(due: number | undefined, now: () => number = Date.now): boolean
     setPast(false);
     const timer = setTimeout(() => setPast(true), left);
     return () => clearTimeout(timer);
-  }, [due, now]);
+  }, [active, due, now]);
   return past;
 }
 
@@ -351,11 +354,12 @@ function RunElsewhereStream({
   run: Extract<RunState, { phase: "running" | "ended" }>;
 }) {
   const t = useT();
+  const active = useLiveUpdates();
   const { taskId, machine } = run;
   const live = run.phase === "running";
   const outputRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
-    if (!live) return;
+    if (!live || !active) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // A row shown again (the transcript is virtual) goes on where its reads stopped.
@@ -407,7 +411,7 @@ function RunElsewhereStream({
       stopped = true;
       clearTimeout(timer);
     };
-  }, [live, runs, taskId, toolCallId]);
+  }, [active, live, runs, taskId, toolCallId]);
   // Follow the end while the reader is at it, as a terminal does.
   useEffect(() => {
     const node = outputRef.current;
