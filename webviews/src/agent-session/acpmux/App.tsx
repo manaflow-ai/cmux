@@ -101,7 +101,7 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { clearCloudModePick, cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { clearCloudAgentPick, cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudAgentPick, dropCloudAgentPickForAdoption, holdCloudAgentPick } from "./cloudAgentPick";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -4347,7 +4347,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // started Claude for a tab showing Codex). The page's own Empty project keeps them (adoptNewTab).
   const adoptForTab = useCallback(
     (host: NewTabHost) => {
-      clearCloudAgentPick();
+      dropCloudAgentPickForAdoption();
       clearCloudModePick();
       adoptNewTab(host);
     },
@@ -7514,7 +7514,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setPastTurns(undefined);
       setProjectDraft(undefined);
       pickedProject.current = undefined;
-      clearCloudAgentPick();
+      dropCloudAgentPickForAdoption();
       clearCloudModePick();
       void runAdoption(adoption);
     },
