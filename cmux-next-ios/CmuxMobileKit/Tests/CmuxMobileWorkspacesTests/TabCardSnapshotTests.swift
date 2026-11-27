@@ -205,6 +205,9 @@ import UIKit
         try await Self.wait("both reads finish") { next.loads == 2 }
         let image = try #require(next.entry(Self.key("a")).image)
         #expect(image.size.width * image.scale == 40 && image.size.height * image.scale == 56)
+        #expect(next.entry(Self.key("a")).pixelWidth == 40)
+        #expect(next.entry(Self.key("a")).pixelHeight == 56)
+        #expect(next.entry(Self.key("a")).hasKnownPicture)
         #expect(next.entry(Self.key("never-seen")).image == nil)
     }
 
