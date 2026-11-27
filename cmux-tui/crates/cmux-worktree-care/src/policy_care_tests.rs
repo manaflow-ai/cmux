@@ -28,6 +28,7 @@ fn an_open_session_keeps_its_worktree_however_idle() {
         name: "lane".into(),
         cwd: "/w/a/src".into(),
         open: true,
+        archived_checkout: None,
         updated_ms: 0,
         ids: Vec::new(),
     };
@@ -42,6 +43,7 @@ fn a_closed_session_s_last_change_counts_as_use() {
         name: "lane".into(),
         cwd: "/w/a".into(),
         open: false,
+        archived_checkout: None,
         updated_ms: NOW,
         ids: Vec::new(),
     };
@@ -82,6 +84,7 @@ fn a_worktree_whose_wt_owner_is_live_is_kept() {
         name: "loop".into(),
         cwd: "/home/chats/loop".into(),
         open,
+        archived_checkout: None,
         updated_ms: 0,
         ids,
     };
@@ -115,6 +118,7 @@ fn a_session_active_in_the_main_checkout_gets_its_worktrees_the_longest_waits() 
         name: "chief".into(),
         cwd: "/r/src".into(),
         open: true,
+        archived_checkout: None,
         updated_ms: NOW,
         ids: Vec::new(),
     };
@@ -193,6 +197,7 @@ fn headless_an_open_session_idle_past_the_recent_wait_does_not_keep_it() {
         name: "lane".into(),
         cwd: "/w/a".into(),
         open: true,
+        archived_checkout: None,
         updated_ms: NOW - 1000 * HOUR_MS,
         ids: Vec::new(),
     };
@@ -218,4 +223,29 @@ fn headless_an_idle_process_inside_does_not_keep_it() {
     let settings = Settings { headless: true, ..Settings::default() };
     let v = decide(&worktree(pushed(1000)), None, &[], &processes, Pressure::High, &settings, NOW);
     assert_eq!(v.action, Action::Reclaim);
+}
+
+#[test]
+fn headless_stale_archived_sessions_require_proof_and_park_intact() {
+    let w = worktree(Facts { git_dir: "/r/.git/worktrees/a".into(), ..pushed(1000) });
+    let mut session = Session {
+        name: "archived".into(),
+        cwd: w.path.clone(),
+        open: true,
+        archived_checkout: Some(ArchivedCheckout {
+            root: w.path.clone(),
+            common_dir: "/r/.git".into(),
+            branch: w.branch.clone().unwrap(),
+            head: w.head.clone().unwrap(),
+        }),
+        updated_ms: NOW - 1000 * HOUR_MS,
+        ids: Vec::new(),
+    };
+    let settings = Settings { headless: true, ..Settings::default() };
+    let verdict = |session: &Session| {
+        decide(&w, None, std::slice::from_ref(session), &[], Pressure::High, &settings, NOW)
+    };
+    assert_eq!(verdict(&session).action, Action::Park);
+    session.archived_checkout.as_mut().unwrap().head = "2".repeat(40);
+    assert_eq!(verdict(&session).action, Action::Keep);
 }

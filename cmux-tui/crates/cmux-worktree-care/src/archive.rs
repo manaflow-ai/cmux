@@ -132,6 +132,7 @@ pub fn reclaim_guarded(
         submodules: facts.submodules.clone(),
         dropped: facts.build_output.clone(),
         reason: reason.to_string(),
+        parked: action == Action::Park,
         freed: 0,
         restored_ms: None,
     };
@@ -182,14 +183,25 @@ pub fn reclaim_guarded(
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
     }
-    let before = available(&anchor);
-    let main = WriteGit { root: &anchor, overrides: &repo.overrides, hooks: &hooks };
-    let path = worktree.path.as_os_str();
-    let args: [&OsStr; 4] = ["worktree".as_ref(), "remove".as_ref(), "--force".as_ref(), path];
     if let Err(why) = preserve(&worktree.path) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
     }
+    if action == Action::Park {
+        // Preserve even a late write that Git status could never see, such as
+        // an ignored file created after the final open-file check.
+        let parked = crate::park::destination(store, &id);
+        let result = crate::park::park(&wt, store, &manifest, &parked);
+        if result.is_err() && !parked.exists() {
+            discard(&wt, store, &manifest);
+        }
+        result?;
+        return Ok(manifest);
+    }
+    let before = available(&anchor);
+    let main = WriteGit { root: &anchor, overrides: &repo.overrides, hooks: &hooks };
+    let path = worktree.path.as_os_str();
+    let args: [&OsStr; 4] = ["worktree".as_ref(), "remove".as_ref(), "--force".as_ref(), path];
     git::write(&main, None, &args, Bound::Unbounded)?;
     manifest.freed = available(&anchor).saturating_sub(before);
     store.save(&manifest)?;
@@ -364,7 +376,9 @@ pub fn expire(store: &Store, now: u64, keep_ms: u64) -> Result<Vec<String>, Stri
     let hooks = empty_hooks(store)?;
     let mut dropped = Vec::new();
     for manifest in store.list() {
-        if now.saturating_sub(manifest.created_ms) < keep_ms {
+        if (manifest.parked && manifest.restored_ms.is_none())
+            || now.saturating_sub(manifest.created_ms) < keep_ms
+        {
             continue;
         }
         let anchor = manifest.main_root.clone().unwrap_or_else(|| manifest.common_dir.clone());

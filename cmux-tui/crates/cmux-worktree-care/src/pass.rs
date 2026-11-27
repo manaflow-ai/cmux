@@ -166,6 +166,10 @@ pub fn scan(options: &Options, store: &Store) -> Result<Scan, String> {
             if !options.only.is_empty() && !options.only.iter().any(|p| p == &worktree.path) {
                 continue;
             }
+            // A parked checkout can contain writes made during or after its move.
+            if worktree.path.starts_with(store.dir.join("parked")) {
+                continue;
+            }
             if worktree.prunable {
                 if options.apply && !pruned {
                     pruned = true;
@@ -278,7 +282,7 @@ fn act(
         Action::Keep => Ok((0, None)),
         Action::Trim => archive::trim_guarded(&fresh, facts, &*options.uses, preserve)
             .map(|freed| (freed, None)),
-        Action::Reclaim | Action::Archive => archive::reclaim_guarded(
+        Action::Reclaim | Action::Archive | Action::Park => archive::reclaim_guarded(
             repo,
             &fresh,
             facts,
@@ -300,6 +304,9 @@ fn measure(
     action: Action,
     facts: Option<&inventory::Facts>,
 ) -> u64 {
+    if action == Action::Park {
+        return 0;
+    }
     let deadline = std::time::Instant::now() + MEASURE;
     let parts: Vec<PathBuf> = facts
         .map(|f| f.build_output.iter().map(|p| PathBuf::from(p.trim_end_matches('/'))).collect())
