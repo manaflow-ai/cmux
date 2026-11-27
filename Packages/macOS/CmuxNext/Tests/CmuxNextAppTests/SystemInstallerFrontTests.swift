@@ -12,24 +12,27 @@ import Testing
                     userInfo: [NSWorkspace.applicationUserInfoKey: app])
     }
 
-    /// The test host stands in for the installer: its own running app, under its own bundle id.
+    /// The test host stands in for the installer: its own running app, read under a stand-in id (a `swift test` host
+    /// may have no bundle id of its own).
     private static let host = NSRunningApplication.current
+    private static let installer = "com.example.installer"
+    private static func asInstaller(_ app: NSRunningApplication) -> String? { app == host ? installer : nil }
 
-    @Test func theInstallerComesForwardWhileCmuxIsActive() throws {
-        let id = try #require(Self.host.bundleIdentifier)
+    @Test func theInstallerComesForwardWhileCmuxIsActive() {
         let center = NotificationCenter()
         var forward: [pid_t] = []
-        let front = SystemInstallerFront(center: center, bundleIDs: [id], isActive: { true }) { forward.append($0.processIdentifier) }
+        let front = SystemInstallerFront(center: center, bundleIDs: [Self.installer], bundleID: Self.asInstaller,
+                                         isActive: { true }) { forward.append($0.processIdentifier) }
         Self.launch(Self.host, on: center)
         #expect(forward == [Self.host.processIdentifier])
         withExtendedLifetime(front) {}
     }
 
-    @Test func aLaunchWhileAnotherAppIsInFrontStaysWhereMacOSPutIt() throws {
-        let id = try #require(Self.host.bundleIdentifier)
+    @Test func aLaunchWhileAnotherAppIsInFrontStaysWhereMacOSPutIt() {
         let center = NotificationCenter()
         var forward = 0
-        let front = SystemInstallerFront(center: center, bundleIDs: [id], isActive: { false }) { _ in forward += 1 }
+        let front = SystemInstallerFront(center: center, bundleIDs: [Self.installer], bundleID: Self.asInstaller,
+                                         isActive: { false }) { _ in forward += 1 }
         Self.launch(Self.host, on: center)
         #expect(forward == 0)
         withExtendedLifetime(front) {}
@@ -38,7 +41,7 @@ import Testing
     @Test func anyOtherAppIsLeftAlone() {
         let center = NotificationCenter()
         var forward = 0
-        let front = SystemInstallerFront(center: center, isActive: { true }) { _ in forward += 1 }
+        let front = SystemInstallerFront(center: center, bundleID: Self.asInstaller, isActive: { true }) { _ in forward += 1 }
         Self.launch(Self.host, on: center)
         #expect(forward == 0)
         withExtendedLifetime(front) {}

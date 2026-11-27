@@ -39,11 +39,10 @@ public struct SidebarMapping {
     /// another computer's home gives its workspace, the account's name, not the work. Only a shell's: a tab the person
     /// named, a chat, a terminal running an agent, or one whose shell or program set its own title (OSC 0/2) keeps a
     /// label that happens to be that word. A title that is only the folder's path or the shell's name (`zsh`) is the
-    /// shell saying where it is. A Mac home (`/Users/<name>`) counts only when it is this Mac's own: on this Mac, a shell
-    /// in another account's home keeps that folder's name (review of first-run findings row 19).
+    /// shell saying where it is. The rule is the machine's (`homeNamesAccount`), not the folder's: a Cloud Mac's
+    /// `/Users/admin` names its account as this Mac's own home does.
     static func namesHome(_ label: String?, tab: TabModel?) -> Bool {
         guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash), abbreviateRemote(cwd) == "~",
-              !cwd.hasPrefix("/Users/") || cwd == shared.home,
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }

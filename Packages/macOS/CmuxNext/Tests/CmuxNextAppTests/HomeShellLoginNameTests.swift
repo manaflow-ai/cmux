@@ -10,7 +10,7 @@ import Testing
 /// First-run findings row 19 (clean macOS 26 VM, user `admin`): the first terminal idled at the home folder, so its
 /// workspace read "admin", the person's login name; here the test host's own home stands in for it. An unnamed
 /// workspace whose shell idles at this Mac's home reads "Terminal", as a Cloud machine's does (#36283); a folder under
-/// home, a title the shell or program set, another account's home, or an SSH computer's home keeps its own name. The
+/// home, a title the shell or program set, or an SSH computer's home keeps its own name. The
 /// rows come from a daemon store through the sidebar mapping, and the label from the auto-name rule the app runs
 /// (`NewWorkspaceName.forTab`).
 @MainActor struct HomeShellLoginNameTests {
@@ -56,9 +56,10 @@ import Testing
         #expect(Self.rowTitle(Self.store(cwd: Self.home), machine: Self.ssh) == [Self.login])
     }
 
-    /// A shell in another account's home on this Mac names that account's folder, not "Terminal".
-    @Test func anotherAccountsHomeOnThisMacKeepsItsFolder() {
-        #expect(Self.rowTitle(Self.store(cwd: "/Users/cmux-someone-else"), machine: Self.mac) == ["cmux-someone-else"])
+    /// Review of the first-run fixes: a Cloud Mac's home is under `/Users` too, and reads "Terminal" as a Linux one's.
+    @Test func aCloudMacsHomeReadsTerminal() {
+        let cloud = SidebarMachine(id: MachineID("vm-mac"), name: "cloud mac", kind: .cloud)
+        #expect(Self.rowTitle(Self.store(cwd: "/Users/admin"), machine: cloud) == ["Terminal"])
     }
 
     /// The app's titlebar, palette and pinned tiles read the same rule by machine id.

@@ -15,6 +15,7 @@ final class SystemInstallerFront {
     nonisolated static let installerBundleIDs: Set<String> = ["com.apple.dt.CommandLineTools.installondemand"]
 
     private let bundleIDs: Set<String>
+    private let bundleID: @MainActor (NSRunningApplication) -> String?
     private let isActive: @MainActor () -> Bool
     private let bringForward: @MainActor (NSRunningApplication) -> Void
     /// The launch observer; it lives as long as cmux does (one per app, `AppDelegate`).
@@ -23,13 +24,16 @@ final class SystemInstallerFront {
     /// - Parameters:
     ///   - center: where app launches are posted (NSWorkspace's center in the app).
     ///   - bundleIDs: the installers to bring forward.
+    ///   - bundleID: reads a launched app's bundle id (its own by default).
     ///   - isActive: whether cmux is the active app; an installer that launched while the person works in another
     ///     app stays where macOS put it.
     ///   - bringForward: yields cmux's activation to the installer and activates it.
     init(center: NotificationCenter = NSWorkspace.shared.notificationCenter, bundleIDs: Set<String> = installerBundleIDs,
+         bundleID: @escaping @MainActor (NSRunningApplication) -> String? = { $0.bundleIdentifier },
          isActive: @escaping @MainActor () -> Bool = { NSApp.isActive },
          bringForward: @escaping @MainActor (NSRunningApplication) -> Void = SystemInstallerFront.yield(to:)) {
         self.bundleIDs = bundleIDs
+        self.bundleID = bundleID
         self.isActive = isActive
         self.bringForward = bringForward
         observer = MainActorObservation(NSWorkspace.didLaunchApplicationNotification, center: center,
@@ -39,7 +43,7 @@ final class SystemInstallerFront {
     }
 
     private func launched(_ app: NSRunningApplication) {
-        guard let id = app.bundleIdentifier, bundleIDs.contains(id), isActive() else { return }
+        guard let id = bundleID(app), bundleIDs.contains(id), isActive() else { return }
         bringForward(app)
     }
 
