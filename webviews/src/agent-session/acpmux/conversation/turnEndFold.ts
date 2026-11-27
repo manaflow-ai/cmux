@@ -365,6 +365,8 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 type Moving = {
   delta: number;
   fades: boolean;
+  /// Delay before a newly added row reveals; part of identity so a later clearance change restarts it.
+  revealDelay?: number;
   animations: Animation[];
   clip?: number;
   end?: number;
@@ -590,6 +592,7 @@ export function playTurnEnd(
         last &&
         Math.abs(last.delta - next.delta) < 0.5 &&
         last.fades === next.fades &&
+        Math.abs((last.revealDelay ?? 0) - (next.revealDelay ?? 0)) < 0.5 &&
         Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5
       )
         return;
@@ -643,8 +646,9 @@ export function playTurnEnd(
         // covers a renamed streaming reply, a reply outside the warm window, and rows that arrive with
         // the next turn.
         const from = starts.get(node)?.opacity ?? 0;
-        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]], {
-          delay: ms * clearFraction(index),
+        const revealDelay = ms * clearFraction(index);
+        restart(node, moving, { delta: 0, fades: true, revealDelay, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]], {
+          delay: revealDelay,
           fill: "backwards",
         });
         return;
@@ -658,8 +662,9 @@ export function playTurnEnd(
         // reply above it). With nothing crossing it, it keeps its own entrance.
         const clear = curve ? clearFraction(index) : 0;
         if (clear > 0) {
-          restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
-            delay: ms * clear,
+          const revealDelay = ms * clear;
+          restart(node, moving, { delta: 0, fades: true, revealDelay, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
+            delay: revealDelay,
             fill: "backwards",
           });
           return;

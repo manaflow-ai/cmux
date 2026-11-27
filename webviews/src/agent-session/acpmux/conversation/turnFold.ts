@@ -131,7 +131,8 @@ export function clippedBottom(node: HTMLElement): number {
 
 /// Under this drawn opacity a row counts as not drawn: a fold takes no copy of it, and moves none
 /// from where its box was (turnEndFold.ts `Drawn.hidden`).
-export const HIDDEN_INK = 0.5;
+// Treat only effectively invisible rows as hidden; a partially visible row must keep its drawn copy.
+export const HIDDEN_INK = 0.01;
 
 /// The opacity a mounted row draws with now, its running animations' included (1 where unreadable).
 export function drawnInk(node: HTMLElement): number {
@@ -425,8 +426,11 @@ export function playTurnFold(
     const drawn = row.reveal ? revealInk(row.animations) : 1;
     if (drawn < HIDDEN_INK && place === undefined) continue;
     if (place === undefined && !exits) {
-      first.opacity = drawn;
-      end.opacity = 0;
+      // The copy is created part way through the shared fold clock. Keep the original 0-to-1
+      // keyframes so the already elapsed clock supplies `drawn`; starting at `drawn` would advance
+      // the same reveal twice.
+      first.opacity = 0;
+      end.opacity = 1;
     } else if (place !== undefined && row.reveal) {
       first.opacity = drawn < 1 ? drawn : 0;
       end.opacity = 1;
