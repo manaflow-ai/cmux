@@ -72,6 +72,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_INFO,
     method::MUX_KEEP,
     method::MUX_KILL,
+    method::MUX_LIFECYCLE,
     method::MUX_MACHINE_INFO,
     method::MUX_MAIL_ACK,
     method::MUX_MAIL_READ,
@@ -416,5 +417,7 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in too (`time_breakdown_gate.rs`): a client that does not ask keeps every breakdown.
     let omit = params.pointer("/_meta/acpmux/omitTimeBreakdown").and_then(Value::as_bool);
     conn.omit_time_breakdown.store(omit == Some(true), Ordering::SeqCst);
-    *conn.sent_rows.lock_or_recover() = Default::default();
+    *conn.sent_rows.lock_or_recover() = super::super::session_patch::SentRows::bounded(
+        super::super::session_patch::bound(conn.raw_text),
+    );
 }
