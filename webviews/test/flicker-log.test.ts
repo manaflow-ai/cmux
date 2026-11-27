@@ -242,11 +242,12 @@ test("the default timer runs with the global receiver, as Chromium requires", as
     log.flush();
     // The batch at the end of that task has run.
     await Promise.resolve();
-    // A record within a second of that batch waits on the default timer.
+    // A record within a second of that batch goes out at the end of its task too: the log arms no timer
+    // (#60925), so a strict `setTimeout` is never called with any receiver.
     expect(() => log.transcriptMounted()).not.toThrow();
     log.flush();
     expect(sent).toHaveLength(2);
-    expect(receivers).toHaveLength(1);
+    expect(receivers).toHaveLength(0);
   } finally {
     globalThis.setTimeout = real;
   }
