@@ -4127,6 +4127,10 @@ async fn dispatch_request_with_identity(
             if params.get("look").and_then(Value::as_bool) == Some(true) {
                 return Ok(crate::hub::turn_frames::look(&s.id).await);
             }
+            // A `cmux live` loop's build is in place (`acpmux frame @ --built SOURCE`): a frame.
+            if let Some(source) = str_param(&params, "built") {
+                return Ok(crate::hub::turn_frames::built(&s.id, source));
+            }
             Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
