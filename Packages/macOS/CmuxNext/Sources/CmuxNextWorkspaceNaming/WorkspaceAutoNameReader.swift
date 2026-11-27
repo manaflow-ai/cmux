@@ -102,11 +102,16 @@ public struct WorkspaceAutoNameReader {
             // acpmux keeps only a few former names, so the hold remembers a match once seen (`WorkspaceAutoNameHold`).
             var formerNames = turns.formerNames(for: session)
             // Another machine's names never unlock a name the person gave the workspace (cmux#55668).
-            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil && !turns.namesAreRemote(session)
+            // A workspace pinned to the chat's name (revision 1, `agents chat new --name`) follows once the chat
+            // is renamed off that name; while the chat still has it, it stays pinned (`isFormerSessionName`).
+            let matches = workspace.nameRevision == 0
+                ? SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName, displayName: givenName,
+                                                formerSessionNames: formerNames)
+                : SidebarMapping.isFormerSessionName(workspace.name, sessionName: sessionName, displayName: givenName,
+                                                     formerSessionNames: formerNames)
+            let launcherNamed = sessionName != nil && !turns.namesAreRemote(session)
                 && hold.launcherNamed(workspace: workspace.id, name: workspace.name, session: session.session ?? "",
-                                      matches: SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName,
-                                                                             displayName: givenName,
-                                                                             formerSessionNames: formerNames))
+                                      matches: matches)
             if launcherNamed, !formerNames.contains(workspace.name) { formerNames.append(workspace.name) }
             let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
             guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
