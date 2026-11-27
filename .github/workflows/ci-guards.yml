@@ -848,6 +848,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 -I tests/test_ci_red_fix_mine.py
 
+      - name: Validate the classic NIGHTLY release compile on the PR path
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_classic_nightly_pr_build.py
+
       - name: Validate Ghostty helper cache failure handling
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh

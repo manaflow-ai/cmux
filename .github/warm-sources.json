@@ -42,6 +42,8 @@
     "ci.yml:changes": {"class": "tooling", "warm": ["ssd-cas", "product-reuse"]},
     "ci.yml:claude-wrapper": {"class": "mac-run-product", "warm": [], "exempt": "Python tests of the Claude wrapper on macOS; compiles nothing"},
     "ci.yml:dogfood-build": {"class": "mac-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
+    "classic-pr-build.yml:app-compile-fleet": {"class": "mac-build", "warm": ["deriveddata-reuse", "actions-cache"]},
+    "classic-pr-build.yml:helpers": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-command-deadlines.yml:command-regressions": {"class": "mac-build", "warm": [], "exempt": "cold: compiles on a Mac from a clean tree; no warm source wired yet"},
     "cloud-journey-prod.yml:journey": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-journey-prod.yml:preclaim": {"class": "linux-rust", "warm": [], "exempt": "cold: a dispatch-only cargo build of cmux-tui from an empty target directory; no warm source wired yet"},
