@@ -9,6 +9,7 @@ use acpmux_book::index::{
     DiskSnapshot, IndexEdition, IndexLog, OriginRecord, OriginState, ReadSide, RowKey, SortKey,
     Summary, SummaryIndex, replay_generation_logs,
 };
+use acpmux_list_types::resume::ResumeErrorClass;
 use arc_swap::ArcSwap;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -663,6 +664,41 @@ pub enum HubError {
 }
 
 impl HubError {
+    /// What this error means to a resume (`acpmux_list_types::resume`), by
+    /// variant and io kind, never by message text. Exhaustive on purpose: a
+    /// new variant must be classified here.
+    pub fn resume_class(&self) -> ResumeErrorClass {
+        match self {
+            // The cursor is older than the log holds: resync from a snapshot.
+            HubError::CursorGone => ResumeErrorClass::GapTooOld,
+            // The unit does not follow the origin's mark: the stream it
+            // continued was replaced, so it starts again from the mark.
+            HubError::UnitOutOfOrder => ResumeErrorClass::GapTooOld,
+            HubError::Log(error) => ResumeErrorClass::from_io_kind(error.kind()),
+            // The writer stopped (the daemon shuts down or restarts) or still
+            // loads: a later attempt against the next writer may pass.
+            HubError::WriterGone => ResumeErrorClass::Transient,
+            // A unit of the origin is still queued, or the origin is leaving:
+            // both settle on their own.
+            HubError::UnitQueueFull | HubError::UnitHeld => ResumeErrorClass::Transient,
+            // Ownership and bounds refusals are not credentials: retrying the
+            // same request is refused the same way.
+            HubError::SourceRefused { .. }
+            | HubError::OriginLimit
+            | HubError::HeldRowLimit
+            | HubError::UnitRowLimit
+            | HubError::ForgedOrigin(_) => ResumeErrorClass::Unknown,
+            // Bad input, or a store that failed in a way no retry mends.
+            HubError::WrongStream(_)
+            | HubError::InvalidWindow
+            | HubError::InvalidPage
+            | HubError::InvalidParams(_)
+            | HubError::HydrationFailed
+            | HubError::Frame(_)
+            | HubError::MissingSummary(_) => ResumeErrorClass::Unknown,
+        }
+    }
+
     fn page_error(error: std::io::Error) -> Self {
         if error.kind() == std::io::ErrorKind::InvalidInput {
             Self::InvalidParams(error.to_string())
@@ -1087,6 +1123,11 @@ impl Hub {
         }
     }
 
+    /// The seq a resume from `cursor` catches up to. `Ok(None)` is the
+    /// [`ResumeErrorClass::GapTooOld`] case: the history no longer holds the
+    /// cursor, and its step ([`NextStep::FullResync`]) is a fresh window.
+    ///
+    /// [`NextStep::FullResync`]: acpmux_list_types::resume::NextStep::FullResync
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
         let target = history.recorded_through(self.published.load().seq());
@@ -1109,6 +1150,11 @@ impl Hub {
             .unwrap_or(0)
     }
 
+    /// [`Hub::resume_target`] for the peer projection: `Ok(None)` is the
+    /// [`ResumeErrorClass::GapTooOld`] case, answered with a fresh window
+    /// ([`NextStep::FullResync`]).
+    ///
+    /// [`NextStep::FullResync`]: acpmux_list_types::resume::NextStep::FullResync
     pub fn peer_resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let slot = self.peer_history.lock().map_err(|_| HubError::WriterGone)?;
         let Some(history) = slot.as_ref() else { return Ok(None) };
