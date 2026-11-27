@@ -521,7 +521,9 @@ impl Hub {
             .with_data(json!({"reason": "register.name_taken"})));
         }
         let short: String = holder.id.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
-        let renamed = format!("{name}-gone-{short}");
+        // Leave room in an 80-byte address for the timestamp prefix and a collision suffix.
+        let prefix = name.get(..name.floor_char_boundary(55)).unwrap_or(name);
+        let renamed = self.unique_name(&format!("{prefix}-gone-{short}"));
         tracing::info!(session = %holder.id, %name, %renamed, "a gone registered chat yields its name");
         self.rename_as(holder, renamed, super::task_names::Naming::Address).await
     }
@@ -729,6 +731,10 @@ fn not_found() -> RpcError {
     )
     .with_data(json!({"reason": "register.no_session"}))
 }
+
+#[cfg(test)]
+#[path = "register_name_tests.rs"]
+mod name_tests;
 
 #[cfg(test)]
 #[path = "register_tests.rs"]
