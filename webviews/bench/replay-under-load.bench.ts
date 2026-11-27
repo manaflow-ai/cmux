@@ -342,6 +342,10 @@ async function run(): Promise<Reading> {
           "disabled-by-default-v8.gc",
         ],
       });
+    // RENDERS=1: the components React committed in the window and why each record redrew the pane (perf.ts
+    // `renders`, paneSnapshot.ts `redrawCause`); counting turns the pane's perf on, so its busy is not a clean one.
+    const RENDERS = process.env.RENDERS === "1";
+    if (RENDERS) await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
     const pageStart = await page.evaluate(() => performance.now());
     const taskBefore = await taskSeconds(cdp);
     const wallBefore = performance.now();
@@ -362,6 +366,18 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
+    if (RENDERS) {
+      const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+        string,
+        number
+      >;
+      const top = Object.entries(counts)
+        .filter(([name]) => !name.startsWith("row:") && !name.startsWith("content:") && !name.startsWith("mount:"))
+        .sort((x, y) => y[1] - x[1])
+        .slice(0, 40);
+      console.log(`renders in the window (${sent} records sent):`);
+      for (const [name, count] of top) console.log(`  ${String(count).padStart(6)}  ${name}`);
+    }
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.
     await page.waitForTimeout(FLUSH_WAIT_MS);

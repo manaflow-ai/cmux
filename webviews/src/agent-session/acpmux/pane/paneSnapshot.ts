@@ -171,6 +171,7 @@ import {
   sendsHeldForHost,
   untilHostAnswers,
   pageClientLink,
+  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
@@ -1421,6 +1422,7 @@ export function paneSnapshotEffect({
             return;
           }
           if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
+          if (acpmuxPerf.enabled && received) acpmuxPerf.render(`redraw:${redrawCause(received, next)}`);
           redrawPane(next, false);
         },
         () => {
@@ -3214,4 +3216,27 @@ export function paneSnapshotEffect({
     pageClientLink.ended();
     notifyDraftActionsChanged();
   };
+}
+
+/// Why a record redrew the pane, for the replay bench's RENDERS table (perf on only): the snapshot's
+/// fields that changed by identity, and for the rows how many rows and of which kinds.
+function redrawCause(before: AcpmuxSnapshot, after: AcpmuxSnapshot): string {
+  const a = before as unknown as Record<string, unknown>;
+  const b = after as unknown as Record<string, unknown>;
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((key) => !Object.is(a[key], b[key]));
+  const parts = keys.filter((key) => key !== "rows").sort();
+  if (keys.includes("rows")) {
+    const kinds = new Set<string>();
+    let changed = 0;
+    const n = Math.max(before.rows.length, after.rows.length);
+    for (let i = 0; i < n; i++) {
+      if (before.rows[i] === after.rows[i]) continue;
+      changed++;
+      kinds.add(after.rows[i]?.kind ?? "gone");
+    }
+    parts.push(
+      `rows(${after.rows.length - before.rows.length >= 0 ? "+" : ""}${after.rows.length - before.rows.length},${changed > 3 ? "4+" : changed}:${[...kinds].sort().join("|")})`,
+    );
+  }
+  return parts.join(",") || "none";
 }
