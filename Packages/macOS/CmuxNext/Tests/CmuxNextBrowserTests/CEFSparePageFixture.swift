@@ -82,6 +82,10 @@ extension CEFSparePageSuites.CEFSparePageTests {
         SpareSpy.windows[20] = 2
         runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
         #expect(spare.isLive && spare.placeholder?.browserID == 20)
+        // CEF reports the spare placeholder's about:blank load asynchronously. Keep the fixture honest
+        // so tests cover the settled lifecycle freeze rather than an attach-time fallback.
+        runtime.handle(.loadingState(browser: 20, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadingState(browser: 20, loading: false, canGoBack: false, canGoForward: false))
         SpareSpy.clearRecords()
 
         runtime.spareWindow.prepare(runtime: runtime)
