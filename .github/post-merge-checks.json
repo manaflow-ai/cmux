@@ -94,6 +94,18 @@
       "kind": "publish",
       "why": "push-only teammate cloud journey publication/probe; no pull-request verdict"
     },
+    "cmux-machine-channel-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes a Cargo build cache seed from the base"
+    },
+    "cmux-next-hourly-full-tier.yml": {
+      "kind": "publish",
+      "why": "dispatches full-tier suites on merged commits and reports failures to their owners"
+    },
+    "pinned-files-mirror.yml": {
+      "kind": "publish",
+      "why": "publishes the pinned file blobs to the download mirror"
+    },
     "platform-fleet-inventory.yml": {
       "kind": "publish",
       "why": "posts the fleet's GCE and Freestyle VM lists to cmux-platform-production's inventory route; its push trigger only registers the workflow (#56642), a publication and not a verdict on a change"
