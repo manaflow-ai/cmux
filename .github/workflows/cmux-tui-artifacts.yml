@@ -1619,10 +1619,19 @@ jobs:
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
+    # FEAT_BUILD_COALESCED: a feat-cmux-next push's first attempt shares one build group (feat-push) with no
+    # cancel-in-progress: GitHub keeps one build running and one pending, and a newer push replaces only the
+    # pending one, so an intermediate trunk tip no longer builds beside the tip (on 2026-11-27 12-22Z up to 6
+    # feat-cmux-next builds ran at once; replaying those runs with one running and one pending drops about
+    # 1,750 of their 3,870 build and daemon-test min). The tip is never the replaced one, so latest/ and the channels still track the
+    # newest commit, as tree-preflight's --trunk-tip-only skip already decides at preflight. A replaced
+    # run's notify-unpublished-tree hands its key to a run that deferred to it; a takeover run, a re-run
+    # (cmux-tui-tree-request.yml's repair of one commit's tree) and a dispatch keep their per-run group, so
+    # no repair is replaced. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
     # One group per run, and one per branch on other branches' pushes, as `build` (cx-73f2,
     # BRANCH_BUILD_SUPERSEDED).
     concurrency:
-      group: cmux-tui-build-linux-${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id) }}
+      group: cmux-tui-build-linux-${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.tree-owner-wait.outputs.takeover != 'true') && 'feat-push' || (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id)) }}
       cancel-in-progress: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     permissions:
       contents: read
@@ -1666,6 +1675,15 @@ jobs:
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
+    # FEAT_BUILD_COALESCED: a feat-cmux-next push's first attempt shares one build group (feat-push) with no
+    # cancel-in-progress: GitHub keeps one build running and one pending, and a newer push replaces only the
+    # pending one, so an intermediate trunk tip no longer builds beside the tip (on 2026-11-27 12-22Z up to 6
+    # feat-cmux-next builds ran at once; replaying those runs with one running and one pending drops about
+    # 1,750 of their 3,870 build and daemon-test min). The tip is never the replaced one, so latest/ and the channels still track the
+    # newest commit, as tree-preflight's --trunk-tip-only skip already decides at preflight. A replaced
+    # run's notify-unpublished-tree hands its key to a run that deferred to it; a takeover run, a re-run
+    # (cmux-tui-tree-request.yml's repair of one commit's tree) and a dispatch keep their per-run group, so
+    # no repair is replaced. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
     # One group per run (cx-73f2). With one group per tree key (7eb3671d1832)
     # GitHub kept one running and one pending build per key and replaced the
     # pending one with each newer same-key build: on 2026-10-11 the pending
@@ -1694,7 +1712,7 @@ jobs:
     # had already moved past (a newer head's dispatch on the same branch). The
     # look of an older head is stale anyway: the newer head gets its own look.
     concurrency:
-      group: cmux-tui-build-${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id) }}
+      group: cmux-tui-build-${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.tree-owner-wait.outputs.takeover != 'true') && 'feat-push' || (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id)) }}
       cancel-in-progress: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     permissions:
       contents: read
@@ -1830,7 +1848,8 @@ jobs:
     # The Linux targets come from build-linux, so the plan waits on it too; it checks that
     # build-linux's artifacts are there before it plans a macOS fallback.
     if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
-    needs: [tree-preflight, build-linux, build]
+    # tree-owner-wait: BRANCH_PUSH reads whether this run took a deferred key over (FEAT_BUILD_COALESCED).
+    needs: [tree-preflight, tree-owner-wait, build-linux, build]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -1892,7 +1911,8 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           # BRANCH_BUILD_SUPERSEDED (build): on a branch push or dispatch a cancelled build may be one a
           # newer head's build cancelled, not a timeout. A head the branch has moved past needs no fallback.
-          BRANCH_PUSH: ${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && '1' || '' }}
+          # A feat-cmux-next push's pending build a newer push replaced (FEAT_BUILD_COALESCED) is the same case.
+          BRANCH_PUSH: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.tree-owner-wait.outputs.takeover != 'true') || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) && '1' || '' }}
         run: |
           set -euo pipefail
           if [[ "$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}" ]]; then
