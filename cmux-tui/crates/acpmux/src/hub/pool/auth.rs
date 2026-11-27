@@ -16,7 +16,18 @@
 //! started with (`hub/spawn.rs` decides team mode once, at spawn). Served later, it answered from
 //! the old route: the cloud journey's stub chat got no reply, or a real model's (9 of 9 runs from
 //! 2026-11-26 00:20Z). So the endpoint env, Claude's settings keys that move the endpoint or the
-//! credential, and the own-or-team choice are in the fingerprint.
+//! credential, and the own-or-team choice are in the fingerprint. Codex's `config.toml` is the same
+//! for Codex: its provider (`model_provider`, a profile's, the `model_providers` tables,
+//! `chatgpt_base_url`) is read once at start, so a Codex warmed on the image's `cmux` provider and
+//! served after the cloud journey pointed `config.toml` at its stub ran on the old route: "Missing
+//! environment variable: `OPENAI_API_KEY`." or the team gateway, never the stub (cloud-journey-prod
+//! Codex stub leg, runs 45907662413, 45904569663, 2026-11-26).
+//!
+//! So is the image's machine kind (`/etc/cmux/vm-kind`): the image launcher (`agent-auth.sh`) runs
+//! every agent in team mode while it reads anything but `owner`, and a cloned machine's boot resets
+//! it to `team` until the control plane's sync says `owner`. A Claude warmed in that window started
+//! on the team's route and, served after the flip, answered the cloud journey's stub chat with the
+//! team route's "No cmux inference gateway is online" (run 45952559474, 2026-11-27).
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -79,6 +90,10 @@ const CLAUDE_SETTINGS_ENV: &[&str] = &[
 ];
 const CLAUDE_SETTINGS_HELPERS: &[&str] = &["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"];
 
+/// The root `config.toml` keys that move Codex's endpoint or credential.
+const CODEX_CONFIG_ROUTE: &[&str] =
+    &["model_provider", "profile", "chatgpt_base_url", "openai_base_url", "forced_login_method"];
+
 /// Where one family keeps its login, and how to read the account from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
@@ -93,6 +108,10 @@ enum Reader {
     ClaudeSettings,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
+    /// Codex `config.toml`: the keys that move its endpoint or credential ([`CODEX_CONFIG_ROUTE`],
+    /// the `model_providers` tables, each profile's `model_provider`). A route, not an account; a
+    /// model pick or any other setting keeps the session.
+    CodexConfig,
     /// OpenCode `auth.json`: each provider's type, account and key.
     OpencodeAuth,
     /// Gemini CLI `google_accounts.json`: the signed-in Google account (`active`).
@@ -104,13 +123,26 @@ enum Reader {
     Stat,
     /// The agent's file in `codex_cloud_auth::CHOICE_DIR`: `own` or `team`. A route, not an account.
     Choice,
+    /// The image's machine kind ([`KIND_FILE`]): `owner` lets the image launcher run an agent on
+    /// its own login; any other kind runs it on the team's route. A route, not an account.
+    Kind,
 }
+
+/// The image's machine kind, under the root (`/` outside tests).
+const KIND_FILE: &str = "etc/cmux/vm-kind";
 
 impl Reader {
     /// Whether the file names the account the session runs under (the fingerprint's account
     /// part), rather than counting by presence or naming a route.
     fn names_account(self) -> bool {
-        !matches!(self, Reader::Stat | Reader::ClaudeSettings | Reader::Choice)
+        !matches!(
+            self,
+            Reader::Stat
+                | Reader::ClaudeSettings
+                | Reader::CodexConfig
+                | Reader::Choice
+                | Reader::Kind
+        )
     }
 }
 
@@ -118,6 +150,7 @@ fn files(
     family: &str,
     env: &dyn Fn(&str) -> Option<String>,
     home: &Path,
+    root: &Path,
 ) -> Vec<(PathBuf, Reader)> {
     let home = env("HOME")
         .filter(|value| !value.is_empty())
@@ -127,6 +160,8 @@ fn files(
     if !files.is_empty() {
         // The image's own-or-team choice (`agent_login.rs` `choose_own`, `cr use`).
         files.push((home.join(crate::codex_cloud_auth::CHOICE_DIR).join(family), Reader::Choice));
+        // The image launcher's own-or-team gate, read at each launch.
+        files.push((root.join(KIND_FILE), Reader::Kind));
     }
     files
 }
@@ -156,7 +191,10 @@ fn login_files(
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".codex"));
-            vec![(dir.join("auth.json"), Reader::CodexAuth)]
+            vec![
+                (dir.join("auth.json"), Reader::CodexAuth),
+                (dir.join("config.toml"), Reader::CodexConfig),
+            ]
         }
         "opencode" | "opencode-v2" => {
             let data = env("XDG_DATA_HOME")
@@ -226,6 +264,17 @@ impl AuthCache {
         env: &dyn Fn(&str) -> Option<String>,
         home: &Path,
     ) -> (String, Option<String>) {
+        self.fingerprint_in(family, env, home, Path::new("/"))
+    }
+
+    /// [`Self::fingerprint_with`] with the machine's files ([`KIND_FILE`]) under `root`.
+    fn fingerprint_in(
+        &self,
+        family: &str,
+        env: &dyn Fn(&str) -> Option<String>,
+        home: &Path,
+        root: &Path,
+    ) -> (String, Option<String>) {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let mut account = std::collections::hash_map::DefaultHasher::new();
         let mut named = false;
@@ -233,7 +282,7 @@ impl AuthCache {
         for k in AUTH_ENV.iter().chain(ROUTE_ENV) {
             (k, env(k)).hash(&mut h);
         }
-        for (path, reader) in files(family, env, home) {
+        for (path, reader) in files(family, env, home, root) {
             path.hash(&mut h);
             let part = self.file_part(&path, reader);
             part.hash(&mut h);
@@ -278,8 +327,12 @@ impl AuthCache {
 
 fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    if reader == Reader::Choice {
+    if matches!(reader, Reader::Choice | Reader::Kind) {
         String::from_utf8_lossy(bytes).trim().hash(&mut h);
+        return h.finish() | 1;
+    }
+    if reader == Reader::CodexConfig {
+        codex_config_route(bytes).hash(&mut h);
         return h.finish() | 1;
     }
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
@@ -348,8 +401,28 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
             }
             ids.hash(&mut h);
         }
-        // Never parsed (`file_part` counts presence only); a choice is read above.
-        Reader::Stat | Reader::Choice => {}
+        // Never parsed (`file_part` counts presence only); a choice, a kind and a Codex config are read above.
+        Reader::Stat | Reader::Choice | Reader::Kind | Reader::CodexConfig => {}
     }
     h.finish() | 1
+}
+
+/// What in Codex's `config.toml` says where it sends (`Reader::CodexConfig`); unparsable TOML is
+/// its bytes, so any change counts.
+fn codex_config_route(bytes: &[u8]) -> String {
+    let Ok(v) = String::from_utf8_lossy(bytes).parse::<toml::Table>() else {
+        return format!("unparsed:{}", String::from_utf8_lossy(bytes));
+    };
+    let mut out = String::new();
+    for k in CODEX_CONFIG_ROUTE {
+        out.push_str(&format!("{k}={:?};", v.get(*k).map(ToString::to_string)));
+    }
+    out.push_str(&format!("providers={:?};", v.get("model_providers").map(ToString::to_string)));
+    if let Some(profiles) = v.get("profiles").and_then(toml::Value::as_table) {
+        for (name, p) in profiles {
+            let provider = p.get("model_provider").map(ToString::to_string);
+            out.push_str(&format!("profile.{name}={provider:?};"));
+        }
+    }
+    out
 }

@@ -87,6 +87,10 @@
       "after_minutes": 5,
       "note": "docs/design/ci-v2.md, \"Blacksmith is a switch, not a route\". Leo, 2026-11-21: \"unfuck the labels. idk why you guys named them such stupid things in the first place\" (ask c-ab6690acae)."
     },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "unset by default, so a fork pull_request's Linux job (pinned-files-mirror.yml mirror, swift-linux-packages.yml linux-targets) takes GitHub-hosted ubuntu-24.04 in the same runs-on (`vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'`); it is read only on a pull_request from a fork, never on a push or a same-repository pull_request, which take cmux-linux. Clearing it puts fork runs back on ubuntu-24.04",
+      "after_minutes": 5
+    },
     "CI_OVERFLOW_LINUX": {
       "fallback": "unset by default, so every job on the ci-v2 one-label form (pr-pipeline's linux job, the PR checks moved in hq#13994 step 8) runs on cmux-linux, the label every owned Linux pool host carries (many hosts, not one); the overflow switch sets it to an overflow label while cmux-linux starts nothing, and deletes it to put the jobs back",
       "after_minutes": 5
@@ -347,8 +351,9 @@
       "after_minutes": 10
     },
     "CI_FORK_LINUX_RUNNER": {
-      "fallback": "unset or empty, ubuntu-24.04, GitHub's hosted Linux image (many hosts, not one); only a fork pull request's job reads it, and a same-repo job runs on cmux-linux",
-      "after_minutes": 5
+      "fallback": "unset by default, so a fork PR's Linux job runs on GitHub's ubuntu-24.04 hosted runners (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'), never an owned host; an operator sets it only to move fork PRs to another hosted label and deletes it to put them back",
+      "after_minutes": 5,
+      "note": "Read by pinned-files-mirror.yml (#57315) and swift-linux-packages.yml linux-targets (#57703); only on fork pull requests."
     }
   },
   "nightly_workflow_marker": "nightly",
