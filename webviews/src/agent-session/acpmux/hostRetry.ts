@@ -54,8 +54,8 @@ export function hostRefusedTooLarge(error: unknown): boolean {
 /// (asking again gets the same reply), not another build's acpmux holding this app's socket
 /// (`restartOffered`: only Restart agent service clears it), not a refusal that waits on the person
 /// (an untrusted folder, acpmux missing). Such a failure draws nothing (HostError.tsx), however long
-/// it lasts (Leo, 2026-11-12: "it should just automatically do stuff"; 2026-11-27, on "The agent
-/// service stopped. Retry": "retry on its own and never send messages like this. just remove it").
+/// it lasts (Leo, 2026-11-12: "it should just automatically do stuff"; cmux#60478, a
+/// brief forwarded as his, unverified, on "The agent service stopped. Retry": "retry on its own").
 /// Only a chat whose machine is unreachable is said past SELF_RETRY_SAID_MS (`troubleForMs`): that
 /// machine is the person's to bring back, and its line names it (hostLine.ts).
 export function hostSelfRetrying(error: unknown, restartOffered: boolean, troubleForMs = 0): boolean {
@@ -70,7 +70,7 @@ export const SELF_RETRY_SAID_MS = 120_000;
 
 /// What the pane's handshake loop does after a failed handshake, or after a connection lost soon
 /// after it connected: ask again after `waitMs`, or stop. It never gives up on this app's own agent
-/// service (Leo, 2026-11-27: "retry on its own"): until SELF_RETRY_SAID_MS of trouble it asks at the
+/// service (cmux#60478: "retry on its own", unverified): until SELF_RETRY_SAID_MS of trouble it asks at the
 /// quick pace; past it it keeps asking, `slow`, at most REFUSED_RETRY_MAX_MS apart, so an hour without
 /// a daemon costs about 120 asks instead of the 1 800 of cmux#49148, and a slow pane still asks at
 /// once on an event (`HOST_WAKE_EVENTS`): the window shown or focused again, the network back, or

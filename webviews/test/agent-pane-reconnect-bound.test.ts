@@ -1,5 +1,5 @@
 // The pane's handshake loop is bounded in rate, never in time (Leo, 2026-11-24: "I feel like there are
-// often these like dead hang loops"; 2026-11-27, on "The agent service stopped. Retry": "retry on its
+// often these like dead hang loops"; cmux#60478, a brief forwarded as his, unverified, on "The agent service stopped. Retry": "retry on its
 // own and never send messages like this. just remove it"). Before cmux#54312 a pane whose agent service
 // never came back asked again every 2 s forever (cmux#49148: 490 reconnects an hour from one pane); then
 // the loop stopped at SELF_RETRY_SAID_MS and waited on a click. Now, past SELF_RETRY_SAID_MS, it keeps
