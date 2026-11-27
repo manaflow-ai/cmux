@@ -122,6 +122,9 @@
 #           1290x2796) and written without an alpha channel (png_opaque.py),
 #           or the step fails, e.g.
 #             --arg shots --arg appstore=iphone-6.9 --arg 01-home=-cmux-mobile-tab,home
+#           The scene `statusbar=clean` (not a screen) overrides the status bar the same way on any
+#           iPhone, with no size or alpha checks: the screen-parity goldens
+#           (cmux-next-ios/verify/screen-parity/shots.sh fleet).
 #   clips   build, plus the What's New clip of one iPhone highlight
 #           (release-notes/next/clips/ID.json with "app": "iphone"): the app
 #           runs the spec's scene (DEBUG launch arguments, demo drivers, mock
@@ -354,8 +357,11 @@ if [[ "$mode" == screen-proof ]]; then
 fi
 scenes=()
 appstore=0
+clean_status_bar=0
 for scene in "${@:2}"; do
-  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; else scenes+=("$scene"); fi
+  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; clean_status_bar=1
+  elif [[ "$mode" == shots && "$scene" == statusbar=clean ]]; then clean_status_bar=1
+  else scenes+=("$scene"); fi
 done
 theme_relaunches=10
 if [[ "$mode" == theme-relaunch ]]; then
@@ -1964,11 +1970,15 @@ if [[ "$mode" == shots ]]; then
   note ""
   note "## Screens (mock data, DEBUG launch arguments)"
   note ""
-  if [[ "$appstore" == 1 ]]; then
-    # App Store screenshots: Apple's clean status bar (9:41, full signal, Wi-Fi and battery).
+  if [[ "$clean_status_bar" == 1 ]]; then
+    # Apple's clean status bar (9:41, full signal, Wi-Fi and battery): App Store screenshots and statusbar=clean.
     simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
       --cellularMode active --cellularBars 4 --operatorName "" --batteryState charged --batteryLevel 100
-    note "- App Store screenshots: ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+    if [[ "$appstore" == 1 ]]; then
+      note "- App Store screenshots: ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+    else
+      note "- ${device_type##*.}, status bar overridden (9:41, full signal and battery)"
+    fi
   fi
   for scene in "${scenes[@]}"; do
     name="${scene%%=*}"
