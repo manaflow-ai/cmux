@@ -1578,8 +1578,20 @@ mod proxy;
 use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
-    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+    TRANSFER_FIELD, abort_transferred_chat_shares, close_chat_shares, close_listed_chat_shares,
+    close_unlisted_chat_shares, detach_transferred_chat_shares, finish_transferred_chat_shares,
+    freeze_transferred_chat_shares, open_chat_shares, reconcile_transferred_chat_shares,
+    stage_transferred_chat_shares,
 };
+
+#[cfg(test)]
+pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option<Value> {
+    mux.control_clients
+        .agent_sessions
+        .link_shares
+        .export_for_transfer(mux.session_state_directory().as_deref(), session)
+}
+
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;

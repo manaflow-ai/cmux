@@ -113,6 +113,11 @@
   --cv-row-font-size: calc(var(--cv-font-size) * 13 / 14);
   --cv-row-chip-height: 16px;
   --cv-row-glyph: 16px;
+  /* "Worked for" and the "N new messages" tag on its line keep the prose's size, the 14 they drew before the
+     row metric (#57402) took the other rows to 13: one size for the pair (Leo, 2026-11-27, of the shrunken
+     footer: "why did this get changed smaller font size than before? wasn't the original size
+     uncontroversial?"). */
+  --cv-worked-font-size: var(--cv-font-size);
   /* "Worked for"'s rule: this much under its words and this much over the next row. */
   --cv-worked-rule-above: 2px;
   --cv-worked-rule-below: 6px;
@@ -2958,7 +2963,7 @@ body {
   align-items: center;
   gap: var(--grid-gap);
   font-family: var(--cv-font);
-  font-size: var(--cv-row-font-size);
+  font-size: var(--cv-worked-font-size);
   line-height: 20px;
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, 0px));
   color: var(--cv-activity-text);
@@ -6623,26 +6628,6 @@ a.cv-sha:focus-visible {
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
-}
-/* A failed turn's mark (TurnRows.tsx `endMark`, G04) in the failure ink (failedTurnMark.experiment.ts):
-   its own 24 square in the 32 footer line, the buttons' size, after them, so it never moves them. */
-.cv-turn-actions .cv-turn-end-mark {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--cv-footer-button);
-  height: var(--cv-footer-row);
-  color: var(--cv-footer-ink);
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
-  white-space: nowrap;
-}
-.cv-turn-actions .cv-turn-end-mark--failed {
-  color: var(--agent-status-failure);
-}
-.cv-turn-actions .cv-turn-end-mark--word {
-  padding-inline: calc(var(--ds-space-1) * 0.5);
 }
 .cv-iconbtn.cv-turn-continue:disabled,
 .cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
