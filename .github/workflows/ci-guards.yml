@@ -43,7 +43,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout parent repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The synthetic PR commit and its first parent are sufficient for
           # the merge-base comparison, and keep this guard shallow like the
@@ -109,7 +109,7 @@ jobs:
     # cmux#22135 one release-notary failure hid 47 of the group's 65 guards).
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -163,6 +163,10 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Jobs that only drive the build fleet run on Linux, not a gateway Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gateway_jobs_on_linux.py
 
       - name: Validate scripts keep full clones full
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1142,10 +1146,12 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen), and a
+        # GitHub read is asked again after a refusal that can change (gh_http.py).
         run: |
           python3 tests/test_ci_no_github_token_polling.py
           python3 tests/test_ci_no_bare_urlopen.py
+          python3 tests/test_ci_gh_http.py
 
       - name: Validate that no cache is saved under a run- or commit-scoped key
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2603,7 +2609,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
         timeout-minutes: 6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
           # fetch-depth 0 would also fetch every branch of the repository
@@ -2667,7 +2673,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -2702,7 +2708,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

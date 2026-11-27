@@ -267,6 +267,42 @@
         "cmux-next-ios/CmuxMobileKit/Sources/**",
         "cmux-next-ios/CmuxMobileKit/Package.swift"
       ]
+    },
+    {
+      "id": "terminal-tui-line-scroll-and-input",
+      "title": "A full-screen terminal app keeps the app's line scroll (no phone-side re-render), and typing reaches the terminal through both the composer and direct input",
+      "source": ["regression:18"],
+      "kit": [
+        "CmuxMobileDesignCoreTests/TerminalScrollDefaultTests",
+        "CmuxMobileModelTests/TerminalPlainScrollSettingTests",
+        "CmuxMobileTerminalTests/TerminalTUIScrollControllerTests",
+        "CmuxMobileTerminalTests/TerminalTUIScrollTests",
+        "CmuxMobileTerminalTests/ComposerSubmitTests",
+        "CmuxMobileTerminalTests/TerminalComposerFieldTests",
+        "CmuxMobileTerminalTests/TerminalKeyRowTests"
+      ],
+      "ui": ["TerminalKeyboardNoResizeUITests", "TerminalComposerBarUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesignCore/TerminalScrollDefault.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/**"
+      ]
+    },
+    {
+      "id": "tab-overview-pane-filter",
+      "title": "The tab overview's pane filter: browsers show by default and the toolbar title stays centred (fix owned by Leo)",
+      "source": ["regression:19"],
+      "kit": ["CmuxMobileWorkspacesTests/PaneFilterTests"],
+      "ui": ["PaneFilterUITests"],
+      "paths": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/**"]
+    },
+    {
+      "id": "terminal-loading-cover-above-composer",
+      "title": "A loading or reattaching terminal's cover (the Mac's screen text or the skeleton) ends at the composer's top, never under the composer bar",
+      "source": ["regression:20"],
+      "kit": ["CmuxMobileTerminalTests/TerminalShowsCacheTests"],
+      "ui": ["TerminalComposerBarUITests"],
+      "paths": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/**"]
     }
   ]
 }
