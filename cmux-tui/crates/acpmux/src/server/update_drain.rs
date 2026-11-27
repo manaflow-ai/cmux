@@ -34,12 +34,12 @@ impl Drop for SendPermit {
     }
 }
 
-pub(crate) struct Drain(Arc<Admission>);
+pub(crate) struct Drain(Arc<Admission>, String);
 
 impl Drain {
     /// Only this owner's detached successor may join its already-fenced handoff.
     pub(crate) fn owner(&self) -> String {
-        self.0.state.lock_or_recover().owner.clone().expect("drain owns update")
+        self.1.clone()
     }
 
     pub(crate) fn commit(self) {
@@ -79,7 +79,7 @@ impl Admission {
         within: Duration,
         owner: Option<&str>,
     ) -> Result<Drain, RpcError> {
-        {
+        let token = {
             let mut state = self.state.lock_or_recover();
             // A matching token joins one handoff; independent callers never become another
             // restart owner, including after the first owner committed and dropped its guard.
@@ -90,12 +90,11 @@ impl Admission {
                 )
                 .with_data(serde_json::json!({"reason":"update.deferred", "retryable":true})));
             }
-            if state.drainers == 0 {
-                state.owner = Some(uuid::Uuid::now_v7().to_string());
-            }
+            let token = state.owner.get_or_insert_with(|| uuid::Uuid::now_v7().to_string()).clone();
             state.drainers += 1;
-        }
-        let guard = Drain(self.clone());
+            token
+        };
+        let guard = Drain(self.clone(), token);
         let ready = async {
             loop {
                 let changed = self.changed.notified();
