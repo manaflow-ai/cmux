@@ -654,6 +654,7 @@ test("a rail browsed in one chat follows the reader again in the next chat the t
     });
     // Two jumps that far inside 120 ms read as a fling, whose rail catches up once at rest: wait for it.
     await act(async () => {
+      // fixed-wait: the 120 ms fling-rest window is the behavior under test, on jsdom's real timers.
       await new Promise((resolve) => setTimeout(resolve, 160));
     });
     await nextFrame();

@@ -2190,16 +2190,17 @@ async fn dispatch_request_with_identity(
             // alone): a refusal before the session sees it deletes them, so none is left behind.
             // Take ownership only after the lookup finishes in time. A retry after a timeout
             // can still name these uploads even if the background lookup finishes later.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
                 prompt_preparation(
                     answer_due,
                     "prompt_uploads::owned",
-                    crate::prompt_uploads::owned(&s.id, &blocks),
+                    crate::prompt_uploads::owned_paths(&s.id, &blocks),
                 )
-                .await?
-            });
+                .await
+                .map(crate::attach::OwnedUploads)?
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
