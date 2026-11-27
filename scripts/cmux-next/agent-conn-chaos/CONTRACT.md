@@ -5,7 +5,8 @@ every rule below against a real built app and a real daemon; a rule it cannot ch
 
 ## Faults
 
-An app update (Restart to Update, the bundle swapped), the daemon ending (SIGTERM, SIGKILL, a crash), the app ending
+An app update (Restart to Update, the bundle swapped), the daemon ending (SIGTERM, SIGKILL, a crash) or hanging, the
+app ending
 and being opened again, sleep and wake, and the network going away (the daemon socket removed or replaced, the
 loopback WebSocket port blocked).
 
@@ -32,6 +33,7 @@ The time from the fault's end to a connected chat with its turn live or done:
 |---|---|
 | app update, app killed and opened again | 60 s from the relaunch |
 | daemon SIGTERM or SIGKILL, sleep/wake, socket gone, port blocked | 30 s |
+| daemon hung (stopped, holding its lock and socket) | 45 s from the stop, while it stays stopped |
 
 ## What the suite simulates
 
@@ -46,11 +48,29 @@ The time from the fault's end to a connected chat with its turn live or done:
 
 ## Where it runs
 
-Fleet Macs through `cmux-ci` (`scripts/measure/agent-conn-chaos.sh`), alone on the host. It never runs on cosmic-gray
-or air-blue (Leo's own Macs) or on big-red; both the entry script and suite.py refuse those names. It installs no
+Fleet Macs through `cmux-ci` (`scripts/measure/agent-conn-chaos.sh`). It never runs on cosmic-gray, air-blue,
+huge-blue or big-red; both the entry script and suite.py refuse those names. It installs no
 launchd agent. The daemon it starts is the DEV build's own, under a scratch `ACPMUX_HOME`.
+
+## Real and simulated
+
+| case | fault | real or simulated |
+|---|---|---|
+| update-midturn | the updater's relaunch hook, the bundle swapped, the app relaunched | real install swap; no download or signature check |
+| daemon-sigterm, daemon-sigkill | the signal to the app's own daemon | real |
+| app-sigkill | SIGKILL of the app, then a launch into the same HOME | real |
+| sleep-wake-sim | SIGSTOP of the app and the daemon for 35 s, then SIGCONT | simulated |
+| daemon-hung | SIGSTOP of the daemon only, left stopped | real hang (a stopped process), not a deadlock |
+| socket-gone | the daemon's socket file moved away for 20 s, then back | real |
+| ws-port-block | pf drop on the daemon's loopback WebSocket port for 20 s | real, needs root; NOT RUN without it |
 
 ## Expected failures
 
-`XFAIL` in suite.py names each case expected to fail until a sibling branch lands. A marked case that passes (XPASS)
-fails the suite, so the mark comes off the day the fix lands.
+`XFAIL` in suite.py names each case expected to fail until an open PR lands:
+
+- daemon-sigterm, daemon-sigkill: cmux#60429 (a reconnect starts the app's own stopped daemon).
+- update-midturn: cmux#60430 (the update hand-off).
+- daemon-hung: cmux#60685 (a hung lock holder is replaced).
+
+A marked case still runs and is judged in full. A failure prints `XFAIL` with the PR and does not fail the suite. A
+pass prints `XPASS` and fails it, so the mark comes off the day its PR lands.

@@ -18,15 +18,18 @@ Cases (--cases, default all):
   sleep-wake-sim   SIMULATION of sleep/wake: SIGSTOP the app and the daemon for --sleep seconds (default 35),
                    then SIGCONT. A real sleep also stops timers and the network and posts
                    NSWorkspace.didWakeNotification; this does not, and the agent pane has no wake hook to fake one.
+  daemon-hung      SIGSTOP the daemon only, and leave it stopped: it holds its lock and socket and answers nothing (a
+                   hung daemon). The app must replace it within the bound while it stays stopped; SIGCONT afterwards.
   socket-gone      The daemon's socket file moved away for 20 s, then put back (a removed or replaced socket).
   ws-port-block    The daemon's loopback WebSocket port blocked with pf for 20 s. Needs root (`sudo -n pfctl`);
                    without it the case is NOT RUN (reported so, never passed).
 
-XFAIL below lists cases expected to fail until a named sibling branch lands; an expected failure passes the suite,
-an unexpected pass (XPASS) fails it, so the mark comes off the day the fix lands. Exit status: 0 only when every
+XFAIL below lists cases expected to fail until a named open PR lands. Such a case still runs, and its line names the
+PR: a failure prints XFAIL (waits on cmux#N) and does not fail the suite; a pass prints XPASS and fails it, so the mark
+comes off the day the fix lands. The judgment itself is never relaxed for a marked case. Exit status: 0 only when every
 case passed or failed as marked; result JSON to --out.
 
-Fleet Macs only (scripts/measure/agent-conn-chaos.sh): never Leo's cosmic-gray or air-blue, never big-red.
+Fleet Macs only (scripts/measure/agent-conn-chaos.sh): never cosmic-gray, air-blue, huge-blue or big-red.
 """
 from __future__ import annotations
 
@@ -52,13 +55,21 @@ import idle_cost_load as load  # noqa: E402  (new_session, open_workspace, read_
 import bench_relaunch_reconnect as rr  # noqa: E402  (quit_app, replace_bundle, daemon_pids)
 
 AGENT = os.path.join(HERE, "chaos_agent.py")
-CASES = ["update-midturn", "daemon-sigterm", "daemon-sigkill", "app-sigkill", "sleep-wake-sim", "socket-gone",
+CASES = ["update-midturn", "daemon-sigterm", "daemon-sigkill", "app-sigkill", "sleep-wake-sim", "daemon-hung", "socket-gone",
          "ws-port-block"]
 # Seconds from the fault's end to a connected chat with its turn live or done (CONTRACT.md "Bounds").
 BOUND = {"update-midturn": 60, "app-sigkill": 60, "daemon-sigterm": 30, "daemon-sigkill": 30,
-         "sleep-wake-sim": 30, "socket-gone": 30, "ws-port-block": 30}
-# Expected failures until a sibling branch lands: case -> the branch. Filled from real runs only.
-XFAIL: dict[str, str] = {}
+         "sleep-wake-sim": 30, "daemon-hung": 45, "socket-gone": 30, "ws-port-block": 30}
+# Expected failures until an open PR lands: case -> the PR. Each mark comes off when its PR merges (an XPASS fails).
+XFAIL: dict[str, str] = {
+    # The app does not start its own daemon again when a reconnect finds it gone.
+    "daemon-sigterm": "cmux#60429 (lane/gui-agent-connection-dictator)",
+    "daemon-sigkill": "cmux#60429 (lane/gui-agent-connection-dictator)",
+    # An update's hand-off: the successor daemon takes the staged path's listener (acpmux daemon expect-relaunch).
+    "update-midturn": "cmux#60430 (lane/agent-conn-update-handoff)",
+    # A daemon that holds its lock but never answers is not replaced.
+    "daemon-hung": "cmux#60685 (lane/agent-conn-hung-lock-holder)",
+}
 FORBIDDEN = [re.compile(p, re.I) for p in (r"agent service stopped", r"didn'?t answer in time", r"not connected",
                                            r"service stopped")]
 RETRY = re.compile(r"^\s*Retry\b")  # a Retry control: an element whose own text starts with Retry
@@ -254,6 +265,14 @@ def inject(run: Run, case: str, watch: Watch, ping: str) -> dict:
         info["note"] = f"SIGSTOP/SIGCONT {run.args.sleep:.0f} s simulation; no wake notification, no network drop"
         ping_on_page()
         return info
+    if case == "daemon-hung":
+        stopped = rr.daemon_pids(run.bundle)
+        signal_all(stopped, signal.SIGSTOP)
+        info["fault_end"] = time.monotonic()  # the daemon stays stopped: recovery is counted from the stop
+        info["note"] = f"daemon {sorted(stopped)} SIGSTOPped for the whole case, SIGCONT at its end"
+        info["cleanup"] = lambda: signal_all(stopped, signal.SIGCONT)
+        ping_on_page()
+        return info
     if case == "socket-gone":
         path = run.cli_env["ACPMUX_SOCKET"]
         away = path + ".chaos-away"
@@ -309,6 +328,7 @@ def run_case(run: Run, case: str) -> dict:
     except Exception as error:  # a fault the harness could not inject is a harness failure, reported as one
         info = {"fault_end": time.monotonic(), "harness_error": repr(error)[:300]}
         result["failures"].append(f"harness: {error!r}"[:300])
+    cleanup = info.pop("cleanup", None)
     result.update({k: v for k, v in info.items() if k != "fault_end"})
     if info.get("not_run"):
         watch.stop.set()
@@ -328,6 +348,8 @@ def run_case(run: Run, case: str) -> dict:
     # keeps the whole last assistant row; the store holds every row.
     watch.stop.set()
     watch.join(5)
+    if cleanup:
+        cleanup()
     connected = watch.connected_since(fault_end)
     result["recovery_s"] = None if connected is None else round(connected - fault_end, 1)
     if connected is None or connected - fault_end > BOUND[case]:
@@ -374,6 +396,9 @@ def verdict(result: dict) -> str:
     if result.get("status") == "not-run":
         return "not-run"
     failed = bool(result["failures"])
+    # A suite that could not drive the case judged nothing: that is a failure even under a mark.
+    if any(f.startswith(("harness:", "could not open", "stream send:")) for f in result["failures"]):
+        return "fail"
     if result["case"] in XFAIL:
         return "xfail" if failed else "xpass"
     return "fail" if failed else "pass"
@@ -386,7 +411,7 @@ def refuse_leo_machines():
             names.add(subprocess.run(argv, capture_output=True, text=True, timeout=5).stdout.strip().lower())
         except (OSError, subprocess.SubprocessError):
             pass
-    bad = {n for n in names for leo in ("cosmic-gray", "air-blue", "big-red") if leo in n.replace(" ", "-")}
+    bad = {n for n in names for leo in ("cosmic-gray", "air-blue", "huge-blue", "big-red") if leo in n.replace(" ", "-")}
     if bad and not os.environ.get("AGENT_CONN_CHAOS_ANY_HOST"):
         raise SystemExit(f"conn-chaos: refusing to run on {sorted(bad)}: Leo's machines and big-red are off limits "
                          "(fleet Macs through cmux-ci only)")
@@ -419,7 +444,8 @@ def main(argv=None):
             if result["case"] in XFAIL:
                 result["xfail_until"] = XFAIL[result["case"]]
             results.append(result)
-            print(f"AGENT-CONN-CHAOS case={case} verdict={result['verdict']} recovery_s={result.get('recovery_s')} "
+            waits = f" waits_on={XFAIL[case]}" if case in XFAIL else ""
+            print(f"AGENT-CONN-CHAOS case={case} verdict={result['verdict'].upper()}{waits} recovery_s={result.get('recovery_s')} "
                   f"bound_s={result.get('bound_s')} failures={json.dumps(result['failures'])}", flush=True)
     finally:
         run.close()
