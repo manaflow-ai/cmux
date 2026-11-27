@@ -218,8 +218,9 @@ jobs:
   swift-acpmux-protocol:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
-    uses: ./.github/workflows/swift-acpmux-protocol.yml
+    uses: ./.github/workflows/swift-checks.yml
     with:
+      check: acpmux
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
     permissions:
