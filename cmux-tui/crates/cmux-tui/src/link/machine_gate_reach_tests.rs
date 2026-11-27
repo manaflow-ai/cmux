@@ -149,3 +149,24 @@ fn a_refusal_is_the_answer_without_waiting() {
     assert!(started.elapsed() < Duration::from_secs(2));
     assert!(unreached.to_string().contains("refused identify: nope: no"), "{unreached}");
 }
+
+/// A move reads each daemon's `identify` once: on a slow Cloud link every repeat was a round
+/// trip (probe cloud-session-move-to-local-production, 2026-11-27 06:36Z: carry 2684 ms). The
+/// memo answers repeats while it is open, and only then.
+#[test]
+fn an_open_memo_answers_a_repeated_identify_without_dialing() {
+    let folder = tempfile::tempdir().unwrap();
+    let socket = socket_in(&folder);
+    // One answer, then every later connection closes unanswered: a second dial would fail.
+    fake_link(&socket, Duration::ZERO, vec![Conn::AnswerAfter(Duration::ZERO), Conn::Close]);
+    std::thread::sleep(Duration::from_millis(100));
+    {
+        let _memo = Memo::open();
+        let first = reach(&socket).expect("first contact");
+        let _inner = Memo::open();
+        assert_eq!(reach(&socket).expect("remembered"), first);
+        assert_eq!(identify(&socket), Some(first));
+    }
+    // Closed: the daemon is asked again (and here closes unanswered).
+    assert_eq!(identify(&socket), None);
+}
