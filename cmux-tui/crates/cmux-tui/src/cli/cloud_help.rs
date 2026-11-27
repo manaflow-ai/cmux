@@ -713,6 +713,7 @@ usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
                              [--effort EFFORT] [--mode MODE]
                              [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
                              [--environment ENV]
+                             [--provider gcp|freestyle]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room]
                              [--no-focus] [--json]
@@ -757,6 +758,8 @@ older name; both run the same start.
                      once
   --environment ENV  Boot the new machine in this Cloud environment (its
                      env_ id or its name); not with --target
+  --provider NAME    Use gcp or freestyle for a new machine; omitted keeps
+                     the Cloud default
   --account ACCOUNT  Start and send only while the app is signed in to this
                      account (user:ID|team:ID or user:ID|personal), and only
                      to a machine its list shows

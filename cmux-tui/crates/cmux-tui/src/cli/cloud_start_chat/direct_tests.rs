@@ -41,8 +41,8 @@ impl Cloud for FakeCloud {
             .cloned()
             .ok_or_else(|| json!({"code": "cloud.machine.not_found", "message": "gone"}))
     }
-    fn create(&mut self, name: &str, key: &str) -> Result<Row, Value> {
-        self.asked.push(format!("create {name} {key}"));
+    fn create(&mut self, name: &str, key: &str, provider: Option<&str>) -> Result<Row, Value> {
+        self.asked.push(format!("create {name} {key} {}", provider.unwrap_or("default")));
         let made = row("vm-new", name, "provisioning", None);
         self.rows.push(row("vm-new", name, "running", Some("h-new")));
         Ok(made)
@@ -167,6 +167,21 @@ fn a_name_no_machine_has_is_made_once_and_waited_on() {
     assert_eq!(cloud.asked.iter().filter(|a| a.starts_with("create lane-x")).count(), 1);
     // The fake says nothing of a claim: the answer says so rather than guessing.
     assert_eq!(answer["machine_origin"], json!({"from": "unknown"}), "{answer}");
+}
+
+#[test]
+fn a_provider_is_forwarded_when_direct_route_creates_machine() {
+    let asked = request(&["--name", "lane-gcp", "--provider", "gcp"]);
+    let mut inner = Fake::new(vec![]);
+    let mut cloud = FakeCloud {
+        rows: vec![],
+        asked: Vec::new(),
+        execs: VecDeque::from([out("@@session None\n"), out("@@cwd\n")]),
+        commands: Vec::new(),
+    };
+    let done = run(&mut DirectRunner { inner: &mut inner, cloud: &mut cloud }, &asked);
+    assert!(matches!(done, Outcome::Done(_)), "{done:?}");
+    assert!(cloud.asked.iter().any(|call| call.ends_with(" gcp")), "{:?}", cloud.asked);
 }
 
 #[test]

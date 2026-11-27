@@ -76,6 +76,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             cwd: None,
             from_folder: None,
             environment: None,
+            provider: None,
             account: None,
             machine: Machine::New,
             wait: false,
@@ -112,6 +113,15 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     // After `--`, the prompt is text: an output flag or `-` is what it says.
     assert_eq!(request(&["--wait", "--", "--json"]).prompt.as_deref(), Some("--json"));
     assert_eq!(request(&["--", "-"]).prompt.as_deref(), Some("-"));
+}
+
+#[test]
+fn provider_is_closed_and_survives_retry_command() {
+    let asked = request(&["--provider", "gcp", "--prompt", "go"]);
+    assert_eq!(asked.provider.as_deref(), Some("gcp"));
+    assert!(again_command(&asked, &Machine::Named("chat-1".into())).contains("--provider gcp"));
+    assert!(parse(&strings(&["--provider", "aws"]), || Ok(String::new())).is_err());
+    assert!(TAKES_VALUE.contains(&"--provider"));
 }
 
 /// `cmux cloud start-chat -- --json` (cmuxterm-hq#7487 item 4): the global scan and the output
@@ -3161,6 +3171,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -3203,6 +3214,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
