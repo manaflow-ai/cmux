@@ -436,7 +436,7 @@ pub struct Session {
     /// The person's Stop's hold, by its number (`Hub::stop_hold_number`); 0: none.
     pub(super) stop_hold: AtomicU64,
     /// `stop_hold` when the running turn started: only a turn started under the hold ends it
-    /// (`turns.rs` `finish_turn`), never one that was ending as the Stop came.
+    /// (`turns/finish.rs` `finish_turn`), never one that was ending as the Stop came.
     pub(super) turn_hold: AtomicU64,
     /// Claude Code reported that its active turn is compacting. This is kept
     /// on the session as hosted agents have their translator in the host.
@@ -775,6 +775,12 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Edits the metadata in place, as a test outside the crate sets up a saved state (an
+    /// integration test sees no `pub(super)` field). No row change is told.
+    #[doc(hidden)]
+    pub fn edit_meta_for_test(&self, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut self.meta.lock().unwrap_or_else(|e| e.into_inner()));
+    }
     /// Leaves this chat marked as on its capacity fallback, as a past switch did
     /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot
     /// reach `meta`.
@@ -1067,6 +1073,11 @@ impl Session {
     /// An open sub-session below it waits on the person (`asks_below.rs`).
     pub(crate) fn waits_below(&self) -> bool {
         self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
+    }
+    /// How many permissions wait on an answer: the summary's `pendingPermissions`, read
+    /// without building the row.
+    pub(crate) fn pending_permission_count(&self) -> usize {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.len()
     }
     pub(crate) fn has_pending_permissions(&self) -> bool {
         !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()

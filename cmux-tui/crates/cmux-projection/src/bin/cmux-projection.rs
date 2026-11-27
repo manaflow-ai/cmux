@@ -8,6 +8,8 @@
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//! cmux-projection share --listen ADDR --allow CIDR[,CIDR...]
+//! cmux-projection share-mount --from HOST[:PORT] --path FOLDER --at DIR [--keep DIR] [--ready-file FILE]
 //!                      [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME
 //!                      [--advertise URL] [--zone ZONE]]
 //! ```
@@ -48,13 +50,23 @@
 //! `CMUX_PROJECTION_SEED_YIELD_LOCKS` (colon-separated), `CMUX_PROJECTION_SEED_HEARTBEAT_URL`,
 //! `CMUX_PROJECTION_SEED_TOKEN_FILE` (the heartbeat's bearer token), `CMUX_PROJECTION_SEED_REPO`
 //! and `CMUX_PROJECTION_ZONE`.
+//!
+//! `share` serves this machine's readable folders, read only and under machine_read's policy, to
+//! the peers `--allow` admits; `share-mount` mounts one of another machine's folders read only
+//! (`cmux_projection::share`).
 //! `s3-push` puts MIRROR's blobs into an S3-compatible bucket. It signs each HEAD and PUT with
 //! the configured store keys, skips blobs already held, and prints one JSON result line.
+//!
+//! `repo-archive-publish` puts a depth-1 `.git` archive (or the increment since it) of each
+//! `--branch` of SOURCE into the repo archive store, one JSON line per branch; the controller's
+//! timer runs it (`scripts/repo-archive/`). `repo-archive-fetch` takes one into a new folder: exit 3
+//! when the store has none (or none is configured), so the caller clones instead
+//! (`cmux_projection::repo_archive`, hq RFD 0065 pieces 1 and 2).
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn main() -> std::process::ExitCode {
     match cli::run(std::env::args().skip(1).collect()) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(code) => std::process::ExitCode::from(code),
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
             std::process::ExitCode::FAILURE
@@ -93,7 +105,13 @@ mod cli {
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
                          [--conns N] [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME \
                          [--advertise URL] [--zone ZONE]]\n       \
-                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]";
+                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]\n       \
+                         cmux-projection repo-archive-publish --source SRC --url URL --branch B... \
+                         [--default B] [--store STORE] [--max-age-hours H] [--max-increment-mb M]\n       \
+                         cmux-projection repo-archive-fetch --url URL --at DIR [--branch B] [--store STORE]\n       \
+                         cmux-projection share --listen IP:PORT --allow CIDR[,CIDR...]\n       \
+                         cmux-projection share-mount --from HOST[:PORT] --path FOLDER --at DIR \
+                         [--keep DIR] [--ready-file FILE]";
 
     #[derive(Default)]
     struct Args {
@@ -163,8 +181,19 @@ mod cli {
         Ok(parsed)
     }
 
-    pub fn run(args: Vec<String>) -> anyhow::Result<()> {
+    /// The process's exit code: 0, or 3 from `repo-archive-fetch` for a repo the store lacks.
+    pub fn run(args: Vec<String>) -> anyhow::Result<u8> {
         let (command, rest) = args.split_first().ok_or_else(|| anyhow::anyhow!(USAGE))?;
+        if command == "repo-archive-publish" || command == "repo-archive-fetch" {
+            return repo_archive(command, rest);
+        }
+        run_other(command, rest).map(|()| 0)
+    }
+
+    fn run_other(command: &str, rest: &[String]) -> anyhow::Result<()> {
+        if command == "share" || command == "share-mount" {
+            return cmux_projection::share::cli(command, rest);
+        }
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);
@@ -173,7 +202,7 @@ mod cli {
             return s3_push(&args);
         }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
-        match command.as_str() {
+        match command {
             "git-mount" => git_mount(&args, &at),
             "git-lower" => git_lower(&args, &at),
             "git-unmount" => {
@@ -251,6 +280,90 @@ mod cli {
             return Ok(());
         }
         peers::serve(&git_dir, &listen, limits)
+    }
+
+    /// `repo-archive-publish` and `repo-archive-fetch`.
+    fn repo_archive(command: &str, rest: &[String]) -> anyhow::Result<u8> {
+        use cmux_projection::repo_archive::{self as archive, Fetched, Publish};
+
+        let mut flags: Vec<(&str, &str)> = Vec::new();
+        for pair in rest.chunks(2) {
+            match pair {
+                [flag, value] => flags.push((flag.as_str(), value.as_str())),
+                _ => anyhow::bail!("every flag takes a value\n{USAGE}"),
+            }
+        }
+        let all = |name: &str| -> Vec<&str> {
+            flags.iter().filter(|(flag, _)| *flag == name).map(|(_, value)| *value).collect()
+        };
+        let one = |name: &str| all(name).last().copied();
+        let need =
+            |name: &str| one(name).ok_or_else(|| anyhow::anyhow!("{name} is required\n{USAGE}"));
+        let store = match one("--store") {
+            Some(spec) => Some(archive::open(spec, &|name: &str| std::env::var(name).ok())?),
+            None => archive::store_from_env()?,
+        };
+        let url = need("--url")?;
+        if command == "repo-archive-fetch" {
+            let at = PathBuf::from(need("--at")?);
+            let fetched = match &store {
+                Some(store) => {
+                    archive::fetch(store.as_ref(), url, one("--branch"), &at, archive::STREAMS)?
+                }
+                None => Fetched::Unknown { why: "no repo archive store is configured".to_owned() },
+            };
+            println!("{}", serde_json::to_string(&fetched)?);
+            return Ok(if matches!(fetched, Fetched::Unknown { .. }) { 3 } else { 0 });
+        }
+        let store = store.ok_or_else(|| {
+            anyhow::anyhow!("no store: --store, CMUX_REPO_ARCHIVE_STORE or {}", archive::CONFIG)
+        })?;
+        let source = need("--source")?;
+        let branches = all("--branch");
+        anyhow::ensure!(!branches.is_empty(), "--branch is required\n{USAGE}");
+        let hours: u64 = one("--max-age-hours").map_or(Ok(24), str::parse)?;
+        let megabytes: u64 = one("--max-increment-mb").map_or(Ok(64), str::parse)?;
+        let mut failed = 0;
+        for branch in branches {
+            let work = std::env::temp_dir().join(format!(
+                "cmux-repo-archive-{}-{}",
+                std::process::id(),
+                archive::branch_segment(branch)
+            ));
+            let _ = std::fs::remove_dir_all(&work);
+            std::fs::create_dir_all(&work)?;
+            let job = Publish {
+                source,
+                url,
+                branch,
+                default: one("--default") == Some(branch),
+                max_age: Duration::from_secs(hours * 3600),
+                max_increment: megabytes << 20,
+                now: SystemTime::now(),
+                work: &work,
+            };
+            let started = Instant::now();
+            match archive::publish(store.as_ref(), &job) {
+                Ok(published) => {
+                    let mut line = serde_json::to_value(&published)?;
+                    if let Some(fields) = line.as_object_mut() {
+                        fields.insert("branch".into(), branch.into());
+                        fields.insert(
+                            "ms".into(),
+                            u64::try_from(ms(started)).unwrap_or(u64::MAX).into(),
+                        );
+                    }
+                    println!("{line}");
+                }
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("cmux-projection: repo-archive-publish {url} {branch}: {error:#}");
+                }
+            }
+            let _ = std::fs::remove_dir_all(&work);
+        }
+        anyhow::ensure!(failed == 0, "{failed} branches were not published");
+        Ok(0)
     }
 
     /// How many blobs `s3-push` reads and sends at once.
@@ -370,17 +483,15 @@ mod cli {
         since.elapsed().as_millis()
     }
 
-    /// Fetches the blobs of `commit` that `git_dir` lacks (peers, the controller SSD, R2, then
-    /// GitHub) and answers how many there were.
-    fn fill_missing(git_dir: &Path, commit: &str) -> anyhow::Result<usize> {
-        let missing = git::missing(git_dir, commit)?;
-        // Nothing missing (every mount after the first of a commit): no chain, so no peer index
-        // is read over the network before the mount comes up.
+    /// Fetches `missing` into `git_dir` (peers, the controller SSD, R2, then GitHub).
+    fn fetch_oids(git_dir: &Path, missing: &[String]) -> anyhow::Result<()> {
+        // Nothing missing: no chain, so no peer index is read over the network before the mount
+        // comes up.
         let chain = if missing.is_empty() { None } else { Chain::from_env() };
         let rest = match chain {
             Some(chain) => {
                 let (rest, filled) =
-                    chain.fill(&missing, &|oid, bytes| peers::write_loose(git_dir, oid, bytes));
+                    chain.fill(missing, &|oid, bytes| peers::write_loose(git_dir, oid, bytes));
                 eprintln!(
                     "cmux-projection: {} missing blobs: {} from peers, {} from the controller SSD, \
                      {} from R2, {} rejected answers, {} sources dropped, {} left for git",
@@ -394,10 +505,41 @@ mod cli {
                 );
                 rest
             }
-            None => missing.clone(),
+            None => missing.to_vec(),
         };
-        git::fetch_missing(git_dir, &rest)?;
-        Ok(missing.len())
+        git::fetch_missing(git_dir, &rest)
+    }
+
+    /// What a read of a blob the mirror lacks calls: the same sources as a mount used to ask
+    /// before it came up, for the one blob (the chain, built on the first miss, then git).
+    fn lazy_filler(git_dir: &Path) -> git::Filler {
+        let git_dir = git_dir.to_owned();
+        let chain =
+            std::sync::OnceLock::<Option<(Chain, Vec<std::sync::atomic::AtomicUsize>)>>::new();
+        Arc::new(move |oid: &str| {
+            let from_chain = chain
+                .get_or_init(|| {
+                    Chain::from_env().map(|chain| {
+                        let failures = chain.counters();
+                        (chain, failures)
+                    })
+                })
+                .as_ref()
+                .and_then(|(chain, failures)| chain.blob(oid, failures))
+                .is_some_and(|bytes| peers::write_loose(&git_dir, oid, &bytes).is_ok());
+            from_chain || git::fetch_missing(&git_dir, &[oid.to_owned()]).is_ok()
+        })
+    }
+
+    /// The links' own blobs are read at mount (their text is the manifest's), so get those
+    /// now; every other blob waits for its first read.
+    fn fill_links(git_dir: &Path, items: &[git::TreeItem]) -> anyhow::Result<()> {
+        let links: std::collections::BTreeSet<&str> = items
+            .iter()
+            .filter(|item| item.mode == 0o120_000)
+            .map(|item| item.oid.as_str())
+            .collect();
+        fetch_oids(git_dir, &git::absent(git_dir, &links)?)
     }
 
     #[cfg(test)]
@@ -453,16 +595,23 @@ mod cli {
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let format = git::object_format(&git_dir)?;
-        let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
-        // A listing kept from an earlier mount of this commit means its blobs were all fetched
-        // then: skip the walk of its trees.
-        let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
+        // Kept by the commit's tree, so a remount of the same files skips `ls-tree`. Blobs are
+        // fetched on first read; only a blob whose size no kept listing has is fetched before.
+        let listing = args
+            .trees
+            .clone()
+            .unwrap_or_else(|| keep.join("trees"))
+            .join(git::tree_of(&git_dir, &commit)?);
+        let missing = 0;
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
         let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
-        let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let items = git::ls_tree_cached_with(&git_dir, &commit, &listing, &|oids| {
+            fetch_oids(&git_dir, oids)
+        })?;
         let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
+        fill_links(&git_dir, &items)?;
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -496,7 +645,9 @@ mod cli {
         let phase = Instant::now();
         let entries = projection.manifest.len();
         let files = projection.index.len();
-        let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
+        let blobs = Arc::new(
+            GitBlobs::new(&git_dir, projection.sources).with_filler(lazy_filler(&git_dir)),
+        );
         let state = keep.join("state");
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
@@ -570,16 +721,23 @@ mod cli {
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let format = git::object_format(&git_dir)?;
-        let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
-        // A listing kept from an earlier mount of this commit means its blobs were all fetched
-        // then: skip the walk of its trees.
-        let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
+        // Kept by the commit's tree, so a remount of the same files skips `ls-tree`. Blobs are
+        // fetched on first read; only a blob whose size no kept listing has is fetched before.
+        let listing = args
+            .trees
+            .clone()
+            .unwrap_or_else(|| keep.join("trees"))
+            .join(git::tree_of(&git_dir, &commit)?);
+        let missing = 0;
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
         let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
-        let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let items = git::ls_tree_cached_with(&git_dir, &commit, &listing, &|oids| {
+            fetch_oids(&git_dir, oids)
+        })?;
         let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
+        fill_links(&git_dir, &items)?;
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -628,7 +786,9 @@ mod cli {
         let phase = Instant::now();
         let entries = projection.manifest.len();
         let files = projection.index.len();
-        let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
+        let blobs = Arc::new(
+            GitBlobs::new(&git_dir, projection.sources).with_filler(lazy_filler(&git_dir)),
+        );
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();
