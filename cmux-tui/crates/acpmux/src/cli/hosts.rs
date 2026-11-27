@@ -1019,11 +1019,14 @@ fn linux_restart(install: bool, json: bool) -> String {
         if install { format!("{FOREIGN_UNIT_REFUSAL}{}", migrate(false)) } else { migrate(false) };
     let refresh = if install { String::new() } else { unit_refresh() };
     let auto_update = host_auto_update::install_script();
+    // The graceful RPC fences and drains sends first. Its lock release can precede process
+    // exit: restart makes systemd wait for the old unit before starting its replacement. A
+    // plain start could succeed as a no-op while that old unit is still active.
     format!(
         "{refresh}{}{foreign}if {usable}; then
 acpmux_auto_update() {{
 {auto_update}}}
-if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then {SHUTDOWN_KEEPING_AGENTS}; systemctl --user start acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
+if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then {SHUTDOWN_KEEPING_AGENTS}; systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
 systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}; fi
 else {detached}; fi",
@@ -1865,7 +1868,7 @@ mod tests {
             assert_eq!(run.units, WITH_TIMER, "no temporary unit file is left");
             let reload = run.calls.iter().position(|c| c == "systemctl --user daemon-reload");
             let restart =
-                run.calls.iter().position(|c| c == "systemctl --user start acpmux.service");
+                run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
             assert!(reload.is_some() && reload < restart, "reload, then restart: {:?}", run.calls);
             assert!(run.started_by_systemd());
         }
@@ -1873,7 +1876,7 @@ mod tests {
         // restart (the one after it reads the update timer's new units).
         let run = linux_restart_run("refresh-same", false, host);
         assert_eq!(run.unit, SYSTEMD_UNIT);
-        let restart = run.calls.iter().position(|c| c == "systemctl --user start acpmux.service");
+        let restart = run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
         assert!(
             !run.calls[..restart.unwrap_or(run.calls.len())]
                 .iter()
@@ -1906,7 +1909,7 @@ mod tests {
         let run = linux_restart_run("need-reload", false, LinuxHost { need_reload: true, ..host });
         let at = |c: &str| run.calls.iter().position(|x| x == c);
         let reload = at("systemctl --user daemon-reload");
-        let restart = at("systemctl --user start acpmux.service");
+        let restart = at("systemctl --user restart acpmux.service");
         assert!(reload.is_some() && reload < restart, "{:?}", run.calls);
         let run = linux_restart_run(
             "need-reload-fails",
@@ -1933,10 +1936,16 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn linux_update_restarts_a_running_unit_and_never_starts_a_second_daemon() {
-        let run = linux_restart_run("update-active", true, LinuxHost { active: true, ..LINGERING });
+        // The shutdown RPC can finish while the old unit is still exiting. Restart must
+        // serialize replacement; start alone would succeed without launching the new build.
+        let run = linux_restart_run(
+            "update-active",
+            true,
+            LinuxHost { active: true, survives_shutdown: true, ..LINGERING },
+        );
         let stopped =
             run.calls.iter().position(|c| c == "acpmux daemon shutdown --keep-agents --restart");
-        let started = run.calls.iter().position(|c| c == "systemctl --user start acpmux.service");
+        let started = run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
         assert!(
             stopped.is_some() && stopped < started,
             "drain and stop before start: {:?}",
@@ -2024,7 +2033,7 @@ mod tests {
     fn linux_update_of_a_host_set_up_earlier_restarts_its_unit() {
         let host = LinuxHost { installed: true, active: true, ..LINGERING };
         let run = linux_restart_run("update-installed", false, host);
-        assert!(run.calls.contains(&"systemctl --user start acpmux.service".to_owned()));
+        assert!(run.calls.contains(&"systemctl --user restart acpmux.service".to_owned()));
         assert!(run.started_by_systemd() && !run.detached_start(), "{:?}", run.calls);
         // The restart fails: an error, not a started daemon.
         let run = linux_restart_run("restart-fails", false, LinuxHost { restarts: false, ..host });
@@ -2064,8 +2073,7 @@ mod tests {
         assert_eq!(run.code, Some(3), "{}", run.err);
         assert!(run.out.contains("ACPMUX_REFUSED=updateDeferred"));
         assert!(!run.started_by_systemd());
-        assert!(!run.calls.iter().any(|c| c == "systemctl --user start acpmux.service"
-            || c == "systemctl --user restart acpmux.service"));
+        assert!(!run.calls.iter().any(|c| c == "systemctl --user restart acpmux.service"));
     }
 
     #[test]
