@@ -123,7 +123,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1794,17 +1794,36 @@ export function preclaimLoginMode(spare: string | null, machine: string | null =
   return spare !== null && machine === spare ? "preclaim" : "post-bind";
 }
 
-async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string): Promise<void> {
+/** The guest check that the claude login the preclaim installed is the machine's own (agent-auth.sh); prints own-login. */
+export const OWN_LOGIN_CHECK = ". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login";
+
+/**
+ * One exec that runs the installer on a staged credential, removes the staged file whatever the installer answered,
+ * and on success runs `after` (its stdout is the exec's). Run 46010555997 spent 4552 + 761 ms on four execs in a row
+ * (preflight, installer, rm, own-login check), each a full exec round trip; the installer, rm and check need only one.
+ * The installer's own exit is the exec's when it fails, so a refusal still names itself.
+ */
+export function preclaimInstallCommand(install: string, file: string, after = ""): string {
+  const rm = `rm -f -- ${shq(file)}`;
+  return `(\n${install}\n)\nrc=$?\n${rm}\n[ "$rc" = 0 ] || exit "$rc"\n${after ? `${after}\n` : ""}`;
+}
+
+async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string, after = ""): Promise<string> {
+  // Its own exec, before the credential is written: the login never lands on a machine not yet the owner's.
   await waitPreflight(exec, programs.preflight, ownerScope, 300_000);
   const folder = "/home/cmux/.cmux/credential-transfer";
   const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+  let removed = false;
   try {
     const wrote = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
     if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
-    const installed = await exec(programs.install(file));
+    const installed = await exec(preclaimInstallCommand(programs.install(file), file, after));
+    removed = true;
     if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+    return installed.stdout;
   } finally {
-    await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+    // The install exec removes the file itself; only a stage refusal or an exec that never answered leaves it here.
+    if (!removed) await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
   }
 }
 
@@ -1812,7 +1831,20 @@ async function installPreclaimLogin(api: Api, machine: string, exec: Exec, progr
  * A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path.
  * `readyFrame` and `spareRow` time its refill to ready (preclaimRefillToReady); both null with no spare.
  */
-export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown; warmReason?: string | null };
+export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown; warmReason?: string | null; phases?: PreclaimPhases };
+
+/**
+ * Where one spare's preclaim time went, each phase's own ms in order (prepareSpareLogin): the warm that names the spare,
+ * its spare.ready wait, the ready warm, the row read, the login install, the guest's own-login check and the installed
+ * warm. The step's 12 s on prod (runs 45973327369, 45975681836) had no split, so no part of it could be cut.
+ */
+export type PreclaimPhases = Partial<Record<"warm" | "ready_wait" | "ready_warm" | "row" | "install" | "own_login" | "installed_warm", number>>;
+
+/** The phases as the step's detail names them: `warm 812 ms, ready_wait 6101 ms, ...` in the order they ran. */
+export function preclaimPhasesText(phases: PreclaimPhases | undefined): string {
+  const parts = Object.entries(phases ?? {}).map(([name, ms]) => `${name} ${ms} ms`);
+  return parts.length ? `; phases: ${parts.join(", ")}` : "";
+}
 
 /** A claim's bounded wait for a ready spare: how long, how many warms, and whether the bound ran out first. */
 export type SpareWait = { waited_ms: number; attempts: number; cold_after_wait: boolean; ready_by: "warm" | "claim_path" | null };
@@ -1904,26 +1936,37 @@ export async function prepareSpareLogin(a: {
   journey: Journey;
   readyBudgetMs?: number;
 }): Promise<PreparedSpare> {
+  const phases: PreclaimPhases = {};
+  let mark = Date.now();
+  const lap = (name: keyof PreclaimPhases) => { const now = Date.now(); phases[name] = now - mark; mark = now; };
   const warm = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, a.request);
+  lap("warm");
   const spare = typeof warm.machine === "string" ? warm.machine : null;
   let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
   let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
   let readyFrame: unknown = null, spareRow: unknown = null;
   if (spare) {
     const ready0 = await waitForSpareReady(Object.assign(Object.create(Object.getPrototypeOf(a.api)), a.api, { team: a.wireTeam ?? a.api.team }), spare, a.readyBudgetMs);
+    lap("ready_wait");
     readyFrame = ready0.frame;
     const ready = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, ready: spare });
+    lap("ready_warm");
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
     // The ready wait's own answer when it has one; a frame names no row, so read it (exec-checked, as the wait is).
     spareRow = ready0.row ?? (await waitForSpareReady(a.api, spare, 300_000, { frame: () => new Promise<never>(() => {}) })).row;
-    await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
-    const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
-    if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
-    if (copy.generation) await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+    lap("row");
+    // The own-login check rides the install's exec (preclaimInstallCommand): install covers both now.
+    const own = await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope, OWN_LOGIN_CHECK);
+    lap("install");
+    if (!own.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
+    if (copy.generation) {
+      await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+      lap("installed_warm");
+    }
   }
-  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow, warmReason: spare ? null : warmReasonToken(warm.reason) };
+  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow, warmReason: spare ? null : warmReasonToken(warm.reason), phases };
 }
 
 /** Whether the claim answer's machine carries the login the spare's copy installed (warm-spare loginReceipt). */
@@ -2116,6 +2159,24 @@ export async function createWithRoom<T>(create: (attempt: number) => Promise<T>,
       await pause(ROOM_POLL_MS);
     }
   }
+}
+
+/**
+ * The machines that hold a team's quota, one short entry each (`id "name" status, age, idle`), newest first, for the
+ * preflight's shortfall reason. Without them a full cap reads only as `used 5/5`: the production matrix's team sat at
+ * 4/5 then 5/5 for a day (run 45973883832) while the sweep deleted 0 of 5, and nothing said which 5 machines or who made them.
+ */
+export function quotaHolders(rows: any[], nowMs: number, max = 8): string {
+  const live = rows.filter((r) => r && r.status !== "deleted" && r.status !== "deleting");
+  const at = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" ? Date.parse(v) : NaN);
+  const age = (ms: number) => (!Number.isFinite(ms) ? "?" : ms >= 3_600_000 ? `${Math.round(ms / 360_000) / 10} h` : `${Math.round(ms / 60_000)} min`);
+  live.sort((a, b) => (at(b.created_at) || 0) - (at(a.created_at) || 0));
+  const one = (r: any) => {
+    const idle = at(r.last_active_at);
+    return `${String(r.id ?? r.machine_id ?? "?")} "${String(r.name ?? "").slice(0, 60)}" ${String(r.status ?? "?")}, age ${age(nowMs - at(r.created_at))}, ${Number.isFinite(idle) ? `idle ${age(nowMs - idle)}` : "no activity time"}`;
+  };
+  const shown = live.slice(0, max).map(one);
+  return `${live.length} live: ${shown.join("; ")}${live.length > max ? `; +${live.length - max} more` : ""}`;
 }
 
 /** The capacity preflight's step: read before the first create, so a full cap is named before any create is refused. */
@@ -3204,6 +3265,78 @@ export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "b
     child.kill("SIGTERM");
     rmSync(stateDir, { recursive: true, force: true });
     carrierStateDirs.delete(stateDir);
+  }
+}
+
+/** A runner-local receipt, never proof for another run or an operator's --delete-ids. */
+export type WakeCleanupScope = { repository: string; run: string; attempt: string; job: string; api: string; team: string };
+type WakeCleanupRecord = { version: 1; scope: WakeCleanupScope; machine: string; key: string };
+const WAKE_SCOPE_FIELDS = ["repository", "run", "attempt", "job", "api", "team"] as const;
+
+function wakeCleanupScope(backend: Backend, team: string | undefined): WakeCleanupScope {
+  if (backend.name !== "staging" || backend.api !== resolveBackend("staging").api) throw new Error("wake cleanup records are staging only");
+  const env = process.env;
+  if (![env.GITHUB_REPOSITORY, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, env.GITHUB_JOB].every(Boolean)) {
+    throw new Error("wake cleanup records need the current GitHub run, attempt and job");
+  }
+  return { repository: env.GITHUB_REPOSITORY!, run: env.GITHUB_RUN_ID!, attempt: env.GITHUB_RUN_ATTEMPT!, job: env.GITHUB_JOB!, api: backend.api, team: team ?? "" };
+}
+
+export function writeWakeCleanup(file: string, scope: WakeCleanupScope, machine: string, key: string): void {
+  // Persist immediately after create answers, before status, exec or measurement. Atomic replacement means a killed
+  // process cannot leave a half-written JSON receipt. The file contains no token and stays on this job's runner.
+  writeFileSync(`${file}.tmp`, JSON.stringify({ version: 1, scope, machine, key }), { mode: 0o600 });
+  renameSync(`${file}.tmp`, file);
+}
+
+export function readWakeCleanup(file: string, scope: WakeCleanupScope): WakeCleanupRecord | null {
+  let raw: string;
+  try { raw = readFileSync(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
+  const value = JSON.parse(raw);
+  if (value?.version !== 1 || !/^vm_[a-zA-Z0-9]+$/.test(value.machine ?? "") || !/^jr-[a-z0-9]+-cleanup-delete$/.test(value.key ?? "")) {
+    throw new Error("invalid wake cleanup record");
+  }
+  if (!value.scope || WAKE_SCOPE_FIELDS.some((field) => value.scope[field] !== scope[field])) throw new Error("wake cleanup record scope differs from this job");
+  return value;
+}
+
+export async function cleanupWakeMachine(record: WakeCleanupRecord | null, deps: {
+  get: (id: string) => Promise<{ status: string } | null>;
+  remove: (id: string, key: string) => Promise<unknown>;
+}): Promise<void> {
+  if (!record) return;
+  const gone = (row: { status: string } | null) => row === null || row.status === "deleted" || row.status === "deleting";
+  if (gone(await deps.get(record.machine))) return;
+  let failure: unknown;
+  try { await deps.remove(record.machine, record.key); } catch (e) { failure = e; }
+  // A timed-out or indeterminate answer does not prove deletion failed; read back the same ID in either case.
+  if (gone(await deps.get(record.machine))) return;
+  if (failure) throw failure;
+  throw new Error(`wake cleanup delete not confirmed for ${record.machine}`);
+}
+
+async function cleanupWakeMode(file: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  const record = readWakeCleanup(file, wakeCleanupScope(backend, team));
+  if (!record) { console.log("wake cleanup: no returned machine ID recorded"); return 0; }
+  if (!email || !password) throw new Error("wake cleanup needs the staging agent test account");
+  const signed = await passwordSignIn(STACK[backend.stack], email, password);
+  const api = new Api(backend.api, team);
+  api.bearer = signed.access;
+  const get = async (id: string) => {
+    try { return await api.read("cloud.machine.get", { machine: id }); }
+    catch (e) { if (/HTTP 404|cloud\.machine\.not_found/.test(String((e as Error).message))) return null; throw e; }
+  };
+  try {
+    await cleanupWakeMachine(record, {
+      get,
+      // Same key as the interrupted in-process cleanup; deleteMachine bounds and retries indeterminate answers.
+      remove: (id, key) => api.deleteMachine(id, key, 180_000),
+    });
+    console.log(JSON.stringify({ wake_cleanup: record.machine, read_back: "gone or deleting" }));
+    return 0;
+  } catch (e) {
+    console.log(scrub(`wake cleanup failed: ${String((e as Error).message)}`, [password, signed.access, signed.refresh]));
+    return 1;
   }
 }
 
@@ -4373,6 +4506,16 @@ export function machinesByState(rows: any[]): string {
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
+/**
+ * Whether a GET /v1/cloud/inference-gateway answer shows a team stranded in gateway mode: mode "gateway" with no
+ * gateway online. Off, joined, an online gateway or an answer that does not read are left alone.
+ */
+export function strandedGatewayMode(body: any): boolean {
+  const g = body?.gateway;
+  if (!g || typeof g !== "object") return false;
+  return g.mode === "gateway" && g.online !== true;
+}
+
 export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
@@ -4667,24 +4810,53 @@ export function leakProof(log: string, id: string): string | null {
   return seenCreate ? `the job's journey made ${id} but logged no failed cleanup delete for it` : `the job's log has no journey that made ${id}`;
 }
 
-type GhGet = (url: string, headers: Record<string, string>) => Promise<{ status: number; location: string | null; text: string }>;
+type GhResponse = { status: number; location: string | null; text: string; remaining?: string | null; reset?: string | null; retryAfter?: string | null };
+type GhGet = (url: string, headers: Record<string, string>) => Promise<GhResponse>;
 
 const ghGet: GhGet = async (url, headers) => {
   const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(60_000) });
   const text = await res.text();
-  return { status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024) };
+  return {
+    status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024),
+    remaining: res.headers.get("x-ratelimit-remaining"), reset: res.headers.get("x-ratelimit-reset"),
+    retryAfter: res.headers.get("retry-after"),
+  };
 };
 
 /**
  * The GitHub side of the proof: the job is PROOF_JOB of PROOF_WORKFLOW in a trusted run of JOURNEY_REPO (PROOF_EVENTS,
  * its own head repository, PROOF_BRANCHES), and its log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
  */
-export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
+export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet,
+  clock: { now: () => number; sleep: (ms: number) => Promise<unknown> } = { now: Date.now, sleep },
+): Promise<string | null> {
   const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
   const auth = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
-  const json = async (url: string) => {
+  const diagnostic = (r: GhResponse) => {
+    // Redact before truncating: a cut through a token must never expose its prefix.
+    const safe = (text: string) => scrub(token ? text.split(token).join("[secret]") : text);
+    const body = Buffer.from(safe(r.text)).subarray(0, 200).toString("utf8").replace(/\uFFFD$/, "");
+    return `HTTP ${r.status}; x-ratelimit-remaining=${safe(r.remaining ?? "unknown")}; x-ratelimit-reset=${safe(r.reset ?? "unknown")}; retry-after=${safe(r.retryAfter ?? "unknown")}; body=${JSON.stringify(body)}`;
+  };
+  const read = async (url: string) => {
     const r = await get(url, auth);
-    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: HTTP ${r.status}`);
+    if ((r.status !== 403 && r.status !== 429) || r.remaining !== "0") return r;
+    const now = clock.now();
+    const reset = r.reset && /^\d+$/.test(r.reset) ? Number(r.reset) * 1000 - now : NaN;
+    const retry = r.retryAfter
+      ? (/^\d+$/.test(r.retryAfter) ? Number(r.retryAfter) * 1000 : Date.parse(r.retryAfter) - now)
+      : NaN;
+    const delays = [reset, retry].filter(Number.isFinite);
+    if (!delays.length) return r;
+    // Honor both headers. Longer resets belong to a later run, not an hour-long cleanup job.
+    const delay = Math.max(1000, ...delays);
+    if (delay > 60_000) return r;
+    await clock.sleep(delay);
+    return get(url, auth);
+  };
+  const json = async (url: string) => {
+    const r = await read(url);
+    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: ${diagnostic(r)}`);
     return JSON.parse(r.text);
   };
   try {
@@ -4699,13 +4871,13 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
     if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
     const workflow = String(run?.path ?? "").replace(/@.*$/, "");
     if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
-    const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
+    const link = await read(`${api}/jobs/${entry.job}/logs`);
     let log = link.text;
     if (link.status === 302 && link.location) {
       const blob = await get(link.location, {});
       if (blob.status !== 200) return `job ${entry.job}: its log download answered HTTP ${blob.status}`;
       log = blob.text;
-    } else if (link.status !== 200) return `job ${entry.job}: its log answered HTTP ${link.status}`;
+    } else if (link.status !== 200) return `job ${entry.job}: its log answered ${diagnostic(link)}`;
     const why = leakProof(log, entry.id);
     return why ? `job ${entry.job}: ${why}` : null;
   } catch (e) {
@@ -5096,8 +5268,18 @@ export function newReds(before: Step[] | null, after: Step[]): Step[] {
  * Whether every new red is the platform turning the journey away for capacity (no machine to give, or a rate limit),
  * not the deploy breaking a step: such a red never rolls a deploy back (`--compare` exits 4). A machine that was
  * given and then failed (vm_unavailable on its first exec, a crash) is not capacity: a bad build does that.
+ *
+ * `cloud.quota.headroom` (capacityPreflight: the team's machines are all in use by other journeys) and
+ * `cloud.quota.exceeded` (createWithRoom: a create refused at the cap) are the same: cmux-vm.yml run 46001354720's
+ * after-deploy journey went red on "quota_headroom:account-team used 5/5, need 2" while cmux-platform's own deploy
+ * journeyed on that team, and NOW's cloud_deploy_gate read the deploy as broken.
+ *
+ * A provider that refuses to make a machine at all is capacity too: `cloud.provider.unavailable` (VM API 503
+ * `vm-provider.createQueueFull`) and Freestyle's "infrastructure overloaded: VM start capacity queue wait expired".
+ * cmux-platform run 46010808734 went red on a cold create that settled `create_overdue` after 6 such refusals.
+ * A bare exec `vm_unavailable` on a machine that was given stays the build's (above).
  */
-export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity/i;
+export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b|cloud\.provider\.unavailable|createQueueFull|infrastructure overloaded|start capacity queue/i;
 export function capacityOnly(reds: Step[]): boolean {
   return reds.length > 0 && reds.every((s) => CAPACITY_RED.test(s.detail));
 }
@@ -5129,6 +5311,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 4;
     }
     return reds.length ? 3 : 0;
+  }
+  // --capacity-only JOURNEY.json: exit 0 when the run's failed steps are all capacity (capacityOnly), 1 otherwise, so
+  // cloud-journey-ci.sh writes verdict not-run for a journey the platform turned away instead of red.
+  const capOnly = argv.indexOf("--capacity-only");
+  if (capOnly >= 0) {
+    let steps: Step[] = [];
+    try { steps = (JSON.parse(readFileSync(argv[capOnly + 1], "utf8")).steps as Step[]) ?? []; } catch { return 1; }
+    return capacityOnly(steps.filter((s) => s.status === "fail")) ? 0 : 1;
   }
   const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
   const backendName = normalizeBackendName(backendArg, argValue("--api", argv));
@@ -5167,6 +5357,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const kept = argValue("--delete-kept", argv);
   if (kept !== undefined) return deleteKeptMode(kept, backend, email, password, team, signIn);
   if (argv.includes("--surge")) return surgeMode(backend, outDir, email, password, team, signIn);
+  const cleanupWakeRecord = argValue("--cleanup-wake-record", argv);
+  if (cleanupWakeRecord !== undefined) return cleanupWakeMode(cleanupWakeRecord, backend, email, password, team);
   const cleanupTag = argValue("--cleanup-tag", argv);
   if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
@@ -5221,6 +5413,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
   const cleanupCreatedIdsOnly = argv.includes("--cleanup-created-ids-only");
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
+  const wakeCleanupRecord = argValue("--wake-cleanup-record", argv);
+  const wakeScope = wakeCleanupRecord === undefined ? null : wakeCleanupScope(backend, team);
+  if (wakeScope && (wakeEchoN < 1 || keep || preclaim || argv.includes("--app-cli"))) throw new Error("--wake-cleanup-record requires a new wake-echo machine");
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
@@ -5605,6 +5800,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { token: tok.body.access_token as string, expiresAt: expiresAtMs(Number(tok.body.expires_at)) };
     };
 
+    // A run that is not a --gateway run reads the team's gateway mode before any spare claim or create: the edge gives
+    // a machine the gateway rule while its team is in gateway mode, so a team left there (a --gateway run killed
+    // before "team gateway mode restored") sent every real leg's turn to "No cmux inference gateway is online for
+    // this team" (production real legs, 11-25 to 11-27; run 46001955422). Stranded (gateway mode, none online): set
+    // back to off. Recorded either way, so a run shows the mode its machine was made under.
+    if (!gatewayAny) {
+      await J.step("team gateway mode (before create)", async () => {
+        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+        if (g.status !== 200) return { value: null, detail: `unread: GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}` };
+        const mode = String(g.body?.gateway?.mode ?? "off");
+        if (!strandedGatewayMode(g.body)) return { value: null, detail: `${mode}${g.body?.gateway?.online ? ", gateway online" : ""}` };
+        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
+        if (r.status !== 200) throw new Error(`stranded in gateway mode with no gateway online; PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        return { value: null, detail: "was gateway with no gateway online (a killed --gateway run's); set back to off" };
+      }).catch(() => undefined);
+    }
+
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
@@ -5667,6 +5879,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
+    // The sweep's machine list, kept so a full cap's preflight names the machines that hold it.
+    let sweptRows: any[] | null = null;
     if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
       // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
@@ -5675,6 +5889,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
       try {
         const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        sweptRows = rows;
         const stale = staleJourneyMachines(rows, Date.now());
         const failed: string[] = [];
         for (const m of stale) {
@@ -5697,8 +5912,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (!reuse) {
       const need = 1 + (only.has("cold") ? 0 : 1);
       await J.step(CAPACITY_PREFLIGHT_STEP, async () => {
-        const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
-        return { value: null, detail: r.detail };
+        try {
+          const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
+          return { value: null, detail: r.detail };
+        } catch (e) {
+          // Name what holds the cap: a fresh list (the sweep's is minutes old by now), else the sweep's.
+          const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => sweptRows);
+          throw new Error(`${String((e as Error)?.message ?? e)}; held by ${rows ? quotaHolders(rows, Date.now()) : "unlisted (machine list failed)"}`);
+        }
       });
     }
     // The app's part on a warm spare (SpareReady), before create and so outside the first-text window: the login is
@@ -5732,7 +5953,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }), preclaimSpareWait * 1000, { ready: (ms) => waitForAnySpareReady({ ...api, team: wireTeam }, ms) });
           prepared = got;
           const waited = wait ? `; waited ${wait.waited_ms} ms over ${wait.attempts} warm(s)${wait.cold_after_wait ? ", bound ran out" : wait.ready_by === "claim_path" ? ", the claim path's spare ready" : ""}` : "";
-          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited });
+          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited + preclaimPhasesText(prepared.phases) });
         } catch (e) {
           prepared = null;
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login goes with the agent's start: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
@@ -5819,6 +6040,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
           machine = v.machine.id as string;
+          if (wakeCleanupRecord && wakeScope) writeWakeCleanup(wakeCleanupRecord, wakeScope, machine, `${tag}-cleanup-delete`);
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
           J.firstText.mark("created");
