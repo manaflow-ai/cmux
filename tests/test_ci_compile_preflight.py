@@ -119,6 +119,68 @@ class BuildErrors(unittest.TestCase):
         self.assertIn("NIGHTLY red", out.stdout)
 
 
+class LiveBase(unittest.TestCase):
+    """cmux#51044: the preflight built GitHub's stale merge commit and passed; the base had moved."""
+
+    def git(self, cwd, *args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(cwd), *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_a_stale_merge_commit_is_rebuilt_on_the_live_tip(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            origin = Path(tmp) / "origin"
+            origin.mkdir()
+            self.git(origin, "init", "-q", "-b", "main")
+            (origin / "a.tsx").write_text("import {\n  x,\n} from './m';\n")
+            self.git(origin, "add", ".")
+            self.git(origin, "commit", "-qm", "base")
+            self.git(origin, "checkout", "-qb", "head")
+            (origin / "a.tsx").write_text("import {\n  x,\n  layoutGeometry,\n} from './m';\n")
+            self.git(origin, "commit", "-qam", "pr adds the import")
+            head = self.git(origin, "rev-parse", "HEAD")
+            self.git(origin, "update-ref", "refs/pull/7/head", head)
+            self.git(origin, "checkout", "-q", "main")
+            self.git(origin, "checkout", "-q", "-B", "stale", "main")
+            self.git(origin, "merge", "--no-ff", "-qm", "stale merge", head)
+            stale = self.git(origin, "rev-parse", "HEAD")
+            self.git(origin, "checkout", "-q", "main")
+            (origin / "b.txt").write_text("base moved\n")
+            self.git(origin, "add", ".")
+            self.git(origin, "commit", "-qm", "base moves")
+            tip = self.git(origin, "rev-parse", "HEAD")
+            work = Path(tmp) / "work"
+            self.git(tmp, "clone", "-q", "--no-local", "--depth=2", "--branch", "stale", f"file://{origin}", str(work))
+            self.assertEqual(self.git(work, "rev-parse", "HEAD"), stale)
+            out = subprocess.run([sys.executable, "-I", str(SCRIPT), "merge-live-base", str(work), "main", "7"],
+                                 capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            self.assertEqual(self.git(work, "rev-parse", "HEAD^1"), tip)
+            self.assertEqual(self.git(work, "rev-parse", "HEAD^2"), head)
+            self.assertTrue((work / "b.txt").exists())
+            again = subprocess.run([sys.executable, "-I", str(SCRIPT), "merge-live-base", str(work), "main", "7"],
+                                   capture_output=True, text=True)
+            self.assertEqual(again.returncode, 0)
+            self.assertIn("live tip", again.stderr)
+
+    def test_the_callee_merges_onto_the_live_base_then_fails_fast(self) -> None:
+        block = job_block(CALLEE.read_text(), "web")
+        merge = block.index("compile_preflight.py merge-live-base")
+        touched = block.index("compile_preflight.py web-touched")
+        dup = block.index("tests/test_webviews_no_duplicate_import_names.py")
+        install = block.index("name: Setup Bun")
+        self.assertLess(merge, touched)
+        self.assertLess(dup, install, "the parse check runs before any install")
+        self.assertLess(block.index("name: Fast fail"), block.index("name: Source key"))
+
+    def test_every_module_is_parsed_for_a_twice_bound_name_before_the_build(self) -> None:
+        block = job_block(CALLEE.read_text(), "web")
+        parse = block.index("node scripts/check-duplicate-bindings.mjs")
+        self.assertLess(block.index("name: Setup Node"), parse)
+        self.assertLess(block.index("name: Restore the webviews Bun package cache"), parse)
+        self.assertLess(parse, block.index("compile_preflight.py web-build"), "the parse fails before the build")
+
+
 class NeverSkipped(unittest.TestCase):
     def test_router_calls_it_on_every_tier(self) -> None:
         block = job_block(ROUTER.read_text(), "compile-preflight")
@@ -136,6 +198,23 @@ class NeverSkipped(unittest.TestCase):
         self.assertIn("compile_preflight.py web-build", block)
         self.assertIn("compile_preflight.py web-touched . HEAD^1 HEAD", block)
         self.assertIn("fetch-depth: 2", block)
+
+    def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self) -> None:
+        # A pool runner keeps its own Bun cache across jobs; the restore unpacked the 1.1 GB archive over it anyway,
+        # a 30 s median of a 205 s build job (11-27 05:30-11:36Z). The check runs first, and the restore only when the
+        # runner's cache is empty; CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again (fast gates' same rule).
+        block = job_block(CALLEE.read_text(), "web")
+        warm_at = block.index("name: Is this runner's own Bun package cache warm")
+        restore_at = block.index("name: Restore the webviews Bun package cache")
+        build_at = block.index("name: Build the web bundles")
+        self.assertLess(warm_at, restore_at)
+        self.assertLess(restore_at, build_at)
+        self.assertIn("id: bun-warm", block[warm_at:restore_at])
+        self.assertIn("vars.CI_BUN_CACHE_RESTORE_WARM", block[warm_at:restore_at])
+        self.assertIn("steps.bun-warm.outputs.warm != 'true'", block[restore_at:build_at])
+        # The build itself never depends on the warm check: a warm runner still builds.
+        build_if = re.search(r"name: Build the web bundles.*\n\s+if: (.*)", block).group(1)
+        self.assertNotIn("bun-warm", build_if)
 
 
 if __name__ == "__main__":

@@ -54,6 +54,8 @@ pub mod host_candidates;
 pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod host_pipe;
 pub(crate) mod host_sandbox;
 pub mod host_ssh_key;
 pub mod host_steps;
@@ -118,6 +120,7 @@ pub mod session_search;
 pub(crate) mod session_tail;
 pub mod session_turn_cap;
 pub mod shutdown;
+pub(crate) mod soft_delete;
 pub(crate) use crate::slow_notice;
 pub mod care;
 #[cfg(test)]

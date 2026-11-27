@@ -561,7 +561,12 @@ elif args[0] == "api":
         if state.get("jobs_read") == "fail":
             server_error()
         emit({"total_count": len(state.get("jobs", {}).get(run_id, [])), "jobs": state.get("jobs", {}).get(run_id, [])})
-    elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
+    elif "POST" in args and endpoint.endswith("/labels"):
+        # The re-pin PR's stack-blocker label (publish-app-ffi-repin.sh stack_blocker_label).
+        names = [a.split("=", 1)[1] for a in args if a.startswith("labels[]=")]
+        state.setdefault("labelled", []).append(endpoint.split("/")[-2]); state.setdefault("label_names", []).append(names)
+        save(); emit([{"name": n} for n in names])
+    elif "/pulls?" in endpoint: emit([{"number": 1, "labels": [{"name": n} for n in state.get("pr_labels", [])]}])  # stale even after auto-close
     elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
@@ -754,6 +759,19 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["prs"]["1"], "open")
         self.assertEqual(list(state["refs"]), ["app-ffi-repin"])
 
+    def test_the_re_pin_pull_request_carries_the_stack_blocker_label(self):
+        # Every PR that needs the new FFI waits on the re-pin landing: its CI ranks as a stack blocker (cmux#60275's
+        # compile waited 69 min behind ordinary PR CI). The open PR is labelled before the push, a new one on create,
+        # and a PR that has it already is not labelled again.
+        result, state = self.run_repin()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("labelled"), ["1"])
+        result, state = self.run_repin(closed=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("labelled"), ["1", "2"])
+        # ready-to-land with it: the PR-head compile does not start without it (land-judge on cmux#60965).
+        self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]] * 2)
+
     def test_closed_cached_pr_is_replaced_by_an_open_pr(self):
         result, state = self.run_repin(closed=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -820,6 +838,8 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["writes"], 0)
+                # A kept PR gets the stack-blocker and ready-to-land labels too (cmux#60965 sat unlabelled).
+                self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]])
 
     def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
         # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
