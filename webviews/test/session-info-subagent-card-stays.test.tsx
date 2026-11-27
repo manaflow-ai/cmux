@@ -132,7 +132,10 @@ test("a running subagent's hover card with a long command stays in the page", as
   expect(card?.textContent).not.toContain("tokens");
   // The line itself is lean (its glyph, name and time; AgentLine `lean`): the counts are the card's,
   // and the card subscribes to usage through the agent's structural object.
-  await act(async () => progress.updateProgress(agent.id, { tokens: 42000, agents: { started: 3, done: 1 } }));
+  await act(async () => {
+    progress.updateProgress(agent.id, { tokens: 42000, agents: { started: 3, done: 1 } });
+    await frame();
+  });
   expect(line.querySelector(".acpmux-agent-line__progress")).toBeNull();
   expect(card?.textContent).toContain("1/3 agents");
   expect(card?.textContent).not.toContain("0/3 agents");

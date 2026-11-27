@@ -21,12 +21,35 @@ export function CapacityWaitCard({
   now?: number;
 }) {
   const t = useT();
+  return (
+    <div className={`cv-turn-note cv-capacity-wait cv-capacity-wait--${look}`} data-capacity-reason={wait.reason}>
+      <CapacityCountdown wait={wait} look={look} now={fixedNow} />
+      {(look === "card" || wait.error) && (
+        <span className="cv-capacity-wait__more">
+          {look === "card" && <span className="text-detail text-dim">{t("capacity.wait.goesOn")}</span>}
+          {wait.error && <ErrorDetails text={wait.error} />}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CapacityCountdown({
+  wait,
+  look,
+  now: fixedNow,
+}: {
+  wait: CapacityWaitState;
+  look: CapacityWaitLook;
+  now?: number;
+}) {
+  const t = useT();
   const liveNow = usePageNow(fixedNow === undefined);
   const now = fixedNow ?? liveNow;
   const eta = capacityEta(t, wait, now);
   const progress = look === "bar" ? capacityProgress(wait, now) : undefined;
   return (
-    <div className={`cv-turn-note cv-capacity-wait cv-capacity-wait--${look}`} data-capacity-reason={wait.reason}>
+    <>
       {/* Only the countdown is a live status; Details sits outside it. */}
       <output className="cv-capacity-wait__line">
         {look === "card" ? (
@@ -43,12 +66,6 @@ export function CapacityWaitCard({
           </span>
         </span>
       )}
-      {(look === "card" || wait.error) && (
-        <span className="cv-capacity-wait__more">
-          {look === "card" && <span className="text-detail text-dim">{t("capacity.wait.goesOn")}</span>}
-          {wait.error && <ErrorDetails text={wait.error} />}
-        </span>
-      )}
-    </div>
+    </>
   );
 }

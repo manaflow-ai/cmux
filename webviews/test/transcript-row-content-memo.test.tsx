@@ -143,12 +143,19 @@ test("the row frame pauses unseen, scrolled-out and shelved clocks and keeps dis
     },
   });
   const visible = (shown: boolean) => {
+    const target = document.querySelector("article")!;
+    const bounds = target.getBoundingClientRect();
     intersection(
       [
         {
-          target: document.querySelector("article")!,
+          target,
           isIntersecting: shown,
-        } as IntersectionObserverEntry,
+          intersectionRatio: shown ? 1 : 0,
+          boundingClientRect: bounds,
+          intersectionRect: bounds,
+          rootBounds: null,
+          time: 0,
+        },
       ],
       {} as IntersectionObserver,
     );
