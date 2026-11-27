@@ -123,7 +123,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -3250,6 +3250,78 @@ export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "b
   }
 }
 
+/** A runner-local receipt, never proof for another run or an operator's --delete-ids. */
+export type WakeCleanupScope = { repository: string; run: string; attempt: string; job: string; api: string; team: string };
+type WakeCleanupRecord = { version: 1; scope: WakeCleanupScope; machine: string; key: string };
+const WAKE_SCOPE_FIELDS = ["repository", "run", "attempt", "job", "api", "team"] as const;
+
+function wakeCleanupScope(backend: Backend, team: string | undefined): WakeCleanupScope {
+  if (backend.name !== "staging" || backend.api !== resolveBackend("staging").api) throw new Error("wake cleanup records are staging only");
+  const env = process.env;
+  if (![env.GITHUB_REPOSITORY, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, env.GITHUB_JOB].every(Boolean)) {
+    throw new Error("wake cleanup records need the current GitHub run, attempt and job");
+  }
+  return { repository: env.GITHUB_REPOSITORY!, run: env.GITHUB_RUN_ID!, attempt: env.GITHUB_RUN_ATTEMPT!, job: env.GITHUB_JOB!, api: backend.api, team: team ?? "" };
+}
+
+export function writeWakeCleanup(file: string, scope: WakeCleanupScope, machine: string, key: string): void {
+  // Persist immediately after create answers, before status, exec or measurement. Atomic replacement means a killed
+  // process cannot leave a half-written JSON receipt. The file contains no token and stays on this job's runner.
+  writeFileSync(`${file}.tmp`, JSON.stringify({ version: 1, scope, machine, key }), { mode: 0o600 });
+  renameSync(`${file}.tmp`, file);
+}
+
+export function readWakeCleanup(file: string, scope: WakeCleanupScope): WakeCleanupRecord | null {
+  let raw: string;
+  try { raw = readFileSync(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
+  const value = JSON.parse(raw);
+  if (value?.version !== 1 || !/^vm_[a-zA-Z0-9]+$/.test(value.machine ?? "") || !/^jr-[a-z0-9]+-cleanup-delete$/.test(value.key ?? "")) {
+    throw new Error("invalid wake cleanup record");
+  }
+  if (!value.scope || WAKE_SCOPE_FIELDS.some((field) => value.scope[field] !== scope[field])) throw new Error("wake cleanup record scope differs from this job");
+  return value;
+}
+
+export async function cleanupWakeMachine(record: WakeCleanupRecord | null, deps: {
+  get: (id: string) => Promise<{ status: string } | null>;
+  remove: (id: string, key: string) => Promise<unknown>;
+}): Promise<void> {
+  if (!record) return;
+  const gone = (row: { status: string } | null) => row === null || row.status === "deleted" || row.status === "deleting";
+  if (gone(await deps.get(record.machine))) return;
+  let failure: unknown;
+  try { await deps.remove(record.machine, record.key); } catch (e) { failure = e; }
+  // A timed-out or indeterminate answer does not prove deletion failed; read back the same ID in either case.
+  if (gone(await deps.get(record.machine))) return;
+  if (failure) throw failure;
+  throw new Error(`wake cleanup delete not confirmed for ${record.machine}`);
+}
+
+async function cleanupWakeMode(file: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  const record = readWakeCleanup(file, wakeCleanupScope(backend, team));
+  if (!record) { console.log("wake cleanup: no returned machine ID recorded"); return 0; }
+  if (!email || !password) throw new Error("wake cleanup needs the staging agent test account");
+  const signed = await passwordSignIn(STACK[backend.stack], email, password);
+  const api = new Api(backend.api, team);
+  api.bearer = signed.access;
+  const get = async (id: string) => {
+    try { return await api.read("cloud.machine.get", { machine: id }); }
+    catch (e) { if (/HTTP 404|cloud\.machine\.not_found/.test(String((e as Error).message))) return null; throw e; }
+  };
+  try {
+    await cleanupWakeMachine(record, {
+      get,
+      // Same key as the interrupted in-process cleanup; deleteMachine bounds and retries indeterminate answers.
+      remove: (id, key) => api.deleteMachine(id, key, 180_000),
+    });
+    console.log(JSON.stringify({ wake_cleanup: record.machine, read_back: "gone or deleting" }));
+    return 0;
+  } catch (e) {
+    console.log(scrub(`wake cleanup failed: ${String((e as Error).message)}`, [password, signed.access, signed.refresh]));
+    return 1;
+  }
+}
+
 /**
  * --cleanup-tag TAG: deletes the machines a journey run with this tag made (`cloud journey auto TAG` and its gateway,
  * by exact name, never another run's), each logged first. For a workflow's always() step: the run's own cleanup is
@@ -5252,6 +5324,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const kept = argValue("--delete-kept", argv);
   if (kept !== undefined) return deleteKeptMode(kept, backend, email, password, team, signIn);
   if (argv.includes("--surge")) return surgeMode(backend, outDir, email, password, team, signIn);
+  const cleanupWakeRecord = argValue("--cleanup-wake-record", argv);
+  if (cleanupWakeRecord !== undefined) return cleanupWakeMode(cleanupWakeRecord, backend, email, password, team);
   const cleanupTag = argValue("--cleanup-tag", argv);
   if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
@@ -5306,6 +5380,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
   const cleanupCreatedIdsOnly = argv.includes("--cleanup-created-ids-only");
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
+  const wakeCleanupRecord = argValue("--wake-cleanup-record", argv);
+  const wakeScope = wakeCleanupRecord === undefined ? null : wakeCleanupScope(backend, team);
+  if (wakeScope && (wakeEchoN < 1 || keep || preclaim || argv.includes("--app-cli"))) throw new Error("--wake-cleanup-record requires a new wake-echo machine");
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
@@ -5904,6 +5981,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
           machine = v.machine.id as string;
+          if (wakeCleanupRecord && wakeScope) writeWakeCleanup(wakeCleanupRecord, wakeScope, machine, `${tag}-cleanup-delete`);
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
           J.firstText.mark("created");
