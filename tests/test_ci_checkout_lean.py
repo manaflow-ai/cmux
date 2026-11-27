@@ -41,14 +41,17 @@ def table() -> dict:
 
 
 def blob_none_checkouts():
-    """(workflow, job, step index, with) for every actions/checkout step with filter blob:none."""
+    """(workflow, job, step index, with) for every actions/checkout step with filter blob:none.
+
+    A filter expression that gives blob:none off a pool VM (ci.yml's changes reads the pool mirror unfiltered on a
+    same-repo pull request) counts: elsewhere it still downloads what a blob:none checkout does."""
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for job_id, job in (doc.get("jobs") or {}).items():
             for i, step in enumerate((job or {}).get("steps") or []):
                 uses = str((step or {}).get("uses") or "")
                 options = (step or {}).get("with") or {}
-                if uses.startswith("actions/checkout@") and str(options.get("filter", "")) == "blob:none":
+                if uses.startswith("actions/checkout@") and "blob:none" in str(options.get("filter", "")):
                     yield path.name, str(job_id), i, options
 
 

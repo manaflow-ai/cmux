@@ -27,7 +27,8 @@ FAILED = "steps.checkout.outcome == 'failure'"
 
 
 def blob_filtered(step) -> bool:
-    return CHECKOUT in str(step.get("uses", "")) and (step.get("with") or {}).get("filter") == "blob:none"
+    # path routing's filter is blob:none off a pool VM's mirror (an expression), and the same partial clone results there.
+    return CHECKOUT in str(step.get("uses", "")) and "blob:none" in str((step.get("with") or {}).get("filter", ""))
 
 
 class CmuxNextCheckoutRetryTests(unittest.TestCase):

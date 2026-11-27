@@ -979,7 +979,10 @@ jobs:
           persist-credentials: false
           # Why: note-94
           fetch-depth: 2
-          filter: blob:none
+          # A same-repo pull request reads the pool's git mirror (pr-router.yml, #55559); the widen step below
+          # then has every blob already and only applies its patterns. A fork, any other event, or a runner without the
+          # mirror keeps blob:none.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(runner.name, 'cmux-runner-pool-') && '' || 'blob:none' }}
           sparse-checkout-cone-mode: false
           # Why: docs/ci/cmux-next-workflow-notes.md#note-558
           sparse-checkout: |

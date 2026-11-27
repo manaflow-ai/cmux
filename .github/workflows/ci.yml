@@ -246,11 +246,14 @@ jobs:
       # worktree outside those, detect_ci_change_areas.ci_helper_areas()'s `git grep`,
       # widens the sparse set to the table's full patterns first (_tree_is_complete), so
       # a changed CI helper sees the tree it always saw. Unsure, it fails open.
+      # A same-repo pull request reads the pool's git mirror, as pr-router.yml's route job does (#55559): a blob
+      # filter skips the mirror and the sparse checkout fetches its blobs from GitHub. A fork, any other event, or a
+      # runner without the mirror (fsr, oneshot: a whole-blob depth-2 fetch from GitHub is the 286-350 s above) keeps blob:none.
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
-          filter: blob:none
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(runner.name, 'cmux-runner-pool-') && '' || 'blob:none' }}
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json ("own_patterns")
           sparse-checkout: |
             /*
