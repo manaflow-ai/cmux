@@ -1344,6 +1344,8 @@ export function ComposerPickers({
   const quick: QuickMenuExtras = {
     ...(quickEffort ? { effort: quickEffort } : {}),
     ...(quickAccount ? { account: quickAccount } : {}),
+    // The sign-in the chat's agent really runs on, on this Mac or a Cloud machine (cmux#63167).
+    ...(summary?.authSource ? { signIn: summary.authSource } : {}),
     ...(quickFast ? { fast: quickFast } : {}),
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a

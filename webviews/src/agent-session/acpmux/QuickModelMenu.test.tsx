@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
+import type { ChatAccountList } from "./chatAccounts";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -101,6 +102,9 @@ type HarnessOptions = {
   searchField?: QuickSearchField;
   auth?: { verdict: SessionAuth; onLogin(): void };
   cloudConnect?: () => void;
+  /// The chat's routes (acpmux's list) and the sign-in acpmux reports for it.
+  routes?: ChatAccountList;
+  signIn?: string;
 };
 function Harness({
   newTab,
@@ -109,6 +113,8 @@ function Harness({
   searchField,
   auth,
   cloudConnect,
+  routes,
+  signIn,
 }: { newTab: boolean } & HarnessOptions) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -122,6 +128,15 @@ function Harness({
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         menu={{
           auth,
+          ...(routes
+            ? {
+                account: {
+                  sessionId: "chat-1",
+                  accounts: { list: async () => routes, set: async () => undefined },
+                },
+              }
+            : {}),
+          ...(signIn ? { signIn } : {}),
           ...(searchField ? { searchField, search: { find: () => [], pick() {} } } : {}),
           models: [],
           current: "claude-a",
@@ -1230,3 +1245,24 @@ test("ordinary placement changes the open picker and resetting it restores the l
     });
   }
 });
+
+// cmux#63167: with no route bound, the Account row named "CLI login" whatever the harness signs in
+// with (a chat on SR2). It names the sign-in acpmux reports; a bound route still names its account.
+for (const [why, routes, signIn, shown] of [
+  ["a reported sign-in", { accounts: [] }, "SR2 token (sr2 claude)", "SR2 token"],
+  ["no reported sign-in", { accounts: [] }, undefined, "CLI login"],
+  [
+    "a bound route",
+    { accounts: [{ id: "max", name: "Max", kind: "direct-subscription" }], active: "max", scope: "chat" },
+    "API key (ANTHROPIC_API_KEY, from route Max)",
+    "Max",
+  ],
+] as const) {
+  test(`the Account row with ${why} names ${shown} (#63167)`, async () => {
+    await openMenu(false, { routes: routes as unknown as ChatAccountList, ...(signIn ? { signIn } : {}) });
+    await settle();
+    const account = document.querySelector<HTMLElement>(".acpmux-quick-account")!;
+    expect(account.textContent).toContain(shown);
+    if (shown !== "CLI login") expect(account.textContent).not.toContain("CLI login");
+  });
+}
