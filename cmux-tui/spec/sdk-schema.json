@@ -2360,6 +2360,16 @@
      "since": 12,
      "description": "The person marked the workspace unread."
     },
+    "keep_awake": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "workspace-keep-awake-v1: the freeing timer never ends this workspace's shells."
+    },
     "kind": {
      "type": {
       "kind": "enum",
