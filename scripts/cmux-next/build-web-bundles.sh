@@ -1,4 +1,5 @@
 #!/bin/sh
+# tooling-steps runs: scripts/cmux-next/web-bundle-key.py scripts/cmux-next/sync-app-runtime.sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
 # webviews app (diff, markdown and editor pages) and the Chief memory inspector,
@@ -28,6 +29,8 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
 MODE=build
 OUT_ROOT=""
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"

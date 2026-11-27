@@ -78,14 +78,18 @@ public nonisolated struct OmniboxConfiguration: Hashable, Sendable {
     public var calculator = true
     /// `browser.omnibar.showFullURLs`: the whole address at rest.
     public var showFullURLs = false
+    /// `browser.omnibar.quietIcons`: the site-info icon and star fade at rest.
+    public var quietIcons = false
 
     public init(searchEngine: BrowserSearchEngine = .google, remoteSuggestions: Bool = true, inlineAutocomplete: Bool = true,
-                maxRows: Int = 6, calculator: Bool = true, showFullURLs: Bool = false) {
+                maxRows: Int = 6, calculator: Bool = true, showFullURLs: Bool = false,
+                quietIcons: Bool = false) {
         self.searchEngine = searchEngine
         self.remoteSuggestions = remoteSuggestions
         self.inlineAutocomplete = inlineAutocomplete
         self.maxRows = maxRows
         self.calculator = calculator
         self.showFullURLs = showFullURLs
+        self.quietIcons = quietIcons
     }
 }

@@ -154,6 +154,8 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
 /** Words a color made from the theme's own may hold besides `var(--name)`: the color-mix grammar. */
 const MIX_WORDS = new Set([
   "color-mix",
+  // light-dark(A, B): the page's color-scheme (theme.ts) picks A or B, so it follows the appearance.
+  "light-dark",
   "in",
   "srgb",
   "srgb-linear",
@@ -184,11 +186,39 @@ export function themeDerived(value: string): boolean {
   return (rest.match(/[a-z][a-z0-9-]*/g) ?? []).every((word) => MIX_WORDS.has(word));
 }
 
+/** The longest duration a look may give the chat's motion: past it a transition reads as lag. */
+export const MOTION_MAX_MS = 600;
+
+/** Whether a look's duration is within 0 to MOTION_MAX_MS: `150ms`, `0.15s`, or another motion token. */
+export function motionDuration(value: string): boolean {
+  const v = value.trim();
+  if (/^var\(\s*--cmux-motion-[a-z]+\s*\)$/.test(v)) return true;
+  const match = /^(\d+(?:\.\d+)?|\.\d+)(ms|s)$/i.exec(v);
+  if (!match) return v === "0";
+  const ms = Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+  return ms >= 0 && ms <= MOTION_MAX_MS;
+}
+
+/** Whether a look's easing is a curve the chat can run: `cubic-bezier(x1, y1, x2, y2)` with x1 and x2
+ * within 0 to 1 (outside, CSS drops the value), `linear`, `linear(stops)`, or another easing token. */
+export function motionEasing(value: string): boolean {
+  const v = value.trim();
+  if (/^var\(\s*--cmux-ease-[a-z]+\s*\)$/.test(v) || v === "linear") return true;
+  const num = "\\s*(-?(?:\\d+(?:\\.\\d+)?|\\.\\d+))\\s*";
+  const bezier = new RegExp(`^cubic-bezier\\(${num},${num},${num},${num}\\)$`).exec(v);
+  if (bezier) {
+    const [x1, , x2] = bezier.slice(1).map(Number);
+    return x1! >= 0 && x1! <= 1 && x2! >= 0 && x2! <= 1;
+  }
+  return /^linear\(\s*-?[\d.]+(?:\s+[\d.]+%){0,2}(?:\s*,\s*-?[\d.]+(?:\s+[\d.]+%){0,2})+\s*\)$/.test(v);
+}
+
 /** A look's agent-pane/theme.css against the contract. */
 export function checkAddonCss(file: string, css: string, contract: Contract): Problem[] {
   const problems: Problem[] = [];
   const allowed = new Set(contract.tokens.map((token) => token.name));
   const colors = new Set(contract.tokens.filter((token) => token.kind === "color").map((token) => token.name));
+  const kindOf = new Map(contract.tokens.map((token) => [token.name, token.kind]));
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
   if (/@import\b|url\(/i.test(text))
     problems.push({ kind: "remote", where: file, message: "a look loads nothing: no @import or url()" });
@@ -212,6 +242,22 @@ export function checkAddonCss(file: string, css: string, contract: Contract): Pr
         message:
           "a look's colors come from the theme's (var(--agent-text), color-mix(in srgb, var(--agent-accent) 12%, transparent)), so it reads in light and dark; set literal colors in the theme file",
       });
+    else if (kindOf.get(name) === "duration" || kindOf.get(name) === "easing") {
+      const value = line.slice(line.indexOf(":") + 1);
+      // !important would beat the off and reduced root rules (desktop.css), so animations off and Reduce Motion win.
+      const ok =
+        !/!\s*important/i.test(value) &&
+        (kindOf.get(name) === "duration" ? motionDuration(value) : motionEasing(value));
+      if (!ok)
+        problems.push({
+          kind: "motion-bounds",
+          where: `${file} ${stack.join(" >> ")} ${name}`,
+          message:
+            kindOf.get(name) === "duration"
+              ? `a duration is 0 to ${MOTION_MAX_MS}ms (150ms, 0.15s), never !important`
+              : "an easing is cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...), never !important",
+        });
+    }
   };
   for (const char of text) {
     if (char === "{") {

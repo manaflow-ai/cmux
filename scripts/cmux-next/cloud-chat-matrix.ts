@@ -43,8 +43,12 @@ export type Cell = {
   expect?: { step: string; error: RegExp; withinMs: number };
 };
 
-/** The harnesses the Cloud chat picker offers: the app's LOGIN_AGENTS (cloudAgentLogin.ts) and opencode. */
-export const PICKER_HARNESSES = ["claude", "codex", "gemini", "grok", "cursor", "opencode"] as const;
+/**
+ * The harnesses the Cloud chat picker offers: the app's LOGIN_AGENTS (cloudAgentLogin.ts), opencode and antigravity
+ * (`agy acp`, signed in with Gemini's key: cloudAgentLogin.ts SIGNS_IN_AS). Leo, 2026-11-25: "we'll want to set up
+ * antigravity/antigravity cli and opencode capable if we didn't already and stuff".
+ */
+export const PICKER_HARNESSES = ["claude", "codex", "gemini", "grok", "cursor", "opencode", "antigravity"] as const;
 
 export const CELLS: Cell[] = [
   {
@@ -104,6 +108,16 @@ export const CELLS: Cell[] = [
     proof: "expect",
     args: ["--agent", "gemini", "--skip", "lifecycle", "--chat-timeout", "120"],
     expect: { step: "reply", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
+  },
+  {
+    // Antigravity's ACP answers `session/new` with "Authentication required" until it is signed in (Google, or
+    // `authenticate` with a Gemini key); acpmux sends that refusal as the start's sign-in error.
+    id: "antigravity-signed-out",
+    agent: "antigravity",
+    signIn: "none: must fail fast with Antigravity's sign-in error",
+    proof: "expect",
+    args: ["--agent", "antigravity", "--skip", "lifecycle", "--chat-timeout", "120"],
+    expect: { step: "start agent (antigravity)", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
   },
   // No Cursor, Grok (SuperGrok, xAI key) or third-party provider-key cells: Leo has none of those accounts (Leo,
   // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").

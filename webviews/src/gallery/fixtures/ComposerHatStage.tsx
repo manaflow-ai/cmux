@@ -28,6 +28,7 @@ export function ComposerHatStage({
   narrow = false,
   tucked = true,
   bridge = "none",
+  capped = false,
 }: {
   start?: number;
   waits?: boolean;
@@ -43,6 +44,8 @@ export function ComposerHatStage({
   /** Whether the hat starts tucked (the pull tab shown); the Tuck button tucks it while work runs. */
   tucked?: boolean;
   bridge?: ComposerHatBridge;
+  /** Before Leo's 2026-11-22 ask: the count capped at "99+", swapped in one frame. */
+  capped?: boolean;
 }) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
@@ -78,6 +81,18 @@ export function ComposerHatStage({
           <button type="button" data-stage="ten" onClick={() => set(12)}>
             Twelve run
           </button>
+          <button type="button" data-stage="fewer" onClick={() => set(Math.max(0, running - 1))}>
+            One fewer
+          </button>
+          <button type="button" data-stage="ninety-nine" onClick={() => set(99)}>
+            99 run
+          </button>
+          <button type="button" data-stage="nine-ninety-nine" onClick={() => set(999)}>
+            999 run
+          </button>
+          <button type="button" data-stage="many" onClick={() => set(1_234)}>
+            1,234 run
+          </button>
           <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
             One waits on you
           </button>
@@ -97,7 +112,7 @@ export function ComposerHatStage({
             style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
           >
             {isTucked && (
-              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} side={side} capped={capped} />
             )}
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the

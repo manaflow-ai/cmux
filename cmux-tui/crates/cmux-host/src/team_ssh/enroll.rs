@@ -159,7 +159,7 @@ pub fn commit(paths: &Paths, instance: &str, bound: &TeamBound) -> Result<(), St
     if ![&bound.team, &bound.user, &bound.install].iter().all(|v| valid_id(v)) {
         return Err("team, user and install must be 1 to 128 of [A-Za-z0-9_-]".into());
     }
-    if bound.api_origin != bound.env.api_origin() {
+    if !bound.env.allows_api_origin(&bound.api_origin) {
         return Err("api origin is not this environment's".into());
     }
     let key = read_json::<Value>(paths, TEAM_KEY_FILE).ok_or("no team key: enroll first")?;

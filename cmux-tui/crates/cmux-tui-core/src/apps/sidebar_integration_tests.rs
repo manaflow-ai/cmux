@@ -181,8 +181,8 @@ fn change_section(mux: &Mux, operation: &str, fields: Value) {
 fn first_party_defaults_never_place_sections_on_fresh_or_existing_installs() {
     for already_installed in [false, true] {
         let session = Session::new();
-        let app = "cmux/coderouter";
-        write_app(&session.0.join("first-party/coderouter"), app, "1.0.0");
+        let app = "cmux/notes";
+        write_app(&session.0.join("first-party/notes"), app, "1.0.0");
         if already_installed {
             session.write_legacy_install(app, Source::Default, true, false);
         }
