@@ -218,6 +218,32 @@ class GuardTests(unittest.TestCase):
         for leak in (VM, logs.base.tag(VM), "hunter2"):
             self.assertNotIn(leak, text)
 
+    def test_cmux_vm_window_keeps_a_vm_create_lines_phases_and_drops_its_ids(self):
+        # cmux-vm handlers/vms.ts vmCreateLine via lib/timing.ts logTimedEvent: a JSON line keyed `event`, not `msg`.
+        slow = event({"event": "vm_create", "vmId": VM, "ok": False, "recovered": False, "enteredAt": 1795721451000,
+                      "preMs": 3, "recoverMs": None, "createMs": 120004, "recoverAfterMs": 1532, "resizeMs": None,
+                      "meshAtCreate": True, "meshId": "mesh_hunter2", "meshJoined": False, "memberMs": None,
+                      "providerTotalMs": 121536, "providerTimingsMs": {"create": 120004, "hunter2 " + VM: 5},
+                      "imageVariant": None, "totalMs": 121540})
+        other = event({"event": "vm_other", "vmId": VM})
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_create"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [slow, other]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, header, rows = upload.call_args.args
+        self.assertEqual(header["logs_dropped_unlisted"], 1)
+        (row,) = rows
+        self.assertEqual(row["log"], {"event": "vm_create", "ok": False, "recovered": False, "meshAtCreate": True,
+                                      "meshJoined": False, "preMs": 3, "createMs": 120004, "recoverAfterMs": 1532,
+                                      "providerTotalMs": 121536, "totalMs": 121540,
+                                      "providerTimingsMs": {"create": 120004}})
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
+            self.assertNotIn(leak, text)
+
     def test_cmux_vm_refuses_an_id_scoped_read(self):
         path = event_file({"service": VM_STAGING, "id": VM, "needles": "pause"})
         try:
@@ -363,6 +389,19 @@ class ProjectionTests(unittest.TestCase):
                 self.assertEqual(row["log"], {"msg": "cloud.spare.gateway_read", "team": logs.base.tag(TEAM),
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
+
+    def test_the_edge_dns_check_keeps_outcome_exit_and_why_but_no_upstream(self):
+        # Production 2026-11-26 21:46Z: a fresh create's agents had no edge route and this line was dropped unlisted (hq#30520).
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
+                               "outcome": "kicked", "exit": 0, "dns_upstream": "10.0.0.2,", "ms": 4210}))
+        self.assertEqual(row["log"], {"msg": "cloud.machine.edge_dns", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "outcome": "kicked", "ms": 4210,
+                                      "exit": 0, "why": "bind"})
+        odd = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "why": "free text", "exit": True,
+                               "outcome": "unresolved"}))
+        self.assertNotIn("why", odd["log"])
+        self.assertNotIn("exit", odd["log"])
+        self.assertNotIn("10.0.0.2", json.dumps(row))
 
     def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
         # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
