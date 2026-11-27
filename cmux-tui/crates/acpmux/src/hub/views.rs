@@ -1268,7 +1268,10 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
         let (now, evictions, rehydrations) = self.eviction_counts();
-        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations});
+        let (samples, p50, p99) = self.evicted.rehydrate_quantiles();
+        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations,
+            "residentCap": self.evicted.cap(), "rehydrateSamples": samples,
+            "rehydrateP50Us": p50, "rehydrateP99Us": p99});
         json!({
             "version": VERSION,
             "build": build(),
