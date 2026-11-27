@@ -4,14 +4,33 @@ public import CmuxNextDaemon
 /// The Chief names Home shows (``HomeChiefNames``), asked of the Rust rules through
 /// ``HomeChiefNameCache``. A sidebar or routing pass reads them once per row, so each read
 /// was a JSON encode, a `cmux_home_call` and a decode on the main thread. The rules stay in
-/// Rust; this type only decides when to ask them.
+/// Rust; this type only decides when to ask them: once per change of the inputs (the rows'
+/// revision, the Cloud registry, the pending renames), compared by value, no observers.
 public final class HomeChiefNameCache {
+    private struct Key: Equatable {
+        var rowsRevision: Int
+        var cloud: [HomeChiefRecord]
+        var renames: HomeChiefNames
+    }
+
+    private var key: Key?
+    private var all: [ConversationID: String]?
+    private var one: [ConversationID: String?] = [:]
+
     /// How many Rust calls (`cmux_home_call`) this cache has made: one per ``HomeChiefNames`` op
     /// that crosses (`localRecords` skips the bridge for no rows, `localRecord` for no row of that
     /// id). An instance count, so a bench reads its own (HomeChiefNamePassCostTests).
     public private(set) var bridgeCalls = 0
 
     public init() {}
+
+    /// Drops what was answered for other inputs.
+    private func sync(_ now: Key) {
+        guard key != now else { return }
+        key = now
+        all = nil
+        one.removeAll(keepingCapacity: true)
+    }
 
     /// Every conversation's Chief name: the Cloud registry's name, else the local Chief
     /// row's, with pending renames applied (``HomeChiefNames/all(_:)``).
@@ -25,6 +44,8 @@ public final class HomeChiefNameCache {
     public func names(
         rows: [HomeInboxRequest.Row]?, rowsRevision: Int, cloud: [HomeChiefRecord], renames: HomeChiefNames
     ) -> [ConversationID: String] {
+        sync(Key(rowsRevision: rowsRevision, cloud: cloud, renames: renames))
+        if let all { return all }
         if let rows, !rows.isEmpty { bridgeCalls += 1 }
         var records = HomeChiefNames.localRecords(rows)
         for chief in cloud {
@@ -32,7 +53,9 @@ public final class HomeChiefNameCache {
             records[ConversationID(conversation)] = name
         }
         bridgeCalls += 1
-        return renames.all(records)
+        let answer = renames.all(records)
+        all = answer
+        return answer
     }
 
     /// One conversation's Chief name (``HomeChiefNames/name(of:record:)``); inputs as in
@@ -41,9 +64,13 @@ public final class HomeChiefNameCache {
         of conversation: ConversationID,
         rows: [HomeInboxRequest.Row]?, rowsRevision: Int, cloud: [HomeChiefRecord], renames: HomeChiefNames
     ) -> String? {
+        sync(Key(rowsRevision: rowsRevision, cloud: cloud, renames: renames))
+        if let cached = one[conversation] { return cached }
         let record = Self.record(of: conversation, rows: rows, cloud: cloud, crossed: &bridgeCalls)
         bridgeCalls += 1
-        return renames.name(of: conversation, record: record)
+        let answer = renames.name(of: conversation, record: record)
+        one[conversation] = answer
+        return answer
     }
 
     /// The registry's trimmed name for `conversation`, else its local Chief row's (uncached).
