@@ -349,7 +349,7 @@ class StepResultsTest(unittest.TestCase):
     def run_job(self, store, paths=None, env_extra=None) -> tuple[int, str, list[str]]:
         self.marker.unlink(missing_ok=True)
         out = io.StringIO()
-        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        env = self.job_env()
         env.update(env_extra or {})
         old = os.environ
         os.environ = env
@@ -360,9 +360,15 @@ class StepResultsTest(unittest.TestCase):
         ran = self.marker.read_text().split() if self.marker.exists() else []
         return code, out.getvalue(), ran
 
+    @staticmethod
+    def job_env() -> dict[str, str]:
+        return {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+
     def key(self, name: str, paths=None) -> str:
+        # The env run_job keys with: on a runner MACHINE_VARS (RUNNER_OS, ...) are set, and an empty env made another key.
         files = ci_steps.tracked_files(self.root)
-        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths, {})
+        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths,
+                                 self.job_env())
 
     def test_reusable_excludes_event_readers_advisory_labels_and_opt_out(self) -> None:
         t = table('''
@@ -598,6 +604,26 @@ class StepResultsTest(unittest.TestCase):
         if files and tree:
             keys = {ci_steps.step_key(real.steps[n], real, files, tree, None, {}) for n in names}
             self.assertEqual(len(keys), len(names), "every step has its own key")
+
+
+class StepEnvTest(unittest.TestCase):
+    """A GitHub Actions Linux job builds Rust into a fresh target: rustc's incremental state is never read again and
+    filled a pool VM's disk (run 45531606824), so steps there run with CARGO_INCREMENTAL=0."""
+
+    def test_a_linux_actions_runner_turns_incremental_off(self):
+        env = ci_steps.step_env({"GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux", "PATH": "/usr/bin"}, "/t")
+        self.assertEqual(env["CARGO_INCREMENTAL"], "0")
+        self.assertEqual(env["PATH"], f"/t/bin{os.pathsep}/usr/bin")
+        self.assertEqual(env["CI_TOOLS"], "/t")
+
+    def test_a_callers_own_setting_wins(self):
+        env = ci_steps.step_env({"GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux", "CARGO_INCREMENTAL": "1"}, "/t")
+        self.assertEqual(env["CARGO_INCREMENTAL"], "1")
+
+    def test_a_laptop_or_a_mac_runner_keeps_cargos_default(self):
+        self.assertNotIn("CARGO_INCREMENTAL", ci_steps.step_env({"PATH": "/usr/bin"}, "/t"))
+        self.assertNotIn("CARGO_INCREMENTAL",
+                         ci_steps.step_env({"GITHUB_ACTIONS": "true", "RUNNER_OS": "macOS"}, "/t"))
 
 
 class SetupTest(unittest.TestCase):
@@ -1878,7 +1904,10 @@ class WebBrowserStepsTest(unittest.TestCase):
             + [p + "x.ts" for p in web_subareas.AGENT_PANE_PREFIXES + web_subareas.REACT_PREFIXES]
             + ["schemas/settings/x.json", "release-notes/next/highlights/x.md", "web/data/model-catalog/snapshot.json"],
         }
-        for name, subarea in self.STEPS.items():
+        # chat_flow is agent_pane less the acpmux build (web_subareas.classify_paths); the loop skips what it leaves out.
+        samples["chat_flow"] = samples["agent_pane"] + [p + "x.sh" for p in web_subareas.CHAT_FLOW_PREFIXES]
+        # chat-flow-shift-budget is not a ci-web.yml job, but its globs cover its subarea the same way.
+        for name, subarea in {**self.STEPS, "chat-flow-shift-budget": "chat_flow"}.items():
             self.assertEqual(steps[name].job, "web-browser")
             for path in samples[subarea] + sorted(web_subareas.ALL_SUBAREA_INPUTS):
                 if not getattr(web_subareas.classify_paths([path], ROOT), subarea):

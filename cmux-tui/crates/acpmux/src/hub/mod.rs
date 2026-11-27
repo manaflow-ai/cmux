@@ -44,6 +44,8 @@ mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
+// Chats settle on their own: a merged or closed pull request, or idle days.
+pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
 pub mod background_turn;
@@ -95,6 +97,7 @@ mod digest;
 pub(crate) mod dispatch;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+mod acp_version;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -166,7 +169,6 @@ mod idle_census;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
-pub(crate) mod session_lifecycle;
 pub(crate) mod inbox;
 pub(crate) mod inbox_subscription;
 pub mod journal_restore;
@@ -174,6 +176,7 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+pub(crate) mod session_lifecycle;
 // A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
 mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
@@ -359,6 +362,7 @@ pub(crate) mod session_auth;
 pub(crate) mod session_budget_watch;
 pub(crate) mod session_hold;
 pub(crate) mod session_pages;
+mod session_usage;
 mod settings_watch;
 pub(crate) mod settled_view;
 #[cfg(test)]
@@ -421,6 +425,8 @@ mod tailnet_controller;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
+mod team_directory;
+pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
 mod terminal_input;
@@ -458,7 +464,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
-mod turn_cost;
+pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
@@ -524,7 +530,6 @@ pub use fork::Retarget;
 pub(crate) use fork::offers_fork;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use history_delete::HistoryDeleteRequest;
-pub use session_lifecycle::LifecycleRequest;
 pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
@@ -548,6 +553,7 @@ pub(crate) use pool::SESSION_NEW_BUDGET;
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
+pub use session_lifecycle::LifecycleRequest;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
 pub use transcript_offload::TranscriptOffloadRequest;
@@ -773,6 +779,11 @@ pub struct HubEvent {
     /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
     /// encoded once, not once per attached connection.
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The record's `_acpmux/event` params (`server::event_value`) for an event stream of a chat
+    /// of this daemon's own, built by the first connection that sends it and shared by the rest
+    /// (`server::deliver`): a streamed token's message is copied and converted once, not once per
+    /// attached connection, and a client that asked for compact chunks reads it in place.
+    pub event_params: Arc<std::sync::OnceLock<serde_json::Value>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection. The ring
@@ -1207,6 +1218,8 @@ pub struct Hub {
     pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
+    pub(super) team_directory: team_directory::TeamDirectoryCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1626,6 +1639,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Active outbox attempts share a budget across replay, retries and reconnects. Waiters
+    /// park before taking the journal lock or starting a blocking SSH carrier.
+    pub(crate) outbox_attempts: tokio::sync::Semaphore,
     /// Per host, how long no ssh carry goes to it after one was not taken
     /// (`server/ssh_carry.rs`): this daemon's alone, so two hubs (or two tests) never share it.
     pub(crate) ssh_carry_cooldown: std::sync::Mutex<crate::server::ssh_carry::Cooldown>,
@@ -1837,6 +1853,7 @@ impl Hub {
             remote_sessions: Default::default(),
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
+            team_directory: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
@@ -2043,6 +2060,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            outbox_attempts: tokio::sync::Semaphore::new(8),
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
@@ -2191,6 +2209,7 @@ impl Hub {
             record: Arc::new(record),
             remote: None,
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
@@ -2340,7 +2359,7 @@ impl Hub {
         let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(&meta);
+            session.meta_writer.note_saved(&meta, self.store.digest(&meta));
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -3446,6 +3465,7 @@ impl Hub {
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,
@@ -3506,9 +3526,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
-        // It dates the chat with no record: told before the next list read, and placed again in
-        // the list's order (`list_order.rs`).
-        self.events.row_changed(session);
+        // It dates the chat with no record: told now, so a peer following this list hears it
+        // (`row_changed_told`), and placed again in the list's order (`list_order.rs`).
+        self.events.row_changed_told(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",

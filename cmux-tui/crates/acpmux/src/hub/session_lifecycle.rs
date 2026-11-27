@@ -165,7 +165,7 @@ impl Hub {
         }) {
             return Err("held");
         }
-        if super::cache_compact::coordinator_name(&meta.name)
+        if super::idle::cache_compact::coordinator_name(&meta.name)
             || meta.tags.get("role").is_some_and(|t| t.value.contains("coord"))
             || leaders.contains(&session.id)
         {
