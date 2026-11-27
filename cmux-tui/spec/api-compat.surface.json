@@ -12782,6 +12782,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/keep_awake": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/key": {
         "ty": "string",
         "nullable": true
