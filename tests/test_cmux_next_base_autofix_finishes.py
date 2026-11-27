@@ -655,9 +655,14 @@ else:
         self.assertIn("needs.window.outputs.run == 'true'", re.sub(r"\s+", " ", str(autofix["if"])))
 
     def test_ci_runs_this_test(self):
-        steps = DOC_NEXT["jobs"]
-        runs = "\n".join(step.get("run", "") for job in steps.values() for step in job.get("steps", []))
-        self.assertIn("tests/test_cmux_next_base_autofix_finishes.py", runs)
+        steps = DOC_NEXT["jobs"]["checks"]["steps"]
+        (pool,) = [step for step in steps if step.get("name") == "Start the slow checks in the background"]
+        run = pool["run"]
+        manifest = "scripts/ci/cmux-next-slow-checks.txt"
+        self.assertIn("scripts/ci/run-checks-concurrently.sh --start", run)
+        self.assertIn("< " + manifest, run)
+        self.assertIn("python3 tests/test_cmux_next_base_autofix_finishes.py",
+                      (ROOT / manifest).read_text().splitlines())
 
 
 

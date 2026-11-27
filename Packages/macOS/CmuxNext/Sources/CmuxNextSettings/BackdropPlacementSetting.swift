@@ -18,7 +18,7 @@ public struct BackdropPlacementSetting: Sendable {
         }
         var out: [String: BackdropPlacement] = [:]
         for (id, entry) in members {
-            let reply = SettingsRust().answer("backdrop.placement", ["action": .string("parse"), "text": entry.stringValue.map(JSONValue.string) ?? .null])
+            let reply = SettingsRust.answer("backdrop.placement", ["action": .string("parse"), "text": entry.stringValue.map(JSONValue.string) ?? .null])
             if !id.trimmingCharacters(in: .whitespaces).isEmpty, let text = reply["value"]?.stringValue,
                let placement = BackdropPlacement(text: text) {
                 out[id] = placement
@@ -32,7 +32,7 @@ public struct BackdropPlacementSetting: Sendable {
 
     /// Whether `value` loads with no diagnostic (Rust `is_placement_map`).
     static func accepts(_ value: JSONValue) -> Bool {
-        SettingsRust().answer("backdrop.placement", ["action": .string("accepts"), "value": value])["valid"]?.boolValue ?? false
+        SettingsRust.answer("backdrop.placement", ["action": .string("accepts"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// The whole map with `id` set to `placement` (removed for a centered fill, so Reset leaves

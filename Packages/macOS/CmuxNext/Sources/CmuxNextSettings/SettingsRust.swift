@@ -5,8 +5,7 @@ import Foundation
 /// CCmuxAppFFI as `cmux_settings_call`): parse, validation and defaults live there once; this
 /// module keeps the AppKit apply side.
 public nonisolated struct SettingsRust {
-    public init() {}
-
+    public nonisolated init() {}
     /// Why an op gave no reply: a bad request or an op this library does not have.
     public struct Failure: Error, Sendable, Equatable {
         public let status: Int32
@@ -18,7 +17,7 @@ public nonisolated struct SettingsRust {
     ///   - op: The op's name, such as `jsonc.parse`.
     ///   - request: A JSON object.
     /// - Returns: The reply object.
-    public func call(_ op: String, _ request: JSONValue) throws -> JSONValue {
+    public static func call(_ op: String, _ request: JSONValue) throws -> JSONValue {
         let body = Array(request.compactText.utf8)
         var out = CmuxSettingsBytes(ptr: nil, len: 0)
         let status = op.withCString { operation in
@@ -33,7 +32,7 @@ public nonisolated struct SettingsRust {
 
     /// ``call(_:_:)`` for an op whose request is well formed by construction: a failure is a
     /// programming error, answered as `{}`.
-    public func answer(_ op: String, _ request: JSONValue) -> JSONValue {
+    public static func answer(_ op: String, _ request: JSONValue) -> JSONValue {
         (try? call(op, request)) ?? .object([:])
     }
 }

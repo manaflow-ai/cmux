@@ -12,12 +12,18 @@ use serde::{Deserialize, Serialize};
 pub mod approval;
 #[path = "tabs_draft.rs"]
 pub mod draft;
+#[path = "tabs_groups.rs"]
+pub mod groups;
+#[path = "tabs_layout.rs"]
+pub mod layout;
 #[path = "tabs_panes.rs"]
 pub mod panes;
 #[path = "tabs_place.rs"]
 pub mod place;
 #[path = "tabs_plus_menu.rs"]
 pub mod plus_menu;
+#[path = "tabs_strip.rs"]
+pub mod strip;
 
 // MARK: New tab kind
 

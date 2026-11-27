@@ -4,14 +4,19 @@
 //!
 //! The chat's `usage_update`s carry when its prompt cache lapses (`_meta.acpmux.cacheExpiresAt`,
 //! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
-//! Cache Expires" on (`agents.cacheCompact.enabled`, on by default since 2026-11-24; only an
-//! explicit `false` turns it off), each such update arms one timer for the session, [`lead_ms`] before
+//! Cache Expires" on (`agents.cacheCompact.enabled`, off by default: only an explicit `true` or
+//! `ACPMUX_CACHE_COMPACT=1` turns it on), each such update arms one timer for the session, [`lead_ms`] before
 //! that expiry, while the context is at least `agents.cacheCompact.minContextTokens` tokens or
 //! `agents.cacheCompact.minContextPercent` of its window, whichever trips first ([`Threshold`]).
 //! When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
 //!
-//! Why on, at 30% (Leo, 2026-11-24: "we need to be compacting arguably BEFORE cache expires...",
+//! Off by default since 2026-11-26 (Leo: "we ought to not make jcmux/acpmux so opinionated with
+//! compacition. only do it for our personal fleet situation"): when to compact is the person's
+//! call, and Claude Code compacts on its own terms otherwise. Our fleet turns it on in its own
+//! settings. The numbers below are why the fleet runs it, at 30%.
+//!
+//! Why 30% (Leo, 2026-11-24: "we need to be compacting arguably BEFORE cache expires...",
 //! "this can be toggled but... this as a default seems decent."): off by default, nothing fired in
 //! 48 h on one lane VM, and every wake after a 55+ min idle rewrote its whole context (60K-123K
 //! tokens; the cache read only the shared ~10K prefix). Over 67 warm compactions (mean 146K
@@ -135,9 +140,9 @@ pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<Threshold> {
 }
 
 /// The Settings keys and their environment overrides (`env`, which wins) as the daemon reads
-/// them: None when off (only an explicit `agents.cacheCompact.enabled: false` or
-/// `ACPMUX_CACHE_COMPACT=0`), else what a chat must reach. No document (no settings file) is
-/// the defaults: on, at [`DEFAULT_MIN_TOKENS`] or [`DEFAULT_MIN_CONTEXT`] percent.
+/// them: None when off (the default: on only with an explicit `agents.cacheCompact.enabled:
+/// true` or `ACPMUX_CACHE_COMPACT=1`), else what a chat must reach, at [`DEFAULT_MIN_TOKENS`] or
+/// [`DEFAULT_MIN_CONTEXT`] percent unless the settings say otherwise.
 pub(crate) fn settings_threshold_with(
     doc: Option<&Value>,
     env: impl Fn(&str) -> Option<String>,
@@ -145,7 +150,7 @@ pub(crate) fn settings_threshold_with(
     let get = |key: &str| doc.and_then(|doc| crate::user_settings::value(doc, key));
     let enabled = super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref())
         .or_else(|| get(SETTING_ENABLED).and_then(|v| v.as_bool()));
-    if enabled == Some(false) {
+    if enabled != Some(true) {
         return None;
     }
     let percent = env(ENV_MIN_CONTEXT)

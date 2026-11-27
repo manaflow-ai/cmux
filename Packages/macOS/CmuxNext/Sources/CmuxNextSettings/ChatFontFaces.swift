@@ -32,7 +32,7 @@ public nonisolated struct ChatFontFaces {
         /// - Parameter faces: The setting's map.
         /// - Returns: The data URL of each face that loads, by page key.
         public func dataURLs(_ faces: [String: JSONValue]) -> [String: String] {
-            let reply = SettingsRust().answer("font_faces.load", ["faces": .object(faces)])
+            let reply = SettingsRust.answer("font_faces.load", ["faces": .object(faces)])
             return (reply["faces"]?.objectValue ?? [:]).compactMapValues(\.stringValue)
         }
     }
