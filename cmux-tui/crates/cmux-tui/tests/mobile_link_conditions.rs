@@ -1739,6 +1739,7 @@ const BG_WORKSPACES: u64 = 10;
 const BG_SCROLLBACK: u64 = 2_000;
 const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
 const TERMINAL_RESUME_BOUNDED_CAPABILITY: &str = "terminal-resume-bounded-v1";
+const WORKSPACE_LIST_DELTA_CAPABILITY: &str = "workspace-list-delta-v1";
 
 /// `30s`, `10m`, `8h`: seconds.
 fn away_secs(label: &str) -> u64 {
@@ -1834,6 +1835,9 @@ struct BgCursor {
     cols: u64,
     rows: u64,
     known: Value,
+    /// `list-workspaces` `since` (`{epoch, seq}`) of the list it last applied, when the daemon
+    /// lists `workspace-list-delta-v1`.
+    since: Option<Value>,
 }
 
 struct BgFixture {
@@ -1930,16 +1934,22 @@ impl BgFixture {
                     "replay_history_rows": 0}),
                 ),
                 ("list-workspaces", json!({"known": {}})),
+                // A cursor no ring knows: the whole tree and its first `{epoch, seq}`.
+                ("list-workspaces", json!({"since": {"epoch": "", "seq": 0}})),
             ])
             .await?;
         let deadline = Instant::now() + WAIT;
-        let (mut state, mut list) = (None, None);
-        while state.is_none() || list.is_none() {
+        let delta = self.lists(WORKSPACE_LIST_DELTA_CAPABILITY);
+        let (mut state, mut list, mut since) = (None, None, None);
+        while state.is_none() || list.is_none() || (delta && since.is_none()) {
             let (_, value) = conn.recv(deadline).await?;
             if value["event"] == "vt-state" && value["surface"] == json!(self.surface) {
                 state = Some(value);
             } else if value["id"] == json!(ids[3]) {
                 list = Some(value);
+            } else if value["id"] == json!(ids[4]) {
+                let data = &value["data"];
+                since = Some(json!({"epoch": data["epoch"], "seq": data["seq"]}));
             } else if value["id"] == json!(ids[2]) && value["ok"] != json!(true) {
                 return Err(format!("attach-surface: {value}"));
             }
@@ -1971,6 +1981,7 @@ impl BgFixture {
             cols: state["cols"].as_u64().unwrap_or(COLS),
             rows: state["rows"].as_u64().unwrap_or(ROWS),
             known,
+            since: since.filter(|_| delta),
         })
     }
 
@@ -2079,14 +2090,18 @@ async fn bg_list_once(shaper: &Shaper, cursor: &BgCursor, phase: &str) -> Result
     shaper.reset_counters();
     let started = Instant::now();
     let mut conn = BgConn::open(shaper.addr()).await?;
-    let known = if phase == "before" { json!({}) } else { cursor.known.clone() };
+    let list = match phase {
+        "before" => json!({"known": {}}),
+        "after_delta" => json!({"since": cursor.since.clone().ok_or("no since cursor")?}),
+        _ => json!({"known": cursor.known.clone()}),
+    };
     let ids = conn
         .send(vec![
             ("set-client-info", setup_client_info()),
             ("identify", json!({})),
             ("subscribe", json!({"tree_events": "deltas"})),
             ("list-agents", json!({})),
-            ("list-workspaces", json!({"known": known})),
+            ("list-workspaces", list),
         ])
         .await?;
     let deadline = Instant::now() + WAIT;
@@ -2112,7 +2127,12 @@ async fn bg_list_once(shaper: &Shaper, cursor: &BgCursor, phase: &str) -> Result
         bytes_down: counters.down_bytes,
         bytes_up: counters.up_bytes,
         round_trips: counters.up_turns + 1,
-        cursor_hit: (phase != "before").then_some(list["data"]["unchanged"] == json!(true)),
+        // after_delta: the host answered from the cursor when it sent a delta, not the tree.
+        cursor_hit: (phase != "before").then_some(if phase == "after_delta" {
+            list["data"]["delta"] == json!(true)
+        } else {
+            list["data"]["unchanged"] == json!(true)
+        }),
         held_behind: None,
     })
 }
@@ -2193,6 +2213,9 @@ fn background_catch_up_after_time_away() {
     if fx.lists(TERMINAL_RESUME_BOUNDED_CAPABILITY) {
         phases.push("after_bounded");
     }
+    if fx.lists(WORKSPACE_LIST_DELTA_CAPABILITY) {
+        phases.push("after_delta");
+    }
     println!(
         "NETCOND-FIXTURE background: {BG_WORKSPACES} workspaces, terminal {COLS}x{ROWS} with \
          {BG_SCROLLBACK} lines of scrollback; busy: {BG_BUSY_TERMINAL_BYTES_PER_S} B/s of build \
@@ -2238,9 +2261,11 @@ fn background_catch_up_after_time_away() {
                             }
                         };
                         for phase in &phases {
-                            let sample = bg_terminal_once(&shaper, &fx, &cursor, phase).await;
-                            bg_emit_sample("terminal", &label, phase, &scale, run, seed, sample,
-                                (span_bytes, secs));
+                            if *phase != "after_delta" {
+                                let sample = bg_terminal_once(&shaper, &fx, &cursor, phase).await;
+                                bg_emit_sample("terminal", &label, phase, &scale, run, seed,
+                                    sample, (span_bytes, secs));
+                            }
                             if *phase == "after_bounded" {
                                 continue; // the list has no bounded form
                             }

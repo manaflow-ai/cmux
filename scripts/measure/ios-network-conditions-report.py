@@ -44,9 +44,10 @@ DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "setup_ms", "
 
 
 # mode=background (cmux-next-ios/design/background-delta-sync.md): scale `<away>-<load>`, phase
-# the phone's form (before: today's; after: the cursor form; after_bounded: + resume_max_bytes).
+# the phone's form (before: today's; after: the cursor form; after_bounded: + resume_max_bytes;
+# after_delta: the list's `since` cursor, workspace-list-delta-v1).
 BACKGROUND_SCALE = re.compile(r"^(\d+)([smh])-(idle|busy)$")
-BACKGROUND_PHASES = ("before", "after", "after_bounded")
+BACKGROUND_PHASES = ("before", "after", "after_bounded", "after_delta")
 BACKGROUND_SURFACES = ("workspaces", "chat", "terminal")
 
 
