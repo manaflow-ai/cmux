@@ -27,7 +27,9 @@ permissions: {}
 
 concurrency:
   # A batch run or bisect probe is keyed by its commit and job, so neither evicts the other's pending call.
-  group: cmux-next-fast-tier-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # Under the post-merge batch (inputs.sha set) each caller run is its own group: its probes and a confirm round's
+  # red-N/green-N runs share sha and job, and a shared group cancelled all but one (11-27: 39 of 92 probes).
+  group: cmux-next-fast-tier-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-run-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
