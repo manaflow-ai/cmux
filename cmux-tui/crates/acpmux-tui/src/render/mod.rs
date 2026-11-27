@@ -433,7 +433,7 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
     let pending = app.selected_id().and_then(|id| app.transcripts.get(&id)).and_then(|t| {
-        match t.pending_permission() {
+        match crate::live_permission(t) {
             Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
             _ => None,
         }
@@ -442,8 +442,16 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let flow = app.live_answering().cloned();
     let card_h: u16 = match (&pending, &flow) {
         (Some(_), _) if main.height <= input_h + 8 => 0,
-        (Some(_), Some(flow)) => question::card_height(flow).min(main.height - input_h - 4),
-        (Some(_), None) => 4,
+        (Some(_), Some(flow)) => {
+            question::card_height(flow, col_w.saturating_sub(2)).min(main.height - input_h - 4)
+        }
+        // The whole command or tool title, wrapped (cmux#49116), above the option chips.
+        (Some((title, _)), None) => {
+            (4 + question::wrap_text(title, question::text_width(col_w.saturating_sub(2)))
+                .len()
+                .max(1) as u16)
+                .min(main.height - input_h - 4)
+        }
         (None, _) => 0,
     };
     let card = Rect {
