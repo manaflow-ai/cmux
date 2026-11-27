@@ -487,7 +487,13 @@ jobs:
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
           git checkout -q -f --detach "$SHA"
-          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          # A reused .git keeps the last job's sparse state, maybe another workflow's: reapply this step's patterns, or
+          # leave sparse mode when it has none (`reapply` outside sparse mode is fatal, run 46017040692; a stale
+          # pattern set would hand this job a partial tree).
+          if [[ $reuse != fresh ]]; then
+            if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply
+            elif [[ "$(git config --bool core.sparseCheckout || true)" == true ]]; then git sparse-checkout disable; fi
+          fi
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml, cmux-tui-spec.yml), with the same
