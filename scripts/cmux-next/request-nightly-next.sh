@@ -642,13 +642,18 @@ backfill() { # <reason>
     echo "backfill: a cmux-tui-artifacts run for feat-cmux-next ${dispatch_tip:0:12} is queued or running; not dispatching ($1)"
     return 0
   fi
-  # One backfill an hour, at most (ci-min-per-pr-14, Leo: "de facto, im asking for 99% fewer minutes of
-  # ci time, period."). Every tick, Release compile and artifacts completion calls this, each from its own
-  # job, so the per-job stamp never held: 51 dispatches on feat-cmux-next in 31 h (2026-11-24 10:10Z to
+  # One backfill per 25 minutes, at most (ci-min-per-pr-14, Leo: "de facto, im asking for 99% fewer minutes of
+  # ci time, period."). 25, not 60: the tick runs every 30 minutes (:07, :37) and Leo asked for "a NIGHTLY at
+  # most every 30 min" (goals/nightly-30min.md). base-coalesce lets one feat-cmux-next push per hour build its
+  # tree, so a tip pushed after the window's first push has no tree until this backfill builds it; with a
+  # 60-minute gap every other tick could not recover it and the feed fell an hour or more behind (2026-11-26
+  # 23:50Z: 38 candidates refused for a missing tree, the tip's run coalesced). 25 lets each tick recover,
+  # at most about 2 dispatches an hour, and only while the tip has no tree. Every tick, Release compile and
+  # artifacts completion calls this, each from its own job, so the per-job stamp never held: 51 dispatches on feat-cmux-next in 31 h (2026-11-24 10:10Z to
   # 2026-11-25 17:12Z), often 4-6 min apart, about 80 runner-min each (three target builds plus daemon
   # tests), for a tip that moved by a few commits. The next tick after the gap dispatches the newest tip,
   # which marks every commit the skipped ones would have. NIGHTLY_NEXT_BACKFILL_GAP_MIN=0 turns it off.
-  local gap_min="${NIGHTLY_NEXT_BACKFILL_GAP_MIN:-60}" last_dispatch last_s age_min
+  local gap_min="${NIGHTLY_NEXT_BACKFILL_GAP_MIN:-25}" last_dispatch last_s age_min
   if [[ "$gap_min" =~ ^[0-9]+$ ]] && (( gap_min > 0 )); then
     if ! last_dispatch="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=workflow_dispatch&per_page=1" \
         --jq '.workflow_runs[0].created_at // ""' 2>/dev/null)"; then
