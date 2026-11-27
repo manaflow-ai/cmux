@@ -1412,5 +1412,33 @@ class LocalnetProbe(unittest.TestCase):
         self.assertEqual(logged[0]["localnet"]["viewer"]["localnet"], "unknown")
 
 
+class ClipboardLeg(unittest.TestCase):
+    def test_clip_echo_answers_each_probe_once_and_never_its_own_echo(self):
+        board, writes = ["cmux-vs-clip-41-abc-0"], []
+
+        def write(text):
+            writes.append(text)
+            board[0] = text
+
+        last = vs.clip_echo_step(lambda: board[0], write, None)
+        self.assertEqual(writes, ["ack:cmux-vs-clip-41-abc-0"])
+        # The echo itself, then the same text again: nothing more.
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        self.assertEqual(len(writes), 1)
+        # A person's own copy is left alone; the next probe is answered.
+        board[0] = "hello"
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        board[0] = "cmux-vs-clip-41-abc-1"
+        vs.clip_echo_step(lambda: board[0], write, last)
+        self.assertEqual(writes[-1], "ack:cmux-vs-clip-41-abc-1")
+        self.assertEqual(len(writes), 2)
+        # An unreadable pasteboard does nothing.
+        self.assertIsNone(vs.clip_echo_step(lambda: None, write, "x"))
+
+    def test_bench_input_clipboard_takes_no_aim(self):
+        self.assertEqual(vs.bench_input("clipboard", 30, (10, 20)), "--input clipboard --samples 30")
+
+
 if __name__ == "__main__":
     unittest.main()
