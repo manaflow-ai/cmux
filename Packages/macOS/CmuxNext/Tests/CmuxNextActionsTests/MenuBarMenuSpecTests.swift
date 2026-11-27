@@ -41,6 +41,16 @@ struct MenuBarMenuSpecTests {
         #expect(!ids.contains { $0.lowercased().contains("slack") })
     }
 
+    /// Signed out on a dev build: the line under Sign In names the backend it signs in to (Leo: "why
+    /// is the stuff so weird to log in to dev builds?"); signed in, no such line.
+    @Test func signInNamesItsBackend() {
+        let line = "Signs in to Development backend · dev-abc.cmux.dev"
+        let signedOut = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(signInBackend: line), isBound: Self.everything))
+        #expect(Array(signedOut.prefix(3)) == ["palette.auth.signIn", "info:\(line)", "-"])
+        let signedIn = MenuBarMenuState(account: .init(lines: ["Ada"]), signInBackend: line)
+        #expect(!Self.ids(MenuBarMenuSpec().items(for: signedIn, isBound: Self.everything)).contains("info:\(line)"))
+    }
+
     /// Signed in: who it is on top (the first line with the avatar), the team row, Sign Out
     /// above Quit, and no Sign In.
     @Test func signedInShowsWhoAndSignOut() throws {

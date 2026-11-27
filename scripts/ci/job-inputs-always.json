@@ -791,6 +791,17 @@
           "scripts/ci/affected-jobs.json",
           "scripts/ci/affected_jobs_replay.py"
         ]
+      },
+      "remote-web-wasm": {
+        "why": "builds the cmux-remote-web crate for wasm32-unknown-unknown on Linux",
+        "suggested_inputs": [
+          ".github/workflows/cmux-tui-spec.yml",
+          ".github/actions/setup-cmux-tui-rust/",
+          "cmux-tui/Cargo.lock",
+          "cmux-tui/Cargo.toml",
+          "cmux-tui/crates/cmux-remote-web/",
+          "scripts/ci/apt-ensure.sh"
+        ]
       }
     },
     ".github/workflows/docs-only-fallback.yml": {

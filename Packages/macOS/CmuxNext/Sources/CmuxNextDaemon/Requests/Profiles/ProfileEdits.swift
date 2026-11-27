@@ -41,19 +41,6 @@ public struct UpdateProfileRequest: DaemonRequest {
     }
 }
 
-/// Moves a profile to an insertion index (the `move-workspace` rule).
-public struct MoveProfileRequest: DaemonRequest {
-    public typealias Response = ProfileResult
-    public static let command = "move-profile"
-    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
-    public var profile: ProfileID
-    public var index: Int
-    public init(profile: ProfileID, index: Int) {
-        self.profile = profile
-        self.index = index
-    }
-}
-
 /// Deletes a room. With `moveTo` its pins and groups move there. Without
 /// it this is Delete Space (SPACE-DELETE-CLOSES-ITS-WORKSPACES): the daemon
 /// closes every workspace of its session that only this room shows and
