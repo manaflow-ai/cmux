@@ -116,6 +116,7 @@ on:
       - "web/services/vms/drivers/linuxRelease.ts"
       - "web/app/globals.css"
       - "schemas/settings/file-keys.json"
+      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
