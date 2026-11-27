@@ -188,7 +188,13 @@ impl Hub {
         // A needYou journaled before a restart is counted again by the pass (a rule may have
         // changed what counts: program notices are fyi now).
         surge_held |= inbox.surge_counts_need_you() > 0;
+        // New messages came back with no timer: the review arms their deadline wake again
+        // (`inbox_deadline.rs`), else they wait for a turn nothing starts.
+        let any_new = inbox.items.iter().any(|i| !i.noticed && !folded(i));
         drop(inbox);
+        if any_new {
+            deadline::review_after_restore(session);
+        }
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
             super::super::surge_triage::resume_after_restore(session);
@@ -435,4 +441,5 @@ impl Hub {
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }
+
 }

@@ -128,6 +128,11 @@
 //! Leo, 2026-11-25: "is there a timeout where it can always check again at some point, like a
 //! promise of "i'll respond within x minutes since this isn't urgent"".
 //!
+//! The timer lives in memory: a restart reviews every restored inbox that holds new messages,
+//! a sweep reviews every chat's inbox every 10 minutes, and a message still undelivered a day
+//! past its deadline in a chat with no running turn expires and goes back to its sender with
+//! the reason (`inbox_deadline.rs`).
+//!
 //! The timer: one per session ([`Inbox::timer`]), for an idle chat's next wake or flush, or the
 //! flush of FYIs alone that wait for a running turn. Stop condition: it wakes once, at its
 //! deadline, and ends; it is armed only while a new message waits in an idle chat, or only FYIs
@@ -140,6 +145,8 @@
 use super::*;
 #[path = "inbox_admit.rs"]
 mod admit;
+#[path = "inbox_deadline.rs"]
+pub(super) mod deadline;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
