@@ -17,7 +17,7 @@ pub fn has_status(message: &str, code: &str) -> bool {
     let bytes = message.as_bytes();
     message.match_indices(code).any(|(at, _)| {
         let before = at.checked_sub(1).and_then(|i| bytes.get(i).copied());
-        let after = bytes.get(at + code.len()).copied();
+        let after = at.checked_add(code.len()).and_then(|i| bytes.get(i).copied());
         !before.is_some_and(|b| b.is_ascii_alphanumeric())
             && !after.is_some_and(|b| b.is_ascii_alphanumeric())
     })
@@ -65,8 +65,8 @@ pub fn retry_after(message: &str) -> Option<Duration> {
     ]
     .iter()
     .find_map(|lead| {
-        let at = lower.find(lead)? + lead.len();
-        let rest = lower[at..].trim_start_matches([' ', '"']);
+        let (_, after) = lower.split_once(lead)?;
+        let rest = after.trim_start_matches([' ', '"']);
         let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
         digits.parse().ok().map(Duration::from_secs)
     })
