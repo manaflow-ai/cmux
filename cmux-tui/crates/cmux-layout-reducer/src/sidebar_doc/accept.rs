@@ -15,6 +15,13 @@
 //! after the group, so taking the member row's parent there nested a group
 //! the user only meant to reorder. It goes into a group through that group's
 //! header (`into`), the one drop that highlights the group taking it.
+//!
+//! The top region is its own tier for workspaces and groups, as pinned
+//! workspaces are in classic cmux (`pinned`): a drag never pins or unpins. A
+//! workspace or group in a top section (Pinned, or the Top section above it,
+//! which Add to Top fills) lands only in a top section, and every other one
+//! lands in none. A drag that holds both refuses everywhere. Pin, Unpin and
+//! Add to Top are menu actions. Links, tabs and apps are not in the tier.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -43,6 +50,15 @@ struct Dragged {
     /// every group above it, and the top level (`None`). `None` when no group is
     /// dragged (a workspace or link lands beside any row it is allowed by).
     group_levels: Option<HashSet<Option<String>>>,
+    /// Some dragged workspace or group is in a top section.
+    top: bool,
+    /// Some dragged workspace or group is not (an unplaced live workspace counts).
+    below: bool,
+}
+
+/// Whether `item` sits in a section of the top region.
+fn is_top(doc: &Doc, item: &Item) -> bool {
+    doc.section(&item.section).is_some_and(|section| matches!(section.region, Region::Top))
 }
 
 fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
@@ -51,10 +67,19 @@ fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
         machines: HashSet::new(),
         group_height: 0,
         group_levels: None,
+        top: false,
+        below: false,
     };
     for key in items {
         result.keys.insert(key.clone());
         if let Some(item) = doc.item(key) {
+            if item.body.is_group() || item.body.workspace().is_some() {
+                if is_top(doc, item) {
+                    result.top = true;
+                } else {
+                    result.below = true;
+                }
+            }
             if item.body.is_group() {
                 result.group_height = result.group_height.max(doc.group_height(item));
                 let mut levels: HashSet<Option<String>> =
@@ -71,11 +96,14 @@ fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
             if let Some(machine) = doc.item_machine(item) {
                 result.machines.insert(machine);
             }
-        } else if let Some(reference) =
-            rows.iter().find(|row| row.key == *key).and_then(|row| row.reference.as_ref())
-        {
-            // An unplaced live workspace (its row has no item yet).
-            result.machines.insert(reference.session_id.clone());
+        } else {
+            // An unplaced live workspace (its row has no item yet): never pinned, whether or not its row is found.
+            result.below = true;
+            if let Some(reference) =
+                rows.iter().find(|row| row.key == *key).and_then(|row| row.reference.as_ref())
+            {
+                result.machines.insert(reference.session_id.clone());
+            }
         }
     }
     result
@@ -115,6 +143,7 @@ fn can_place<'a>(
     let Some(target) = doc.section(section) else {
         // A stand-in machine section (no stored section yet).
         return match section.strip_prefix(MACHINE_SECTION_PREFIX) {
+            Some(_) if dragged.top => Err(Refusal::Pinned),
             Some(session) if dragged.machines.iter().all(|m| m == session) => Ok(()),
             Some(_) => Err(Refusal::CrossMachine),
             None => Err(Refusal::UnknownSection),
@@ -122,6 +151,11 @@ fn can_place<'a>(
     };
     if matches!(target.kind, SectionKind::App { .. }) {
         return Err(Refusal::ProviderOwned);
+    }
+    // The top tier: a workspace or group lands only in its own tier (see the module doc).
+    let into_top = matches!(target.region, Region::Top);
+    if (into_top && dragged.below) || (!into_top && dragged.top) {
+        return Err(Refusal::Pinned);
     }
     if let Some(machine) = target.kind.machine()
         && dragged.machines.iter().any(|m| m != machine)
