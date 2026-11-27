@@ -527,10 +527,12 @@ PY
       # shellcheck disable=SC2086 # one pid per word
       kill -TERM $left 2>/dev/null || true
       for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
-      # A helper that ignores TERM for 15 s (seen on fleet Macs: one daemon pid left after every look, which failed
-      # a passing UI proof at teardown) runs from this copy's bundle only, so it is ours to KILL.
+      # A helper that ignores TERM for 15 s gets KILL: copy_pids matches only executables inside this
+      # copy's own bundle, so nothing else can be hit. Before, stop died here and hot-verify marked a
+      # look whose every step passed as failed (cmux#38805, 2 helpers left after TERM).
       left="$(copy_pids)"
       if [[ -n "$left" ]]; then
+        echo "side-instance: $name: $(echo $left | wc -w | tr -d ' ') process(es) ignored TERM for 15 s, sending KILL: $(echo $left)" >&2
         # shellcheck disable=SC2086 # one pid per word
         kill -KILL $left 2>/dev/null || true
         for _ in $(seq 1 25); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
