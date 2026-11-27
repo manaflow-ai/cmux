@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45987324702",
+  "recorded_at": "2026-11-27T11:41:55Z",
+  "reason": "image inputs changed in 946de8bad99927bdfb38c683f77f92f30a02bfdc..b6d359500ba316b6cb563302c809c925b2ae59c4; cmux-tui f47cc565fce5, the newest build published on HEAD (pinned a3ea2d0abd6a; latest build 3c89e2b3be80 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "f47cc565fce537479bbd7dcbad106b6d808d2df0",
+  "fixes": [
+    {
+      "sha": "b6d359500ba316b6cb563302c809c925b2ae59c4",
+      "mergedAt": "2026-11-27T11:03:45+00:00",
+      "subject": "Cloud image bake: the apt archive fallback is bounded by a stall, not a 60 s total (#61204)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T11:41:55Z",
+    "snapshot_id": "sh-e1d187f138364d53ac11cb1196733ffd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45987324702): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "24d53fe347b69295ccf728377e429d00d9b72e97",
+    "image": "cloud-native-auto-f47cc565-45987324702-1",
+    "revision": "ci-45987324702-1",
+    "at": "2026-11-27T11:41:55Z"
+  },
+  "rolled_back": false
+}
