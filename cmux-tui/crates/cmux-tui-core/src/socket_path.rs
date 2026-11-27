@@ -1,7 +1,13 @@
 //! Session socket paths: name validation and the runtime-directory socket
 //! each session listens on (moved out of server.rs, behavior unchanged).
+//! Lives below `server` (RFD 0174 slice 5): the rest of core uses it without
+//! reaching into `server`; `server` re-exports it, so its callers are unchanged.
 
-use super::*;
+use std::path::{Path, PathBuf};
+
+use sha2::{Digest, Sha256};
+
+use crate::platform;
 
 /// Validate the component used to identify a local session.
 ///
@@ -67,7 +73,7 @@ fn invalid_session_socket_path(session: &str) -> PathBuf {
     platform::invalid_runtime_dir().join(format!("{digest}.sock"))
 }
 
-pub(super) fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+pub(crate) fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
     default_socket_path_in_runtime_dir_scoped(
         session,
         runtime_dir,
