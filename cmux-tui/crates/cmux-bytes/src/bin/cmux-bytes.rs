@@ -7,11 +7,17 @@
 //!       One hill-climb step per `--steps`: change one param of the best set in STATE, measure both
 //!       on the same harness (same corpus, profiles, jitter), keep the change only when it beats the
 //!       best at p50 and p95 and grows no payload; every step is a line in FINDINGS.md.
+//!   cmux-bytes prefetch --folder NAME=PATH ... [--profile ...] [--runs N] [--param K=V ...]
+//!                       [--json OUT] [--table OUT.md]
+//!       What a machine holds before a chat reads: today (the whole folder in fill order) against
+//!       the ranker (likelihood per byte over idle bandwidth, `prefetch_budget` held), as the
+//!       first-turn hit rate and the bytes held but never read, over `--runs` simulated chats.
 //!   cmux-bytes bench-levels PATH    zstd throughput per level on PATH's files
 //!   cmux-bytes install-timer --folders-file FILE [--every 2h]
 //!       Copies this binary to ~/.local/bin/cmux-bytes and writes the systemd user units
 //!       cmux-bytes-climb.{service,timer}: two climb steps a run, at idle priority, publishing
-//!       ~/.cache/cmux-bytes/latest.json (NOW's bytes section) and the findings log beside it.
+//!       ~/.cache/cmux-bytes/latest.json (NOW's bytes section), prefetch.json (first-turn hit
+//!       rate, held never read) and the findings log beside it.
 //!
 //! `--folders-file FILE` gives the folders as `NAME=PATH` lines (`#` comments), like `--folder`.
 
@@ -51,10 +57,11 @@ fn main() -> ExitCode {
     let got = match args.first().map(String::as_str) {
         Some("bench") => bench(rest),
         Some("climb") => climb(rest),
+        Some("prefetch") => prefetch(rest),
         Some("bench-levels") => levels(rest),
         Some("install-timer") => install_timer(rest),
         _ => Err(
-            "usage: cmux-bytes bench|climb|bench-levels|install-timer ... (see the file header)"
+            "usage: cmux-bytes bench|climb|prefetch|bench-levels|install-timer ... (see the file header)"
                 .into(),
         ),
     };
@@ -150,6 +157,13 @@ fn parse(args: &[String]) -> Res<Opts> {
             other => return Err(format!("unknown flag {other}")),
         }
         i += 2;
+    }
+    // A folder that is not there walks as empty, and an empty corpus measures every candidate
+    // as equal to the best: the climb then "drops" every step and NOW reads green on no data
+    // (11-26 01:25Z to 11-27 06:22Z, steps 13 to 44, after the corpus was removed). An empty
+    // folder is a real case; a missing one is an error.
+    if let Some((n, p)) = o.folders.iter().find(|(_, p)| !p.is_dir()) {
+        return Err(format!("folder {n}={} is not a directory", p.display()));
     }
     Ok(o)
 }
@@ -380,6 +394,62 @@ fn bench(args: &[String]) -> Res<bool> {
     Ok(true)
 }
 
+fn prefetch(args: &[String]) -> Res<bool> {
+    let o = parse(args)?;
+    let mut table = String::from(
+        "| folder | profile | first-turn hit today | first-turn hit new | held never read today | held never read new |\n|---|---|---|---|---|---|\n",
+    );
+    let mut rows = Vec::new();
+    for (name, root) in &o.folders {
+        let (entries, _dirs, _bytes) = harness::walk(root, o.cap);
+        for p in &o.profiles {
+            let r = harness::prefetch_eval(&entries, &o.params, p, o.runs);
+            let _ = writeln!(
+                table,
+                "| {name} | {} | {:.0}% | {:.0}% | {} | {} |",
+                p.name,
+                r.today.first_turn_hit_rate * 100.0,
+                r.new.first_turn_hit_rate * 100.0,
+                mb(r.today.held_never_read_bytes),
+                mb(r.new.held_never_read_bytes),
+            );
+            let side = |h: &cmux_bytes::prefetch::HitStats| {
+                format!(
+                    "{{\"first_turn_hit_rate\":{:.4},\"first_turn_hit_bytes_rate\":{:.4},\"held_never_read_bytes\":{},\"held_bytes\":{},\"first_turn_reads\":{}}}",
+                    h.first_turn_hit_rate,
+                    h.first_turn_hit_bytes_rate,
+                    h.held_never_read_bytes,
+                    h.held_bytes,
+                    h.first_turn_reads
+                )
+            };
+            rows.push(format!(
+                "{{\"folder\":{name:?},\"profile\":{:?},\"today\":{},\"new\":{}}}",
+                p.name,
+                side(&r.today),
+                side(&r.new)
+            ));
+        }
+    }
+    print!("{table}");
+    if let Some(p) = &o.json {
+        let params: Vec<String> =
+            o.params.pairs().iter().map(|(k, v)| format!("{k:?}:{v:?}")).collect();
+        let doc = format!(
+            "{{\"schema\":\"cmux-bytes-prefetch/v1\",\"at\":{:?},\"runs\":{},\"params\":{{{}}},\"rows\":[{}]}}\n",
+            now_utc(),
+            o.runs,
+            params.join(","),
+            rows.join(",")
+        );
+        std::fs::write(p, doc).ctx("write --json")?;
+    }
+    if let Some(p) = &o.table {
+        std::fs::write(p, table).ctx("write --table")?;
+    }
+    Ok(true)
+}
+
 /// The next candidates around `p`: each changes one param one step.
 fn neighbors(p: &Params) -> Vec<(&'static str, String)> {
     let f = |x: f64| format!("{x}");
@@ -592,7 +662,8 @@ fn install_timer(args: &[String]) -> Res<bool> {
         "# Written by `cmux-bytes install-timer` (manaflow-ai/cmux cmux-tui/crates/cmux-bytes).\n\
 [Unit]\nDescription=cmux-bytes hill-climb: two steps on the bytes-path corpus, published for NOW\n\n\
 [Service]\nType=oneshot\nNice=19\nIOSchedulingClass=idle\nTimeoutStartSec=100min\n\
-ExecStart={bin} climb --folders-file {folders} --steps 2 --runs 9 --cap-bytes 67108864 --state {cache}/state --log {cache}/findings.md --json {cache}/latest.json --table {cache}/table.md\n",
+ExecStart={bin} climb --folders-file {folders} --steps 2 --runs 9 --cap-bytes 67108864 --state {cache}/state --log {cache}/findings.md --json {cache}/latest.json --table {cache}/table.md\n\
+ExecStart={bin} prefetch --folders-file {folders} --runs 9 --cap-bytes 67108864 --json {cache}/prefetch.json\n",
         bin = bin.display(),
         folders = folders.display(),
         cache = cache.display(),
@@ -614,4 +685,20 @@ ExecStart={bin} climb --folders-file {folders} --steps 2 --runs 9 --cap-bytes 67
         bin.display()
     );
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_folder_is_an_error_and_an_empty_one_is_not() {
+        let empty = std::env::temp_dir().join(format!("cmux-bytes-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&empty).unwrap();
+        let ok = parse(&["--folder".into(), format!("empty={}", empty.display())]);
+        let gone = parse(&["--folder".into(), format!("gone={}/missing", empty.display())]);
+        std::fs::remove_dir(&empty).unwrap();
+        assert!(ok.is_ok());
+        assert!(gone.err().unwrap().contains("gone="));
+    }
 }
