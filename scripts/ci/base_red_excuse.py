@@ -7606,23 +7606,10 @@ def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: 
     markers: list[dict] = []
     marker_lines: list[int] = []
     all_lines: list[str] = []
-    runner_lines: set[int] = set()
-    in_run_group = False
-    runner_boilerplate = re.compile(
-        r"^(?:"
-        r"(?:python3?|/usr/bin/env python3) scripts/ci/risk_tier\.py pr(?: .*)?|"
-        r"shell: /[^ ]+/bash -e \{0\}|env:|[A-Z_][A-Z0-9_]*: \*\*\*"
-        r")$")
     for raw, index in view.lines():
-        for text in lines_of(raw):
+        for text in test_reds.log_lines(raw):
             line_number = len(all_lines)
             all_lines.append(text)
-            if text.startswith("##[group]Run "):
-                in_run_group = True
-            elif in_run_group and runner_boilerplate.fullmatch(text):
-                runner_lines.add(line_number)
-            elif text == "##[endgroup]":
-                in_run_group = False
             match = RISK_EVIDENCE_MARKER.fullmatch(text)
             if match is None:
                 continue
@@ -7632,12 +7619,14 @@ def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: 
                 marker = json.loads(match.group("body"))
             except (TypeError, ValueError):
                 return None
-            if isinstance(marker, dict):
-                markers.append(marker)
-                marker_lines.append(line_number)
+            if not isinstance(marker, dict):
+                return None
+            markers.append(marker)
+            marker_lines.append(line_number)
     echoed = test_reds.echoed(all_lines)
     if (not markers or any(line_number in echoed for line_number in marker_lines)
-            or any("takes back" in line.lower() or "takeback" in line.lower() for line in all_lines)):
+            or any("takes back" in line.lower() or "takeback" in line.lower()
+                   for n, line in enumerate(all_lines) if n not in echoed)):
         return None
     allowed = re.compile(
         r"^(?:"
@@ -7648,10 +7637,10 @@ def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: 
         r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
-        r"##\[group\]Run .*scripts/ci/risk_tier\.py pr|##\[endgroup\]|"
+        r"gh api .*: GitHub rate limit; waiting \d+s for the budget|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"
         r")$")
-    if any(line_number not in runner_lines and line and RISK_EVIDENCE_MARKER.fullmatch(line) is None
+    if any(line_number not in echoed and line and RISK_EVIDENCE_MARKER.fullmatch(line) is None
            and allowed.fullmatch(line) is None for line_number, line in enumerate(all_lines)):
         return None
     if test_reds.failed_in(view_text(view)):

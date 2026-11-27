@@ -8457,13 +8457,21 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
     STEP = "Grade the pull request"
 
     def case(self, *lines, workflow_path=".github/workflows/risk-tier.yml@refs/heads/main", event="pull_request_target",
-             steps=None, step_name=None):
+             steps=None, step_name=None, columns=False, through_reader=False):
         step_name = step_name or self.STEP
         job = {"id": 123, "run_id": 10, "name": self.JOB, "status": "completed", "conclusion": "failure",
                "steps": framed_steps(steps or [(step_name, "failure", 3, 6)])}
-        text = framed_log([(step_name, 3, "##[group]Run python3 scripts/ci/risk_tier.py pr"),
-                           *[(step_name, 4, line) for line in lines]], job_name=self.JOB)
+        if not lines or not lines[0].startswith("##[group]Run "):
+            lines = ("##[group]Run python3 scripts/ci/risk_tier.py pr",
+                     "python3 scripts/ci/risk_tier.py pr",
+                     "shell: /usr/bin/bash -e {0}", "##[endgroup]", *lines)
+        text = framed_log([(step_name, 4, line) for line in lines], job_name=self.JOB, columns=columns)
         run_reads = {("run-record", 10): {"path": workflow_path, "event": event}}
+        if through_reader:
+            github = FakeGitHub()
+            github.logs[123] = text
+            with unittest.mock.patch.object(excuse, "job_step_names", return_value=excuse.STEP_NAMES_UNKNOWN):
+                return excuse.read_head(REPO, "feat-cmux-next", HEAD, self.JOB, job, github, run_reads, None)
         return excuse.risk_evidence_quota_only(
             REPO, job, text, object(), run_reads, step_names=excuse.STEP_NAMES_UNKNOWN)
 
@@ -8505,15 +8513,69 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
 
-    def test_real_runner_group_boilerplate_is_ignored(self):
-        self.assertIsNotNone(self.case(
-            "python3 scripts/ci/risk_tier.py pr 7",
-            "shell: /usr/bin/bash -e {0}",
-            "env:",
-            "  GH_TOKEN: ***",
-            self.MARKER,
-            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
-            "##[endgroup]"))
+    def test_any_malformed_marker_rejects_even_beside_a_valid_one(self):
+        for payload in ('[]', 'null', '{bad}', '{"graded":false}',
+                        '{"endpoint":"repos/o/r/pulls/7","graded":true,"reset":1800000000,"status":403}'):
+            with self.subTest(payload=payload):
+                self.assertIsNone(self.case(self.MARKER, "risk-evidence.rate-limited " + payload))
+
+    # Constructed from the main workflow's multiline shell shape, not a captured job log.
+    RUN_GROUP = (
+        "##[group]Run grade() {",
+        "grade() {",
+        '  : > "$RUNNER_TEMP/grade.out"; : > "$RUNNER_TEMP/grade.md"',
+        '  python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER"',
+        "}",
+        'if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" grade; then',
+        "  echo \"::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN\"",
+        "  grade",
+        "fi",
+        'cat "$RUNNER_TEMP/grade.out" >> "$GITHUB_OUTPUT"',
+        "shell: /usr/bin/bash -e {0}",
+        "env:",
+        "  GH_TOKEN: ***",
+        "  NUMBER: 60724",
+        "##[endgroup]",
+    )
+    WAIT = "gh api -i repos/o/r/pulls/7/files?per_page=100: GitHub rate limit; waiting 60s for the budget"
+
+    def test_multiline_runner_group_then_live_quota_is_retryable(self):
+        self.assertIsNotNone(self.case(*self.RUN_GROUP, self.WAIT, self.MARKER,
+                                      "##[error]Process completed with exit code 1."))
+
+    def test_echoed_marker_cannot_supply_a_quota_verdict(self):
+        group = (*self.RUN_GROUP[:2], self.MARKER, *self.RUN_GROUP[2:])
+        self.assertIsNone(self.case(*group, "##[error]Process completed with exit code 1."))
+        self.assertIsNone(self.case(*group, self.MARKER))
+
+    def test_script_takeback_text_is_not_runtime_takeback_evidence(self):
+        group = (*self.RUN_GROUP[:2], "# takeback output belongs to the classifier", *self.RUN_GROUP[2:])
+        self.assertIsNotNone(self.case(*group, self.MARKER))
+        self.assertIsNone(self.case(*group, self.MARKER, "::warning::Takes back #57000: stale base"))
+
+    def test_multiline_runner_group_does_not_hide_runtime_failure(self):
+        for error in ("##[error]permission denied", "::warning::Takes back #57000: stale base",
+                      "gh api -i repos/o/r/pulls/7: HTTP 403 Resource not accessible by integration"):
+            with self.subTest(error=error):
+                self.assertIsNone(self.case(*self.RUN_GROUP, self.WAIT, self.MARKER, error))
+
+    def test_wait_line_without_structured_marker_is_not_quota_evidence(self):
+        self.assertIsNone(self.case(*self.RUN_GROUP, self.WAIT, "##[error]Process completed with exit code 1."))
+
+    def test_column_formatted_runner_group_is_also_retryable(self):
+        self.assertIsNotNone(self.case(*self.RUN_GROUP, self.WAIT, self.MARKER, columns=True))
+
+    def test_head_reader_preserves_quota_and_mixed_failure_types(self):
+        with self.assertRaises(excuse.JobRateLimited):
+            self.case(*self.RUN_GROUP, self.WAIT, self.MARKER,
+                      "##[error]Process completed with exit code 1.", through_reader=True)
+        for lines in ((self.MARKER, "::warning::Takes back #57000: stale base"),
+                      ("gh: API rate limit exceeded (HTTP 403)",),
+                      (self.MARKER, "##[error]permission denied")):
+            with self.subTest(lines=lines):
+                with self.assertRaises(excuse.Refused) as caught:
+                    self.case(*self.RUN_GROUP, *lines, through_reader=True)
+                self.assertNotIsInstance(caught.exception, excuse.JobRateLimited)
 
 
 class RetargetedGitHub(FakeGitHub):
