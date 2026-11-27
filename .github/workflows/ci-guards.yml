@@ -1475,6 +1475,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_branch_history_fetch.py
 
+      - name: Validate registered cargo delta matched entry
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cargo_delta_matched_entry.py
+
+      - name: Validate registered live base merge jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_live_base_jobs.py
+
+      - name: Validate registered private names fetch wait
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_private_names_fetch_wait.py
+
       - name: Validate registered ci cmux tui mac warm target
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_tui_mac_warm_target.py
