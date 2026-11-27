@@ -768,6 +768,8 @@ impl Hub {
         // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
         let (title, title_source) = super::titles::fork_title(&parent_meta);
         let mut meta = SessionMeta {
+            tripwires: None,
+            tripwire_enabled: false,
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,

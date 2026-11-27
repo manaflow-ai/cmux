@@ -323,6 +323,7 @@ impl Hub {
                     let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
                     // Its last reply's claims, checked against its own runs (`claim_check.rs`).
                     self.append_claim_checks(session, turn_id);
+                    self.settle_tripwires(session, turn_id);
                     self.append(
                         session,
                         "mux",
@@ -389,6 +390,7 @@ impl Hub {
                     }
                 }
                 Err(e) => {
+                    self.settle_tripwires(session, turn_id);
                     let mut record = json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq});
                     if let Some(o) = record.as_object_mut() {
                         o.extend(crate::recovery::fields(e));
@@ -538,6 +540,7 @@ impl Hub {
         let stopped_early = is_stopped_before_prompt(e);
         if stopped_early || was_stopping {
             let stop = stopped_answer().get("stopReason").cloned().unwrap_or_default();
+            self.settle_tripwires(session, turn_id);
             self.append(
                 session,
                 "mux",
@@ -562,6 +565,7 @@ impl Hub {
             return;
         }
         let mut e = e.clone();
+        self.settle_tripwires(session, turn_id);
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
         let typed = crate::recovery::fields(&e);
         let mut record =

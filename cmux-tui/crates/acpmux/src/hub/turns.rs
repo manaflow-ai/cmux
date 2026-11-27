@@ -984,6 +984,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A new turn must not inherit a previous turn's green evidence, including when it
+        // fails before the model is heard and therefore never reaches stalled_turn's reset.
+        self.reset_tripwires(session, Some(&turn_id));
         self.arm_turn_cap(session, &turn_id);
         // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
         // (below), and what is new steers in then.
@@ -1824,6 +1827,7 @@ impl Hub {
         }
         result
     }
+
 }
 
 /// Clears `Session::ending` once `finish_turn` leaves, however it leaves, and wakes a shutdown

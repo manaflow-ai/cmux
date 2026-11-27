@@ -11237,6 +11237,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }}
     />
   );
+
   const framesDock = quick ? undefined : (
     <FramesDock
       pane={framesPaneKey(snapshot.sessionId)}
@@ -11244,8 +11245,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       working={snapshot.isWorking === true}
       onOpen={openImage}
     />
+
   );
   const pane = drawPaneBody({
+    showTripwireCall: showCall,
     framesDock,
     knowsWhatItIs,
     shortcuts,

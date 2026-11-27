@@ -2366,12 +2366,20 @@ function shapeTurn(
     (!live || concluding) && answerComplete && !wrapUp && !tagged && summary.status === "completed"
       ? steeredAsk(body)
       : undefined;
-  const nextStep = live && !concluding ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
+  const closing = wrapUp ?? tagged ?? cutOff?.ask;
+  const tripwires = summary.tripwires?.items;
+  const nextStep =
+    live && !concluding
+      ? undefined
+      : tripwires?.length
+        ? { ...(closing ?? { tag: "wrap_up", question: "", options: [], rest: answer?.text ?? "" }), tripwires }
+        : closing;
   // The turn's last browser walkthrough, read once the turn has ended; drawn once, under the answer.
   const walked = live && !concluding ? undefined : lastWalkthrough(worked);
   let walkedDrawn = false;
   // The next-step card draws once per turn: under the answer, in its fold, or after the turn's last.
   let cardDrawn = false;
+
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -2732,12 +2740,14 @@ function shapeTurn(
       if (stripUnder) shaped.push(strip(said.at));
     }
     shaped.push(...between(after));
+
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row, under its
     // walkthrough: the strip always draws before the card.
-    if (nextStep && wrapUp && !cardDrawn && final) {
+    if (nextStep && (wrapUp || tripwires?.length) && !cardDrawn && final) {
       if (walked && !walkedDrawn) shaped.push(strip(summary.at));
       shaped.push(card(summary.at));
     }
+
     // A cut-off ask goes right under the reply that asked it, which drops the ask's lines; where
     // that reply is out of sight (in a closed fold), after the turn's last row, the reply whole.
     // Once, after the turn's last fold, which sees every row drawn before it.

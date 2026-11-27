@@ -1,3 +1,4 @@
+import { TripwireStatus } from "../tripwires/TripwireStatus";
 // AcpmuxPane's pane body (RFD 0046 step 2.2): the drawn tree around the chat (its New Tab page,
 // header, transcript, side panels, asks, composer slot and dialogs), moved out of App.tsx as it was.
 // A plain render function AcpmuxPane calls inline for its `pane`, so React sees the same element
@@ -177,6 +178,7 @@ export type PaneBodyDeps = NewTabShown &
     setShell: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     inTabRow: boolean;
     header: ReturnType<typeof paneHeader>;
+    showTripwireCall: (toolCallId: string) => boolean;
     soloTab: boolean;
     tabRow: TabRow;
     ownBackgroundPane: boolean;
@@ -495,6 +497,7 @@ export function drawPaneBody({
   setShell,
   inTabRow,
   header,
+  showTripwireCall,
   soloTab,
   tabRow,
   ownBackgroundPane,
@@ -1358,6 +1361,11 @@ export function drawPaneBody({
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                    {!showNewTab && snapshot.summary?.tripwires && (
+                      <div className="acpmux-tripwire-header-slot">
+                        <TripwireStatus items={snapshot.summary.tripwires.items} onShowCall={showTripwireCall} />
+                      </div>
+                    )}
                     {liveTreeEnabled && snapshot.sessionId && (
                       <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
                     )}

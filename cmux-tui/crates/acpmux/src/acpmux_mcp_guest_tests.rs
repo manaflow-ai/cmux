@@ -16,9 +16,15 @@ fn a_guest_gets_the_tools_that_need_no_session_and_new_and_machines() {
     for artifact in artifacts::TOOLS {
         assert!(signed_in.iter().any(|n| n == artifact), "{artifact}: {signed_in:?}");
     }
-    for session_bound in
-        ["inbox_read", "bg_start", "goal_set", "wrap_up", "watch_add", "machine_info"]
-    {
+    for session_bound in [
+        "inbox_read",
+        "bg_start",
+        "goal_set",
+        "tripwire_declare",
+        "wrap_up",
+        "watch_add",
+        "machine_info",
+    ] {
         assert!(!signed_in.iter().any(|n| n == session_bound), "{session_bound}");
     }
 }

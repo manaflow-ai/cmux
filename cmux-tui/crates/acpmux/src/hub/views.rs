@@ -1106,6 +1106,7 @@ impl Hub {
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
+
         let turn_runs = summary.turn.is_some();
         let work = running_work(session, turn_runs, self.running_processes_read(session));
         extras.push(("subagentsRunning", json!(work.subagents)));
@@ -1121,6 +1122,8 @@ impl Hub {
             }
         }
         extras.push(("commandsRunning", json!(work.commands)));
+        extras.push(("tripwires", m.tripwires.clone().map_or(Value::Null, |state| serde_json::to_value(state).unwrap_or(Value::Null))));
+
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);

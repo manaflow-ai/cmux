@@ -55,6 +55,7 @@ test("a compare names the chat's harness and the other of Claude and Codex", () 
   expect(compareHarnesses(undefined)).toEqual(["claude", "codex"]);
   expect(harnessName("codex")).toBe("Codex");
   expect(harnessName("pi")).toBe("pi");
+  expect(planBuildTarget("tripwires")).toBe("tripwires");
   expect(planBuildTarget("compare")).toBe("compare");
   expect(() => planBuildTarget("cloud")).toThrow();
 });
@@ -116,7 +117,7 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-test("the chevron's menu offers the three builds, and a pick builds once", async () => {
+test.each(["compare", "tripwires"] as const)("the plan menu selects %s exactly once", async (target) => {
   const { createRoot } = await import("react-dom/client");
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
@@ -139,12 +140,12 @@ test("the chevron's menu offers the three builds, and a pick builds once", async
     chevron.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
   const items = () => [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-  expect(items().map((item) => item.dataset.value)).toEqual(["here", "worktree", "compare"]);
-  expect(items()[2]!.textContent).toContain("Claude and Codex");
+  expect(items().map((item) => item.dataset.value)).toEqual(["here", "worktree", "tripwires", "compare"]);
+  expect(items()[3]!.textContent).toContain("Claude and Codex");
   await act(async () => {
-    items()[2]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    items().find((item) => item.dataset.value === target)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
-  expect(built).toEqual(["compare"]);
+  expect(built).toEqual([target]);
   expect(answered).toEqual([]);
   act(() => root.unmount());
 });

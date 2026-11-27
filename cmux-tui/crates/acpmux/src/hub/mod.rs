@@ -202,6 +202,7 @@ mod live_models;
 mod live_name;
 mod locate;
 pub(crate) mod lock_bridge;
+
 mod log_deferral;
 mod log_load;
 #[cfg(test)]
@@ -435,6 +436,7 @@ mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
+pub(crate) mod tripwires;
 mod terminal_input;
 #[cfg(test)]
 mod time_breakdown_restore_tests;

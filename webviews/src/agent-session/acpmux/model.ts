@@ -541,6 +541,8 @@ export type AcpmuxRow = {
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
   /// end (hub/claim_check.rs): each one's phrase draws a mark (conversation/ClaimMark.tsx).
   claims?: ClaimCheck[];
+  /// The recorded evidence for this completed turn, never a later turn's results.
+  tripwires?: import("./tripwires/state").TripwireState;
   streaming?: boolean;
   pending?: boolean;
   failed?: boolean;
@@ -1404,6 +1406,7 @@ export type AcpmuxSnapshot = {
   /// tasks row (session-info/agentSide.ts).
   surge?: SurgeHold;
   summary?: {
+    tripwires?: import("./tripwires/state").TripwireState;
     sessionId: string;
     cwd?: string;
     turnCount?: number;

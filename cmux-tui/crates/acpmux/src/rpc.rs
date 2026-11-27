@@ -1089,6 +1089,7 @@ pub mod method {
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
+    pub const MUX_TRIPWIRE_DECLARE: &str = "_acpmux/tripwire/declare";
     pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
     pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
     /// The machine's one GitHub poller for a pull request's state (`server/github_prs.rs`,

@@ -203,6 +203,7 @@ mod reply_size_tests;
 mod request_admission_tests;
 mod requests;
 mod review_queue;
+mod tripwires;
 mod routes;
 mod run_elsewhere;
 mod secrets;
@@ -2176,7 +2177,9 @@ pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub(crate) use chats::usage_upload_loop;
 pub use conn_auth::ConnAuth;
 use lane_parent::lane_parent;
+
 pub(crate) use outbound::is_cheap_read;
+
 pub use pairing::serve_connection_device;
 pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub use pending::{event_value, into_event_value};

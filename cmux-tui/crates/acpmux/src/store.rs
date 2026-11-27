@@ -50,12 +50,13 @@ pub use meta_parts::PARTS_FILE;
 pub(crate) use meta_parts::to_writer_without_parts;
 mod shared_value;
 mod text_index;
+
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
-    LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,
+    LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, TripwireItem, TripwireState, WaitReason,
     WatchedTurn, Watching,
 };
 
