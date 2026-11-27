@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextPalette
@@ -282,7 +283,11 @@ extension NewTabPage {
         let cloud = CloudFrontedChats.cloudChat(shownBy: pane.selectedTab, services: services)
         let opened = services.pages.open(.nativeNewTab, in: pane.pane.id, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                                          window: services.windowController(showing: pane))
-        services.agentTabs.frontedChats.pageOrigins[opened] = cloud // its picks open on that chat's machine (cmux#57249)
+        // Its picks and palette rows open on that chat's machine (cmux#57249); closed pages' entries go.
+        let fronts = services.agentTabs.frontedChats
+        let open = Set(services.pages.keys(of: .nativeNewTab))
+        fronts.pageOrigins = fronts.pageOrigins.filter { open.contains($0.key) }
+        fronts.pageOrigins[opened] = cloud
         // The prepared page, if one is parked (NewTabSparePool.warmNative); the pane's view for `opened` adopts it.
         let spare = services.newTabSpares.takeNative(for: opened)
         pane.apply(pane.snapshot())
@@ -396,23 +401,19 @@ extension NativeNewTabHostingView: InternalPageFocusing {
 }
 
 extension NewTabPage {
-    /// A New Tab page opened from Cloud chat `chat`: its Terminal pick (typing or running what was typed) and its
-    /// Browser pick with no address open on the chat's machine, as the chat header's tools do, then the page closes. A
-    /// browser pick with an address opens it here: the machine's desktop takes none. False to pick as before.
+    /// A New Tab page opened from Cloud chat `chat` (``CloudChatFocus/pick(terminal:browser:text:run:keep:)``): true once
+    /// the pick opened on the chat's machine, in its folder there, and the page closed; false to pick as before. A Mac
+    /// Screen pairing link is never typed anywhere: the page's own refusal says so.
     static func opensOnCloud(_ request: AgentPaneOpenTab, chat: AgentTabKey, services: AppServices, close: @MainActor () -> Void) -> Bool {
-        let typing: String?
-        switch request.kind {
-        case .terminal:
-            if request.run { guard case .some(let command) = command(request.text) else { return false }; typing = command } else { typing = request.text.isEmpty ? nil : request.text }
-        case .browser where request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
-            typing = nil
-        default:
-            return false
+        guard MacScreenPages.pairingLinkRefusal(for: request.text) == nil,
+              let pick = CloudChatFocus.pick(terminal: request.kind == .terminal, browser: request.kind == .browser, text: request.text, run: request.run, keep: request.keep,
+                                                 picked: request.picked)
+        else { return false }
+        let opened = switch pick {
+        case .terminal(let typing): CloudFrontedChats.openOnCloud(.terminal, chat: chat, typing: typing, services: services)
+        case .browser: CloudFrontedChats.openOnCloud(.browser, chat: chat, services: services)
         }
-        // The page's folder is this Mac's: the chat's folder on its machine instead.
-        let kind: RightColumnPlacement.Kind = request.kind == .terminal ? .terminal : .browser
-        guard CloudFrontedChats.openOnCloud(kind, chat: chat, typing: typing, services: services) else { return false }
-        if !request.keep { close() }
-        return true
+        if opened { close() }
+        return opened
     }
 }

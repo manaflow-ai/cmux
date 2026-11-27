@@ -56,7 +56,7 @@ extension NewTabSubmit {
     /// searches and typo fixes. Explicit Terminal picks keep their Run intent.
     static func nativeRequest(text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, resolver: OmniboxResolver) -> AgentPaneOpenTab? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        var request = AgentPaneOpenTab(kind: kind, text: trimmed, cwd: cwd, search: search, run: kind == .terminal)
+        var request = AgentPaneOpenTab(kind: kind, text: trimmed, cwd: cwd, search: search, run: kind == .terminal, picked: true)
         guard kind == .browser, !trimmed.isEmpty else { return request }
         switch plan(text: trimmed, search: search, agent: nil, resolver: resolver, fixesHostTypos: true) {
         case .terminal(let command): request.kind = .terminal; request.text = command

@@ -337,7 +337,8 @@ extension AgentPaneRequest {
                                                  keep: params?["keep"] as? Bool == true,
                                                  profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
                                                  inPlace: params?["inPlace"] as? Bool == true,
-                                                 beside: kind == .browser && params?["beside"] as? Bool == true))
+                                                 beside: kind == .browser && params?["beside"] as? Bool == true,
+                                                 picked: params?["pick"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }

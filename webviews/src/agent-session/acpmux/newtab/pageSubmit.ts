@@ -29,7 +29,8 @@ export function newTabPageSubmit(deps: {
       deps.whenHandshaken(() => deps.startChat(text, cwd, attachments, chat));
       return undefined;
     }
-    // The page shows a refusal under the field (NewTabPage).
-    return deps.callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text }).then(() => undefined);
+    // The page shows a refusal under the field (NewTabPage). `pick`: typed in the page's own field, so a page opened
+    // from a Cloud chat opens it on the chat's machine (cmux#57249); the page's setup actions send none.
+    return deps.callNative("tab.open", cwd ? { kind, text, cwd, pick: true } : { kind, text, pick: true }).then(() => undefined);
   };
 }

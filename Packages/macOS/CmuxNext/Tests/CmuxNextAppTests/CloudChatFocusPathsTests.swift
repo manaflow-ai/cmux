@@ -91,16 +91,32 @@ struct CloudChatFocusPathsTests {
         let f = try Fixture()
         let chat = AgentTabKey(machine: f.session.machineID, key: "chat-1")
         var closed = 0
-        func pick(_ kind: AgentPaneTabKind, _ text: String, run: Bool = true) -> Bool {
-            NewTabPage.opensOnCloud(AgentPaneOpenTab(kind: kind, text: text, run: run), chat: chat, services: f.services, close: { closed += 1 })
+        func pick(_ kind: AgentPaneTabKind, _ text: String, run: Bool = true, keep: Bool = false, picked: Bool = true) -> Bool {
+            NewTabPage.opensOnCloud(AgentPaneOpenTab(kind: kind, text: text, run: run, keep: keep, picked: picked), chat: chat, services: f.services, close: { closed += 1 })
         }
         #expect(pick(.terminal, "ls"))
         #expect(pick(.terminal, "git st", run: false))
         #expect(pick(.browser, ""))
         #expect(!pick(.browser, "example.com"), "an address opens here: the desktop takes none")
         #expect(!pick(.agent, "hi"))
+        #expect(!pick(.terminal, "claude /login", keep: true), "the page's harness Sign In acts on this Mac's harness")
+        #expect(!pick(.terminal, "npm i -g @openai/codex", picked: false), "so do its Install, Log In and Reauthenticate")
+        #expect(!pick(.terminal, "echo cmux-vnc://pair?room=r"), "a pairing link is refused, never typed on the machine")
         #expect(f.opened == f.on(.terminal, typing: "ls\n") + f.on(.terminal, typing: "git st") + f.on(.browser))
         #expect(closed == 3, "the page closes once its pick opened on the machine")
+    }
+
+    /// A native New Tab page opened from the Cloud chat counts as it: its palette rows' New Terminal and New Browser
+    /// (and the pane toolbar's while the page shows) open on the chat's machine; a page from no Cloud chat is unchanged.
+    @Test func aNativeNewTabPageFromTheChatOpensItsRowsOnTheChatsMachine() throws {
+        let f = try Fixture()
+        let page = "local-page:nativeNewTab:\(UUID().uuidString)" // an app-only page, in no daemon's tree
+        let chat = AgentTabKey(machine: f.session.machineID, key: "chat-1")
+        #expect(CloudFrontedChats.cloudChat(showingPage: page, services: f.services) == nil)
+        f.services.agentTabs.frontedChats.pageOrigins[page] = chat
+        #expect(CloudFrontedChats.cloudChat(showingPage: page, services: f.services) == chat)
+        #expect(CloudFrontedChats.cloudChat(showingPage: page, byPerson: false, services: f.services) == nil, "a script keeps its target")
+        #expect(CloudFrontedChats.cloudChat(showingPage: page, namesPlace: true, services: f.services) == nil)
     }
 
     /// A script's open (CLI, MCP) keeps its target; a pane showing this Mac's own chat opens here as before.

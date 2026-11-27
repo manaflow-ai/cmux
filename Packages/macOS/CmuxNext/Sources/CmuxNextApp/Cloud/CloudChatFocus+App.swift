@@ -22,6 +22,15 @@ extension CloudFrontedChats {
         return AgentTabKey(machine: machine, key: key)
     }
 
+    /// The Cloud chat native New Tab page `page` (an app-only tab, in no daemon's tree) was opened from: its palette rows and
+    /// the pane's toolbar while it shows open on that chat's machine, as from the chat.
+    static func cloudChat(showingPage page: String?, byPerson: Bool = true, namesPlace: Bool = false, services: AppServices) -> AgentTabKey? {
+        guard let page, let origin = services.agentTabs.frontedChats.pageOrigins[page] else { return nil }
+        let shown = CloudChatFocus.Shown(machine: services.machines.local.machineID, key: page, fronts: (origin.machine, origin.key), onCloud: false, isChat: false)
+        guard case let .cloudChat(machine, key) = CloudChatFocus.resolve(byPerson: byPerson, namesPlace: namesPlace, shown: shown) else { return nil }
+        return AgentTabKey(machine: machine, key: key)
+    }
+
     /// The tab pane `pane` shows: its strip's selection when a window shows it, else the daemon's.
     static func shownTab(of pane: PaneModel, services: AppServices) -> TabModel? {
         if let controller = services.paneController(for: pane) { return controller.selectedTab }
@@ -35,8 +44,10 @@ extension CloudFrontedChats {
                             cwd: String? = nil, typing: String? = nil, services: AppServices) -> Bool {
         // A tab the open names (the chat header's own split) decides, else the tab the pane shows.
         let named = invocation.target?.kind == .tab ? pane.tabs.first { $0.id == invocation.target?.id } : nil
-        guard let chat = cloudChat(shownBy: named ?? shownTab(of: pane, services: services), byPerson: invocation.origin == .user,
-                                   namesPlace: namesPlace || invocation.besideCaller, services: services) else { return false }
+        let byPerson = invocation.origin == .user, placed = namesPlace || invocation.besideCaller
+        let page = named == nil ? services.paneController(for: pane)?.stripModel.selectedID?.rawValue : nil
+        guard let chat = cloudChat(shownBy: named ?? shownTab(of: pane, services: services), byPerson: byPerson, namesPlace: placed, services: services)
+            ?? cloudChat(showingPage: page, byPerson: byPerson, namesPlace: placed, services: services) else { return false }
         return openOnCloud(kind, chat: chat, cwd: cwd, typing: typing, services: services)
     }
 

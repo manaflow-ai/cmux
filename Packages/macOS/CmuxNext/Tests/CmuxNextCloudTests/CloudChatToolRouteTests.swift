@@ -40,4 +40,19 @@ struct CloudChatFocusTests {
         #expect(CloudChatFocus.resolve(byPerson: false, namesPlace: false, shown: fronted) == .asBefore, "a script keeps its target")
         #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: true, shown: fronted) == .asBefore, "an open that names its place keeps it")
     }
+
+    /// A New Tab page from a Cloud chat: Terminal runs or types its one line there, a blank Browser opens the desktop;
+    /// the page's own setup (keep), an address, an agent pick and several lines stay this Mac's.
+    @Test func aNewTabPagesPicksFromACloudChat() {
+        #expect(CloudChatFocus.pick(terminal: true, browser: false, text: " ls ", run: true, keep: false) == .terminal(typing: "ls\n"))
+        #expect(CloudChatFocus.pick(terminal: true, browser: false, text: "", run: true, keep: false) == .terminal(typing: nil))
+        #expect(CloudChatFocus.pick(terminal: true, browser: false, text: "git st", run: false, keep: false) == .terminal(typing: "git st"))
+        #expect(CloudChatFocus.pick(terminal: true, browser: false, text: "a\nb", run: true, keep: false) == nil)
+        #expect(CloudChatFocus.pick(terminal: true, browser: false, text: "claude /login", run: true, keep: true) == nil)
+        #expect(CloudChatFocus.pick(terminal: false, browser: true, text: "  ", run: true, keep: false) == .browser)
+        #expect(CloudChatFocus.pick(terminal: false, browser: true, text: "example.com", run: true, keep: false) == nil)
+        #expect(CloudChatFocus.pick(terminal: false, browser: false, text: "hi", run: true, keep: false) == nil)
+        #expect(CloudChatFocus.pick(terminal: true, browser: false, text: "npm i -g x", run: true, keep: false, picked: false) == nil,
+                "the page's Install / Log In (not typed in its field) acts on this Mac's harness")
+    }
 }

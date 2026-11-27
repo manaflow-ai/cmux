@@ -142,7 +142,7 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
     expect(host.querySelector('[role="listbox"]')).not.toBeNull();
     await submit();
     expect(calls).toEqual([
-      { method: "tab.open", params: { kind: "terminal", text: "echo held", cwd: "/Users/you/src/app" } },
+      { method: "tab.open", params: { kind: "terminal", text: "echo held", cwd: "/Users/you/src/app", pick: true } },
     ]);
     expect(waiting).toHaveLength(0);
     // Plain words for what did not happen, Retry, and the host's own words under Details (2026-11-08).

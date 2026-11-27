@@ -71,4 +71,26 @@ public nonisolated enum CloudChatFocus: Equatable, Sendable {
         if let front = shown.fronts { return .cloudChat(machine: front.machine, key: front.key) }
         return shown.onCloud && shown.isChat ? .cloudChat(machine: shown.machine, key: shown.key) : .asBefore
     }
+
+    /// What a New Tab page opened from a Cloud chat opens on the chat's machine.
+    public enum Pick: Equatable, Sendable {
+        /// A terminal that types `typing` once made (nil: none).
+        case terminal(typing: String?)
+        /// The machine's desktop.
+        case browser
+    }
+
+    /// A New Tab page pick from a Cloud chat, nil to pick as before. A Terminal pick runs its one line (`run`) or types
+    /// it; a Browser pick with no address opens the desktop (it takes none, so an address opens here). Only what was typed
+    /// in the page's field (`picked`) and replaces the page (not `keep`): its setup actions (a harness's Sign In, Install,
+    /// Log In, which act on this Mac's harness) and an agent pick are this Mac's.
+    public static func pick(terminal: Bool, browser: Bool, text: String, run: Bool, keep: Bool, picked: Bool = true) -> Pick? {
+        guard picked, !keep else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if terminal {
+            guard run else { return .terminal(typing: text.isEmpty ? nil : text) }
+            return trimmed.contains(where: \.isNewline) ? nil : .terminal(typing: trimmed.isEmpty ? nil : trimmed + "\n")
+        }
+        return browser && trimmed.isEmpty ? .browser : nil
+    }
 }
