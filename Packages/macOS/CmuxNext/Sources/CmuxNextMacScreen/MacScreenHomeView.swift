@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -44,6 +45,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// Holds "Connecting this Mac to the device hub…" back for the shared bound (``MacScreenHomeSnapshot/shownHubNote``).
+    let hubJoiningHold = QuietHold(owner: "macScreen.home.hubJoining", delay: NoticeTiming.connectionQuiet)
     /// Your Devices' Offline group is open (the quiet look folds offline Macs under one row).
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
@@ -143,7 +146,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     // MARK: Drawing
 
     /// Reads the page's state and builds the rows when it changed; again on every change of what it read.
-    private func render() {
+    func render() {
         let snapshot = withObservationTracking { MacScreenHomeSnapshot(home: self) } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }

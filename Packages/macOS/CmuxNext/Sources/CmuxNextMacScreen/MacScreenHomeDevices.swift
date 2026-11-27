@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
 
 /// What the home page reads of the device hub: the hub (while signed in),
@@ -144,7 +145,9 @@ struct MacScreenHomeSnapshot: Equatable {
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: Self.shownHubNote(hub.status, registered: registered, hold: home.hubJoiningHold) {
+                                      [weak home] in home?.render()
+                                  })
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -166,6 +169,17 @@ struct MacScreenHomeSnapshot: Equatable {
         case let .failed(reason, detail):
             return reason.words(detail: detail)
         }
+    }
+
+    /// The hub note as the page draws it: "Connecting this Mac…" waits ``NoticeTiming/connectionQuiet`` (a join
+    /// that lands under it says nothing; the switch still waits), a failure shows at once. `hold` keeps the stretch;
+    /// `onShow` redraws once it has lasted the bound.
+    @MainActor
+    static func shownHubNote(_ status: DeviceHub.Status, registered: Bool, hold: QuietHold,
+                             onShow: @escaping @MainActor () -> Void) -> String? {
+        let joining: Bool = if case .failed = status { false } else { !registered }
+        hold.update(joining, onShow: onShow)
+        return registered || hold.held ? nil : hubNote(status)
     }
 
     /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
