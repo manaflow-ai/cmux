@@ -136,6 +136,11 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_clippy_keep_going.py"
+lane = "manual"
+reason = "A detector, not a gate, on purpose: no workflow step runs it, so a pull request that adds a seventh multi-crate clippy gate without --keep-going is not made red for it (a new guard is Leo's call, not a lane's). Run python3 tests/test_ci_clippy_keep_going.py yourself after changing a cargo clippy command in .github/workflows or scripts/ci/cmux-tui-rust-check.sh (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_cloud_journey_prod_preclaim_login.py"
 lane = "linux-guard"
 
@@ -714,6 +719,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_piece_swap.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pool_checkout_reuse_sparse.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs; run python3 tests/test_ci_pool_checkout_reuse_sparse.py yourself after changing a 'Pool mirror: Checkout' step's reuse or sparse lines."
 
 [[test]]
 path = "tests/test_ci_pool_make_room.py"
