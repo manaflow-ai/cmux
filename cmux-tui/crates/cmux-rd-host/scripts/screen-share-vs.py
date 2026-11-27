@@ -279,6 +279,7 @@ def bench_input(kind, samples, at):
     """`cmux-rd bench`'s input flags. A click or scroll aims at AT (the marker's pad): the bench's
     own --at default, 960,600, misses the marker, which then counts nothing (every trial lost)."""
     flags = f"--input {kind} --samples {samples}"
+    # clipboard: copy-paste round trips (the bench offers cap clipboard.text itself); no aim.
     if kind in ("click", "scroll") and at:
         flags += f" --at {at[0]},{at[1]}"
     return flags
@@ -1079,6 +1080,39 @@ def read_marker_rgb(rgb, width, origin, cell):
 CLOCK_PROBE_SECONDS = 20.0
 
 
+CLIP_PREFIX = "cmux-vs-clip-"
+
+
+def clip_echo_step(read, write, last):
+    """One poll of `clip-echo`: when the clipboard holds a new text starting with CLIP_PREFIX (the
+    viewer's `cmux-rd bench --input clipboard` probe, put there by the host), copy "ack:" + text.
+    The echo does not start with the prefix, so it is never answered again. Returns the text seen."""
+    text = read()
+    if text is not None and text != last and text.startswith(CLIP_PREFIX):
+        write("ack:" + text)
+    return text
+
+
+def cmd_clip_echo(args):
+    """The shared Mac's other app for the clipboard leg: polls the pasteboard (pbpaste) and answers
+    each probe, so one sample proves both directions: the viewer's text reached this clipboard,
+    and a text set here reached the viewer. Runs inside the rig, in the GUI session's pasteboard."""
+    def read():
+        try:
+            return subprocess.run(["pbpaste"], capture_output=True, timeout=2).stdout.decode("utf-8", "replace")
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    def write(text):
+        subprocess.run(["pbcopy"], input=text.encode(), timeout=2, check=False)
+
+    end, last = time.time() + args.seconds, None
+    print("clip-echo ready", flush=True)
+    while time.time() < end:
+        last = clip_echo_step(read, write, last)
+        time.sleep(args.every_ms / 1000)
+
+
 def cmd_clock_serve(args):
     if getattr(args, "tcp", False):
         return clock_serve_tcp(args)
@@ -1409,6 +1443,15 @@ def cmd_rig(args):
                 f.close()
                 conn.close()
                 continue
+            elif cmd == "clip_echo":
+                stop("clip_echo")
+                log = open(os.path.join(state, "clip-echo.log"), "w")
+                procs["clip_echo"] = subprocess.Popen(
+                    [sys.executable, os.path.abspath(__file__), "clip-echo",
+                     "--seconds", str(min(max(int(req.get("seconds") or 600), 1), 3600))],
+                    stdout=log, stderr=log)
+                log.close()
+                reply["pid"] = procs["clip_echo"].pid
             elif cmd == "timing":
                 lines = []
                 if os.path.exists(timing):
@@ -2712,6 +2755,12 @@ class Orchestrator:
         try:
             line = readline(viewer, time.time() + 20)
             viewer_key = json.loads(line)["key"]
+            clipboard = mode == "key" and getattr(self.a, "cmux_input", "key") == "clipboard"
+            if clipboard and self.synthetic:
+                raise RuntimeError("--cmux-input clipboard needs the rig (a real pasteboard), not --source synthetic-*")
+            if clipboard:
+                # The shared Mac's other app: it answers each probe on the pasteboard (clip-echo).
+                rec["clip_echo_pid"] = self.rig({"cmd": "clip_echo", "seconds": int(self.a.timeout) + 60}).get("pid")
             if self.synthetic:
                 host = self.host.popen(self.synthetic_serve(mode))
             else:
@@ -2726,6 +2775,8 @@ class Orchestrator:
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
             if self.a.encode_profile:
                 setup["encode_profile"] = self.a.encode_profile
+            if clipboard:
+                setup["clipboard"] = True  # the person's opt-in (serve.rs Setup.clipboard)
             host.stdin.write(json.dumps(setup) + "\n")
             host.stdin.flush()
             host_key, cands = None, []
@@ -3745,9 +3796,10 @@ def build_parser():
                    "tools-only=1: cmux-rd, cmux-rd-marker, screen-eval-ocr")
     r.add_argument("--apple-input", choices=["key", "click"], default="key",
                    help="the Apple leg's timed input (key: after one focus click on the pad)")
-    r.add_argument("--cmux-input", choices=["key", "click", "scroll"], default="key",
+    r.add_argument("--cmux-input", choices=["key", "click", "scroll", "clipboard"], default="key",
                    help="the cmux leg's timed input: each kind goes through the host's injector and "
-                   "bumps the marker (keyDown, mouseDown, scrollWheel)")
+                   "bumps the marker (keyDown, mouseDown, scrollWheel); clipboard: copy-paste round "
+                   "trips through the shared Mac's pasteboard (cap clipboard.text, clip-echo there)")
     r.add_argument("--presented-pid", type=int, help="a visible viewer pane's process on the "
                    "viewing Mac: Total then ends at the presented frame (cmux-rd observe)")
     r.add_argument("--presented-window", type=int, help="that pane's CGWindow id")
@@ -3854,6 +3906,10 @@ def build_parser():
     c.add_argument("--root", default="~/cmux-rd-test")
     c.add_argument("request")
     c.set_defaults(fn=cmd_rig_call)
+    ce = sub.add_parser("clip-echo", help="on the shared Mac (the rig starts it): answer clipboard probes")
+    ce.add_argument("--seconds", type=float, default=600)
+    ce.add_argument("--every-ms", type=float, default=10)
+    ce.set_defaults(fn=cmd_clip_echo)
     s = sub.add_parser("clock-serve")
     s.add_argument("--bind", default="0.0.0.0")
     s.add_argument("--port", type=int, default=47123)
