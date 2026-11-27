@@ -159,6 +159,7 @@ fn session_cfg(display: String, opts: &Opts) -> Res<SessionCfg> {
         encode_profile: cmux_rd_core::profile::EncodeProfile::Standard,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
+        pin_kbps: None,
         preset: "ultrafast".into(),
         profile: opts.str_or("profile", "high"),
         codec: "videotoolbox".into(),
@@ -171,6 +172,7 @@ fn session_cfg(display: String, opts: &Opts) -> Res<SessionCfg> {
         upstream_record_max_bytes: 0,
         frames_in_flight: 2,
         input_frame_now: false,
+        ltr: false,
         rtt_tail_probe: false,
         resolution_ladder: false,
         max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
@@ -299,7 +301,7 @@ fn session(
         writer.lock().map_err(|_| "writer poisoned")?.write_all(bytes)?;
         Ok(())
     };
-    let (mut desktop, source) = match crate::desktop::open(cfg, false) {
+    let (mut desktop, source) = match crate::desktop::open(cfg, false, cfg.ltr) {
         Ok(halves) => halves,
         Err(error) => {
             let _ = send(&json_frame(&json!({"t": "error", "message": error.to_string()})));
