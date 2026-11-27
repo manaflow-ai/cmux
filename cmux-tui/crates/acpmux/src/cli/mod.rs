@@ -118,6 +118,7 @@ pub mod session_search;
 pub(crate) mod session_tail;
 pub mod session_turn_cap;
 pub mod shutdown;
+pub(crate) mod soft_delete;
 pub(crate) use crate::slow_notice;
 pub mod care;
 #[cfg(test)]
