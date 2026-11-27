@@ -160,7 +160,7 @@ import {
   lostRetryStep,
   hostPlannedRestart,
 } from "../hostRetry";
-import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { heldStartStop, sendsHeldForHost, untilHostAnswers, acpmuxSendsReady } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
@@ -2917,6 +2917,8 @@ export function paneSnapshotEffect({
         return sendPrompt(params);
       };
       notifyDraftActionsChanged();
+      // Sends made while the page connected go now, in their order (sendWhenReady.ts).
+      acpmuxSendsReady();
       harnessSwitch.setHandlers({
         restore: (text, attachments) => {
           // A failed New Tab start never surrendered this draft. Restoring it into the future

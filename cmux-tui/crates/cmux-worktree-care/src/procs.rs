@@ -169,6 +169,17 @@ pub type Still = dyn Fn(&Path, &Path) -> Result<(), String> + Send + Sync;
 /// an error, so the folder stays.
 #[cfg(unix)]
 pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
+    open_files(folder, "+d")
+}
+
+/// PR archive moves an entire checkout, including nested working directories.
+#[cfg(unix)]
+pub fn open_tree(folder: &Path) -> Result<Option<u32>, String> {
+    open_files(folder, "+D")
+}
+
+#[cfg(unix)]
+fn open_files(folder: &Path, depth: &str) -> Result<Option<u32>, String> {
     // lsof is in /usr/sbin on macOS, which a daemon's PATH may lack.
     let mut dirs: Vec<PathBuf> = vec!["/usr/sbin".into(), "/usr/bin".into()];
     dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
@@ -176,7 +187,7 @@ pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
     let mut command = std::process::Command::new("lsof");
     command
         .env("PATH", path)
-        .args(["-w", "-t", "+d"])
+        .args(["-w", "-t", depth])
         .arg(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -208,6 +219,9 @@ pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
 pub fn open_inside(_folder: &Path) -> Result<Option<u32>, String> {
     Ok(None)
 }
+
+#[cfg(not(unix))]
+pub use open_inside as open_tree;
 
 #[cfg(test)]
 #[path = "procs_care_tests.rs"]

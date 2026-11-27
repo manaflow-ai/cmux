@@ -195,6 +195,7 @@ fn print_report(report: &Report, all: bool) {
         let word = match item.verdict.action {
             Action::Keep => "keep",
             Action::Trim => "trim",
+            Action::Park => "park",
             Action::Reclaim => "reclaim",
             Action::Archive => "archive",
         };
@@ -211,10 +212,11 @@ fn print_report(report: &Report, all: bool) {
     }
     let verb = if report.applied { "freed" } else { "would free" };
     println!(
-        "{} worktrees: {} reclaim, {} archive, {} trim, {} keep; {verb} {}",
+        "{} worktrees: {} reclaim, {} archive, {} park, {} trim, {} keep; {verb} {}",
         report.items.len(),
         report.count(Action::Reclaim),
         report.count(Action::Archive),
+        report.count(Action::Park),
         report.count(Action::Trim),
         report.count(Action::Keep),
         mib(if report.applied { report.freed } else { report.reclaimable })
