@@ -252,6 +252,52 @@ async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
     assert!(!fresh() && kept(), "its turn ended: stale, still served");
 }
 
+/// A cold list read that stops waiting for its slow first pass ([`READ_WAIT`]) still leaves the
+/// rows that pass's stats changed told: a closed chat's row cached before the pass found its
+/// stats is built anew with them. Before, the read dropped the pass's future at its wait, the
+/// pass's blocking read wrote the stats anyway, and the row tells that ran after it never ran:
+/// the closed row kept its bytes with no `usageStats` while `_acpmux/usage` had them, until
+/// something else (`acpmux info` marking it read) changed the row.
+#[tokio::test]
+async fn a_cold_read_that_stops_waiting_still_tells_the_rows_its_pass_changed() {
+    const SID: &str = "01a18ad5-89bc-7a02-905f-8f4fbef7fed2";
+    let home = tempfile::tempdir().unwrap();
+    let transcript = home.path().join("projects/-work-repo").join(format!("{SID}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let record = json!({"type": "assistant", "isSidechain": false,
+        "timestamp": "2026-10-30T00:00:01Z",
+        "message": {"id": "m1", "model": "claude-opus-5-5", "role": "assistant",
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0, "output_tokens": 5}}});
+    std::fs::write(&transcript, format!("{record}\n")).unwrap();
+
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let mut chat = meta("closed", "claude", Some(SID), "closed", now - 3_600_000);
+    chat.cwd = "/work/repo".into();
+    chat.session_env.insert("CLAUDE_CONFIG_DIR".into(), home.path().display().to_string());
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+
+    hub.slow_usage_reads_for_test(READ_WAIT.as_millis() as u64 + 500);
+    hub.read_usage_for_list().await;
+    // The list this read serves builds the closed row now, before the pass found anything.
+    assert!(!hub.own_row_text(&session, false).contains("usageStats"), "no stats yet");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while hub.usage_stats.stats().get("closed").is_none() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(hub.usage_stats.stats().get("closed").is_some(), "the pass found its stats");
+    let mut row = hub.own_row_text(&session, false);
+    while !row.contains("usageStats") && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        row = hub.own_row_text(&session, false);
+    }
+    assert!(row.contains("usageStats"), "the closed row draws the stats its pass found: {row}");
+}
+
 /// A chat on a Claude Code wrapper profile (`family = "claude-sr2"`) is read as Claude Code,
 /// from Claude Code's own transcript; Chief's is not.
 #[tokio::test]
@@ -275,6 +321,18 @@ async fn a_claude_sr2_chat_is_read_as_claude_code() {
     assert_eq!(transcript_family("codexy"), None);
     assert_eq!(transcript_family("claudette"), None);
     assert_eq!(transcript_family("gemini"), None);
+}
+
+/// Every turn's end reads its chat's usage: the catalog's prices are built once for the catalog
+/// in use, not again per read, and are the ones a fresh build gives.
+#[tokio::test]
+async fn the_usage_prices_are_built_once_per_catalog() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let first = hub.usage_models();
+    let again = hub.usage_models();
+    assert!(Arc::ptr_eq(&first, &again));
+    let fresh = Models::from_catalog(&hub.catalog.current());
+    assert_eq!(format!("{first:?}").len(), format!("{fresh:?}").len());
 }
 
 /// A reviewer on codex-review-box (`family = "codex-review-box"`) is read as Codex, from the
