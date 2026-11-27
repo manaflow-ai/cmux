@@ -536,6 +536,7 @@
 /* An icon that turns relevant (Changes after an edit, the globe once the chat names a page) is in its place from its first frame and fades in there. */
 .acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{transition:opacity var(--agent-motion-in,120ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 @starting-style{.acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{opacity:0}}
+}
 .acpmux-pr-head {
   display: block;
   padding: 6px;
