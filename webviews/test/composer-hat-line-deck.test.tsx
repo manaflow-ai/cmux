@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixture subagent names, commands and chats, not shipped UI.
-// The one-line composer hat's marks and hide eye (hatLine.experiment.ts; Leo, 2026-11-20: "thumb through
+// The one-line composer hat's marks (hatLine.experiment.ts; Leo, 2026-11-20: "thumb through
 // them like a Rolodex or whatever at the top ... there's a slight pop and something ... perhaps the text
 // itself maybe changes like on the top of the composer hat"). Every arm but `words` draws one mark per
 // running line on the line itself: pointing at one names its line, leaving gives the sentence back, a
-// click opens it and leaves the hat folded; the hide control is a flush eye at the line's end.
+// click opens it and leaves the hat folded; the hat hides from its top-edge tab, with no eye (Leo, 2026-11-27).
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom, trackReactScheduler } from "./support/domTeardown";
@@ -121,7 +121,7 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
 }
 
 describe("the one-line hat's marks", () => {
-  test("trail draws the marks after the sentence and the eye at the line's end", async () => {
+  test("trail draws the marks after the sentence, and no hide eye: the top-edge tab hides it", async () => {
     const { host, marks, done } = await mount("trail", { onTuck: () => {} });
     try {
       expect(marks().length).toBe(3);
@@ -129,8 +129,8 @@ describe("the one-line hat's marks", () => {
       expect(deck.getAttribute("data-at")).toBe("trail");
       const title = host.querySelector(".acpmux-running-tray__title")!;
       expect(title.compareDocumentPosition(deck) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(host.querySelector('.acpmux-hat-hide[data-at="line"]')).not.toBeNull();
-      expect(host.querySelector(".acpmux-running-tray__tuck")).toBeNull();
+      expect(host.querySelector(".acpmux-hat-hide")).toBeNull();
+      expect(host.querySelector(".acpmux-running-tray__tuck")).not.toBeNull();
     } finally {
       await done();
     }
@@ -188,11 +188,11 @@ describe("the one-line hat's marks", () => {
     }
   });
 
-  test("the eye hides the hat", async () => {
+  test("the top-edge tab hides the hat", async () => {
     let tucked = 0;
     const { host, done } = await mount("trail", { onTuck: () => (tucked += 1) });
     try {
-      await act(async () => host.querySelector<HTMLButtonElement>('.acpmux-hat-hide[data-at="line"]')!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-running-tray__tuck")!.click());
       expect(tucked).toBe(1);
     } finally {
       await done();
