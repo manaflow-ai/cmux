@@ -227,6 +227,10 @@ jobs:
           python3 tests/test_ci_ios_fast_verdict.py
           python3 tests/test_indexnow_notification.py
 
+      - name: Validate the green receipts that skip unchanged checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_receipt.py
+
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cdn_user_agent.py
