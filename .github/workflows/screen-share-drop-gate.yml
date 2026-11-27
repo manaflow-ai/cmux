@@ -41,10 +41,10 @@ env:
 jobs:
   drop-gate:
     name: screen share recovers after 10 s and 60 s drops
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -52,8 +52,13 @@ jobs:
       - name: Install the probe's tools and build dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update -q
-          sudo apt-get install -y -q clang libclang-dev pkg-config xvfb iproute2 ethtool
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config xvfb iproute2 ethtool >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config xvfb iproute2 ethtool: already installed"
+          else
+            sudo apt-get update -q
+            sudo apt-get install -y -q clang libclang-dev pkg-config xvfb iproute2 ethtool
+          fi
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

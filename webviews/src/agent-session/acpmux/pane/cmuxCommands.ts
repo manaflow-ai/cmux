@@ -18,14 +18,14 @@ import {
 import { commandPlace } from "../commandPlace";
 import { PICKER_LABELS } from "../composerPickerModel";
 import { forkToTarget, switchForks } from "../conversation/messageMenu";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import type { AcpmuxDirectClient } from "../direct";
 import { isFastModeOption } from "../heldOptions";
 import type { SendGesture } from "../heldPrompt";
 import { translate, type Translate } from "../i18n";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
-import { openPicker } from "../pickerOpeners";
+import { openPicker, runModelCommand } from "../pickerOpeners";
 import { runResume } from "../resumeCommand";
 import type { RunMode } from "../sandboxRun";
 import type { useSessionInfo } from "../session-info/useSessionInfo";
@@ -200,7 +200,8 @@ export function handleCmuxCommand(
   // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
   // to act on yet, so there they go to the harness as typed.
   if (command.action === "model") {
-    if (argument || fresh) return CMUX_PASS_THROUGH;
+    if (argument) return runModelCommand(argument) ?? CMUX_PASS_THROUGH;
+    if (fresh) return CMUX_PASS_THROUGH;
     return openPicker(translate(PICKER_LABELS.model)) || CMUX_PASS_THROUGH;
   }
   if (command.action === "context") {
@@ -237,7 +238,7 @@ export function handleCmuxCommand(
     btwNotes.ask(
       sessionId,
       question,
-      [...turnRowsShown].reverse().find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
+      [...turnRowsShown].reverse().find((row) => ![WORKING, THINKING, DATE].includes(row.kind)),
       (question, sessionId) =>
         askBtwQuestion(client, question, sessionId, {
           inline: (question, sessionId) =>

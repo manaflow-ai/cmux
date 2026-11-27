@@ -263,15 +263,17 @@ export class AutoSessionDO extends DurableObject<Env> {
     }
   }
 
-  async lease(by: AutoCaller, input: RenewInput): Promise<AutoResult<{ readonly session: AutoSessionView; readonly role: LeaseRole; readonly leaseMs: number; readonly move?: MoveTo }>> {
+  async lease(by: AutoCaller, input: RenewInput): Promise<AutoResult<{ readonly session: AutoSessionView; readonly role: LeaseRole; readonly leaseMs: number; readonly move?: MoveTo; readonly moveAt?: number }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
     const wrong = claimDevice(this.sql, by, input.holder)
     if (wrong) return wrong
     const r = await this.apply((current, now) => renew(current, by, input, now))
     if (!r.ok) return r
     const { session, out } = r.value
-    // The holder learns here that the person asked to move the chat: it stops, stores its copy and gives.
-    return ok({ session, role: out.role, leaseMs: LEASE_MS, ...(out.role === "holder" && session.move ? { move: session.move.to } : {}) })
+    // The holder learns here that the person asked to move the chat: it stops, stores its copy and gives. `moveAt`
+    // is when they asked: asking again starts the wish's time again (move.ts), so a holder that a give was refused
+    // tells a new ask from the one it already answered.
+    return ok({ session, role: out.role, leaseMs: LEASE_MS, ...(out.role === "holder" && session.move ? { move: session.move.to, moveAt: session.move.at } : {}) })
   }
 
   async release(by: AutoCaller, holder: string, epoch: number): Promise<AutoResult<AutoSessionView>> {

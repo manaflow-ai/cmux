@@ -5,9 +5,10 @@ import CmuxNextPages
 /// A page whose web content process ended loads again by itself in a new process
 /// (``AgentPageCrashRetry``): at once when the pane is on screen, else when it is next shown, with
 /// no notice meanwhile (Leo, 2026-11-01: "how come it says this??? why doens't it just retry on its
-/// own"). Only a page that keeps ending (3 retries in 60 s) shows the crash notice and waits for
-/// the person's Reload. The process already took what the page held (an open menu, the caret,
-/// unsent chips), so a retry loses nothing a Reload would keep.
+/// own"). A page that keeps ending (3 retries in 60 s) shows the crash notice, a line with no
+/// button, and still loads again by itself every 30 s while shown (Leo, 2026-11-22: "vacuous
+/// decisions like that should be just done"). The process already took what the page held (an
+/// open menu, the caret, unsent chips), so a retry loses nothing a Reload would keep.
 extension AgentPaneView {
     /// The old host's web content process ended (`termination`: WebKit's reason and pid, or an
     /// injected end in tests): logged with its siblings (``AgentPageTerminations``), then a retry
@@ -53,8 +54,7 @@ extension AgentPaneView {
         endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
-        let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
-        let notice = NSStackView(views: [message, reload])
+        let notice = NSStackView(views: [message])
         notice.orientation = .vertical
         notice.spacing = 12
         notice.translatesAutoresizingMaskIntoConstraints = false
@@ -99,18 +99,18 @@ extension AgentPaneView {
         terminations.loadedAgain(self, session: model.sessionId)
     }
 
-    /// The notice's Reload: the person's request for every chat that ended with this one.
-    @objc private func reloadAfterCrashes() {
+    /// Reloads now every chat that ended with this one (`debug.agent_pane` crash_notice press).
+    func reloadAfterCrashes() {
         terminations.reload(from: self)
     }
 
-    /// Takes the notice away and reloads this pane's page (a Reload the person pressed here or in
-    /// a chat that ended with this one).
+    /// Takes the notice away and reloads this pane's page (a reload of every chat that ended with
+    /// this one, ``reloadAfterCrashes()``).
     func reloadAfterCrash() {
         crashNotice?.removeFromSuperview()
         crashNotice = nil
         crashReloadCount += 1
-        // The person's Reload: the next end retries again.
+        // A reload that starts over: the next end retries quickly again.
         crashRetry.cancel()
         crashRetry.budget.reset()
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
