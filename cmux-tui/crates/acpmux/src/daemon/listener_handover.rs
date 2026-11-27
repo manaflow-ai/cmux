@@ -169,11 +169,14 @@ pub(crate) fn hand(
     Ok(sent)
 }
 
-/// Copies of this daemon's TCP listeners (the web listener, the egress proxy's), with the kind
+/// Copies of this daemon's listeners (Unix, web and egress), with the kind
 /// each goes by: what a listener keeper holds across a restart (`daemon/listener_keeper.rs`).
-pub(crate) fn offered_tcp() -> Vec<(&'static [u8; 4], OwnedFd)> {
+pub(crate) fn offered_listeners() -> Vec<(&'static [u8; 4], OwnedFd)> {
     let mut held = Vec::new();
     let offered = OFFERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(unix) = offered.as_ref().and_then(|(unix, _)| unix.try_clone().ok()) {
+        held.push((UNIX, unix));
+    }
     if let Some(ws) = offered.as_ref().and_then(|(_, ws)| ws.as_ref()?.try_clone().ok()) {
         held.push((WS, ws));
     }

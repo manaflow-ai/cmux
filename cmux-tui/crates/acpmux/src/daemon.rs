@@ -1413,7 +1413,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
+    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch.run(hub.clone()));
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::server::tailnet_service::Service::spawn(hub.clone());
@@ -1555,7 +1555,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     } else if hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst)
         && !listener_keeper::hold_for_next(&home()).is_empty()
     {
-        // A service manager's restart: a keeper holds the TCP ports for the next daemon
+        unix_accept.abort();
+        // A service manager's restart: a keeper holds the listening sockets for the next daemon
         // (`daemon/listener_keeper.rs`); new egress connects wait in its queue from now on.
         crate::vault::egress::stop_accepting();
     }
@@ -1792,7 +1793,7 @@ impl Drop for BoundSocketCleanup {
 /// (`daemon/listener_handover.rs`), so it stays.
 fn socket_handed() -> bool {
     #[cfg(unix)]
-    return listener_handover::handed_to_live();
+    return listener_handover::listeners_live_on();
     #[cfg(not(unix))]
     false
 }

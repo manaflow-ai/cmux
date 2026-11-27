@@ -167,13 +167,19 @@ async fn take_over_holder(
     #[cfg(unix)]
     let side = listener_handover::Side::open(&home());
     #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts"});
+    let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts", "graceful": true});
     #[cfg(unix)]
     if let (Some(side), Some(map)) = (&side, params.as_object_mut()) {
         map.insert(listener_handover::PARAM.to_owned(), serde_json::json!(side.path()));
         map.insert(listener_handover::PARAM_CONNS.to_owned(), serde_json::json!(true));
     }
     let answer = client.request(crate::rpc::method::MUX_SHUTDOWN, params).await;
+    if let Err(error) = &answer
+        && error.to_string().contains("daemon update deferred")
+    {
+        return Err(anyhow::anyhow!("{error}"));
+    }
+
     #[cfg(unix)]
     if let (Some(side), Ok(answer)) = (side, &answer) {
         let kinds: Vec<String> = answer

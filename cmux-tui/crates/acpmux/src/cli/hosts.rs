@@ -569,7 +569,13 @@ fn restart_detached(json: bool) -> String {
 
 /// Explicit update handoff on the remote. Older CLIs fall back only when clap rejects
 /// a new flag; their plain shutdown already keeps hosted agents. Other failures do not retry.
-const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents --restart 2>&1) || case \"$out\" in *\"unexpected argument '--restart'\"*) out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac ;; *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
+const SHUTDOWN_KEEPING_AGENTS: &str = r#"out=$(~/.local/bin/acpmux daemon shutdown --keep-agents --restart 2>&1) || case "$out" in
+*"daemon update deferred"*) echo ACPMUX_REFUSED=updateDeferred; printf '%s\n' "$out" >&2; exit 3 ;;
+*"unexpected argument '--restart'"*) out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case "$out" in *"unexpected argument '--keep-agents'"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; *) printf '%s\n' "$out" >&2; exit 1 ;; esac ;;
+*"unexpected argument '--keep-agents'"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;;
+*"daemon not running"*|*"No such file"*) : ;;
+*) printf '%s\n' "$out" >&2; exit 1 ;;
+esac"#;
 
 /// Read the daemon's status after launchd (re)started it; a daemon that is
 /// still not running is an error, not a status line.
@@ -651,6 +657,7 @@ acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"
 if [ -n "$acpmux_p" ] && [ "$acpmux_p" != "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}
 acpmux_q=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
 if [ "$acpmux_q" = "$acpmux_p" ]; then acpmux_refuse daemonStillRuns "the daemon (pid $acpmux_p) runs outside launchd's com.acpmux.daemon and did not shut down"; fi; fi
+if [ -n "$acpmux_p" ] && [ "$acpmux_p" = "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}; fi
 launchctl bootout "$acpmux_job" 2>/dev/null || true
 if [ -n "$acpmux_old" ]; then acpmux_i=0; while ps -p "$acpmux_old" >/dev/null 2>&1 && [ "$acpmux_i" -lt 150 ]; do sleep 0.2; acpmux_i=$((acpmux_i+1)); done; fi
 launchctl bootstrap gui/$acpmux_uid "$acpmux_plist" || {{ echo {IN_PLACE}bootstrapFailed; {detached}; }}
@@ -1012,11 +1019,14 @@ fn linux_restart(install: bool, json: bool) -> String {
         if install { format!("{FOREIGN_UNIT_REFUSAL}{}", migrate(false)) } else { migrate(false) };
     let refresh = if install { String::new() } else { unit_refresh() };
     let auto_update = host_auto_update::install_script();
+    // The graceful RPC fences and drains sends first. Its lock release can precede process
+    // exit: restart makes systemd wait for the old unit before starting its replacement. A
+    // plain start could succeed as a no-op while that old unit is still active.
     format!(
         "{refresh}{}{foreign}if {usable}; then
 acpmux_auto_update() {{
 {auto_update}}}
-if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
+if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then {SHUTDOWN_KEEPING_AGENTS}; systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
 systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}; fi
 else {detached}; fi",
@@ -1622,6 +1632,7 @@ mod tests {
         daemon_unit: Option<&'static str>,
         /// That daemon is still up after `daemon shutdown`.
         survives_shutdown: bool,
+        defers_update: bool,
     }
 
     const LINGERING: LinuxHost = LinuxHost {
@@ -1638,6 +1649,7 @@ mod tests {
         need_reload: false,
         daemon_unit: None,
         survives_shutdown: false,
+        defers_update: false,
     };
 
     struct LinuxRun {
@@ -1669,13 +1681,19 @@ mod tests {
         let daemon = format!(
             "case \"$*\" in \"--json daemon status\") if {} && [ ! -f \"$HOME/stopped\" ]; then printf '{{\\n  \"version\": \"0.1.0\",\\n  \"pid\": 4242,\\n  \"ready\": true\\n}}\\n'; else printf '{{\\n  \"running\": false\\n}}\\n'; fi;; \"daemon shutdown\"*) {};; esac; exit 0",
             if host.daemon_unit.is_some() { "true" } else { "false" },
-            if host.survives_shutdown { ":" } else { "touch \"$HOME/stopped\"" },
+            if host.defers_update {
+                "echo 'daemon update deferred: accepted sends are still finishing' >&2; exit 1"
+            } else if host.survives_shutdown {
+                ":"
+            } else {
+                "touch \"$HOME/stopped\""
+            },
         );
         fake("acpmux", &daemon);
         fake(
             "systemctl",
             &format!(
-                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; daemon-reload) {};; show) case \"$5\" in LoadState) echo not-found;; *) echo {};; esac;; *) exit 0;; esac",
+                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; start|restart) {};; daemon-reload) {};; show) case \"$5\" in LoadState) echo not-found;; *) echo {};; esac;; *) exit 0;; esac",
                 code(host.manager),
                 if host.active { "exit 0" } else { "exit 3" },
                 code(host.enables),
@@ -1918,12 +1936,25 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn linux_update_restarts_a_running_unit_and_never_starts_a_second_daemon() {
-        let run = linux_restart_run("update-active", true, LinuxHost { active: true, ..LINGERING });
-        assert!(run.calls.contains(&"systemctl --user restart acpmux.service".to_owned()));
+        // The shutdown RPC can finish while the old unit is still exiting. Restart must
+        // serialize replacement; start alone would succeed without launching the new build.
+        let run = linux_restart_run(
+            "update-active",
+            true,
+            LinuxHost { active: true, survives_shutdown: true, ..LINGERING },
+        );
+        let stopped =
+            run.calls.iter().position(|c| c == "acpmux daemon shutdown --keep-agents --restart");
+        let started = run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
         assert!(
-            !run.calls
-                .iter()
-                .any(|c| c.starts_with("acpmux ") && c != "acpmux --json daemon status"),
+            stopped.is_some() && stopped < started,
+            "drain and stop before start: {:?}",
+            run.calls
+        );
+        assert!(
+            !run.calls.iter().any(|c| c.starts_with("acpmux ")
+                && c != "acpmux --json daemon status"
+                && c != "acpmux daemon shutdown --keep-agents --restart"),
             "{:?}",
             run.calls
         );
@@ -2029,6 +2060,20 @@ mod tests {
         );
         assert!(!run.started_by_systemd() && !run.detached_start());
         assert_never_gives_up(SYSTEMD_UNIT);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linux_update_deferral_never_signals_or_restarts_the_daemon() {
+        let run = linux_restart_run(
+            "update-deferred",
+            false,
+            LinuxHost { installed: true, active: true, defers_update: true, ..LINGERING },
+        );
+        assert_eq!(run.code, Some(3), "{}", run.err);
+        assert!(run.out.contains("ACPMUX_REFUSED=updateDeferred"));
+        assert!(!run.started_by_systemd());
+        assert!(!run.calls.iter().any(|c| c == "systemctl --user restart acpmux.service"));
     }
 
     #[test]
