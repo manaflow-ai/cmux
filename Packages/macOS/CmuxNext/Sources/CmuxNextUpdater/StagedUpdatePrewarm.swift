@@ -144,9 +144,11 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// behind them ran after the person's click or never (Leo's NIGHTLY: staged 22:38:18Z, kept 22:38:45Z,
     /// clicked 22:39:16Z, no pre-warm line). The scan reads three folder levels and some Info.plists.
     ///
-    /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
-    /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
-    /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
+    /// With `marker`, a pre-warm that found the staged bundle replaces it at each ``Step``: ``Step/started`` before
+    /// the first run, ``Step/main`` once the staged app's executable ran, ``Step/full`` at the end. That build's first
+    /// launch reads it (``consumeLaunchVerdict(build:at:)``) and records whether it was pre-warmed and how far
+    /// (`cmux app launch-times`), so a pre-warm the relaunch cut short says where. Each write runs at
+    /// ``WorkPriority/userVisible`` too, for the same reason as the scan.
     ///
     /// The runs start together, each stopped at `timeout`, and all of them at `total` (a stop ends the child's own
     /// process group, ``AsyncProcess``). One after another under a load like Leo's (about 150-200), they took 95 s
@@ -170,6 +172,11 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         progress?("launch pre-warm of \(build): \(planned.count) runs in \(bundle.lastPathComponent) (scan \(scan) ms)")
         var parts: [Int: String] = [:]
         let build = build, runsStarted = ContinuousClock.now
+        func mark(_ step: Step) async {
+            guard let marker else { return }
+            try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, step: step, at: marker) }
+        }
+        await mark(.started)
         // Two waves under one cap: every `--version` run and the app's own exec together, then the app's Chromium
         // start, which needs the CEF framework's first load (the helpers') already paid.
         let chromium = planned.indices.filter { planned[$0].arguments == [Self.chromiumArgument] }
@@ -209,6 +216,9 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
                     }
                     progress?("launch pre-warm of \(build): \(part)")
                     parts[index] = part
+                    // The main executable's run alone takes almost all of the first launch's check (measured: 201/138/132 ms
+                    // against 2258/2067/2039 ms cold, and 136/143/136 ms after every run), so a pre-warm cut short after it counts.
+                    if planned[index].arguments == [Self.argument] { await mark(.main) }
                     ended += 1
                     if ended == wave.count { group.cancelAll() }
                 }
@@ -224,9 +234,7 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             progress?("launch pre-warm of \(build): \(part)")
             ran.append(part)
         }
-        if let marker {
-            try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
-        }
+        await mark(.full)
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
             + (ran.isEmpty ? "nothing to run" : ran.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
     }
@@ -289,33 +297,59 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return Int(parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000)
     }
 
-    /// `~/Library/Application Support/<bundle id>/launch-prewarm`: the build the last pre-warm ran, until
-    /// that build's first launch consumes it. One line, rewritten by each pre-warm.
+    /// How far a pre-warm of a build got, as its marker says: ``started`` before the first run, ``main`` once the
+    /// staged app's own executable ran, ``full`` after every run, or ``skipped(_:)`` with why it never ran.
+    public enum Step: Equatable, Sendable {
+        case started, main, full
+        case skipped(String)
+    }
+
+    /// What a build's launch reads from the marker (Rust's `marker.verdict`): whether it was pre-warmed and why
+    /// (`main`, `full`, `full_legacy`, `started_not_finished`, `skipped:<why>`, `other_build:<b>`, `no_record`, `no_build`).
+    public struct Verdict: Equatable, Sendable {
+        public var preWarmed: Bool
+        public var reason: String
+        /// The marker is this build's: the launch removes it.
+        public var consume: Bool
+        /// What `launch-times.jsonl` records: `prewarmed` and `prewarm_reason`.
+        public var record: (preWarmed: Bool, reason: String) { (preWarmed, reason) }
+
+        public init(preWarmed: Bool, reason: String, consume: Bool) {
+            self.preWarmed = preWarmed
+            self.reason = reason
+            self.consume = consume
+        }
+    }
+
+    /// `~/Library/Application Support/<bundle id>/launch-prewarm`: how far the last pre-warm of a build got,
+    /// until that build's first launch consumes it. One line, replaced by each step.
     public static func launchMarkerURL(bundleIdentifier: String) -> URL {
         let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager().homeDirectoryForCurrentUser.appending(path: "Library/Application Support", directoryHint: .isDirectory)
         return support.appending(path: bundleIdentifier, directoryHint: .isDirectory).appending(path: "launch-prewarm")
     }
 
-    /// Leaves `build` at `marker`. Blocking. A failure leaves no marker: that launch records itself as not pre-warmed.
-    static func writeLaunchMarker(build: String, at marker: URL) {
+    /// Replaces `marker` with `build`'s line at `step`, atomically: a cut write leaves the step before, never part
+    /// of a line. Blocking. A failure leaves the marker as it was.
+    static func writeLaunchMarker(build: String, step: Step, at marker: URL) {
+        guard let line = UpdatePrewarmRules.markerLine(build: build, step: step) else { return }
         try? FileManager.checked.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? Data("\(build)\n".utf8).blockingWrite(to: marker, options: .atomic)
+        try? Data(line.utf8).blockingWrite(to: marker, options: .atomic)
     }
 
-    /// Whether the marker names `build` (a pre-warm ran this build before this, its first launch); it is
-    /// then removed, so a relaunch of the same build is not pre-warmed. A marker of another build (a staged
-    /// update not installed yet) stays. Blocking.
-    public static func consumeLaunchMarker(build: String, at marker: URL) -> Bool {
-        guard !build.isEmpty, let data = try? Data(blockingContentsOf: marker),
-              String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == build else { return false }
-        try? FileManager.checked.removeItem(at: marker)
-        return true
+    /// What the marker says of `build`'s launch (``Verdict``); a marker of this build is then removed, so a
+    /// relaunch of the same build reads `no_record`. A marker of another build (a staged update not installed
+    /// yet) stays. Blocking.
+    public static func consumeLaunchVerdict(build: String, at marker: URL) -> Verdict {
+        let text = (try? Data(blockingContentsOf: marker)).map { String(decoding: $0, as: UTF8.self) }
+        let verdict = UpdatePrewarmRules.verdict(build: build, marker: text)
+        if verdict.consume { try? FileManager.checked.removeItem(at: marker) }
+        return verdict
     }
 
-    /// ``consumeLaunchMarker(build:at:)`` at the app's own marker (``launchMarkerURL(bundleIdentifier:)``).
-    public static func consumeLaunchMarker(build: String, bundleIdentifier: String) -> Bool {
-        consumeLaunchMarker(build: build, at: launchMarkerURL(bundleIdentifier: bundleIdentifier))
+    /// ``consumeLaunchVerdict(build:at:)`` at the app's own marker (``launchMarkerURL(bundleIdentifier:)``).
+    public static func consumeLaunchVerdict(build: String, bundleIdentifier: String) -> Verdict {
+        consumeLaunchVerdict(build: build, at: launchMarkerURL(bundleIdentifier: bundleIdentifier))
     }
 
     /// A bundle's Info.plist, or nil.

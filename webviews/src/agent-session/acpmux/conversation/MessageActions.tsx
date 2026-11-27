@@ -11,7 +11,8 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
+import { AlertCircle, Check, DoubleCheck, Pin, Speaker, StopReading, TurnFork, Undo } from "./icons";
+import { WaitSpinner } from "./WaitSpinner";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
@@ -183,7 +184,7 @@ export function ForkButton({
           }}
         >
           {state === "pending" ? (
-            <Spinner size={ROW_ICON} loading />
+            <WaitSpinner size={ROW_ICON} until={<TurnFork size={ROW_ICON} />} />
           ) : state === "done" ? (
             <Check size={ROW_ICON} />
           ) : state === "failed" ? (
@@ -255,7 +256,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
       onClick={go}
     >
       {state.kind === "pending" ? (
-        <Spinner size={ROW_ICON} loading />
+        <WaitSpinner size={ROW_ICON} until={<Undo size={ROW_ICON} />} />
       ) : state.kind === "done" ? (
         <Check size={ROW_ICON} />
       ) : state.kind === "failed" ? (
