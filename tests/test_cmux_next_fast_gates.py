@@ -2451,6 +2451,40 @@ class WebviewsChecksGate(unittest.TestCase):
         summary = "Found 5 warnings and 0 errors in 2481 files (1.0s)\n"
         self.assertEqual(self.module.findings(summary), [])
 
+    PLUGIN_TIMINGS = (
+        "[PLUGIN_TIMINGS] JavaScript callbacks ran for 1.2s of this 3.8s build (31%).\n"
+        "The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, "
+        "the time it awaits is included):\n"
+        "  - plugin externalize-deps resolveId (31%, 1.2s, 63 calls)\n"
+        "See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.\n"
+    )
+
+    def test_rolldown_plugin_timing_report_is_not_a_new_format_finding(self):
+        known = "src/old.ts\nFormat issues found in above 1 files. Run without `--check` to fix.\n"
+        varied = self.PLUGIN_TIMINGS.replace("31%", "42%").replace("1.2s", "2.5s").replace("63 calls", "88 calls")
+        for base_report in ("", varied):
+            with self.subTest(base_report=base_report):
+                new, old = self.module.compare(self.PLUGIN_TIMINGS + known, base_report + known)
+                self.assertEqual(new, [])
+                self.assertEqual(old, ["src/old.ts"])
+        self.assertEqual(self.module.findings(self.PLUGIN_TIMINGS), [])
+
+    def test_real_findings_adjacent_to_plugin_timings_remain_new(self):
+        known = "src/old.ts\n"
+        for new_finding in ("src/new.ts", "Error: spawnSync tsgo SIGKILL", "unknown failure"):
+            for output in (new_finding + "\n" + self.PLUGIN_TIMINGS, self.PLUGIN_TIMINGS + new_finding + "\n"):
+                with self.subTest(output=output):
+                    self.assertEqual(self.module.added(known + output, known), [new_finding])
+
+    def test_incomplete_or_interrupted_plugin_timing_reports_are_preserved(self):
+        for output in (
+            self.PLUGIN_TIMINGS.rsplit("See ", 1)[0],
+            self.PLUGIN_TIMINGS.replace("See ", "Error: unexpected crash\nSee "),
+            self.PLUGIN_TIMINGS.replace("63 calls)", "63 calls) then a panic"),
+        ):
+            with self.subTest(output=output):
+                self.assertEqual([shown for _, shown in self.module.findings(output)], output.splitlines())
+
     # In GitHub Actions `vp lint` prints each finding as a workflow command; GitHub turns the line into an annotation
     # and its log keeps only `##[warning]MESSAGE`, so a new finding printed as that raw line names no file.
     UNUSED = ("::warning file=src/agent-session/acpmux/ModelPicker.tsx,line={line},endLine={line},col=34,"

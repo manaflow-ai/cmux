@@ -21,7 +21,13 @@
 // Stop condition: each animation is finite (its duration); `stop` cancels it on reader input, Jump
 // to latest, a chat switch and unmount, and `fit` when the room it lands in shrinks below what it
 // still holds back (VirtualTranscript).
-import { MOTION_EASE_OUT, MOTION_EASE_SEND, MOTION_MS, MOTION_SEND_MS } from "../../../motion/scale.generated";
+import {
+  MOTION_EASE_OUT,
+  MOTION_EASE_SEND,
+  MOTION_MS,
+  MOTION_SEND_MS,
+  MOTION_SETTLE,
+} from "../../../motion/scale.generated";
 import type { AcpmuxRow } from "../model";
 import { geometryOf, type GeometrySource } from "../conversationGeometry";
 import { motionToken } from "../../../ui/motion/motionTokens";
@@ -51,23 +57,30 @@ export type FollowGlide = {
   /// drawn back by all of it (the prompt starts behind the composer it left) and slides to rest. No
   /// room cap, and `fit` leaves it be. Returns how far it was drawn back.
   sent(thread: HTMLElement | null, rose: number): number;
+  /// An opted-in send moves its prompt to the top: sweep the whole rise on the large move step.
+  /// Like `sent`, it keeps its room as the reply arrives; ordinary sends keep their own clock.
+  swept(thread: HTMLElement | null, rose: number): number;
+  /// Whether an opted-in top send currently owns the thread's motion.
+  sweeping(): boolean;
   /// How far the thread is still drawn back (px), 0 when at rest.
   outstanding(): number;
   /// The room under the last row is now `room`: a glide drawing the thread back further (the live
   /// line came into view to name a call, or left) stops, so nothing stays under the bottom stack.
   fit(room: number): void;
-  /// Cancels the glide in flight, leaving the rows where they lay out.
-  stop(): void;
+  /// Cancels the glide in flight. Only the send's own placement passes may preserve a sweep;
+  /// reader input, chat switches, resizes and folds still call without `keepSweep`.
+  stop(keepSweep?: boolean): void;
 };
 
 /// The step's duration: the host's move token (`--agent-motion-move`, 0 with motion off), else the
 /// motion scale's standard step; a send's, the send motion (`--agent-motion-send`, the scale's send
 /// step scaled as the move is). None under Reduce Motion or with cmux's motion off.
-function glideMs(node: HTMLElement, send = false): number {
+function glideMs(node: HTMLElement, send: boolean | "sweep" = false): number {
   const view = node.ownerDocument.defaultView;
   if (!view || view.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return 0;
   if (node.ownerDocument.documentElement.dataset.agentMotion === "off") return 0;
-  const token = cssTimeMs(motionToken(node, send ? "--agent-motion-send" : "--agent-motion-move"));
+  const token = cssTimeMs(motionToken(node, send === true ? "--agent-motion-send" : "--agent-motion-move"));
+  if (send === "sweep") return ((token ?? MOTION_MS.standard) * MOTION_MS.large) / MOTION_MS.standard;
   return token ?? (send ? MOTION_SEND_MS : MOTION_MS.standard);
 }
 
@@ -76,6 +89,7 @@ export function createFollowGlide(): FollowGlide {
   let from = 0;
   /// The glide in flight is a send's (`sent`): `fit` does not cut it short.
   let sending = false;
+  let sweeping = false;
   const outstanding = () => {
     if (!running) return 0;
     // The effect's easing is in its computed progress.
@@ -87,12 +101,13 @@ export function createFollowGlide(): FollowGlide {
     running = undefined;
     from = 0;
     sending = false;
+    sweeping = false;
     animation?.cancel();
   };
   /// Draws the thread back by `lag` and slides it to rest on the move step; false when nothing may.
   /// A send's glide runs on the send motion (`--agent-motion-send`, its settling curve), the clock the
   /// sent prompt's bubble and the thinking row come in on (conversation.css SEND-ENTRANCE).
-  const play = (thread: HTMLElement | null, lag: number, send = false): boolean => {
+  const play = (thread: HTMLElement | null, lag: number, send: boolean | "sweep" = false): boolean => {
     if (!thread || typeof thread.animate !== "function" || !(lag > 0.5)) return false;
     if (thread.closest(FOLLOW_GLIDE_OFF)) return false;
     const duration = glideMs(thread, send);
@@ -104,7 +119,7 @@ export function createFollowGlide(): FollowGlide {
     from = lag;
     const animation = thread.animate([{ translate: `0 ${lag}px` }, { translate: "0 0" }], {
       duration,
-      easing: send ? MOTION_EASE_SEND : MOTION_EASE_OUT,
+      easing: send === "sweep" ? MOTION_SETTLE : send ? MOTION_EASE_SEND : MOTION_EASE_OUT,
     });
     running = animation;
     animation.onfinish = () => {
@@ -112,12 +127,17 @@ export function createFollowGlide(): FollowGlide {
       running = undefined;
       from = 0;
       sending = false;
+      sweeping = false;
     };
     return true;
   };
   return {
     outstanding,
-    stop,
+    sweeping: () => running !== undefined && sweeping,
+    stop(keepSweep = false) {
+      if (keepSweep && running && sweeping) return;
+      stop();
+    },
     fit(room) {
       if (running && !sending && outstanding() > Math.max(0, room) + 0.5) stop();
     },
@@ -126,13 +146,22 @@ export function createFollowGlide(): FollowGlide {
       // Where the rows are drawn now, plus the rise the offset just took: they start where the
       // reader saw them, short of the room's end. A send's glide in flight keeps all it holds back.
       const lag = sending ? outstanding() + rose : Math.min(room, outstanding() + rose);
-      return play(thread, lag, sending) ? lag : 0;
+      return play(thread, lag, sweeping ? "sweep" : sending) ? lag : 0;
     },
     sent(thread, rose) {
       if (!(rose > 0.5)) return 0;
       const lag = outstanding() + rose;
       if (!play(thread, lag, true)) return 0;
       sending = true;
+      sweeping = false;
+      return lag;
+    },
+    swept(thread, rose) {
+      if (!(rose > 0.5)) return 0;
+      const lag = outstanding() + rose;
+      if (!play(thread, lag, "sweep")) return 0;
+      sending = true;
+      sweeping = true;
       return lag;
     },
   };
