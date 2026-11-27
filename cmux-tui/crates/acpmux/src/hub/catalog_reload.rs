@@ -122,6 +122,7 @@ impl Hub {
                 titles,
                 context_overrides,
                 send_relay,
+                send_hop,
                 new_relay,
                 artifacts,
                 composer_max_rows,
@@ -236,6 +237,7 @@ impl Hub {
             current.titles = titles;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.send_hop = send_hop;
             current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
