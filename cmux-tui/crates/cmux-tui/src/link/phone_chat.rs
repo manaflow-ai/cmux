@@ -118,7 +118,9 @@ where
     write.flush().await.map_err(closed)?;
     let bytes = read_line(read, &mut Vec::new()).await?;
     let reply: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    if reply["id"] != cmux_link::owner_phone::REQUEST_ID || reply["ok"] != Value::Bool(true) {
+    if reply.get("id").and_then(Value::as_str) != Some(cmux_link::owner_phone::REQUEST_ID)
+        || reply.get("ok").and_then(Value::as_bool) != Some(true)
+    {
         return Err(Fault {
             code: "forbidden",
             message: "Cloud carrier refused the phone's stamp".into(),
