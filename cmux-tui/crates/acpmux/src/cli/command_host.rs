@@ -180,6 +180,12 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: ConsentCmd,
     },
+    /// The Macs whose cmux app may switch this machine's Control and Screen (pinned in the cmux
+    /// app here, after checking their words). `rm` only removes one; nothing here adds one.
+    Grantors {
+        #[command(subcommand)]
+        cmd: GrantorsCmd,
+    },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
     /// cmux access token on stdin; a shell or agent is refused.
@@ -663,6 +669,17 @@ pub enum ConsentCmd {
         /// Control from this person's other machines signed in to the same account.
         #[arg(long)]
         signed_in_machines: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GrantorsCmd {
+    /// The pinned Macs (id, name, account, key words) and the pending ask.
+    List,
+    /// Stop a Mac's grants here at once, and drop its pending ask.
+    Rm {
+        /// The Mac's grantor id (`mac-` and 16 hex digits).
+        id: String,
     },
 }
 

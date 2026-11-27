@@ -8,6 +8,7 @@
 // changed no gallery file is pictured by the entries that cover what it changed.
 //   bun scripts/gallery/notes.ts --out notes.json [--covers covers.json] [--entries id,...]   selected entries
 //   bun scripts/gallery/notes.ts src/a/A.gallery.ts ...                     only these files' entries, to stdout
+// --skip-broken leaves out a gallery file that fails to load, named on stderr (entries.ts loadEntrySources).
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -36,7 +37,11 @@ export function entryCovers(entries: GalleryEntry[]): Record<string, string[]> {
 
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
+<<<<<<< ours
     options: { out: { type: "string" }, covers: { type: "string" }, entries: { type: "string" } },
+=======
+    options: { out: { type: "string" }, covers: { type: "string" }, "skip-broken": { type: "boolean", default: false } },
+>>>>>>> theirs
     allowPositionals: true,
   });
   const requested =
@@ -48,7 +53,11 @@ if (import.meta.main) {
     ? await Promise.all(
         positionals.map(async (file) => ((await import(path.resolve(file))) as { default: GalleryEntry }).default),
       )
+<<<<<<< ours
     : (await loadEntrySources(requested)).map(({ entry }) => entry);
+=======
+    : (await loadEntrySources({ skipBroken: values["skip-broken"] })).map(({ entry }) => entry);
+>>>>>>> theirs
   const json = `${JSON.stringify(variantNotes(entries), null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
   else process.stdout.write(json);
