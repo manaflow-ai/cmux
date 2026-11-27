@@ -178,7 +178,8 @@ jobs:
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # 0 turns the UI proof gate off (scripts/ci/ui_proof_verdict.py); cmux/ui-proof then posts success.
           CI_UI_PROOF: ${{ vars.CI_UI_PROOF }}
-          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
