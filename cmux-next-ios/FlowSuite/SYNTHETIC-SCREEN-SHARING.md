@@ -32,6 +32,10 @@ This uses an existing simulator test target and requires no physical phone. Comp
 and simulator setup are separate costs from the measured warm test body; use the
 existing kit/FlowSuite run instead of booting a simulator for an hourly probe.
 
+Scope: this detector covers the cmux.rd viewer. The separate WebRTC
+`ScreenSessionView`/`ScreenVideoView` path needs its own synthetic check; this
+receipt must not be counted as coverage of that path.
+
 Limits: the synthetic source bypasses desktop capture permission and the network.
 Pairing, version skew, Braid carriers and roaming have their own protocol tests.
 This decoder/display check does not establish real radio behavior, display scanout,

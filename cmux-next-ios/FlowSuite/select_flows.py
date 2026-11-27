@@ -182,7 +182,12 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
     def union(key: str) -> list:
         out: list = []
         for f in selected:
-            for x in f.get(key, []):
+            values = f.get(key, [])
+            # Older rows request the default paired run with a boolean; newer
+            # rows supply arguments such as reconnect-drops=10,60.
+            if key == "pair_e2e" and isinstance(values, bool):
+                continue
+            for x in values:
                 if x not in out:
                     out.append(x)
         return out
@@ -199,7 +204,7 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
         "ui": union("ui"),
         "swift": union("swift"),
         "scripts": scripts,
-        "pair_e2e": union("pair_e2e"),
+        "pair_e2e": union("pair_e2e") or any(f.get("pair_e2e") for f in selected),
         "reason": reason,
     }
 
@@ -220,7 +225,8 @@ def sim_args(result: dict, shards: int) -> list[str]:
         if k or u:
             lines.append(" ".join(parts))
     if result.get("pair_e2e"):  # a paired Mac and iPhone: its own run (cmux-next-ios-sim.sh pair-e2e WORD...)
-        lines.append(" ".join(["pair-e2e", *result["pair_e2e"]]))
+        args = result["pair_e2e"] if isinstance(result["pair_e2e"], list) else []
+        lines.append(" ".join(["pair-e2e", *args]))
     return lines or ["build"]
 
 
