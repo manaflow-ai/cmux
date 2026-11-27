@@ -179,8 +179,8 @@ test("a chat followed at its latest row holds at most HELD_RECORDS records howev
 test("a chat left open holds at most two older pages of records, and keeps one at a cut", async () => {
   const chat = await streamed(16_000, true);
   try {
-    expect(chat.most).toBeLessThanOrEqual(4_000 + TURN);
-    expect(chat.events().length).toBeGreaterThanOrEqual(2_000);
+    expect(chat.most).toBeLessThanOrEqual(chat.HELD_RECORDS + TURN);
+    expect(chat.events().length).toBeGreaterThanOrEqual(chat.HELD_RECORDS / 2);
     expect(chat.events().at(-1)!.seq).toBe(chat.total);
   } finally {
     chat.cleanup();

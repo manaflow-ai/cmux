@@ -18632,6 +18632,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-rd-windows-host-build.yml",
             # cmux-shotdiff's self-check on real Chrome renders (#57873): reads the tool's own code.
             "shotdiff.yml",
+            # The Make cmux Yours intro walk (#60998), path-gated on the onboarding page: a red is that page's.
+            "intro-walk-check.yml",
             # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
             # (#57443) and the pause-policy A/B on staging (#54833).
             "ios-launch-tti-hosted.yml", "pause-ab.yml"),
