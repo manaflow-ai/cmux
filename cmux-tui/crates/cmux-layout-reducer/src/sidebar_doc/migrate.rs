@@ -437,7 +437,9 @@ pub fn migrate(input: &LegacyInput) -> Doc {
     }
     for indexes in lists.values() {
         for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
-            items[index].order = key;
+            if let Some(item) = items.get_mut(index) {
+                item.order = key;
+            }
         }
     }
     let mut doc = Doc::from_parts(0, sections, items);
