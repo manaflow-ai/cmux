@@ -177,7 +177,10 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
-  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
+  covers: [
+    "agent-session/acpmux/conversation/SinceDivider.tsx",
+    "agent-session/acpmux/transcript/JumpButtons.tsx#JumpUp",
+  ],
   // Jump up is off by default; `on` retains its exclusive display with Jump to latest.
   experiment: { definition: jumpUpButton, script: [{ name: "scroll to the middle", run: midChat }] },
   keywords: ["unread", "new since", "new messages", "jump to bottom", "banner"],
