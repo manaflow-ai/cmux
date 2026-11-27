@@ -23,6 +23,7 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 cmux-auth-coordinator.workspace = true
+cmux-local-url.workspace = true
 async-trait = "0.1"
 cmux-auto-session.workspace = true
 # Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
@@ -64,7 +65,6 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uniffi = "=0.31.1"
-url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
