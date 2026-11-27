@@ -485,6 +485,20 @@ def stage_update(app, label, expected_build=None):
     return s, log
 
 
+
+def print_install_logs(since, app_log):
+    """A failed install on quit names its cause: the app's last updater lines, then the
+    updater's and Sparkle's unified log from the quit on (c-3683c5e238)."""
+    print("=== app updater log before the quit (updates.status)")
+    print(app_log or "(empty)")
+    for title, predicate in (
+        ("updater", 'subsystem == "com.cmuxterm.app.next" AND category == "updater"'),
+        ("sparkle", 'subsystem BEGINSWITH "org.sparkle-project" OR process CONTAINS "Autoupdate" OR process CONTAINS "Updater"'),
+    ):
+        out = run("log", "show", "--start", since, "--style", "compact", "--info", "--debug", "--predicate", predicate).stdout
+        print(f"=== {title} unified log since {since} ({len(out.splitlines())} lines, last 150)")
+        print("\n".join(out.splitlines()[-150:]))
+
 DRAFT = "DRAFT survives update"
 
 
@@ -584,9 +598,16 @@ def main():
             record("idle install relaunched", bool(wait(lambda: app.status().get("build") == to_item["build"], 90)),
                    app.status().get("build"))
         else:
+            quit_started = time.strftime("%Y-%m-%d %H:%M:%S")
+            still = app.pids()
+            pre_quit_log = "\n".join(app.status().get("log", [])) or sparkle_log
             app.quit()
-            record("install on quit replaced the bundle", bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2)),
-                   f"bundle build {bundle_build(path)}")
+            left = [p for p in still if run("kill", "-0", str(p)).returncode == 0]
+            print(f"quit: pids before {still}, still running after the quit wait {left}")
+            installed = bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2))
+            record("install on quit replaced the bundle", installed, f"bundle build {bundle_build(path)}")
+            if not installed:
+                print_install_logs(quit_started, pre_quit_log)
             record("relaunched", bool(app.launch(log)))
         record("running the newest build", app.status().get("build") == to_item["build"], app.status().get("build"))
         record("terminal output kept across the update", bool(wait(lambda: token in screen(), 20)))
