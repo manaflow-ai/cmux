@@ -75,6 +75,11 @@ MAX_CHAINS = 4
 # goals/base-batch-reverts-culprit.md).
 # Raised from 4 on 2026-11-27: 67 live base reds drained four at a time while the Linux pool sat idle (0.275 busy).
 MAX_STUCK_CHAINS = 12
+# Flake-aware confirm (Henderson et al., "Flake Aware Culprit Finding", ICST 2023; LUCI Bisection): a bisect's culprit
+# rests on one red run of it and one green run of its parent, so one flaky run named the wrong commit. Before its revert
+# opens, the culprit runs CONFIRM_RUNS more times (each must fail) and its parent CONFIRM_RUNS more times (each must
+# pass), all at once in one round; any disagreeing run makes it a flake, with no revert.
+CONFIRM_RUNS = 2
 # A stuck red is bisected again at most this many times, so a red no bisect can pin (an outside service, a red on
 # every commit) costs a bounded number of probe chains. A bisect counts once its first probe was judged: before
 # 2026-11-27 this counted red batch runs instead, so the six reds whose chains died on the judge's rate limit
@@ -619,9 +624,11 @@ class Probe:
     origin: str  # the batch run that found the red
     tries: int = 0
     pieces: str = ""  # hot swap out: piece_swap.State; sha is then the culprit with state.out swapped out
+    confirm: str = ""  # flake-aware confirm: 'red-N' (sha is the culprit, bad) or 'green-N' (sha is its parent, good)
 
     def inputs(self) -> dict[str, str]:
         extra = {"pieces": self.pieces} if self.pieces else {}
+        extra |= {"confirm": self.confirm} if self.confirm else {}
         return extra | {
             "mode": PROBE,
             "suite": self.suite,
@@ -801,6 +808,18 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
         span = covered(green, head)
     except (RuntimeError, subprocess.CalledProcessError):
         span = []
+    if probe.confirm:
+        # A confirm run tests the culprit (bad) or its parent (good) again: bad is in the covered commits and good
+        # is the commit just before it there (or the last green, when bad is the first covered commit).
+        side = probe.confirm.split("-", 1)[0]
+        if probe.bad not in span:
+            return f"bad `{probe.bad[:11]}` is not in the commits origin run {origin.get('id')} covered (`{green[:11]}`..`{head[:11]}`)"
+        at = span.index(probe.bad)
+        if probe.good != (span[at - 1] if at else green):
+            return f"good `{probe.good[:11]}` is not the parent of the confirmed culprit `{probe.bad[:11]}`"
+        if probe.sha != {"red": probe.bad, "green": probe.good}.get(side):
+            return f"confirm `{probe.confirm}` probe's sha `{probe.sha[:11]}` is not its culprit or parent"
+        return ""
     for label, sha in (("sha", probe.sha), ("bad", probe.bad)):
         if (sha or label == "sha") and sha not in span:
             return f"{label} `{sha[:11]}` is not in the commits origin run {origin.get('id')} covered (`{green[:11]}`..`{head[:11]}`)"
@@ -820,7 +839,7 @@ DISPATCH_WAITS = (15, 45)
 
 def probe_title(probe: Probe) -> str:
     """The probe run's title (the workflow's run-name for a probe dispatch)."""
-    return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}" + (f" confirm {probe.confirm}" if probe.confirm else "")
 
 
 def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
@@ -925,6 +944,46 @@ def _tree(sha: str) -> str | None:
     return None
 
 
+def confirm_probes(job: Probe, culprit: str, parent: str) -> list[Probe]:
+    """The confirm round for a bisect's culprit: CONFIRM_RUNS runs at the culprit (red-N) and at its parent (green-N)."""
+    return [Probe(job.suite, job.job, job.only, sha, parent, culprit, job.origin, confirm=f"{side}-{n}")
+            for n in range(1, CONFIRM_RUNS + 1) for side, sha in (("red", culprit), ("green", parent))]
+
+
+def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], jobs_of) -> tuple[str, str]:
+    """After one confirm run: ('culprit'|'flake'|'unsure'|'wait', why). Every confirm run's judge reads the
+    round's other runs (newest run per title: a retry replaces its run). Any verdict against its side (the culprit
+    passed, or its parent failed) is a flake. With no flake, only the judge that sees every run of the round
+    settled decides, and of those only the newest run's, or any once the newest run has finished, so the round
+    opens one revert. jobs_of(run id) gives (verdicts, judged)."""
+    want = {"red": "failure", "green": "success"}
+    seen = {probe.confirm: (conclusion, run_id, True)}
+    for other in confirm_probes(probe, probe.bad, probe.good):
+        if other.confirm == probe.confirm:
+            continue
+        title = probe_title(other)
+        run = next((r for r in runs if (r.get("display_title") or "") == title), None)
+        if run is None:
+            seen[other.confirm] = ("", 0, False)
+            continue
+        got, judged = jobs_of(run["id"])
+        verdict = probe_conclusion(got, other)
+        seen[other.confirm] = (verdict, int(run["id"]), judged or run.get("status") == "completed")
+    against = [c for c, (v, _, _) in seen.items() if v in ("success", "failure") and v != want[c.split("-", 1)[0]]]
+    if against:
+        return "flake", f"confirm run(s) {', '.join(sorted(against))} disagreed with the bisect"
+    pending = [c for c, (v, _, done) in seen.items() if v not in ("success", "failure", "skipped") and not done]
+    if pending:
+        return "wait", f"waiting on confirm run(s) {', '.join(sorted(pending))}"
+    newest = max(seen.values(), key=lambda v: v[1])
+    if newest[1] != run_id and not newest[2]:
+        return "wait", f"every confirm run has a verdict; run {newest[1]}'s judge decides"
+    sides = {c.split("-", 1)[0] for c, (v, _, _) in seen.items() if v == want[c.split("-", 1)[0]]}
+    if sides != {"red", "green"}:
+        return "unsure", "a side of the confirm round gave no verdict"
+    return "culprit", f"{len(seen)} confirm runs agree"
+
+
 def judge_pieces(args: argparse.Namespace, probe: Probe, state, conclusion: str) -> dict[str, str]:
     """After a piece probe: the next piece state for the revert job to build and dispatch, the one piece
     named, or piece "-" (no piece: the whole revert pull request, as before)."""
@@ -1005,7 +1064,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         write_outputs(args.github_output, out)
         return 0
 
-    probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0), args.pieces or "")
+    probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0),
+                  args.pieces or "", getattr(args, "confirm", "") or "")
     found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
@@ -1055,6 +1115,29 @@ def cmd_judge(args: argparse.Namespace) -> int:
         out.update(judge_pieces(args, probe, state, conclusion))
         write_outputs(args.github_output, out)
         return 0
+    if probe.confirm:
+        if conclusion not in ("success", "failure") and probe.tries < MAX_PROBE_RETRIES:
+            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1})
+            summary(args.summary, f"Confirm run `{probe.confirm}` gave no verdict at `{probe.sha[:11]}`; running it again.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, again)
+        else:
+            try:
+                runs = list_runs(args.repo, args.branch)
+            except RuntimeError:
+                runs = []
+            step, why = judge_confirm(probe, conclusion, int(args.run_id or 0), runs, jobs_of)
+            if step == "culprit":
+                summary(args.summary, f"`{probe.job}` first went red at `{probe.bad}` (last green `{probe.good[:11]}`): {why}.")
+                out.update(culprit=probe.bad, job=probe.job, good=probe.good, origin=probe.origin)
+            elif step == "flake":
+                summary(args.summary, f"`{probe.job}` at `{probe.bad[:11]}`: {why}: a flake, quarantined; no revert.")
+            elif step == "unsure":
+                summary(args.summary, f"`{probe.job}` likely went red at `{probe.bad[:11]}`, but {why}: named only, no revert.")
+            else:
+                summary(args.summary, f"Confirm run `{probe.confirm}` was {conclusion or 'unfinished'} at `{probe.sha[:11]}`; {why}.")
+        write_outputs(args.github_output, out)
+        return 0
     head = probe.bad or probe.sha
     commits = first_parent_range(probe.good, head)
     step, value = next_step(probe, conclusion, commits)
@@ -1076,8 +1159,16 @@ def cmd_judge(args: argparse.Namespace) -> int:
             dispatch_probe(args.repo, args.branch, value)
     elif step == "culprit":
         assert isinstance(value, str)
-        summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{(probe.good if conclusion == 'failure' else probe.sha)[:11]}`).")
-        out.update(culprit=value, job=probe.job, good=probe.good if conclusion == "failure" else probe.sha, origin=probe.origin)
+        parent = probe.good if conclusion == "failure" else probe.sha
+        if CONFIRM_RUNS:
+            summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`); confirming with "
+                                  f"{CONFIRM_RUNS} more runs of each before any revert.")
+            if not args.dry_run:
+                for again in confirm_probes(probe, value, parent):
+                    dispatch_probe(args.repo, args.branch, again)
+        else:
+            summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`).")
+            out.update(culprit=value, job=probe.job, good=parent, origin=probe.origin)
     elif step == "flake":
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
     elif conclusion == "skipped":
@@ -1374,6 +1465,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--origin", default="")
         p.add_argument("--tries", default="0")
         p.add_argument("--pieces", default="")
+        p.add_argument("--confirm", default="")
 
     p = sub.add_parser("tick")
     common(p)

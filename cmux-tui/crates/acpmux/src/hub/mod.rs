@@ -284,6 +284,8 @@ pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
 mod wait_edges;
+/// Four session states, never unknown (`hub/session_state.rs`).
+pub(crate) mod session_state;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
