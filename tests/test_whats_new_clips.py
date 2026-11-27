@@ -1196,6 +1196,7 @@ class WorkflowTests(unittest.TestCase):
         # and the queue wait, cmux-ci's uncounted compile (5400 s) and the run fit the job with room to upload.
         self.assertIn('record_one "$id" "$roles" "$before" &', run)
         self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
+        self.assertIn('--deadline "${QUEUE_S}s"', run)
         self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
         bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
         self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
