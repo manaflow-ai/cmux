@@ -362,6 +362,38 @@
    ],
    "affects_why": "webviews/bench/transcript-replay-ab.sh replays the long chat into the agent pane built from webviews/src/agent-session (and what it imports) at the merge base and the head, with the head's bench and its imports (browsers, godFixture, perfRow, replayLogs, stability, support/sharedBuilds, test/support foldFrameReport and paintedFrames); the duress reading runs scripts/measure/replay-under-load.sh and its bench; the summary is scripts/ci/transcript_replay_report.py. A change touching none of them moves no number in the report.",
    "skip_docs_only": true
+  },
+  "cmux-next-sidebar-bench.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/macOS/CmuxNext/Sources/**/Sidebar*",
+    "Packages/macOS/CmuxNext/Sources/**/*Chief*",
+    "Packages/macOS/CmuxNext/Sources/**/HomeRules*",
+    "Packages/macOS/CmuxNext/Sources/**/WelcomeRule*",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    ".github/workflows/cmux-next-sidebar-bench.yml"
+   ],
+   "affects": [
+    "Packages/macOS/CmuxNext/Sources/**/Sidebar*",
+    "Packages/macOS/CmuxNext/Sources/**/*Chief*",
+    "Packages/macOS/CmuxNext/Sources/**/HomeRules*",
+    "Packages/macOS/CmuxNext/Sources/**/WelcomeRule*",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    ".github/workflows/cmux-next-sidebar-bench.yml"
+   ],
+   "affects_why": "SidebarChiefLagTests and ChiefFaceFlushBenchTests read the sidebar row feed and bridge (Sources/**/Sidebar*), the Chief faces and pet settings (*Chief*), the Home rules and engine they flush through, and the bench files themselves; a change touching none of them moves no SIDEBAR-CHIEF-LAG number.",
+   "skip_docs_only": true
   }
  }
 }
