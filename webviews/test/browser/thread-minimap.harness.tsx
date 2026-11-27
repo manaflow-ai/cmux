@@ -1,6 +1,7 @@
 // The chat's transcript with its thread minimap, as the agent pane lays it out (App.tsx), in the
 // dark reference theme the minimap's numbers were measured in. The test hands it rows
 // (`window.__showRows`); thread-minimap-motion.test.ts measures the rail's motion here.
+import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
@@ -60,7 +61,7 @@ let shownRows: AcpmuxRow[] = [];
 let olderPage: (() => Promise<void>) | undefined;
 /// What the snapshot says of the prompts the rows do not hold (App.tsx passes `earlierPrompts` and
 /// `promptCount`): a test hands them with the rows (`window.__showRows(rows, extra)`).
-type Extra = { earlier?: AcpmuxRow[]; promptCount?: number };
+type Extra = { earlier?: AcpmuxRow[]; promptCount?: number; sessionId?: string };
 let shownExtra: Extra = {};
 /// The pane's index of `earlier` (the snapshot holds it as columns, promptHeads.ts), one per list handed in.
 const headsOf = new WeakMap<AcpmuxRow[], PromptHeads>();
@@ -74,6 +75,8 @@ const earlierOf = (rows: AcpmuxRow[] | undefined) => {
 let loadThrough: ((seq: number) => Promise<boolean>) | undefined;
 /// A hover or click on a pending tick asks for the prompt index through this (`window.__setPromptIndex`).
 let loadPromptIndex: (() => Promise<boolean>) | undefined;
+/// Bounded store previews are separate from the full prompt index and transcript paging.
+let loadTurnPreview: ComponentProps<typeof VirtualTranscript>["loadTurnPreview"];
 // A prompt's sent images read through `window.__imageUrl(id)` when the test sets it (the pane reads
 // them from acpmux); a test serves that URL as late as it likes.
 const actions = {
@@ -89,11 +92,12 @@ const actions = {
         <TurnActionsContext.Provider value={actions}>
           <VirtualTranscript
             rows={messages ? messagesRows(rows) : turnView(rows, new Set())}
-            sessionId="minimap-session"
+            sessionId={shownExtra.sessionId ?? "minimap-session"}
             earlier={earlierOf(shownExtra.earlier)}
             promptCount={shownExtra.promptCount}
             loadThrough={loadThrough}
             loadPromptIndex={loadPromptIndex}
+            loadTurnPreview={loadTurnPreview}
             onToggleActivity={() => {}}
             expanded={new Set()}
             canLoadOlder={olderPage !== undefined}
@@ -132,5 +136,10 @@ setBookmarkTransport(transport);
 };
 (window as unknown as { __setPromptIndex: (read: typeof loadPromptIndex) => void }).__setPromptIndex = (read) => {
   loadPromptIndex = read;
+  (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
+};
+
+(window as unknown as { __setTurnPreview: (read: typeof loadTurnPreview) => void }).__setTurnPreview = (read) => {
+  loadTurnPreview = read;
   (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
 };
