@@ -56,6 +56,8 @@ jobs:
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
             cmux-tui/crates/acpmux/tests/fake_agent.py
+            # fake_agent.py reads the JSON files beside it (guidance_sources.json).
+            cmux-tui/crates/acpmux/tests/*.json
             .gitmodules
           sparse-checkout-cone-mode: false
 
