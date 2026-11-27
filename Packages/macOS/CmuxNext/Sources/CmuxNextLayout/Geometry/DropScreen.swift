@@ -6,7 +6,7 @@ import Foundation
 /// once from the placed geometry as JSON, then asked per pointer move with numbers only. Nothing here decides: it maps
 /// the app's ids and rects into the screen's indices and the answers back. The rules and their tests are in the crate
 /// (`src/pane_drop_zones.rs`, `ffi/tests/pane_drop_zones.rs`).
-nonisolated final class DropScreen: @unchecked Sendable {
+nonisolated final class DropScreen {
     private let handle: OpaquePointer
     /// The panes in tie-break order (by id): the screen's pane indices.
     private let panes: [PaneID]
@@ -20,20 +20,10 @@ nonisolated final class DropScreen: @unchecked Sendable {
         var style: LayoutStyle
     }
 
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var cached: (key: Key, screen: DropScreen)?
-
-    /// The screen for these inputs: the last one built while they are equal, else a new one. nil when the numbers do
-    /// not encode (a NaN frame).
+    /// The screen for these inputs, built fresh (no shared state): nil when the numbers do not encode (a NaN frame).
     static func shared(geometry: ScreenGeometry?, headers: [PaneID: CGFloat], footers: [PaneID: CGFloat],
                        style: LayoutStyle) -> DropScreen? {
-        let key = Key(geometry: geometry, headers: headers, footers: footers, style: style)
-        lock.lock()
-        defer { lock.unlock() }
-        if let cached, cached.key == key { return cached.screen }
-        guard let screen = DropScreen(key) else { return nil }
-        cached = (key, screen)
-        return screen
+        DropScreen(Key(geometry: geometry, headers: headers, footers: footers, style: style))
     }
 
     private init?(_ key: Key) {
