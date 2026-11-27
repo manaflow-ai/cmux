@@ -102,6 +102,23 @@ fn the_profile_denies_credentials_writes_and_other_ports() {
 }
 
 #[test]
+fn the_profile_keeps_home_ssh_metadata_and_closes_escape_boundaries() {
+    assert!(PROFILE.contains(r#"(literal (string-append (param "HOME") "/.ssh/config"))"#));
+    assert!(PROFILE.contains(r#"(literal (string-append (param "HOME") "/.ssh/known_hosts"))"#));
+    assert!(!PROFILE.contains(r#"(literal (string-append (param "AGENT_HOME") "/.ssh/config"))"#));
+    assert!(
+        !PROFILE.contains(r#"(literal (string-append (param "AGENT_HOME") "/.ssh/known_hosts"))"#)
+    );
+    assert!(
+        PROFILE.contains(r#"(remote unix-socket (path-literal "/private/var/run/mDNSResponder"))"#)
+    );
+    assert!(!PROFILE.contains("  (remote unix-socket))"));
+    for root in ["/.rustup", "/Library/pnpm", "/.deno", "/go", "/Library/Developer"] {
+        assert!(!PROFILE.contains(root), "profile widened toolchain root {root}");
+    }
+}
+
+#[test]
 fn paths_are_regex_escaped() {
     assert_eq!(regex_escape(Path::new("/Users/a.b/x+y (1)")), "/Users/a\\.b/x\\+y \\(1\\)");
 }
