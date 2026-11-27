@@ -51,6 +51,11 @@ path = "tests/test_base_autofix_pushed_exports.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_base_coalesce_record_dir.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_coalesce_record_dir.py"
+
+[[test]]
 path = "tests/test_base_merge_warning.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_merge_warning.py"
