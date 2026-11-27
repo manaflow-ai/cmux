@@ -125,7 +125,7 @@
             "scripts/ci/job_input_fingerprint.py",
             "scripts/ci/job_reuse.py",
             "scripts/ci/github_fetch_auth.py",
-            "ghostty-next", "workers/cmux-vm/cli/",
+            "ghostty-next", "workers/cmux-vm/cli/", "skills/cmux-extension-author/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
             "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
             "webviews/", "schemas/", "web/data/model-catalog/", "scripts/cmux-next/build-agent-pane-web.sh",
