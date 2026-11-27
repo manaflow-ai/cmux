@@ -160,6 +160,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
 
+      - name: Validate shared CAS replay producer and consumers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cas_replay_workflow.py
+
       - name: Validate repository variable defaults
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
