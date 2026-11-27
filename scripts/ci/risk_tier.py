@@ -14,7 +14,7 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           a review verdict on the head: a review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
           commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
-          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml stays red on an unowned takeback or an ungraded quota refusal.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import email.utils
 import fnmatch
 import json
 import os
@@ -771,6 +772,7 @@ class RateLimited(subprocess.CalledProcessError):
     def __init__(self, *args, endpoint: str, status: int, reset: int, **kwargs):
         super().__init__(*args, **kwargs)
         self.marker = dict(endpoint=endpoint, status=status, reset=reset, graded=False)
+        self.takeback_numbers: list[int] | None = None
 
 
 def api_response(output: str) -> tuple[int | None, dict[str, str], str]:
@@ -799,6 +801,11 @@ def api_quota_reset(status: int | None, headers: dict[str, str]) -> int | None:
     reset = headers.get("x-ratelimit-reset", "")
     if retry.isdigit():
         return int(time.time()) + int(retry)
+    if retry:
+        try:
+            return max(int(time.time()), int(email.utils.parsedate_to_datetime(retry).timestamp()))
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
     if reset.isdigit():
         return int(reset)
     return int(time.time()) + SECONDARY_WAIT_SECONDS
@@ -840,9 +847,12 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
                 time.sleep(wait)
                 continue
         if limited or attempt == attempts - 1:
-            print(f"{shlex.join(args)} exited {done.returncode}"
-                  f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
-                  f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
+            if limited:
+                print(f"{shlex.join(args)} exited {done.returncode} (GitHub API quota: structured refusal; "
+                      f"endpoint {endpoint}, HTTP {status})", file=sys.stderr, flush=True)
+            else:
+                print(f"{shlex.join(args)} exited {done.returncode}"
+                      f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
             if limited:
                 raise RateLimited(done.returncode, args, output=body, stderr=done.stderr,
                                   endpoint=endpoint, status=status, reset=reset)
@@ -853,21 +863,25 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
 
 def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
     """No grade is a retryable failure, never a passing takeback check."""
-    why = (error.stderr or error.output or "").strip().splitlines()
     report = "\n".join([
         "## Risk tier: ungraded", "",
-        f"GitHub's API budget for this run ran out on `{printable(shlex.join(error.cmd))}`"
-        f"{': ' + printable(why[0]) if why else ''}.",
+        f"GitHub's API budget refused `{printable(error.marker['endpoint'])}` with HTTP {error.marker['status']}; "
+        "the reset boundary is in the machine-readable marker below.",
         "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
         "", "Policy: docs/ci/risk-tiers.md"])
+    takebacks = error.takeback_numbers or []
+    if takebacks:
+        report += "\n\n" + "\n".join(f"Takes back #{number}: unowned takeback found before the API refusal"
+                                             for number in takebacks)
     print("risk-evidence.rate-limited " + json.dumps(error.marker, sort_keys=True))
     print(report)
     print("::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
     if args.summary:
-        Path(args.summary).open("a").write(report + "\n")
+        with Path(args.summary).open("a") as summary:
+            summary.write(report + "\n")
     if args.github_output:
         with Path(args.github_output).open("a") as out:
-            out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=true\ntakes_back=false\ntakes_back_fix=\n")
+            out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=true\n")
     return 1
 
 
@@ -1263,7 +1277,8 @@ def pr_mode(args: argparse.Namespace) -> int:
     if grade.tier == "high":
         try:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
-        except RateLimited:
+        except RateLimited as error:
+            error.takeback_numbers = unowned_takebacks(pr.get("body") or "", list(undone))
             raise
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a

@@ -2,6 +2,7 @@
 //! of an inbox item, the answers the log holds, and the `_acpmux/inbox_threads` and
 //! `_acpmux/inbox_thread` reads.
 
+use super::inbox_point;
 use super::*;
 
 impl Hub {
@@ -18,9 +19,19 @@ impl Hub {
 
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
+    ///
+    /// From its inbox point (`inbox_point.rs`) when one matches the log: the records the inbox
+    /// held then, and the log past the point's seq only. The whole log's inbox records were
+    /// read on each restart's first prompt, a cost that grew with the chat (cmux#51494: 85 ms
+    /// of a 4 GB chat's first send after a restart, 157 ms after the next, 3 ms at 1 MB).
     pub(in crate::hub) fn restore_inbox(&self, session: &Session) {
+        let point = self.read_inbox_point(session);
+        // Every record through `through` is in the journal: a point saved at it skips them.
+        let through = self.settled_seq(session);
+        let carry = self.inbox_point_saves(session);
+        let mut seen: Vec<EventRecord> = Vec::new();
         let surge_on = self.surge_inbox_on();
-        let mut counts = surge::Counts::default();
+        let mut counts = point.as_ref().map(|p| p.counts).unwrap_or_default();
         let mut recent_held = std::collections::VecDeque::new();
         // The messages the scan holds, in log order; a slot empties when its message is
         // withdrawn (`inbox_removed`), so a long inbox of handled messages is never held whole.
@@ -33,12 +44,17 @@ impl Hub {
         let mut any_item = false;
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
-        let mut removed: std::collections::HashSet<String> = Default::default();
+        // Withdrawn before the point too: a later record of one is withdrawn, as the whole log
+        // read it.
+        let mut removed: std::collections::HashSet<String> =
+            point.as_ref().map(|p| p.removed.iter().cloned().collect()).unwrap_or_default();
         let mut answered: std::collections::HashMap<String, super::super::queue::Answer> =
             Default::default();
         let kinds = Self::INBOX_KINDS;
-        // And what was changed here but is not in the journal yet (`scan_for_rebuild`).
-        let scanned = self.scan_for_rebuild(session, kinds, &mut |e: EventRecord| {
+        let mut visit = |e: EventRecord| {
+            if carry && e.seq <= through {
+                seen.push(e.clone());
+            }
             counts.restore(&e);
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
@@ -137,12 +153,32 @@ impl Hub {
                 _ => {}
             }
             true
-        });
+        };
+        // The point's records first, in their log order, then the log past it. And what was
+        // changed here but is not in the journal yet (`scan_for_rebuild`).
+        let scanned = match &point {
+            Some(p) => {
+                p.records.iter().cloned().for_each(|e| {
+                    visit(e);
+                });
+                self.scan_for_rebuild_after(session, p.seq, kinds, &mut visit)
+            }
+            None => self.scan_for_rebuild(session, kinds, &mut visit),
+        };
         drop(slots);
         let mut items: Vec<Item> = items.into_iter().flatten().collect();
         any_item |= !recent_held.is_empty();
         items.extend(recent_held);
-        if scanned.is_err() || (!any_item && counts.seq == 0) {
+        if scanned.is_err() {
+            return;
+        }
+        if !any_item && counts.seq == 0 {
+            if carry {
+                let inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
+                let point = inbox_point::InboxPoint::of(&inbox, through, counts, seen);
+                drop(inbox);
+                self.save_inbox_point(session, point);
+            }
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
@@ -153,6 +189,12 @@ impl Hub {
             if counts.seq > live.seq {
                 *live = counts;
             }
+        }
+        // What the inbox let go of before the point: a resend of one answers as it did.
+        if let Some(p) = point {
+            inbox.removed.extend(p.removed);
+            inbox.trimmed.extend(p.trimmed);
+            inbox.held_evicted.extend(p.held_evicted);
         }
         inbox.removed.extend(removed_held);
         // The ids the inbox holds: a set, not a walk of the inbox for each restored message.
@@ -191,7 +233,11 @@ impl Hub {
         // New messages came back with no timer: the review arms their deadline wake again
         // (`inbox_deadline.rs`), else they wait for a turn nothing starts.
         let any_new = inbox.items.iter().any(|i| !i.noticed && !folded(i));
+        let point = carry.then(|| inbox_point::InboxPoint::of(&inbox, through, counts, seen));
         drop(inbox);
+        if let Some(point) = point {
+            self.save_inbox_point(session, point);
+        }
         if any_new {
             deadline::review_after_restore(session);
         }
@@ -329,6 +375,7 @@ impl Hub {
     pub fn inbox_threads(&self, session: &Session) -> Value {
         // Read before the inbox lock: the journal's read pruning takes it.
         let held_now = self.surge_held_now(session);
+        let meta = session.meta();
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -339,6 +386,7 @@ impl Hub {
         }
         let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
         let now = now_ms();
+        let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
         threads.sort_by_key(|(_, list)| std::cmp::Reverse(newest(list)));
         let rows: Vec<Value> = threads
             .iter()
@@ -359,6 +407,9 @@ impl Hub {
                 } else {
                     "fyi"
                 };
+                let (overdue, due_at) = deadline_counts(list.iter().copied(), now, |i| {
+                    quiet(&session.id, &meta, lapsed, i)
+                });
                 json!({
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
@@ -376,11 +427,8 @@ impl Hub {
                     "sender": last.map(|i| i.sender.clone()),
                     // Deadlines (module docs): the soonest new message's, and how many new
                     // ones are past theirs (NOW counts those red).
-                    "dueAt": list.iter().filter(|i| !i.noticed && !folded(i)).map(|i| i.due()).min(),
-                    "overdue": list
-                        .iter()
-                        .filter(|i| !i.noticed && !folded(i) && i.due() < now)
-                        .count(),
+                    "dueAt": due_at,
+                    "overdue": overdue,
                 })
             })
             .collect();

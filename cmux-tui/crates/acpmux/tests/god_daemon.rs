@@ -136,6 +136,12 @@ const PAGE_BYTES: u64 = 131072;
 /// How long the run waits for every chat log to be read, and how often it asks.
 const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
+/// When, after the restarted daemon was spawned, the sweep sends again (`restartSendAfterUs`):
+/// past startup's background passes, so a slower first send names startup work, not size.
+const RESTART_SEND_AFTER_MS: [u64; 2] = [1500, 4000];
+
+/// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
+const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
 
 /// The startup points kept as marks, not phases (`gauges.rs`).
 const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
@@ -615,7 +621,10 @@ impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
         let log = scratch.join("daemon.log");
+        // The daemon logs to its stdout (`log_sink.rs`); its stderr carries a panic. Both go to
+        // the log, so a failed run prints why the daemon did what it did.
         let stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log).unwrap();
+        let stdout = stderr.try_clone().unwrap();
         let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
             .map(PathBuf::from)
             .unwrap_or_else(|| daemon_env::bin().to_path_buf());
@@ -626,7 +635,7 @@ impl Daemon {
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
@@ -781,6 +790,12 @@ impl Daemon {
 /// A run that panics does not leave its daemon writing into a scratch folder being removed.
 impl Drop for Daemon {
     fn drop(&mut self) {
+        // A daemon that went away by itself (a panic, an abort, the OOM killer's SIGKILL) says how before the kill.
+        if std::thread::panicking()
+            && let Ok(Some(status)) = self.child.try_wait()
+        {
+            eprintln!("daemon exited by itself: {status:?}");
+        }
         let _ = self.child.kill();
         let _ = self.child.wait_timeout(Duration::from_secs(5));
         if std::thread::panicking() {
@@ -1927,7 +1942,6 @@ const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 
 /// An older page as the pane asks for one on scroll-up (direct.ts `olderPage`: 2,000 records,
 /// 1 MiB, transcript records and the local preset approvals).
-const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
 /// The bytes a measured page asks for. A 1 MB chat's whole transcript is 452 KB of JSON, so at
@@ -1935,6 +1949,13 @@ const OLDER_PAGE_BYTES: u64 = 1 << 20;
 /// at 100 MB and 1 GB: the 2x of every page row was the page's size (the daemon reads 16 to 20 ms
 /// per 452 KB at 1 MB and 22 to 34 ms per 945 KB at 1 GB). 256 KiB is full at every size.
 const SWEEP_PAGE_BYTES: u64 = 256 << 10;
+
+/// The records a measured page asks for: fewer than any size's 256 KiB page holds, so each size
+/// reads the same rows. A byte-capped page's row count is its content's: the 1 MB chat's deep page
+/// (its oldest) held 237 records and 198 KB against 306 and 314 at 100 MB and 1 GB, 1682 against
+/// 2130 and 2225 us, a 1.27x and 1.32x that was 7.0 to 7.1 us a record at every size. Every page
+/// row read 6.4 to 7.8 us a record at every size, its ratio the row count's (cmux#61742's ladder).
+const SWEEP_PAGE_ROWS: u64 = 150;
 
 /// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
 /// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
@@ -1954,7 +1975,7 @@ fn app_attach(id: &str) -> Value {
 }
 
 fn older_params(id: &str, before: u64) -> Value {
-    json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
+    json!({"sessionId": id, "beforeSeq": before, "limit": SWEEP_PAGE_ROWS,
            "maxBytes": SWEEP_PAGE_BYTES,
            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
 }
@@ -1965,7 +1986,7 @@ fn older_params(id: &str, before: u64) -> Value {
 fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
     let oldest = rpc.call(
         "_acpmux/events",
-        json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
+        json!({"sessionId": id, "afterSeq": 0, "limit": SWEEP_PAGE_ROWS,
                "maxBytes": SWEEP_PAGE_BYTES,
                "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
     );
@@ -2391,7 +2412,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (forward_us, _, forward_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "afterSeq": last / 2,
-               "limit": OLDER_PAGE_LIMIT, "maxBytes": SWEEP_PAGE_BYTES})
+               "limit": SWEEP_PAGE_ROWS, "maxBytes": SWEEP_PAGE_BYTES})
         });
     let (rss_after_reads, _) = daemon.rss();
 
@@ -2412,6 +2433,40 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
+    // Its host up, the chat's adoption checkpoint is folded in the background
+    // (`hosts/checkpoint.rs` `prime_adoption_checkpoint`): how long after the sends it is there.
+    // A long chat's host has been up that long; a restart before it reads the whole log at
+    // adoption. A daemon that writes none waits the whole bound and restarts without one.
+    let checkpoint = home.join("sessions").join(&id).join("adoption-checkpoint.json");
+    let checkpoint_wait = Instant::now();
+    while !checkpoint.exists() && checkpoint_wait.elapsed() < ADOPTION_CHECKPOINT_WITHIN {
+        std::thread::sleep(ALL_LOGS_POLL);
+    }
+    let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
+    // What the restart reads back of it: its bytes, and each field's (two levels into the
+    // folds), so a checkpoint that grows with the chat says which fold keeps what.
+    let checkpoint_bytes = std::fs::read(&checkpoint).ok();
+    let adoption_checkpoint_bytes = checkpoint_bytes.as_ref().map(Vec::len);
+    let adoption_checkpoint_fields =
+        // The file's first line is the compaction digest it was saved under (`store.rs`).
+        checkpoint_bytes
+            .as_deref()
+            .and_then(|b| b.iter().position(|&c| c == b'\n').map(|nl| &b[nl + 1..]))
+            .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+            .map(|point| {
+            let mut sizes = serde_json::Map::new();
+            let len = |v: &Value| serde_json::to_vec(v).map_or(0, |b| b.len());
+            for (key, value) in point.as_object().into_iter().flatten() {
+                sizes.insert(key.clone(), len(value).into());
+                for (inner, value) in value.as_object().into_iter().flatten() {
+                    sizes.insert(format!("{key}.{inner}"), len(value).into());
+                    for (leaf, value) in value.as_object().into_iter().flatten() {
+                        sizes.insert(format!("{key}.{inner}.{leaf}"), len(value).into());
+                    }
+                }
+            }
+            Value::Object(sizes)
+        });
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
@@ -2440,6 +2495,20 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
+    // The same send again once startup's background passes (cold segments, retention, packs)
+    // have had time to run: a first send slower than these waited on startup work, not on size.
+    let restart_send_after: Vec<(u64, Result<u64, Value>)> = RESTART_SEND_AFTER_MS
+        .iter()
+        .map(|&after| {
+            let since = daemon.spawned.elapsed().as_millis() as u64;
+            std::thread::sleep(Duration::from_millis(after.saturating_sub(since)));
+            let at = daemon.spawned.elapsed().as_millis() as u64;
+            (at, send_first_token(&mut rpc, &id, &format!("size {label} restarted +{after}")))
+        })
+        .collect();
+    // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
+    let restart_startup =
+        rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone());
     drop(rpc);
     daemon.stop();
     let restart_heap = restart_profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
@@ -2474,29 +2543,35 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
         "rssAfterLoad": rss_after_load,
         "attachUs": attach_us, "attachRecords": attach_records, "attachError": attach_error,
-        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": newest_error,
-        "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
-        "scrollMidUs": mid_us, "scrollMidError": mid_error,
-        "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": short_rows(&newest_us, newest_error),
+        "scrollRecentUs": recent_us, "scrollRecentError": short_rows(&recent_us, recent_error),
+        "scrollMidUs": mid_us, "scrollMidError": short_rows(&mid_us, mid_error),
+        "scrollDeepUs": deep_us, "scrollDeepError": short_rows(&deep_us, deep_error),
         "fullPageFromSeq": full_from,
         "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
         "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
         "promptPageError": prompt_page_error,
-        "forwardPageUs": forward_us, "forwardPageError": forward_error,
+        "forwardPageUs": forward_us, "forwardPageError": short_rows(&forward_us, forward_error),
         "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
         "rssIdleMaps": rss_idle_maps,
         "rssAfterReads": rss_after_reads, "heap": heap,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
+        "adoptionCheckpointMs": adoption_checkpoint_ms, "adoptionCheckpointBytes": adoption_checkpoint_bytes,
+        "adoptionCheckpointFields": adoption_checkpoint_fields,
         "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
+        "restartSendAfterUs": restart_send_after.iter()
+            .map(|(after, r)| json!({"afterMs": after, "us": r.as_ref().ok(), "error": r.as_ref().err()}))
+            .collect::<Vec<_>>(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartStartup": restart_startup,
         "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
@@ -2507,7 +2582,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
-        let destination = PathBuf::from(out).join(format!("chat-size-{}-daemon.log", bytes));
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).unwrap();
+        let destination = out.join(format!("chat-size-{}-daemon.log", bytes));
         // The sweep owns this artifact; preserve only the tail, never the generated chat.
         if let Ok(mut file) = std::fs::File::open(&daemon.log) {
             let len = file.metadata().map_or(0, |m| m.len());
@@ -2565,6 +2642,29 @@ fn size_failure(result: &Value) -> Option<String> {
         }
     }
     None
+}
+
+/// A measured page's error, or one when a round returned other than [`SWEEP_PAGE_ROWS`]: a short
+/// page's time is its row count's, and the sizes' ratio would be too.
+fn short_rows(timing: &Value, error: Value) -> Value {
+    if !error.is_null() {
+        return error;
+    }
+    let rows = timing["returnedRecords"].as_array().cloned().unwrap_or_default();
+    match rows.iter().find(|n| n.as_u64() != Some(SWEEP_PAGE_ROWS)) {
+        Some(n) => json!({"reason": "page held other than the measured rows",
+                          "records": n, "wanted": SWEEP_PAGE_ROWS}),
+        None => Value::Null,
+    }
+}
+
+#[test]
+fn a_short_measured_page_is_an_error() {
+    let full = json!({"p50": 10, "returnedRecords": [SWEEP_PAGE_ROWS, SWEEP_PAGE_ROWS]});
+    assert!(short_rows(&full, Value::Null).is_null());
+    let short = json!({"p50": 10, "returnedRecords": [SWEEP_PAGE_ROWS, SWEEP_PAGE_ROWS - 1]});
+    assert!(!short_rows(&short, Value::Null).is_null());
+    assert_eq!(short_rows(&full, json!("rpc")), json!("rpc"));
 }
 
 /// Prompts in the size sweep's fixed prompt-index page: as many as the 1 MB fixture holds.
@@ -2637,6 +2737,23 @@ fn chat_size_sweep() {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
         println!("{}", page_cost_line(label, &result));
+        // Its own line: the result above is cut short in a CI log, and these say which fold
+        // of the adoption checkpoint grows with the chat.
+        // One field a line, largest first: a CI log cuts a long line short.
+        println!(
+            "CHAT-SIZE-CHECKPOINT {label} {} {}",
+            result["adoptionCheckpointBytes"], result["restartStartup"]
+        );
+        let mut fields: Vec<(&String, u64)> = result["adoptionCheckpointFields"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+            .collect();
+        fields.sort_by(|a, b| b.1.cmp(&a.1));
+        for (field, bytes) in fields.into_iter().take(16) {
+            println!("CHAT-SIZE-FIELD {label} {field} {bytes}");
+        }
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
