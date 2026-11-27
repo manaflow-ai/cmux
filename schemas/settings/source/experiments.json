@@ -729,6 +729,32 @@
           ]
         },
         {
+          "key": "experiments.eventsAsToolCalls",
+          "note": "cmuxterm-hq docs/design/events-that-are-tool-calls.md, first unbuilt slice (plan: \"Add subagent_resume and announcement to the known kinds\"): the agent chat reads both acpmux provenance kinds by origin (webviews conversation/incomingMessage.ts, eventsAsToolCalls.experiment.ts, experimentSwitchOn(\"eventsAsToolCalls\")). An urgent forum rule acpmux pushes into a chat (hub/forum.rs, kind announcement) draws as acpmux's line instead of the person's prompt; a subagent's Resume (hub/subagent_resume.rs) is never read as an agent's message. Later slices of the design join this switch. Off by default; off reads every prompt as before.",
+          "title": {
+            "key": "settings.experiments.eventsAsToolCalls",
+            "text": "Harness Events Read by Origin"
+          },
+          "help": {
+            "key": "settings.experiments.eventsAsToolCalls.help",
+            "text": "A rule cmux pushes into a chat shows as cmux's line, never as your own message."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "events",
+            "tool calls",
+            "forum",
+            "rule",
+            "announcement",
+            "subagent",
+            "resume"
+          ]
+        },
+        {
           "key": "experiments.threadMinimapRestReveal",
           "note": "The agent chat's prompt rail, where it would cover the text (narrow panes), reveals only for a pointer that rests 140 ms on the pane-edge strip with no button down, and takes no pointer while a press that began in the text is down, so a selection drag along the edge keeps selecting (webviews threadMinimap/railIntent.ts, reveal.experiment.ts, useExperimentSwitch(\"threadMinimapRestReveal\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps the earlier reveal on touch.",
           "title": {
