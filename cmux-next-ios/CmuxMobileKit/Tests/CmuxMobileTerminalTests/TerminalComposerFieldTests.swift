@@ -40,10 +40,13 @@ import UIKit
         let capped = view.fittingSize(proposedWidth: 280).height
         #expect(capped == Self.field(ComposerTextView.maxLines).bounds.height)
         #if DEBUG
+        // Another finite width is a real question, measured once at that width (#57970: answering it
+        // with the field's own height hung the app); asked again, every width measures nothing.
+        let widths = [0, 120, 280, 1_000, .infinity] as [CGFloat]
+        for width in widths { #expect(view.fittingSize(proposedWidth: width).height == capped) }
         let units = ComposerReturnTextView.measuredUnits
-        for width in [0, 120, 280, 1_000, .infinity] as [CGFloat] {
-            #expect(view.fittingSize(proposedWidth: width).height == capped)
-        }
+        for width in widths { #expect(view.fittingSize(proposedWidth: width).height == capped) }
+        #expect(ComposerReturnTextView.measuredUnits == units, "a size asked again measured")
         view.selectedRange = NSRange(location: (view.text as NSString).length, length: 0)
         for key in "typing more" { view.insertText(String(key)) }
         if delegate.changes > 0 { #expect(ComposerReturnTextView.measuredUnits == units) }

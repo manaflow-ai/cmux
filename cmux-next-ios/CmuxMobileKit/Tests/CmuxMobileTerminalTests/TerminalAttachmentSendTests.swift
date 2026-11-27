@@ -189,7 +189,8 @@ import Testing
             #expect(model.composerText == (edited ? "next draft" : "tapped"))
             #expect(model.attachments.first?.uploadID == "u1")
             #expect(sender.forgotten.isEmpty)
-            #expect(model.composerNotice != nil)
+            // No notice: the draft back in the field is the answer (#54757 removed the not-sent banners).
+            #expect(model.composerNotice == nil)
             session.refuseSubmission = false
             model.send()
             #expect(await Self.waitFor { !model.isUploading })
@@ -249,18 +250,23 @@ import Testing
         #expect(progress.isCancelled)
     }
 
+    /// The load runs 1.2 s in all, past one 1 s idle window, while each step
+    /// is 20 ms: a 50x margin, so a loaded simulator that stalls a step for
+    /// a few hundred ms still sees the load as advancing (a 30 ms step
+    /// against 150 ms threw .deadline on CI, job 140513387231).
     @Test func advancingPhotoLoadOutlivesOneIdleWindowAndCompletesWithoutCancellation() async throws {
-        let progress = Progress(totalUnitCount: 10)
+        let steps: Int64 = 60
+        let progress = Progress(totalUnitCount: steps)
         let value: Int = try await TerminalComposer.loadWithInactivityDeadline({ finish in
             Task {
-                for step in 1...10 {
-                    try await Task.sleep(for: .milliseconds(30))
-                    progress.completedUnitCount = Int64(step)
+                for step in 1...steps {
+                    try await Task.sleep(for: .milliseconds(20))
+                    progress.completedUnitCount = step
                 }
                 finish(.success(42))
             }
             return progress
-        }, inactivityDeadline: .milliseconds(150), progressPoll: .milliseconds(5))
+        }, inactivityDeadline: .seconds(1), progressPoll: .milliseconds(5))
         #expect(value == 42)
         #expect(!progress.isCancelled)
     }
@@ -302,8 +308,12 @@ import Testing
 
     static func waitFor(_ condition: () -> Bool) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(2)
-        while !condition(), clock.now < deadline { await Task.yield() }
+        // A loaded CI simulator ran the off-main payload read (`transferPayload`) past the old 2 s
+        // (2026-11-27); sleeping, not spinning on `Task.yield()`, leaves the cores to that work.
+        let deadline = clock.now + .seconds(10)
+        while !condition(), clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls until a deadline
+        }
         return condition()
     }
 

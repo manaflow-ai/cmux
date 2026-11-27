@@ -65,10 +65,14 @@ import UIKit
         return Host(window: window, navigation: navigation, list: list, view: view)
     }
 
-    /// Yields to the main run loop (its display link draws the frames) until `done`, for at most 3 s.
+    /// Gives the main run loop time (its display link draws the frames) until `done`, for at most 10 s.
+    /// A sleep, not `Task.yield()`: a main actor that only yields keeps the main queue hot, and a
+    /// loaded CI simulator left the slot open past the old 3 s bound (2026-11-27).
     private func frames(until done: () -> Bool) async {
-        let deadline = CACurrentMediaTime() + 3
-        while !done(), CACurrentMediaTime() < deadline { await Task.yield() }
+        let deadline = CACurrentMediaTime() + 10
+        while !done(), CACurrentMediaTime() < deadline {
+            try? await Task.sleep(for: .milliseconds(10)) // test: polls the slide until a deadline
+        }
     }
 
     private func views(in root: UIView, where match: (UIView) -> Bool) -> [UIView] {
