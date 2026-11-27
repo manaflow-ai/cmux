@@ -499,14 +499,26 @@ class WorkflowTests(unittest.TestCase):
         # A mint that fails leaves the hand-off on the workflow token.
         self.assertTrue(mint["continue-on-error"])
         self.assertIn("vars.CMUX_BOT_APP_ID != ''", mint["if"])
-        # Only the trunk pushes the nightly reads get the App's token; a branch push keeps the workflow token.
-        self.assertIn("github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || "
-                      "github.ref == 'refs/heads/main')", mint["if"])
+        # Only the trunk runs the nightly reads (pushes and dispatches) get the App's token; a branch push keeps
+        # the workflow token.
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && "
+                      "(github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main')", mint["if"])
         self.assertEqual(mint["with"], {"app-id": "${{ vars.CMUX_BOT_APP_ID }}",
                                         "private-key": "${{ secrets.CMUX_BOT_APP_KEY }}",
                                         "permission-actions": "write"})
         self.assertEqual(workflow_jobs.resolve(notify, "notify-unpublished-tree").environment,
                          {"name": "ci-routing-agent", "deployment": False})
+
+    def test_a_dispatch_owner_hands_off(self):
+        # 2026-11-25: owner 45636236995, a feat-cmux-next dispatch, failed its musl leg; the push-only hand-off
+        # was skipped, and nightly-next run 45640205782, which had deferred to it, stayed green and unbuilt.
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        notify = workflow["jobs"]["notify-unpublished-tree"]
+        step = next(s for s in notify["steps"] if s.get("name") == "Hand the key to a run that deferred to this one")
+        self.assertIn("github.event_name == 'workflow_dispatch'", step["if"])
+        self.assertIn("github.event_name == 'push'", step["if"])
+        # The job still admits a dispatch only on the trunks, whose runs hold the claim.
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", notify["if"])
 
 
 if __name__ == "__main__":
