@@ -5067,11 +5067,28 @@ function TranscriptView({
       // fling's frame). Anchored from the handled offset instead, a pass that measured rows in between
       // put the view back where the step began: the row on screen stood still for a frame while the
       // offset went on, then leapt (transcript-scroll-up MODE=drag, a whole step every other frame).
+      // Not the browser's own scroll anchoring: a row above the view that changed height moves the live
+      // offset by just that much before the scroll event, and taking it as the reader's made it the anchor
+      // base, so the shrink applied twice (transcript-jump-latest.test.tsx, Astra P2 on #26718).
+      const browserAnchored = () => {
+        if (!old) return false;
+        const handled = scrolledTo.current.top - previousOrigin;
+        const anchored = preserveScrollAnchorTop({
+          oldLayout: old,
+          newLayout: layout,
+          oldRows,
+          newRows: rows,
+          liveTop: handled,
+          anchorTop: handled,
+        });
+        return anchored !== undefined && Math.abs(anchored - (live - previousOrigin)) <= 1;
+      };
       const unhandledMove =
         !followingRef.current &&
         !unmeasured &&
         Math.abs(scrolledTo.current.top - live) > 0.5 &&
-        Math.abs(scrollRef.current.top - live) > 0.5;
+        Math.abs(scrollRef.current.top - live) > 0.5 &&
+        !browserAnchored();
       const readerLeft =
         !clamped &&
         (unseenReaderMove ||
