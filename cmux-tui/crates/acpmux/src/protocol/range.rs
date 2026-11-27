@@ -73,12 +73,10 @@ pub fn incompatible(ours: AbiRange, theirs: AbiRange, peer: &str) -> (String, St
     );
     let recovery = if update_side(ours, theirs) == "peer" {
         format!(
-            "Update {peer}: it is older than this build still serves (`acpmux host update`, or update the cmux app)."
+            "{peer} is older than this build serves: run `acpmux host self-update` where it runs."
         )
     } else {
-        format!(
-            "Update this acpmux: {peer} is newer than this build speaks (`acpmux host self-update`, or update the cmux app)."
-        )
+        format!("{peer} is newer than this build speaks: run `acpmux host self-update` here.")
     };
     let details =
         json!({"ours": ours.json(), "theirs": theirs.json(), "update": update_side(ours, theirs)});

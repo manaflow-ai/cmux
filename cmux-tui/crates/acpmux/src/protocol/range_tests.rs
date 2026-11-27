@@ -56,5 +56,5 @@ fn no_overlap_is_refused_typed_naming_the_side_to_update() {
     let data = refused.data.clone().expect("typed");
     assert_eq!(data["errorKind"], json!(crate::recovery::kind::VERSION_INCOMPATIBLE));
     assert_eq!(data["details"]["update"], json!("peer"));
-    assert!(data["recovery"].as_str().unwrap().contains("Update this client"), "{data}");
+    assert!(data["recovery"].as_str().unwrap().starts_with("this client is older"), "{data}");
 }
