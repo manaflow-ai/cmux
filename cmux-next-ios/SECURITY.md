@@ -1589,3 +1589,20 @@ link request.
   until approved.
 - None for the service: production builds use the production Worker
   (`https://mobile-api.cmux.dev`), and development builds use the dev Worker.
+
+## Not from a phone: API tokens (Settings > Developer, RFD 0183)
+
+The Mac's Settings > Developer page makes, lists and revokes personal and team API tokens (`cmux_pat_`) and team
+GitHub Actions rules (cmux#56806). Its page ops, `cmux.settings.tokens.state` and `cmux.settings.tokens.run`, are
+served only by the Mac's settings page bridge (`CmuxNextAgentIntegrations/SettingsDeveloperTokens.swift`), which runs
+the bundled `cmux token ... --json`. No link service carries them: they are on neither the daemon allowlist
+(`policy.rs`, `DaemonLanePolicy.swift`) nor any other service's, so a phone request for them is refused as any
+unlisted op is.
+
+Why it is kept off the phone: a token lasts up to a year (or never expires), holds account scopes beyond any
+one Mac and is shown once. A paired phone is trusted to act on its owner's Mac, not to issue account credentials. Offering
+minting from the phone would let a stolen or borrowed phone make lasting credentials that outlive revoking the phone's pairing.
+That is a new trust class, so it needs its own section here before any phone surface. Revocation alone is the likely first
+candidate (it only removes access), and it would talk to Cloud with the account's sign-in, not through the Mac.
+
+Parity row: `verify/parity-mac/2026-11-25-developer-api-tokens.md` (not from a phone).

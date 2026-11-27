@@ -799,11 +799,9 @@ fn answer_budget(silence: Option<Duration>, request_bytes: usize) -> Duration {
     silence.unwrap_or(IO_DEADLINE).saturating_add(crossing)
 }
 
-/// Whether `error` is a socket timeout: SO_RCVTIMEO and SO_SNDTIMEO end a
-/// blocking read or write with EAGAIN (`WouldBlock`; os error 35 on macOS,
-/// 11 on Linux), and some platforms answer `TimedOut`.
+/// Whether `error` is a socket timeout ([`crate::link::socket_timed_out`]).
 fn timed_out(error: &std::io::Error) -> bool {
-    matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+    crate::link::socket_timed_out(error)
 }
 
 /// A socket error as the person reads it: a timeout says what stalled and
