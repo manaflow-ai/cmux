@@ -232,6 +232,30 @@ def change(before: dict | None, after: dict | None) -> str:
     return f"{(after['p50'] - before['p50']) / before['p50'] * 100:+.0f}%"
 
 
+# R1 targets (goals/mobile-speed-ios-bench.md): p95 <= 100 ms warm, <= 400 ms cold, link cut.
+R1_TARGET_P95_MS = {"warm": 100.0, "cold": 400.0}
+
+
+def r1_table(rows: list[dict], before: str | None) -> list[str]:
+    """R1 time to readable against its target: p50 / p95 per phase and history scale."""
+    picked = [row for row in rows if row["metric"] == "r1_ms" and row["after"]]
+    if not picked:
+        return []
+    head = "| surface | phase | scale | " + ("before p50 / p95 | " if before else "") + "after p50 / p95 | target p95 | meets |"
+    out = ["### R1 time to readable: the phone's own store, link cut (ms)", "", head,
+           "|" + "---|" * (head.count("|") - 1)]
+    for row in sorted(picked, key=lambda r: (r["surface"], PHASE_ORDER.index(r["phase"]) if r["phase"] in PHASE_ORDER else 99, scale_order(r["scale"]))):
+        target = R1_TARGET_P95_MS.get(row["phase"])
+        p95 = row["after"].get("p95")
+        meets = "" if target is None or p95 is None else ("yes" if p95 <= target else "NO")
+        cells = [row["surface"], row["phase"], row["scale"]]
+        if before:
+            cells.append(fmt(row["before"], "r1_ms"))
+        cells += [fmt(row["after"], "r1_ms"), f"{target:g}" if target else "", meets]
+        out.append("| " + " | ".join(cells) + " |")
+    return out + [""]
+
+
 def duress_table(rows: list[dict], before: str | None) -> list[str]:
     """mode=duress: phase x metric, a column per link (the idle fixture first), before -> after
     p50, and FLAG where a duress after-p50 is more than 2x the idle fixture's after-p50."""
@@ -374,7 +398,7 @@ def main() -> int:
     # R2 time to fresh (tap to the frame that matches the Mac). This headless leg has no phone
     # store, so its first_content_ms (first content from the real daemon) is R2; R1 comes from the
     # simulator leg's r1_ms rows when present.
-    out = [READ_FIRST_LEGEND, "", *first_content_summary(rows)]
+    out = [READ_FIRST_LEGEND, "", *r1_table(rows, args.before), *first_content_summary(rows)]
     for surface in sorted({row["surface"] for row in rows if not background_scale(row["scale"])}):
         out.append(f"### {surface} (p50 / p95; after {args.after[:12]}" + (f", before {args.before[:12]})" if args.before else ")"))
         out.append("")
