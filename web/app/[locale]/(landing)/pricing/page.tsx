@@ -68,7 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanVisible } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -131,7 +131,7 @@ export default async function PricingPage({
     t,
     query: {},
     snapshot: unknownPlan,
-    goPlanEnabled: false,
+    goPlanEnabled: isWebPlusPlanVisible(),
     pending: true,
   };
   const personalize = (section: "individual" | "team" | "comparison") => (
@@ -163,7 +163,7 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
     searchParams ?? Promise.resolve({}),
   ]);
   // Plus is offered to every visitor, paid subscribers included.
-  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
+  const goPlanEnabled = isWebPlusPlanVisible();
   return { snapshot, query, goPlanEnabled };
 });
 
@@ -348,6 +348,8 @@ function PricingContent({
                   <DisabledButton>{t("currentPlan")}</DisabledButton>
                 )}
               </div>
+            ) : pending ? (
+              <DisabledButton>{t("go.cta")}</DisabledButton>
             ) : (
               <PricingCheckoutButton
                 href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
@@ -456,6 +458,8 @@ function PricingContent({
           ) : (
             <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
           )
+        ) : pending ? (
+          <DisabledButton size="compact">{t("go.cta")}</DisabledButton>
         ) : (
           <PricingCheckoutButton
             href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}

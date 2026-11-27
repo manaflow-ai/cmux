@@ -236,6 +236,8 @@ export function AppPricingContent({
             </div>
           ) : appStorePaymentGated ? (
             <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+          ) : pending ? (
+            <DisabledButton>{pricing.go.cta}</DisabledButton>
           ) : (
             <PricingCheckoutButton
               href={appPricingCheckoutURL(

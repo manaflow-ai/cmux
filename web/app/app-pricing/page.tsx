@@ -9,7 +9,7 @@ import {
   isDevelopmentProAccessEnabled,
   resolveProPlanStatus,
 } from "../../services/billing/pro";
-import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../services/billing/goPlanFlag";
+import { isWebPlusPlanVisible } from "../../services/billing/goPlanFlag";
 import { PricingView } from "../components/pricing-checkout";
 import { isAppStoreDistributionMode } from "../lib/billing";
 import {
@@ -57,7 +57,7 @@ async function RequestPricing({
     params,
     headersList,
     snapshot: unknownPlan,
-    goPlanEnabled: false,
+    goPlanEnabled: isWebPlusPlanVisible(),
     pending: true,
   };
   const personalize = (
@@ -109,7 +109,7 @@ async function isSignedOut(): Promise<boolean> {
 const pricingState = cache(async () => {
   const snapshot = await currentPlanSnapshot();
   // Plus is offered to every visitor, paid subscribers included.
-  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
+  const goPlanEnabled = isWebPlusPlanVisible();
   return { snapshot, goPlanEnabled };
 });
 
