@@ -41619,6 +41619,40 @@ Result<ClientDetachedEvent> Codec<ClientDetachedEvent>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<ClientDisconnectedByEvent>::encode(const ClientDisconnectedByEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("client-disconnected-by")));
+    if (value.by) {
+        auto encoded = encode_value(*value.by);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("by", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<ClientDisconnectedByEvent> Codec<ClientDisconnectedByEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ClientDisconnectedByEvent result{};
+    const Json* field_by = value.find("by");
+    if (field_by) {
+        auto decoded = decode_value<SizeDetachActor>(*field_by);
+        if (!decoded) return std::move(decoded).error();
+        result.by = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("client-disconnected-by"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ClientListInvalidatedEvent>::encode(const ClientListInvalidatedEvent& value) {
     (void)value;
     Json::Object object;
@@ -49590,6 +49624,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "client-disconnected-by") {
+        auto decoded = decode_value<ClientDisconnectedByEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "client-list-invalidated") {
         auto decoded = decode_value<ClientListInvalidatedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -50611,7 +50650,7 @@ constexpr std::array<CommandMetadata, 315> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 101> kEvents{{
+constexpr std::array<EventMetadata, 102> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-cli-frame", 12U, "agent-cli-hybrid-v1", "attach-byte", "emitted"},
@@ -50628,6 +50667,7 @@ constexpr std::array<EventMetadata, 101> kEvents{{
     {"client-attached", 6U, "", "subscribe", "emitted"},
     {"client-changed", 6U, "", "subscribe", "emitted"},
     {"client-detached", 6U, "", "subscribe", "emitted"},
+    {"client-disconnected-by", 12U, "", "control", "emitted"},
     {"client-list-invalidated", 9U, "", "subscribe", "serialized-never-emitted"},
     {"cloud-conversation-changed", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-conversation-live", 12U, "cloud-chief-live-v1", "subscribe", "emitted"},
