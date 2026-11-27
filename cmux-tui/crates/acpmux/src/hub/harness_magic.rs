@@ -41,7 +41,9 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
+    Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
+    Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
 ];
 
 /// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
