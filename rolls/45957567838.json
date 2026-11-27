@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45957567838",
+  "recorded_at": "2026-11-27T07:33:11Z",
+  "reason": "image inputs changed in 4856d8e36ab5e8c8108d77a26a8d6a78a5be06a7..e2f5d9a8495bc97ce1243c179d6211d927790883; cmux-tui stays f7b548a59a63 (latest build 3bb7a878c526 is not on HEAD; none of the 40 newest commits after the pin has a published build)",
+  "dry_run": false,
+  "cmux_tui": "f7b548a59a63a0a8dad488e5d38d00e0fd3aa65e",
+  "fixes": [
+    {
+      "sha": "e2f5d9a8495bc97ce1243c179d6211d927790883",
+      "mergedAt": "2026-11-27T07:18:27Z",
+      "subject": "Cloud deploy lag: push rolls pin the newest build on feat-cmux-next; re-pin moves a conflicting head (#60712)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T07:33:11Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
