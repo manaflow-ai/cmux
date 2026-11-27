@@ -113,11 +113,10 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
             jobs["nightly-guards"]["if"])
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        # Inside the land tier's and the label filter's wrapping (tests/test_head_tier.py), so a contained clause, not a prefix.
-        self.assertIn(  # then the land tier (tests/test_head_tier.py)
-                        "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+        self.assertTrue(group["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+                        "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && ",
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
                         group["if"])
         # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
         # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).

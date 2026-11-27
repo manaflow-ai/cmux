@@ -24,11 +24,6 @@ private let tabsLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 @MainActor
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
-    /// Schedules work for the next main-actor turn. Tests inject a queue so
-    /// they can drain the exact deferred callback instead of guessing at
-    /// scheduler order with an unrelated task.
-    typealias MainActorEnqueuer = @MainActor (_ work: @escaping @MainActor () -> Void) -> Void
-
     public let workspaceID: String
     /// The tab chosen on this screen. When it disappears (a new workspace
     /// whose placeholder tab became the Mac's real tab), the active tab
@@ -89,7 +84,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
-    @ObservationIgnored private let enqueueMainActor: MainActorEnqueuer
     /// Streamed browser tabs while linked to a Mac.
     @ObservationIgnored let streamed: StreamedBrowserDirectory
     /// Browser tabs this iPhone shows itself instead of the Mac's page (Open on iPhone).
@@ -107,23 +101,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// vanished (a new workspace's first tab, once the Mac creates it; `refreshTabs`).
     @ObservationIgnored private var hasAppeared = false
 
-    public convenience init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                            sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
-                            native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
-                            clock: any Clock<Duration> = ContinuousClock()) {
-        self.init(store: store, workspaceID: workspaceID, terminal: terminal, sessions: sessions, creator: creator,
-                  native: native, streamed: streamed, clock: clock,
-                  enqueueMainActor: { work in Task { @MainActor in work() } })
-    }
-
-    init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-         sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
-         native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
-         clock: any Clock<Duration> = ContinuousClock(),
-         enqueueMainActor: @escaping MainActorEnqueuer) {
+    public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
+                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.store = store
         self.clock = clock
-        self.enqueueMainActor = enqueueMainActor
         self.native = native
         self.streamed = streamed
         self.creator = creator
@@ -1152,7 +1135,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             heldTabRefreshes.insert(id)
             return
         }
-        enqueueMainActor { [weak self] in self?.refreshTab(id) }
+        Task { @MainActor [weak self] in self?.refreshTab(id) }
     }
 
     /// The grid rests or was covered: held title changes apply, in one turn.

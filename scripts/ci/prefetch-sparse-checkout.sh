@@ -33,22 +33,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   specs+=(":($magic)$line")
 done
 
-# A pool runner can lose its default `/tmp` between jobs. Prefer the runner's or user's existing root,
-# then keep the fallback inside this checkout so local use does not depend on host setup.
-temp_parent="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-fallback_parent="$PWD/.cmux-prefetch"
-cleanup_parent=
-if [[ ! -d "$temp_parent" || ! -w "$temp_parent" || ! -x "$temp_parent" ]]; then
-  mkdir -p "$fallback_parent"
-  temp_parent="$fallback_parent"
-  cleanup_parent="$fallback_parent"
-fi
-work="$(mktemp -d "$temp_parent/prefetch.XXXXXXXX")"
-cleanup() {
-  rm -rf "$work"
-  [[ -n "$cleanup_parent" ]] && rmdir "$cleanup_parent" 2>/dev/null || true
-}
-trap cleanup EXIT
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 start=$SECONDS
 # Regular files and symlinks only (160000 is a gitlink, which has no blob).
 git ls-files -s -- "${specs[@]}" | awk '$1 != "160000" { print $2 }' | sort -u > "$work/oids"

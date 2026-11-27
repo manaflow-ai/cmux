@@ -156,27 +156,28 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     /// Host: answers a viewer's offer; `video` (a screen source) is sent on
-    /// the viewer's receive-only video transceiver, with `encoding`'s sender
-    /// parameters when there is one (Auto's for a display of unknown size).
-    func answer(offer sdp: String, video: ScreenVideoSource? = nil, encoding: ScreenQuality.Settings? = nil) async throws -> String {
+    /// the viewer's receive-only video transceiver.
+    func answer(offer sdp: String, video: ScreenVideoSource? = nil) async throws -> String {
         try await setRemote(RTCSessionDescription(type: .offer, sdp: sdp))
         if let video {
             let track = Self.factory.videoTrack(with: video.source, trackId: "screen")
             guard let sender = connection.add(track, streamIds: ["screen"]) else { throw VNCWebRTCError.peer("could not add the screen track") }
             lock.withLock { videoSender = sender }
-            if let encoding { applyVideo(encoding) }
+            applyVideo(.auto, source: .zero)
         }
         let answer = try await describe { self.connection.answer(for: Self.constraints, completionHandler: $0) }
         try await apply { self.connection.setLocalDescription(RTCSessionDescription(type: .answer, sdp: answer), completionHandler: $0) }
         return answer
     }
 
-    /// Host: the screen sender's encoding (``ScreenQuality/encoding(sourceWidth:sourceHeight:hostMaximum:viewerMaximum:rules:)``).
+    /// Host: the screen sender's encoding for `quality` of a `source`-sized
+    /// display at `frameRate` (60 unless both displays agreed on more).
     /// These are WebRTC's own sender parameters; its congestion control keeps running.
-    func applyVideo(_ settings: ScreenQuality.Settings) {
+    func applyVideo(_ quality: ScreenQuality, source: CGSize, frameRate: Int = ScreenQuality.baselineFrameRate) {
         guard let sender = lock.withLock({ videoSender }) else { return }
+        let settings = quality.settings(sourceWidth: Int(source.width), sourceHeight: Int(source.height), frameRate: frameRate)
         let parameters = sender.parameters
-        parameters.degradationPreference = NSNumber(value: settings.degradation.preference.rawValue)
+        parameters.degradationPreference = NSNumber(value: settings.degradation.rawValue)
         for encoding in parameters.encodings {
             encoding.maxBitrateBps = NSNumber(value: settings.maxBitrate)
             encoding.minBitrateBps = settings.minBitrate.map { NSNumber(value: $0) }
@@ -532,19 +533,6 @@ extension VNCPeerLink {
 }
 
 extension VNCPeerLink {
-    /// The keyframes the viewer asked for so far (outbound video's PLI and
-    /// FIR counts); nil before video is sent.
-    func keyframeRequests() async -> Int? {
-        await withCheckedContinuation { continuation in
-            connection.statistics { report in
-                let video = report.statistics.values.first { $0.type == "outbound-rtp" && ($0.values["kind"] as? String) == "video" }
-                continuation.resume(returning: video.map { entry in
-                    ["pliCount", "firCount"].reduce(0) { $0 + ((entry.values[$1] as? NSNumber)?.intValue ?? 0) }
-                })
-            }
-        }
-    }
-
     /// Outbound video, one line (host diagnostics): the frames reaching the
     /// encoder (`source fps`), the encoder's output and what limits it, and
     /// the round trip.

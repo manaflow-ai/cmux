@@ -71,7 +71,6 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -521,21 +520,6 @@ def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store
     return reused, keys, audit
 
 
-def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
-    """The environment every step of a job runs with: the caller's, `$CI_TOOLS/bin` first on PATH, and on a
-    GitHub Actions Linux runner CARGO_INCREMENTAL=0 unless the caller set it.
-
-    Each Linux job builds into a fresh workspace's target, so rustc's incremental state (target/*/incremental, a
-    copy of every workspace crate's query cache and object files, written for every lib, bin and test target) is
-    never read again. It filled a pool VM's disk in run 45531606824 (the cmux_next_ daemon tests, "No space left on
-    device" writing cmux-tui/target/debug/incremental), and sccache refuses to cache an incremental compile.
-    A laptop or lane keeps cargo's default."""
-    env = dict(base, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{base.get('PATH', '')}")
-    if base.get("GITHUB_ACTIONS") == "true" and base.get("RUNNER_OS") == "Linux":
-        env.setdefault("CARGO_INCREMENTAL", "0")
-    return env
-
-
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
             root: Path = ROOT, pr_scope: bool = False) -> int:
@@ -572,7 +556,7 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
     # A tool a step leaves unremovable (a root-owned install) must not turn a job of green steps red at cleanup.
     with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None,
                                      ignore_cleanup_errors=True) as tools:
-        env = step_env(os.environ, tools)
+        env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
         # The change's paths, one a line, for a step whose own router is finer than path globs (a web subarea):
         # unset when the change is unknown, which a step reads as "everything changed".
         env.pop("CI_PATHS_FILE", None)

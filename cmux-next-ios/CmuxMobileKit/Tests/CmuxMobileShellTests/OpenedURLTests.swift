@@ -46,8 +46,6 @@ import Testing
         #expect(opened("https://cmux.com/pair?c=7KQ4M2XD#fp=47Z33QX1AJH62RKB") == nil)
     }
 
-    // A cmux link's grammar is Rust's, which links on iOS only.
-    #if os(iOS)
     @Test func linksStillOpenWhatTheyName() {
         let tab = "tab_0123456789abcdef0123456789abcdef"
         #expect(opened("cmux://tab/\(tab)") == .link(CmuxLink(.tab(tab))))
@@ -62,8 +60,6 @@ import Testing
         #expect(opened("https://cmux.com/deeplink/screen?device=\(device)&display=2") == expected)
         #expect(opened("https://www.cmux.com/deeplink/screen?device=\(device)&display=2") == expected)
     }
-
-    #endif
 
     @Test func theMacsPairingCodeForThisPhoneOpensOnlyFromItsScheme() {
         let key = String(repeating: "A", count: 43)

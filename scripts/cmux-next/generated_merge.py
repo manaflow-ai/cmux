@@ -146,9 +146,6 @@ REGENERATE: dict[str, Regen] = {
     "schemas/defaults/cmux-next.json": here((PY, "scripts/ci/defaults_guard.py", "snapshot")),
     "web/data/cmux-shortcuts.generated.json": here(("bun", "web/scripts/export-docs-shortcuts.ts")),
     "cmux-tui/crates/cmux-app-host/generated/*": here(("bun", "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts")),
-    "cmux-tui/spec/api-compat.surface.json": line(
-        "compatibility comparison evidence: preserve conflicts; base autofix runs api-compat-check --write "
-        "against the surviving baseline and refuses uncovered breaks"),
     "cmux-tui/bindings/*.cmux-sdk-manifest.json": here(*SDK),
     "clients/ts/cloud/src/generated.ts": here(*CLOUD),
     "scripts/ghosttykit-checksums.txt": autofix("the base autofix's GhosttyKit pin"),

@@ -229,10 +229,6 @@ test("a prompt lost with its connection stays kept for a relaunch, and comes bac
   // no failed row to keep in the chat from here, and the host's copy stays meanwhile.
   expect((error as { failedRow?: unknown }).failedRow).toBeUndefined();
   expect(host.all().map((record) => record.input)).toEqual(["lost one"]);
-  // Its sender reads that the host keeps it: a chat switch meanwhile gives it back nowhere
-  // (lostPrompt.ts `leftForStore`), and the chat, shown again, has it.
-  expect(lost.client.keepsUnsentPrompt(host.all()[0]!.promptId)).toBe(true);
-  expect(lost.client.keepsUnsentPrompt("never-sent")).toBe(false);
   lost.client.close?.();
   // The app went before any connection showed it: the relaunch draws it, saying only "Not sent".
   await withResendShowMs(30, async () => {

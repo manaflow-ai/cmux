@@ -36,7 +36,6 @@ fn credentials_come_from_the_url_decoded() {
     let empty = parse_address(":@mac.local").unwrap();
     assert_eq!((empty.username, empty.password), (None, None));
     assert_eq!(parse_address("me:%zz@mac.local").unwrap().password, None);
-    assert_eq!(parse_address("me:%@mac.local").unwrap().password, None);
 }
 
 #[test]

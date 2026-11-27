@@ -107,7 +107,7 @@ jobs:
       # This leg runs on the hourly tick (stub), the six-hourly tick (the two real agents), or a matching dispatch.
       SELECTED: ${{ (github.event_name == 'schedule' && github.event.schedule == matrix.schedule) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model && inputs.agent == matrix.agent) }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: env.SELECTED == 'true'
         with:
           persist-credentials: false
@@ -283,7 +283,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: feat-cmux-next

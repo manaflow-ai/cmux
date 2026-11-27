@@ -281,7 +281,6 @@ extension IconName {
         .sitePermissionWindowmanagement,
         .sourcesConnected,
         .space,
-        .sparkles,
         .stateChanged,
         .stateIdle,
         .stateOff,

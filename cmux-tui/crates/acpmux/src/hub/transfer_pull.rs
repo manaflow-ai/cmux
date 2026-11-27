@@ -644,7 +644,7 @@ impl Hub {
     pub(super) async fn transfer_hub(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         if params.get("resolve").is_some() {
-            return self.resolve_hub_machine(text("resolve")).await;
+            return self.resolve_hub_machine(text("resolve"));
         }
         if params.get("stage").is_some() || params.get("prepare").is_some() {
             return self.transfer_hub_stage(params).await;
@@ -754,20 +754,11 @@ impl Hub {
     }
 
     #[cfg(feature = "hub-carrier")]
-    async fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
-        // Only a just-started daemon waits: later, an unread list is a relay that is off, and a
-        // local PARENT/CHILD key (`session_move_hub::holder`) must not wait on it.
-        let age = std::time::Duration::from_millis(now_ms().saturating_sub(self.started_at));
-        let wait = FIRST_BOOK_READ_WAIT.saturating_sub(age);
-        let Some(machines) = self.mesh_book_machines_once_read(wait).await else {
-            return Err(RpcError::not_found(format!(
-                "{name}: this daemon has not read the team hub's machine list since it started \
-                 (is the mesh relay on? a just-started daemon waits up to {} s for its first read)",
-                FIRST_BOOK_READ_WAIT.as_secs()
-            )));
-        };
-        let found =
-            machines.into_iter().find(|(key, host)| key == name || host.eq_ignore_ascii_case(name));
+    fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
+        let found = self
+            .mesh_book_machines()
+            .into_iter()
+            .find(|(key, host)| key == name || host.eq_ignore_ascii_case(name));
         match found {
             Some((key, host)) => Ok(json!({"daemonId": key, "host": host})),
             None => Err(RpcError::not_found(format!(
@@ -777,15 +768,10 @@ impl Hub {
     }
 
     #[cfg(not(feature = "hub-carrier"))]
-    async fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
+    fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
         Err(RpcError::not_found(format!("{name}: this build has no hub carrier")))
     }
 }
-
-/// How long `resolve` waits for a just-started daemon's first read of the hub book: its first
-/// heartbeat, then a read of at most 5 s (`server/mesh_relay.rs`).
-#[cfg(feature = "hub-carrier")]
-const FIRST_BOOK_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// `v[k]` without the indexing lint: Null when absent.
 fn field<'a>(v: &'a Value, k: &str) -> &'a Value {

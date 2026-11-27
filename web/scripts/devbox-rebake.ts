@@ -83,7 +83,6 @@ export const REBAKE_INPUTS = {
     "web/scripts/cmux-vm-image/machine-health.ts",
     "web/scripts/cmux-vm-image/dns.ts",
     "web/scripts/cmux-vm-image/machine-commands.ts",
-    "web/scripts/cmux-vm-image/detached-exec.ts",
     "web/scripts/cmux-vm-image/metadata-guard.ts",
     "images/cmux-vm/machine-health/**",
   ],

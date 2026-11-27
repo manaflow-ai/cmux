@@ -260,7 +260,6 @@ impl LinkGroup for TestGroup {
                 kind: TransportPathKind::Direct,
                 remote: Some(remote),
                 rtt_micros: None,
-                outer: None,
             }),
         }
     }

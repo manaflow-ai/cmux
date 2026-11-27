@@ -13,8 +13,6 @@ workspace = true
 [dependencies]
 # In-repo path so this crate always builds against the SDK at the same commit.
 cmux-sdk = { path = "../rust" }
-# The resume error classes and their retry bounds (pure, no I/O).
-acpmux-list-types = { path = "../../crates/acpmux-list-types" }
 # The install-key proof math the daemon checks (frontend_proof; no I/O).
 cmux-local-auth = { workspace = true }
 getrandom = { workspace = true }

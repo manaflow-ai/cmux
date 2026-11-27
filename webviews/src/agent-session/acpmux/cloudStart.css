@@ -253,10 +253,6 @@
 .acpmux-cloud-start__stage .acpmux-cloud-start__progress { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .acpmux-cloud-start__progress > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-cloud-start__progress-line { color: var(--cv-text-dim, var(--agent-muted)); }
-/* The same line on a Cloud chat's machine page while its agent starts (CloudAgentStartLine.tsx). */
-.acpmux-cloud-start__agent { min-width: 0; }
-.acpmux-cloud-start__agent .cv-shimmer__row { flex-shrink: 0; }
-.acpmux-cloud-start__agent .acpmux-cloud-start__progress { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .acpmux-cloud-start__hint { display: flex; gap: 4px; width: 120px; }
 .acpmux-cloud-start__hint > span { flex: 1; height: 0; border-top: 2px solid color-mix(in srgb, var(--agent-muted) 30%, transparent); transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out); }
 .acpmux-cloud-start__hint > span[data-step="done"] { border-top-color: color-mix(in srgb, var(--agent-muted) 70%, transparent); }

@@ -30,6 +30,14 @@ test("the context menu rows' buttons lie over their titles", () => {
   expect(source).toContain("menu-row-title ui-reveal-text");
 });
 
+test("the joined machines' buttons lie over their lines", () => {
+  const css = read("pages/machines/styles.css");
+  expect(rule(css, ".machines-actions")).toContain("position: absolute");
+  const source = read("pages/machines/MachinesSection.tsx");
+  expect(source).toContain("machines-joined ui-reveal-host");
+  expect(source).toContain('className="machines-actions" ref={revealControls}');
+});
+
 test("a removable attachment chip keeps no room for its hover-only ×", () => {
   const css = read("agent-session/acpmux/composerAttachments.css");
   expect(css).not.toMatch(/acpmux-file-chip--removable\s*\{\s*padding-right/);

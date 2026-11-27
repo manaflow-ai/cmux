@@ -950,9 +950,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         attachmentPress = nil
         let held = hold.fired
         hold.cancel()
-        if held || thread.swallowed(e) { noteDroppedLinkClick(at: p, held ? "a press-and-hold" : "the thread"); return }
-        if selection.mouseUp() { noteDroppedLinkClick(at: p, "a text selection"); return }
-        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) } else { noteDroppedLinkClick(at: p, "click count \(e.clickCount)") }
+        if held || thread.swallowed(e) { return }
+        if selection.mouseUp() { return }
+        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
     }
 
     func clicked(_ p: CGPoint) {

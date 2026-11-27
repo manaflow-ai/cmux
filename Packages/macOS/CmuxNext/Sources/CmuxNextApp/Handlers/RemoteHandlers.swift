@@ -17,7 +17,7 @@ import CmuxNextWindowRules
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
-        MachineRowActions.bindJoinedActions(into: registry, context: context)
+        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         bindQuality(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }

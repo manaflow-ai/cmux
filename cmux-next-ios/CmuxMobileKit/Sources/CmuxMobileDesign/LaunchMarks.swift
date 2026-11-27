@@ -23,8 +23,7 @@ import SwiftUI
 /// - `shell_frame`: the signed-in shell's first frame was presented
 /// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)
 /// - `workspace_row_tap`: a workspace row was tapped
-/// - `chat_composer_ready`: an agent chat's composer, or the permission bar or sudo card in its place, was on screen
-///   (first frame presented; not a hidden chat face)
+/// - `chat_composer_ready`: an agent chat's composer was on screen (first frame presented; not a hidden chat face)
 /// - `chat_first_row_frame`: the first readable transcript row was laid out and presented
 /// - `terminal_ready`: a terminal attached to its session presented a frame
 /// - `terminal_first_row_frame`: the first non-empty terminal output row was presented

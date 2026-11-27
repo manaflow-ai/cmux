@@ -30,10 +30,6 @@ path = "src/bin/cas-dedup.rs"
 name = "cas-seed"
 path = "src/bin/cas-seed.rs"
 
-[[bin]]
-name = "cas-publish"
-path = "src/bin/cas-publish.rs"
-
 [dependencies]
 blake3 = "1"
 cmux-process.workspace = true

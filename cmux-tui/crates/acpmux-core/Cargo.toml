@@ -17,7 +17,6 @@ workspace = true
 [dependencies]
 acpmux-book = { path = "../acpmux-book" }
 acpmux-client = { path = "../acpmux-client" }
-acpmux-list-types = { path = "../acpmux-list-types" }
 arc-swap.workspace = true
 cmux-scope.workspace = true
 serde.workspace = true

@@ -185,7 +185,7 @@ public final class ScreenshotsModel {
         guard path.hasPrefix(root + "/") else { return false }
         let parts = path.dropFirst(root.count + 1).split(separator: "/").map(String.init)
         guard parts.count >= 1, parts.count - 1 <= source.rule.depth else { return false }
-        return parts.dropLast().enumerated().allSatisfy { source.rule.enters(entryKind: 2, hidden: false, name: $1, depth: $0) }
+        return parts.dropLast().allSatisfy { source.rule.entersFolder(named: $0) }
     }
 
     /// How many folder levels `path` is below `root` (0 for the root itself).

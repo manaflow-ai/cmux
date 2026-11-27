@@ -18,9 +18,6 @@ pub(crate) mod plan;
 #[allow(dead_code)]
 mod resumable_upload;
 mod secrets;
-pub(crate) mod snapshot;
-#[cfg(test)]
-mod snapshot_tests;
 #[cfg(test)]
 mod tests;
 pub(super) mod workspace_remote;

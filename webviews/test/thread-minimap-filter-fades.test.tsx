@@ -8,7 +8,6 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
 // The compact rail; the full-height map reads the same side (ScrollMap.tsx).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -135,7 +134,6 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
         />,
       ),
     );
-    await railFrame();
     // Unfiltered, the received messages each keep a tick (no two sit next to each other to fold).
     expect(ticks()).toHaveLength(12);
     await pick("Show Only My Messages");
@@ -178,7 +176,6 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     await pick("Show Only Agent Messages");
@@ -278,7 +275,6 @@ test("the transcript's edges deepen as the view leaves each end", async () => {
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     // A chat that opens at its end: no bottom fade there, and a top one at full depth far from the top.
     expect(scroller.style.getPropertyValue("--acpmux-fade-bottom-reach")).toBe("0");
@@ -323,7 +319,6 @@ test("the rail draws no background or shadow while the view is scrolled up", asy
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     // Scrolled up to the top of the chat, far from the latest message.
     await act(async () => {
@@ -362,7 +357,6 @@ test("the rail shows the agent's replies, prompts and replies together, and only
         />,
       ),
     );
-    await railFrame();
     expect(ticks()).toHaveLength(12);
     await pick("Show Agent Replies");
     expect(ticks()).toHaveLength(12);

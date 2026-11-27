@@ -93,7 +93,7 @@ model id the error tells you the spelling to use.
 | You want | Write | acpmux does |
 | --- | --- | --- |
 | a Claude, a Codex, with defaults | `-m claude`, `-m codex` | the family's preferred profile (an account pool, a router) plus its model, effort, policy |
-| one exact model | `-m claude/opus`, `-m codex/gpt-5.5`, `-m opencode/zai/glm-5.1`, `-m pi/openai/gpt-5.5` | that harness, that model |
+| one exact model | `-m claude/opus`, `-m codex/gpt-5.5`, `-m opencode/zai/glm-5.1`, `-m pi/subrouter/gpt-5.6-sol` | that harness, that model |
 | a fork | `-m omp`, `-m prime` | its own family; prime takes no model over ACP |
 | a bundle someone named | `-p deepseek`, `-p omx` | the preset's harness, model, effort, policy, env; `-m`/`-e` still win |
 | nothing in particular | no flag | the default harness and its defaults |
@@ -335,15 +335,15 @@ other `ACPMUX_*` variable and Claude Code's `CLAUDE_CODE_MESSAGING_*` there: the
 name your own session, its token and its daemon, so your sends would be your
 session's (or go to the shared daemon) and not the person's. The first command
 starts the daemon in the background by itself (detached; no background shell
-needed). A new home has no `defaults`: set the profile you want (your own
-profile's name), or `-m claude` runs plain `claude`.
+needed). A new home has no `defaults`: set the profile you want (`claude-sr2`
+for sr2), or `-m claude` runs plain `claude`.
 
 ```bash
 X=/abs/path/to/acpmux                       # the build you try (in a session, "$ACPMUX_BIN" is its daemon's)
 mkdir -p /tmp/try-acpmux
 for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
-$X defaults claude prefer=my-claude,claude   # your own profile first (`acpmux defaults` in the shared home)
+$X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`acpmux defaults` there)
 $X daemon status                            # starts it; this home's sessions and live agents
 $X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
 $X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
@@ -529,7 +529,7 @@ sign-in), `harness`, `capabilities`,
 workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
 `fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
 another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
-teammate's agent address while its grant lets you), `memory` (the memory mount shared by your machines, ~/.cmux/memory), `succeed`
+teammate's agent address while its grant lets you), `memory` (the fleet memory mount), `succeed`
 (make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
 addresses), and `skill` (this guide).
 

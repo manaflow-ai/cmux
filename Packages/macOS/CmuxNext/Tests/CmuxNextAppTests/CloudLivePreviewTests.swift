@@ -17,10 +17,10 @@ struct CloudLivePreviewTests {
     /// The refresh is the daemon's `cloud.previews.refresh` (cmux-cloud-api `previews.rs`) at the platform
     /// preview origin, as the person's access in their team; the platform's catalog comes back as its body.
     @Test func refreshUsesNewCloudWithThePersonsAccessAndTeam() async throws {
-        let daemon = CloudDaemonRunTests.FakeDaemon { _, _, _ in #"{"ok":true,"body":\#(Self.response)}"# }
-        var worker = CloudDaemon.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
+        let daemon = CloudAPIClientRunTests.FakeDaemon { _, _, _ in #"{"ok":true,"body":\#(Self.response)}"# }
+        var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
                                                    accessToken: { "person-access" }, teamID: { "team-one" })
-        worker.daemonCall = { input, _ in try daemon.run(input) }
+        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
         let api = worker.previewClient(baseURL: try #require(URL(string: "https://machines.standin.invalid")))
         let result = try await api.refreshPreviews("vm-one")
         #expect(result.listening == [22, 3000, 8080])

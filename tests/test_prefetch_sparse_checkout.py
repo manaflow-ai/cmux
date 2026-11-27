@@ -102,37 +102,6 @@ class PrefetchSparseCheckout(unittest.TestCase):
         self.assertEqual(self.tree(work), want)
         self.assertEqual(git(work, "config", "--bool", "core.sparseCheckout").strip(), "true")
 
-    def test_falls_back_when_the_configured_temp_directory_is_missing(self):
-        patterns = PATTERNS.read_text(encoding="utf-8")
-        want = self.tree(self.clone("plain", patterns))
-        work = self.clone(
-            "missing-temp", "/scripts/ci/prefetch-sparse-checkout.sh\n/scripts/ci/path-route-sparse-checkout.txt\n"
-        )
-        env = {**os.environ, "GH_TOKEN": "", "PREFETCH_JOBS": "3",
-               "TMPDIR": str(self.tmp / "does-not-exist")}
-        env.pop("RUNNER_TEMP", None)
-        with PATTERNS.open(encoding="utf-8") as stdin:
-            subprocess.run(["bash", str(SCRIPT)], cwd=work, stdin=stdin, check=True, capture_output=True,
-                           text=True, env=env)
-        self.assertEqual(self.tree(work), want)
-        self.assertFalse((work / ".cmux-prefetch").exists())
-
-    def test_prefers_runner_temp_when_tmpdir_is_missing(self):
-        patterns = PATTERNS.read_text(encoding="utf-8")
-        want = self.tree(self.clone("plain", patterns))
-        work = self.clone(
-            "runner-temp", "/scripts/ci/prefetch-sparse-checkout.sh\n/scripts/ci/path-route-sparse-checkout.txt\n"
-        )
-        runner_temp = self.tmp / "runner-temp-root"
-        runner_temp.mkdir()
-        env = {**os.environ, "GH_TOKEN": "", "PREFETCH_JOBS": "3", "RUNNER_TEMP": str(runner_temp),
-               "TMPDIR": str(self.tmp / "does-not-exist")}
-        with PATTERNS.open(encoding="utf-8") as stdin:
-            subprocess.run(["bash", str(SCRIPT)], cwd=work, stdin=stdin, check=True, capture_output=True,
-                           text=True, env=env)
-        self.assertEqual(self.tree(work), want)
-        self.assertEqual(list(runner_temp.glob("prefetch.*")), [])
-
     def test_a_failed_chunk_fetch_is_tried_again_before_the_lazy_fallback(self):
         """A stalled or dropped pack (GitHub, 2026-11-25) costs one retry, not a one-by-one lazy fetch."""
         want = self.tree(self.clone("plain", PATTERNS.read_text(encoding="utf-8")))

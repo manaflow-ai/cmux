@@ -17,13 +17,13 @@ import Testing
     /// upper case sorts before lower case, `.DS_Store` is ignored, a folder's files come before
     /// its subfolders, a missing output and an empty one each count.
     static let files: [String: String] = [
-        /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html": "pane\n",
-        /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/assets/a.js": "a\n",
-        /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/Z.js": "z\n",
-        /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/.DS_Store": "x",
-        /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/web-abi.json": "{\"abi\": 2}\n",
-        /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html": "s\n",
-        /* ci-target-graph: non-input */ "Native/OptChat/optchat-chief/inspector/index.html": "i\n",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html": "pane\n",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/assets/a.js": "a\n",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/Z.js": "z\n",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/.DS_Store": "x",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/web-abi.json": "{\"abi\": 2}\n",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html": "s\n",
+        "Native/OptChat/optchat-chief/inspector/index.html": "i\n",
     ]
     /// Measured, never derived by hand: write ``files`` and the empty agent-activity folder
     /// (``makeTree(at:)``) into a scratch ROOT, then run
@@ -38,7 +38,7 @@ import Testing
             try Data(text.utf8).write(to: file)
         }
         try FileManager.default.createDirectory(
-            at: root.appending(path: /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"),
+            at: root.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"),
             withIntermediateDirectories: true)
     }
 
@@ -89,7 +89,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         try Self.makeTree(at: root)
         try FileManager.default.createSymbolicLink(
-            at: root.appending(path: /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/escape"),
+            at: root.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/escape"),
             withDestinationURL: URL(fileURLWithPath: "/etc"))
         #expect(throws: WebUpdateRefusal.integrity("link escape")) { try WebUpdateTree(root: root).outputDigest() }
     }
@@ -103,7 +103,7 @@ import Testing
         #expect(tree == store.tree(for: pointer.key).root)
         #expect(store.verifiedTree(pointer) == tree)
         // A file changed on disk after the install: the launch check no longer serves the tree.
-        try Data("evil\n".utf8).write(to: tree.appending(path: /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html"))
+        try Data("evil\n".utf8).write(to: tree.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html"))
         #expect(store.verifiedTree(pointer) == nil)
     }
 

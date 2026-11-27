@@ -365,55 +365,6 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8) == Self.ownSettings)
     }
 
-    /// The setups shelf (`experiments.setupShelf`, off by default): with it off a setup's key is one the
-    /// walk op refuses, as before; with it on a setup is one publish, and Skip puts it back.
-    @Test func setupShelfPathsOnlyWithTheSwitchOn() async throws {
-        let dense: JSONValue = ["writes": .array([
-            ["path": "sidebar.style", "value": "rail"],
-            ["path": "tabs.barPosition", "value": "bottom"],
-            ["path": "layout.panePadding", "value": 2],
-        ])]
-        do {
-            let (settings, writer, url) = try await countedSettings(Self.ownSettings)
-            defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-            let source = FirstRunChoicesSettingsSource(settings: { settings })
-            let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
-            let provider = OnboardingPageProvider(model: model)
-            model.stepDidAppear()
-            await Self.until { model.makeItYours.loaded }
-            await source.settled()
-            #expect(!model.makeItYours.setupShelf)
-            await #expect(throws: (any Error).self) {
-                _ = try await provider.call("cmux.onboarding.makeItYours.walk", params: dense, context: clicked(660))
-            }
-            await source.settled()
-            #expect(writer.publishes == 0, "with the switch off a setup's key writes nothing")
-        }
-        let on = JSONValue.object([
-            "experiments": .object(["setupShelf": .bool(true)]),
-            "tabs": .object(["barPosition": .string("top")]),
-        ]).prettyText() + "\n"
-        let (settings, writer, url) = try await countedSettings(on)
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let source = FirstRunChoicesSettingsSource(settings: { settings })
-        let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
-        let provider = OnboardingPageProvider(model: model)
-        model.stepDidAppear()
-        await Self.until { model.makeItYours.loaded }
-        await source.settled()
-        #expect(model.makeItYours.setupShelf)
-        #expect(model.makeItYours.walk["tabs.barPosition"]?.stringValue == "top", "the page reads the shelf's keys")
-        _ = try await provider.call("cmux.onboarding.makeItYours.walk", params: dense, context: clicked(661))
-        await source.settled()
-        #expect(writer.publishes == 1, "a setup is one publish")
-        let file = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
-        #expect(file.value(at: ["sidebar", "style"])?.stringValue == "rail")
-        #expect(file.value(at: ["tabs", "barPosition"])?.stringValue == "bottom")
-        _ = try await provider.call("cmux.onboarding.skip", params: [:], context: clicked(662))
-        await source.settled()
-        #expect(try String(contentsOf: url, encoding: .utf8) == on, "Skip puts the shelf's keys back")
-    }
-
     /// A reopen from the palette right after Skip (its restore still queued behind a pick's write)
     /// reads its snapshot after that restore lands, so the first Skip is not lost.
     @Test func reopenRightAfterSkipKeepsTheSkip() async throws {

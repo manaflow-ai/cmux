@@ -667,32 +667,6 @@ fn a_refused_machine_exec_route_prints_only_a_known_code() {
 }
 
 #[test]
-fn a_vm_unavailable_exec_says_which_rpc_failure_it_was_and_nothing_else() {
-    // cmux-platform MachineGuest.ts answers a thrown Durable Object call as 503 vm_unavailable
-    // with `reason` one of RpcReset.ts's three words; any other reason text is never printed.
-    for (reason, shown) in [
-        (json!("restarted"), "vm_unavailable (restarted)"),
-        (json!("overloaded"), "vm_unavailable (overloaded)"),
-        (json!("unreachable"), "vm_unavailable (unreachable)"),
-        (json!("secret-ish reason"), "503 Service Unavailable vm_unavailable"),
-        (json!(7), "503 Service Unavailable vm_unavailable"),
-    ] {
-        let (origin, _requests) = fake_no_sessions(
-            503,
-            json!({ "ok": false, "error": { "code": "vm_unavailable", "message": "secret-ish detail", "reason": reason } })
-                .to_string(),
-        );
-        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
-        let (mut out, mut err) = (Vec::new(), Vec::new());
-        let message =
-            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
-                .unwrap_err();
-        assert!(message.ends_with(shown), "{message}");
-        assert!(!message.contains("secret-ish"), "{message}");
-    }
-}
-
-#[test]
 fn exec_by_a_teammate_who_did_not_create_the_machine_never_reaches_the_exec_route() {
     // The platform checks the creator before the provider (ClientSession.ts mintClientSessionOn):
     // a teammate's mint answers not_creator (403 auth.forbidden), never unsupported, so the exec

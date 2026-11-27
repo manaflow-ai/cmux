@@ -303,10 +303,3 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 [[profile.default.overrides]]
 filter = 'binary_id(cmux-tui::it) & test(=store_schemas_in_its_time::a_store_in_wal_mode_whose_wal_name_is_a_link_is_an_error_of_the_check)'
 success-output = "final"
-
-# The take-over gap test (tests/durable_agents/handoff_gap.rs) prints its HANDOFF_GAP line (the
-# gap of each take-over and the failed requests); a fleet step shows it only when a passing
-# test's output is kept.
-[[profile.ci.overrides]]
-filter = 'binary_id(acpmux::durable_agents) & test(/^handoff_gap::/)'
-success-output = "final"

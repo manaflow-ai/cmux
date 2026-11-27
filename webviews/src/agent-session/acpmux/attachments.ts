@@ -519,22 +519,6 @@ export function promptText(text: string, attachments: ComposerAttachment[], opti
   return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
 }
 
-/// One line `promptText` adds for a linked file: the agent's, never the person's words.
-const ATTACHED_FILE_NOTE = /^Attached file: .+ \([^\s(),]+, \d+ bytes\)\. Read the linked file with your tools\.$/;
-
-/// `text` without the notes `promptText` added for its linked files: the bubble, its Copy and its
-/// editor show what the person typed; the file draws as its chip or thumbnail.
-export function withoutAttachedFileNotes(text: string): string {
-  if (!text.includes("Attached file: ")) return text;
-  const lines = text.split("\n");
-  const kept = lines.filter((line) => !ATTACHED_FILE_NOTE.test(line));
-  if (kept.length === lines.length) return text;
-  return kept
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^\n+|\n+$/g, "");
-}
-
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).

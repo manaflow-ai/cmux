@@ -15,7 +15,6 @@ import type { WatchedAsk } from "./needsYou/model";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
-import { homeListsShown } from "./homeListsModel";
 
 type Props = ComponentProps<typeof HomeLists>;
 
@@ -302,11 +301,7 @@ function withReceipt(Component: typeof HomeLists) {
         data-home-selection={selected ?? ""}
         data-home-answer={answered ?? ""}
       >
-        <div
-          className="acpmux-main"
-          data-new-chat=""
-          data-home-lists={homeListsShown(props.sessions, props.currentId, props.asks, props.tabs) ? "" : undefined}
-        >
+        <div className="acpmux-main" data-new-chat="">
           <div className="acpmux-stage">
             <EmptyState />
           </div>

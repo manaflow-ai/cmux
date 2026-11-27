@@ -13,7 +13,6 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 // The whole transcript renders once per frame; jsdom is slow at it.
 setDefaultTimeout(60_000);
@@ -126,7 +125,6 @@ test("a fling up the chat writes the rail's list offset at most twice, then plac
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const list = () => document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     const bottom = scroller.scrollTop;

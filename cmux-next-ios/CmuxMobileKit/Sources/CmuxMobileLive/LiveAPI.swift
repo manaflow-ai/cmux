@@ -479,7 +479,7 @@ extension LiveAPI {
 /// What a person reads for a failed service call: never the HTTP status, the code
 /// or the type. The service's own message shows when it reads as a sentence. Shown for loads
 /// (retried on their own) and actions alike, so only a server-enforced wait names a retry.
-extension LiveAPI.Failure: LocalizedError, LinkServiceFailure {
+extension LiveAPI.Failure: LocalizedError {
     public var errorDescription: String? {
         switch status {
         case 401: return "Your session expired. Sign in again."

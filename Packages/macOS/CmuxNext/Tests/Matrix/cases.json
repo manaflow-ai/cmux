@@ -310,6 +310,50 @@
    ]
   },
   {
+   "id": "workspace.create.cmd-n.context-menu",
+   "action": {
+    "id": "newTab"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
    "id": "workspace.create.newAbove.context-menu",
    "action": {
     "id": "workspace.newAbove",
@@ -610,6 +654,56 @@
    "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
+   "id": "workspace.create.newAtTop.context-menu",
+   "action": {
+    "id": "workspace.newAtTop",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$new",
+      "$w1",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
    "id": "workspace.create.newAtTop.palette",
    "action": {
     "id": "workspace.newAtTop",
@@ -700,6 +794,56 @@
       "$w1",
       "$w2",
       "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtBottom.context-menu",
+   "action": {
+    "id": "workspace.newAtBottom",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$w3",
+      "$new"
      ]
     }
    ],
@@ -1701,6 +1845,86 @@
    "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
+   "id": "workspace.reorder.up.context-menu",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.context-menu",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
    "id": "workspace.reorder.up.cli",
    "action": {
     "id": "moveWorkspaceUp",
@@ -1902,12 +2126,12 @@
    "note": "Moving the top workspace up changes nothing. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
-   "id": "workspace.reorder.toBottom.palette",
+   "id": "workspace.reorder.toBottom.context-menu",
    "action": {
     "id": "workspace.moveToBottom",
     "target": "$w2"
    },
-   "entry": "palette",
+   "entry": "context-menu",
    "state": "ws3",
    "expect": [
     {
@@ -2142,6 +2366,56 @@
    ]
   },
   {
+   "id": "tab.reorder.left.context-menu",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "context-menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
    "id": "tab.reorder.right.palette",
    "action": {
     "id": "moveSurfaceRight",
@@ -2198,6 +2472,56 @@
     "target": "$t2"
    },
    "entry": "menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.context-menu",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "context-menu",
    "state": "tabs3",
    "expect": [
     {

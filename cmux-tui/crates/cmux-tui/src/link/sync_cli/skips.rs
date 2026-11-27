@@ -300,13 +300,6 @@ pub(crate) fn credential_text(relative: &str) -> Option<&'static str> {
     credential(relative, false).map(Why::text)
 }
 
-/// Why the file at `relative` (under `top`) stays on this Mac as a secret, in words: the copy's
-/// own rule ([`secret_at`], then [`credential`]), for a snapshot of the folder
-/// (`seed/snapshot.rs`) that must leave out exactly what the copy does.
-pub(crate) fn secret_text(top: &Path, relative: &str) -> Option<&'static str> {
-    secret_at(top, relative).or_else(|| credential(relative, false)).map(Why::text)
-}
-
 /// The first of [`CREDENTIAL_FOLDERS`] under `home` that the canonical `folder` is in or holds, in any case:
 /// a selected folder the App refuses too (`AgentPaneCloudFolderRefusal.secretFolder`), which
 /// `cloud start-chat --from-folder` checks before any machine is made.

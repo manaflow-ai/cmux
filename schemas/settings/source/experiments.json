@@ -708,33 +708,6 @@
           ]
         },
         {
-          "key": "experiments.setupShelf",
-          "note": "Make cmux Yours offers the four setups in examples/setups (Calm, Dense, Chat-first, Terminal-first) as a shelf with Try, Keep and Revert (hq design dp-9eedbe44e5). Each setup owns one axis's keys; rivals on an axis replace each other, other axes stack; Try snapshots only the keys it writes, Revert puts back the ones still as the setup left them, Keep drops the snapshot, Skip puts everything back. The page reads it from its state (MakeItYoursStepModel.setupShelf; webviews onboarding setupShelf.ts); the host accepts a setup's paths only while it is on (FirstRunChoicesSettingsSource.setupPaths). Off by default; off keeps today's step with no shelf.",
-          "title": {
-            "key": "settings.experiments.setupShelf",
-            "text": "Setups in Make cmux Yours"
-          },
-          "help": {
-            "key": "settings.experiments.setupShelf.help",
-            "text": "Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "experiments",
-            "experimental",
-            "prototype",
-            "onboarding",
-            "first run",
-            "setup",
-            "setups",
-            "profile",
-            "calm",
-            "dense",
-            "try"
-          ]
-        },
-        {
           "key": "experiments.appsTier",
           "note": "RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.",
           "title": {

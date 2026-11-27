@@ -6,7 +6,6 @@ import { postNative } from "../native";
 import { type ComposerAttachment } from "../attachments";
 import { type SendGesture } from "../heldPrompt";
 import { callNative } from "../callNative";
-import { keptUnsent } from "../lostPrompt";
 
 /// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
 /// session daemon's agent-session-start). A trust refusal has its own question.
@@ -31,7 +30,7 @@ export function failedRowIds(rowId: unknown, rowIds: unknown): string[] {
 /// Whether a failed send's prompt stays in the chat, never back in the composer: its failed row,
 /// or the transcript, which drew it once acpmux took it (direct.ts `send`).
 export function keptInChat(error: unknown): boolean {
-  return failedRowOf(error) !== undefined || (error as { taken?: unknown } | null)?.taken === true || keptUnsent(error);
+  return failedRowOf(error) !== undefined || (error as { taken?: unknown } | null)?.taken === true;
 }
 
 /// Stops the shown chat's turn; refused while the pane cannot reach acpmux (stopThroughReconnect.ts).

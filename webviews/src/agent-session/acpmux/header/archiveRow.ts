@@ -1,12 +1,11 @@
 // The chat menu's Archive row: the pane asks acpmux to archive the chat (`_acpmux/archive`, the
 // `archived` tag) over its own connection, then asks the app to close the tab; an archived chat
-// opened from search offers Unarchive, and a chat acpmux settled (archived with a reason,
-// hub/auto_settle.rs) offers the same row as Unsettle, which drops the reason too.
+// opened from search offers Unarchive.
 import { type Translate, translate } from "../i18n";
 import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export function archiveRow(
-  chat: { sessionId: string | undefined; archived: boolean; local: boolean; settled?: boolean },
+  chat: { sessionId: string | undefined; archived: boolean; local: boolean },
   archive: (archived: boolean) => void,
   t: Translate = translate,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
@@ -14,7 +13,7 @@ export function archiveRow(
   if (!chat.sessionId || !chat.local) return undefined;
   return {
     key: "archive",
-    label: t(chat.archived ? (chat.settled ? "settle.unsettle" : "chatMenu.unarchive") : "chatMenu.archive"),
+    label: t(chat.archived ? "chatMenu.unarchive" : "chatMenu.archive"),
     icon: "inbox",
     onSelect: () => archive(!chat.archived),
   };

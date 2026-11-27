@@ -41,11 +41,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited-summary:hover .acpmux-edited-summary-link",
     "direct diff navigation label",
   ],
-  // The closed card's "View changes" is text in place of its counts, never a control: no popup to keep open.
-  [
-    "agent-session/acpmux/conversation/EditedFilesCard.css|.acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet]):is(:hover:not(:has(button:not(.acpmux-edited-toggle):hover)), :has(.acpmux-edited-toggle:focus-visible)) .acpmux-edited-counts > .acpmux-edited-hover-label",
-    "alternate label",
-  ],
   ["agent-session/acpmux/conversation/CardCopy.css|.cv-disclosure__panel:hover > .cv-card-copy", "copy affordance"],
   [
     "agent-session/acpmux/conversation/conversation.css|.cv-tool-output__box:hover .cv-tool-output__actions",

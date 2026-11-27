@@ -56,8 +56,6 @@ def head(labels, draft=False, base="feat-cmux-next", land_full="0"):
         "needs.receipt.outputs.valid": "false",
         "needs.receipt.outputs.audit": "false",
         "needs.reads.outputs.hit": "",
-        # The full-ci base merge carry job carried nothing (head_tier.py full_carry): the jobs route as before.
-        "needs.full-carry.outputs.tier": "full",
         "needs.plan.result": "success",
         "needs.plan.outputs.jobs": '[{"root": "cmux-next-ios/rust"}]',
     }

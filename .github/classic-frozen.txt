@@ -16,7 +16,7 @@
 # (repo-tools, prior-art): `all` is skipped on feat-cmux-next and main, `main` on main only (on feat-cmux-next the
 # same path is NEXT's, like the NEXT devbox image under web/services/vms that cloud-devbox-image-rebake.yml bakes).
 #
-# Not classic, and not frozen: NEXT code that calls classic (CloudCLICall.swift's drained classic /api/runs,
+# Not classic, and not frozen: NEXT code that calls classic (CloudAPIClient.swift's /api/vm routes,
 # CloudClassicPageOps.swift), cmux-api (backend/apps/api) and workers/cmux-vm.
 
 # cmux.com's classic API, served by the Vercel project in web/ (web/vercel.json deploys every push to main).

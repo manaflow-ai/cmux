@@ -59,60 +59,14 @@ public struct CloudPreviewShareLinkRevocation: Decodable, Sendable, Equatable {
     public var revoked: Bool
 }
 
-extension CloudDaemon {
+extension CloudAPIClient {
     /// Preview ingress lives at cmux-platform, while the existing guest API keeps its Worker. Same person,
-    /// team and daemon as this one (its calls are the daemon's `cloud.previews.*` and `cloud.vm.*`).
-    public func previewClient(baseURL: URL) -> CloudDaemon {
-        var client = CloudDaemon(baseURL: baseURL, tokens: tokens, teamID: teamID, appVersion: appVersion, sendsStackSession: false,
-                                 buildSpace: buildSpace)
+    /// team and daemon as this client (its calls are the daemon's `cloud.previews.*` and `cloud.vm.*`).
+    public func previewClient(baseURL: URL) -> CloudAPIClient {
+        var client = CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion, buildSpace: buildSpace)
         client.machineIO = machineIO
-        client.daemonCall = daemonCall
+        client.daemon.daemonCall = daemon.daemonCall
         return client
-    }
-
-    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``), sent by the
-    // daemon (cmux-cloud-api `previews.rs`): a publication is one machine port's preview, `vm_…:port`. The sign-in
-    // client answers 501 and sends nothing.
-
-    /// The daemon's `cloud.vm.domains`: the domains Cloud publications are served on (the platform's managed one).
-    public func listDomains() async throws -> [CloudDomain] {
-        try await previewCall("vm.domains", [:], as: [CloudDomain].self)
-    }
-
-    /// The daemon's `cloud.vm.publications`: the signed-in person's publications in the current team.
-    public func listPublications() async throws -> [CloudPublication] {
-        try await previewCall("vm.publications", [:], as: [CloudPublication].self)
-    }
-
-    /// The daemon's `cloud.vm.provision_api`: publishes `port` of the machine behind cmux sign-in (a refresh,
-    /// when it has no preview yet) and mints an API key for it in one call. Calling it again for the same
-    /// port reuses the publication and mints another key.
-    public func provisionAPI(machineID: String, port: Int, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        var args: [String: any Sendable] = ["machine": machineID, "port": port]
-        if let keyName { args["keyName"] = keyName }
-        return try await previewCall("vm.provision_api", args, timeout: .seconds(125), as: CloudProvisionedAPI.self)
-    }
-
-    /// The daemon's `cloud.vm.publication_api_keys`: the live API keys of a publication, named by its id or
-    /// hostname (the daemon resolves it from the publication list, so two bounded requests).
-    public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
-        try await previewCall("vm.publication_api_keys", ["publication": publication], timeout: .seconds(65),
-                              as: [CloudPublicationAPIKey].self)
-    }
-
-    /// The daemon's `cloud.vm.revoke_publication_api_key`: revokes one key; its next request is refused at the edge.
-    public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
-        try await previewCall("vm.revoke_publication_api_key", ["publication": publication, "keyId": keyID],
-                              timeout: .seconds(65), as: CloudPublicationAPIKey.self)
-    }
-
-    /// One preview or publication call through the daemon, its body decoded as `type`. The daemon bounds
-    /// each request at 30 s (120 s for a key's create); `timeout` bounds the child a little past that.
-    func previewCall<T: Decodable>(_ call: String, _ args: [String: any Sendable], timeout: Duration = .seconds(35),
-                                   as type: T.Type) async throws -> T {
-        try requireWorker(code: "machine.previews_unsupported")
-        let data = try await daemon(call, args, timeout: timeout)
-        return try CloudMachineRules().answer(data, as: T.self, context: "cloud.\(call)")
     }
 
     /// New Cloud only: the daemon's `cloud.previews.refresh` discovers current listeners and reconciles

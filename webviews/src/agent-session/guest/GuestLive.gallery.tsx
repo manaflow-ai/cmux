@@ -59,10 +59,6 @@ export default componentEntry<GuestPageProps>({
         await ctx.waitFor(() => ctx.document.body.textContent?.includes("Test timed out after 5000ms"));
       },
     },
-    driving: {
-      props: { ...live(joinFrames(workingRecords())), role: "drive", invite: true },
-      note: "A named Drive invite can send a message or stop the current turn.",
-    },
     "guest-messages": {
       props: live(joinFrames(guestMessageRecords(), "Uploader retries")),
       note: 'Two signed-in guests\' approved messages as prompts under their 20px picture (else initials) and name (guest); Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture instead".',

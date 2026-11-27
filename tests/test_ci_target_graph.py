@@ -102,16 +102,6 @@ class LiteralReadsCase(unittest.TestCase):
             ["App/README.md", "schemas/settings/schema.json"],
         )
 
-    def test_a_non_input_marker_only_applies_to_the_next_literal(self):
-        source = self.tests / "SomeTests.swift"
-        source.write_text(
-            'let values = [/* ci-target-graph: non-input */ "schemas/settings", "App/README.md"]\n'
-            'let mockPath = /* ci-target-graph: non-input */ "schemas/settings/schema.json"\n'
-            'let actualPath = "schemas/settings/schema.json"\n',
-            encoding="utf-8",
-        )
-        self.assertEqual(self.graph.literal_reads(self.tests), ["App/README.md", "schemas/settings/schema.json"])
-
 
 class DotSlashReadsCase(unittest.TestCase):
     """A leading "./" is no path segment: AppWebPaneTests' rejected app root "./web" named the whole

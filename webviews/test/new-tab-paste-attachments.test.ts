@@ -239,11 +239,10 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     }
   });
 
-  // Lucas 2026-11-25: in the strip view (the default) a pasted image goes only by its ×. Backspace
-  // edits the text and stops at the field's start, never taking an image (Austin's 10-21 take-back
-  // is the inline view's).
+  // Austin 2026-10-21: a pasted image went only by its ×. Backspace with the caret at the field's
+  // start takes back the last chip, one per press; Backspace in the text still edits the text.
   test.each(engines.map(([name]) => name))(
-    "%s: Backspace at the field's start keeps the pasted images",
+    "%s: Backspace at the field's start removes the last pasted image, one per press",
     async (name) => {
       const page = await newTab(name);
       const field = page.locator(EDITABLE);
@@ -265,18 +264,24 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await frame();
       expect(await fieldText(page)).toBe("a");
       expect(await images.count()).toBe(2);
-      for (let at = 0; at < 3; at += 1) await page.keyboard.press("Backspace");
+      await page.keyboard.press("Backspace");
       await frame();
       expect(await fieldText(page)).toBe("");
       expect(await images.count()).toBe(2);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 1, INLINE_IMAGES);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".nt-box .acpmux-attachment, .nt-box .acpmux-md-inline-chip").length === 0,
+      );
       await page.close();
     },
   );
 
   // The Classic New Tab page takes Backspace the same way, after its own: a "!" typed into the empty
-  // field switches it to a terminal, and Backspace first switches it back; the images stay after that.
+  // field switches it to a terminal, and Backspace first switches it back; the chips go after that.
   test.each(engines.map(([name]) => name))(
-    "%s: on the Classic New Tab page, Backspace undoes a prefix first, then keeps the images",
+    "%s: on the Classic New Tab page, Backspace undoes a prefix first, then removes the last image",
     async (name) => {
       const page = await newTab(name, true);
       // Its field is the composer's Markdown prompt too (MarkdownField).
@@ -305,9 +310,11 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
       expect(await images.count()).toBe(2);
       await page.keyboard.press("Backspace");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-newtab .acpmux-attachment-image").length === 1,
+      );
       await page.keyboard.press("Backspace");
-      await page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
-      expect(await images.count()).toBe(2);
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-newtab .acpmux-attachment").length === 0);
       await page.close();
     },
   );

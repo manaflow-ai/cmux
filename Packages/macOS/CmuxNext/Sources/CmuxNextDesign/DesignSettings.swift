@@ -225,12 +225,6 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
-    /// Snapshot-first right split (goal instant-splits, prototype): a split to the right opens as a retained picture
-    /// that slides in from the screen's right edge on the compositor, to its final place fixed at the key press, while
-    /// the live panes mount underneath; the live view takes over once it showed. Off by default (flipping it is Leo's
-    /// call): the `CmuxNextSplitSnapshotOpen` user default (`-CmuxNextSplitSnapshotOpen YES` at launch) or
-    /// `debug.motion {"kind":"splitSnapshotOpen","on":true}` turns it on.
-    public var splitSnapshotOpen = UserDefaults.standard.bool(forKey: "CmuxNextSplitSnapshotOpen")
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the

@@ -43,7 +43,7 @@ public final class CloudMachineChanges {
     private var lastRefresh: (@MainActor () async -> Void)?
     /// The machines the pending settle read is for; nil when it is for no one machine (a create, a lost push).
     private var pendingMachines: Set<String>?
-    /// Takes `watch` (see ``CloudDaemon/stateWatch(baseURL:connection:)``) and where pushed records are shown; the next
+    /// Takes `watch` (see ``CloudAPIClient/stateWatch(baseURL:connection:)``) and where pushed records are shown; the next
     /// list names its machines.
     public func startPush(_ watch: (@MainActor ([CloudMachine]) async -> Void)?, record: @escaping @MainActor (CloudMachine) -> Void) {
         guard self.watch == nil, let watch else { return }
@@ -342,7 +342,7 @@ public final class CloudMachineChanges {
     }
 }
 
-extension CloudDaemon {
+extension CloudAPIClient {
     /// Names machines to the local daemon, which holds their state sockets at `baseURL` (``CloudConfiguration/relayAPIBaseURL(environment:)``,
     /// the platform origin) as this client's person and team; nil for the classic client, whose Stack session the platform does not take.
     @MainActor

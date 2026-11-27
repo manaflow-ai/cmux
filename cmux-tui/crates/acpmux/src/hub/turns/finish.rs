@@ -209,25 +209,6 @@ impl Hub {
             }
             _ => false,
         };
-        // A Cloud machine's Claude that started before the machine's model route resolved (the
-        // provider's edge rule for a machine made a moment ago; production cloud-chat-replies,
-        // 2026-11-26: every "has no model route" failure read `edge_routed` false): the route is
-        // asked again, fresh, waiting while the machine is young (`cloud_model_plane::route_arrives`).
-        // Once it resolves, the agent restarts on it after this turn and the first send goes again
-        // there (`auto_resume/first_send.rs`), so Sign in shows only where no route is coming.
-        let route_arrived = match &result {
-            Err(e)
-                if cloud_host
-                    && crate::claude_auth::would_explain(&session.id, &e.message)
-                    && crate::claude_auth::spawned(&session.id)
-                        .is_some_and(|s| crate::claude_auth::find(&s.env).endpoint.is_none()) =>
-            {
-                tokio::task::spawn_blocking(crate::cloud_model_plane::route_arrives)
-                    .await
-                    .unwrap_or(false)
-            }
-            _ => false,
-        };
         if let Err(e) = &mut result
             && let Some(text) =
                 crate::claude_auth::explain(&session.id, &e.message, cloud_host, gateway)
@@ -237,17 +218,12 @@ impl Hub {
             // with no credential on a team the gateway serves uses it without asking. The agent
             // restarts on it once this turn ends, and the first send goes again there
             // (`auto_resume/first_send.rs`).
-            let fell_back = !route_arrived
-                && gateway
+            let fell_back = gateway
                 && crate::agent_login::gateway_fallback_on()
                 && crate::claude_auth::spawned(&session.id)
                     .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
                 && self.use_gateway_now(session);
-            e.message = if route_arrived {
-                tracing::info!(session = %session.id, "Claude started before this machine's model route resolved: the agent restarts on it");
-                self.restart_agent_after_turn(session);
-                crate::claude_auth::route_arrived_text(&e.message)
-            } else if fell_back {
+            e.message = if fell_back {
                 tracing::info!(session = %session.id, "Claude has no credential: the chat uses cmux's gateway");
                 crate::claude_auth::gateway_fallback_text(&e.message)
             } else {

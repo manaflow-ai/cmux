@@ -256,8 +256,6 @@ export interface MakeItYoursState {
   walk?: Record<string, string | number | boolean | null>;
   /** `experiments.introWalk`: the step is the intro walk's four screens; absent or false: today's one screen. */
   introWalk?: boolean;
-  /** `experiments.setupShelf`: the step offers the setups shelf (setupShelf.ts); absent or false: no shelf. */
-  setupShelf?: boolean;
   /** Where a new chat runs; an older host leaves it out, and the row is not drawn. */
   chatsRunIn?: ChatsRunIn;
   /** The backgrounds' previews were read. */

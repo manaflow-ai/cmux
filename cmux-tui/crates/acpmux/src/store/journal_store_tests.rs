@@ -2221,11 +2221,18 @@ fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
     };
     let mut modules: Vec<Modules> =
         (0..files.len()).map(|i| modules_of(i, named(&files[i].0))).collect();
-    // A `#[cfg(test)] mod name;` makes the one file the module tree puts there test code (the
-    // walk below, through `files`), never every file of that name: stress/mod.rs's `mod outbox;`
-    // once made server/outbox.rs and hub/outbox.rs whole test files, and their live `select!`
-    // arms unbounded waits.
-    let mut whole: Vec<bool> = files.iter().map(|(relative, _)| named(relative)).collect();
+    // Modules declared `#[cfg(test)] mod name;`: files with that name only build under test.
+    let test_names: HashSet<String> = modules.iter().flat_map(|m| m.names.clone()).collect();
+    let mut whole: Vec<bool> = files
+        .iter()
+        .map(|(relative, _)| {
+            named(relative)
+                || relative.iter().any(|part| {
+                    let part = part.to_str().unwrap_or("");
+                    test_names.contains(part.strip_suffix(".rs").unwrap_or(part))
+                })
+        })
+        .collect();
     let mut scan =
         CrateScan { checked: 0, unread: Vec::new(), unresolved: Vec::new(), waits: Vec::new() };
     // Each test file's own `mod child;` files are test files too, to any depth.
@@ -2280,6 +2287,8 @@ struct Modules {
     bodies: Vec<TokenStream>,
     /// Each `mod child;` whose file is test code: where it may be, the first that exists.
     files: Vec<Vec<PathBuf>>,
+    /// Each name declared `#[cfg(test)] mod name;` outside test code.
+    names: Vec<String>,
 }
 
 /// The modules in `tokens`, at any depth. `dir` holds the `mod child;` files, `base` is what a
@@ -2325,6 +2334,9 @@ fn modules_in(tokens: TokenStream, dir: &Path, base: &Path, in_test: bool, out: 
                             vec![dir.join(format!("{name}.rs")), dir.join(&name).join("mod.rs")]
                         }
                     });
+                }
+                if test && !in_test {
+                    out.names.push(name);
                 }
                 i = j + 3;
                 continue;
@@ -3252,20 +3264,6 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         if !scan_crate(&files).waits.iter().any(|(path, _)| Some(path) == child.as_ref()) {
             wrong.push(format!("child file not read: {shape}"));
         }
-    }
-    // A test module's name is no test file elsewhere: stress/mod.rs's `#[cfg(test)] mod outbox;`
-    // is stress/outbox.rs, not server/outbox.rs's live code.
-    let files: Vec<(PathBuf, String)> = [
-        ("stress/mod.rs", "#[cfg(test)]\nmod outbox;\n"),
-        ("stress/outbox.rs", "fn t() {}\n"),
-        ("server/outbox.rs", "fn live() {\n    arrived.RECV.unwrap();\n}\n"),
-    ]
-    .iter()
-    .map(|(path, text)| (PathBuf::from(path), source(text)))
-    .collect();
-    let flagged: Vec<String> = scan_crate(&files).waits.into_iter().map(|(path, _)| path).collect();
-    if !flagged.is_empty() {
-        wrong.push(format!("a test module's name made another file test code: {flagged:?}"));
     }
     assert!(wrong.is_empty(), "the bounded-wait scan judges by text shape:\n{}", wrong.join("\n"));
 }

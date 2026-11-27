@@ -1,43 +1,6 @@
 use super::*;
 
 #[test]
-fn the_audit_keeps_allowed_and_refused_connections() {
-    set_mode(Mode::Enforce);
-    assert!(check("https://cloud-api.cmux.dev/v1", "cmux_egress::tests::audit").is_ok());
-    assert!(check("audit-gate-test.org", "cmux_egress::tests::audit").is_err());
-    assert!(check("cloud-api.cmux.dev", "cmux_egress::tests::audit").is_ok());
-    let mine: Vec<AuditEntry> =
-        audit().into_iter().filter(|e| e.site == "cmux_egress::tests::audit").collect();
-    assert_eq!(
-        mine,
-        vec![
-            AuditEntry {
-                host: "audit-gate-test.org".into(),
-                site: "cmux_egress::tests::audit",
-                verdict: Verdict::Unlisted,
-                refused: true,
-            },
-            AuditEntry {
-                host: "cloud-api.cmux.dev".into(),
-                site: "cmux_egress::tests::audit",
-                verdict: Verdict::Listed,
-                refused: false,
-            },
-        ]
-    );
-}
-
-#[test]
-fn an_audit_line_is_one_json_object() {
-    let entry =
-        AuditEntry { host: "a\"b".into(), site: "s", verdict: Verdict::Unlisted, refused: true };
-    assert_eq!(
-        audit_line(&entry, Mode::Enforce, 7),
-        "{\"ts\":7,\"host\":\"a\\\"b\",\"site\":\"s\",\"verdict\":\"unlisted\",\"mode\":\"enforce\",\"refused\":true}\n"
-    );
-}
-
-#[test]
 fn listed_hosts_and_patterns_pass() {
     assert_eq!(verdict("cloud-api.cmux.dev"), Verdict::Listed);
     assert_eq!(verdict("https://Cloud-API.cmux.dev:443/v1/x?y"), Verdict::Listed);

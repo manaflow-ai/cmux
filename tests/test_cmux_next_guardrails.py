@@ -2216,8 +2216,6 @@ class WarningTests(Fixture):
         self.write("plans/cmux-next/OWNERS.md", (SOURCE / "plans/cmux-next/OWNERS.md").read_text())
         self.commit("the shipped owner map")
         self.base = self.git("rev-parse", "HEAD").stdout.strip()
-        # As it ships: merged upstream, which is the table owner warnings read (guardrails.owners_text).
-        self.git("update-ref", guardrails.UPSTREAM, self.base)
         expected = {
             # The typing row names this file; the terminal row only its folder: the most specific row owns it.
             f"{PKG}/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift": ["PL-typing"],
@@ -2230,8 +2228,8 @@ class WarningTests(Fixture):
             "cmux-tui/crates/cmux-flow-trace/src/lib.rs": ["PL-trace"],
             # Not listed: a crate no row names has no owner (no catch-all row).
             "cmux-tui/crates/cmux-git/src/lib.rs": [],
-            "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon"],
-            "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon holder"],
+            "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon holder"],
             "cmux-tui/crates/acpmux/src/lib.rs": ["PL-acpmux"],
             "cmux-tui/crates/acpmux/src/main.rs": ["PL-acpmux"],
             "scripts/cmux-next/build-acpmux.sh": ["PL-acpmux"],

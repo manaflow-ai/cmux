@@ -36,15 +36,6 @@ const people: ChatShare = {
     { account: "@sam", role: "view", state: "invited", joined: false },
   ],
 };
-const drivePerson: ChatShare = {
-  ...people,
-  shareId: "invite-drive-1",
-  guests: [{ guestId: "g3", name: "Ana Ruiz", account: "ana@example.com", role: "drive", joined: true }],
-  invitees: [
-    { account: "ana@example.com", role: "drive", state: "invited", joined: true },
-    { account: "@sam", role: "view", state: "invited", joined: false },
-  ],
-};
 const viewing = [ANA, SAM, MEI, JORDAN];
 // Stress: invites nobody opened yet beside people in the chat now, a long address, and a list
 // past the four rows the band shows before it scrolls.
@@ -121,34 +112,6 @@ export default componentEntry<ShareDemoProps>({
     "dialog-shared": {
       note: "Two people invited (one in the chat now) and Anyone with the link, whose row says Can send: signed-in people can send messages, others can view (cmux#38102). Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",
       props: { viewing, shares: [people, link], open: true },
-    },
-    "dialog-drive-invite": {
-      note: "Named invite with Can drive selected. Drive is available for this person only and is absent from General access.",
-      props: { viewing: [], shares: [], open: true },
-      play: async (ctx) => {
-        await ctx.type("@ana", { selector: ".share-dialog__field" });
-        await ctx.click({ selector: ".share-dialog__role button" });
-        await ctx.click({ role: "menuitemradio", name: "Can drive" });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".share-dialog__status")?.textContent?.includes("your plan"),
-        );
-      },
-    },
-    "dialog-drive-person": {
-      note: "A named person's role menu includes Can drive alongside Viewer and Can send.",
-      props: { viewing, shares: [drivePerson], open: true },
-      play: async (ctx) => {
-        await ctx.click({ selector: ".share-dialog__person-pick" });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
-      },
-    },
-    "dialog-link-no-drive": {
-      note: "Anyone with the link keeps its fixed Can send role. Can drive is not offered in the link section.",
-      props: { viewing: [], shares: [link], open: true },
-      play: async (ctx) => {
-        await ctx.click({ selector: ".share-dialog__general" });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]'));
-      },
     },
     "rows-restricted-back": {
       note: "Shipped: General access and each person are one button the size of their row, edged at rest like a sign-in choice, with the hover and press fills on the whole block; pressing General access offers Restricted, which turns the link back off.",

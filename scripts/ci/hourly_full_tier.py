@@ -239,34 +239,12 @@ def run(args: argparse.Namespace, api=gh_api) -> int:
             cache[base] = changed_since(args.repo, base, tip, api)
         return cache[base]
 
-    refused = []
     for wf, paths in manifest.items():
         go, why = due(tip, runs[wf], files_since, paths)
         print(f"{wf}: {'dispatch' if go else 'skip'}: {why}")
         if go and not args.dry_run:
-            # One refused dispatch never stops the rest: a 422 on ci.yml once skipped relay-tls and every
-            # workflow after it, under a green run.
-            try:
-                api(f"repos/{args.repo}/actions/workflows/{wf}/dispatches", method="POST", fields={"ref": args.branch})
-            except RuntimeError as err:
-                if transient(str(err)):
-                    print(f"::warning::{wf}: dispatch not answered this hour: {err}")
-                else:
-                    print(f"::error::{wf}: dispatch refused: {err}")
-                    refused.append(wf)
-    if refused:
-        # A refusal (a workflow GitHub cannot parse, a missing file) repeats every hour until fixed: red, not a warning.
-        print(f"::error::hourly full tier could not dispatch {', '.join(refused)}")
-        return 1
+            api(f"repos/{args.repo}/actions/workflows/{wf}/dispatches", method="POST", fields={"ref": args.branch})
     return 0
-
-
-TRANSIENT = re.compile(r"HTTP (?:429|5\d\d)|rate limit|timed? ?out|connection (?:reset|refused)", re.IGNORECASE)
-
-
-def transient(message: str) -> bool:
-    """An answer the next hour may not repeat (a spent rate limit, a 5xx, the network)."""
-    return bool(TRANSIENT.search(message))
 
 
 def main(argv: list[str] | None = None) -> int:

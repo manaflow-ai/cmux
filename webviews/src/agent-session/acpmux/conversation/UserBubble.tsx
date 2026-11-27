@@ -40,7 +40,6 @@ import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
-import { withoutAttachedFileNotes } from "../attachments";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { Slot } from "../../../slots/Slot";
@@ -60,7 +59,7 @@ import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo, sentVideoFor, withoutRepeatedVideos } from "./sentVideos";
-import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath, withoutFileNotes } from "./userBubbleModel";
+import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath } from "./userBubbleModel";
 import { readLinkedImage } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -80,8 +79,7 @@ export function UserBubble({
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
   // Only a skill of the chat's list reads so (skillWords.ts).
   const skills = useContext(SkillWordsContext);
-  // A linked file's note ("Attached file: …") went to the agent only too (userBubbleModel.ts).
-  const row = useMemo(() => shownSkills(withoutFileNotes(withoutVideoFrames(given)), skills), [given, skills]);
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
   // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
@@ -89,9 +87,7 @@ export function UserBubble({
     () =>
       tourBubbleText(givenText) ??
       withoutSkillDollars(
-        withoutAttachedFileNotes(
-          withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
-        ),
+        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
         skills,
       ),
     [givenText, given, skills],
@@ -500,9 +496,6 @@ export const SentImage = memo(function SentImage({
   const opened = openImage ? (
     <button
       type="button"
-      // Its own class, not its band's: an image sent as its file's link draws in the file band
-      // (`cv-user__files`), where no band rule reaches it (conversation.css).
-      className="cv-user__image-open"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}

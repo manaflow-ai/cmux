@@ -49,7 +49,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the comment script from the base commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
@@ -58,8 +58,6 @@ jobs:
           path: .red-checks-src
           sparse-checkout: |
             scripts/ci/pr_red_checks_comment.py
-            scripts/ci/gh_http.py
-            scripts/ci/deadline_http.py
             scripts/ci/pr_status.py
             scripts/ci/pr_ran_line.py
             scripts/ci/ci_process_tree.py

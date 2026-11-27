@@ -2,8 +2,6 @@
 // The selection's Reply chip (SelectionReply.tsx): it shows when a transcript selection ends,
 // quotes the selection through Quote in Reply when clicked, and goes when the selection collapses.
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,7 +13,6 @@ import {
   selectionReplyPlace,
   setQuoteReplySink,
   selectionReplyTarget,
-  transcriptTextProbe,
 } from "./selectionReplyModel";
 
 let dom: JSDOM | undefined;
@@ -129,43 +126,6 @@ test("collapsing the selection removes the chip", () => {
   });
   expect(chip(doc)).toBeNull();
 });
-
-// conversation.css hides the chip while a cover is over the pane: a modal dialog (ui/Dialog.tsx, its
-// `.ui-backdrop`) or the full-pane Computer Use preview. On the body at the dropdown layer, the chip
-// drew over the image viewer's screenshot.
-const COVER_RULE = (() => {
-  const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
-  const start = css.indexOf(":root:has(.ui-backdrop, .acpmux-cu-preview[data-full]) .cv-selection-reply {");
-  if (start < 0) throw new Error("conversation.css has no cover rule for .cv-selection-reply");
-  return css.slice(start, css.indexOf("}", start) + 1);
-})();
-
-for (const [name, html] of [
-  ["a modal dialog", `<div class="ui-backdrop"></div>`],
-  ["the full-pane Computer Use preview", `<div class="acpmux-cu-preview" data-full></div>`],
-] as const) {
-  test(`${name} over the pane hides the chip; it comes back when it closes`, () => {
-    const doc = mount(REPLY);
-    const style = doc.createElement("style");
-    style.textContent = COVER_RULE;
-    doc.head.append(style);
-    select(doc, "prose", 6, 25);
-    const view = doc.defaultView!;
-    expect(view.getComputedStyle(chip(doc)!).visibility).not.toBe("hidden");
-    const cover = doc.createElement("div");
-    cover.innerHTML = html;
-    doc.body.append(cover);
-    expect(view.getComputedStyle(chip(doc)!).visibility).toBe("hidden");
-    expect(view.getComputedStyle(chip(doc)!).pointerEvents).toBe("none");
-    // A click inside the cover ends no new selection: the chip stays hidden.
-    act(() => {
-      doc.dispatchEvent(new view.Event("pointerup", { bubbles: true }));
-    });
-    expect(view.getComputedStyle(chip(doc)!).visibility).toBe("hidden");
-    cover.remove();
-    expect(view.getComputedStyle(chip(doc)!).visibility).not.toBe("hidden");
-  });
-}
 
 test("no chip for text in a code block or the composer", () => {
   const doc = mount(REPLY);
@@ -438,75 +398,6 @@ test("a backward drag that lets go deep in the blank space before a paragraph: t
   );
   const target = selectionReplyTarget(doc)!;
   expect({ left: target.left, top: target.top }).toEqual({ left: 100, top: 240 });
-});
-
-// Lucas, 2026-11-25: a triple-click on a prompt selects to the next message's first paragraph, so the
-// range also holds the elements between the two, and their border boxes come in its own boxes (WebKit:
-// a full-width row gap under the prompt, last). The chip took that box as the last character and went
-// far below the prompt. It goes on the prompt's last character.
-// The range also holds the text it cannot select between them (the turn's "Worked for" line): the
-// chip went on that.
-const PROMPT_THEN_REPLY = `<div data-row-id="prompt"><div class="cv-md"><p id=first>What is this image?</p></div>
-<div class="cv-user__actions"><span class="cv-message-footer-row"><time id=age>6 minutes ago</time><button class="cv-iconbtn">Copy</button></span></div></div>
-<div class="gap"></div><div data-row-id="worked" style="user-select: none"><span id=worked>Worked for 42s</span></div>
-<div data-row-id="answer"><div class="cv-md"><p id=second>A screenshot.</p></div></div>`;
-
-test("a triple-click on a prompt: the chip goes on its last character, not a box or unselectable text after it", () => {
-  const doc = mount(PROMPT_THEN_REPLY);
-  const view = doc.defaultView! as unknown as { Range: typeof Range };
-  const first = doc.getElementById("first")!.firstChild as Text;
-  const second = doc.getElementById("second")!.firstChild as Text;
-  const rect = (left: number, right: number, top: number, bottom: number) =>
-    ({ left, right, top, bottom, width: right - left, height: bottom - top }) as DOMRect;
-  // The prompt's words from x 600 to 740 on the 60 line; the whole range also holds the 674 px wide,
-  // 8 px gap box at 199 and a caret-thin box at the reply's start.
-  // The prompt's age and Copy hang under it (84..100): chrome the copy leaves out, so never the end.
-  const worked = doc.getElementById("worked")!.firstChild as Text;
-  const age = doc.getElementById("age")!.firstChild as Text;
-  view.Range.prototype.getClientRects = function (this: Range) {
-    const words = rect(600 + this.startOffset * 8, 600 + Math.min(this.endOffset, first.length) * 8, 60, 76);
-    if (this.startContainer === first && this.endContainer === first) return [words] as unknown as DOMRectList;
-    const line = rect(30, 142, 130, 146);
-    if (this.startContainer === worked) return [line] as unknown as DOMRectList;
-    if (this.startContainer === age) return [rect(640, 712, 84, 100)] as unknown as DOMRectList;
-    return [words, line, rect(30, 704, 199, 207), rect(30, 30, 240, 262)] as unknown as DOMRectList;
-  };
-  const range = doc.createRange();
-  range.setStart(first, 0);
-  range.setEnd(second, 0);
-  doc.getSelection()!.removeAllRanges();
-  doc.getSelection()!.addRange(range);
-  const target = selectionReplyTarget(doc)!;
-  expect(target.end).toEqual({ right: 600 + first.length * 8, top: 60, bottom: 76 });
-  expect({ left: target.left, top: target.top, start: target.start }).toEqual({
-    left: 600 + first.length * 8,
-    top: 60,
-    start: { top: 60, bottom: 76 },
-  });
-});
-
-// The prompt's age and Copy hang under its bubble, past the row's box: the probe skipped the row and
-// the chip went over the age. The row's overflow counts.
-test("the text probe finds a row's text that hangs past the row's box", () => {
-  const doc = mount(
-    `<div data-row-id="prompt"><p id=words>What is this image?</p><time id=age>6 minutes ago</time></div>`,
-  );
-  const view = doc.defaultView! as unknown as typeof globalThis & Window;
-  const rect = (left: number, top: number, right: number, bottom: number) =>
-    ({ left, top, right, bottom, width: right - left, height: bottom - top }) as DOMRect;
-  const row = doc.querySelector<HTMLElement>('[data-row-id="prompt"]')!;
-  const age = doc.getElementById("age")!.firstChild!;
-  view.Element.prototype.getBoundingClientRect = function (this: Element) {
-    return this === row ? rect(30, 44, 744, 87) : rect(0, 0, 0, 0);
-  };
-  Object.defineProperty(row, "scrollHeight", { configurable: true, value: 73 });
-  Object.defineProperty(row, "scrollWidth", { configurable: true, value: 718 });
-  view.Range.prototype.getClientRects = function (this: Range) {
-    return (this.startContainer === age
-      ? [rect(648, 96, 722, 109)]
-      : [rect(600, 60, 740, 76)]) as unknown as DOMRectList;
-  };
-  expect(transcriptTextProbe(doc)({ left: 672, top: 96, right: 744, bottom: 124 })).toEqual([rect(648, 96, 722, 109)]);
 });
 
 // Review of #41519: a drag let go deep below an agent's reply ends the range in the next row, a

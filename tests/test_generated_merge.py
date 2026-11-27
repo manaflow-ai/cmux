@@ -75,14 +75,6 @@ class TreeAuditTests(unittest.TestCase):
         self.assertEqual(attributes["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift"],
                          "cmux-insertions-v1")
 
-    def test_daemon_abi_baseline_preserves_comparison_evidence(self):
-        path = "cmux-tui/spec/api-compat.surface.json"
-        self.assertEqual(generated_merge.Catalog(ROOT).family(path), path)
-        self.assertEqual(generated_merge.merge_attributes(ROOT, [path])[path], "unspecified")
-        commands, notes = generated_merge.plan([path])
-        self.assertEqual(commands, [])
-        self.assertTrue(any("refuses uncovered breaks" in note for note in notes))
-
     def test_every_here_command_names_a_tracked_script(self):
         tracked = set(generated_merge.tracked(ROOT))
         for family, entry in generated_merge.REGENERATE.items():
@@ -267,29 +259,6 @@ class MergeRegeneratesTests(unittest.TestCase):
         self.run_gen()
         self.git("add", "-A")
         self.git("commit", "-q", "-m", f"add {name}")
-
-    def test_conflicting_daemon_baselines_keep_both_sides_visible(self):
-        path = "cmux-tui/spec/api-compat.surface.json"
-        baseline = self.repo / path
-        baseline.parent.mkdir(parents=True)
-        baseline.write_text('{"operation": "original"}\n')
-        with (self.repo / ".gitattributes").open("a") as attrs:
-            attrs.write(f"{path} !merge\n")
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", "baseline")
-        self.git("checkout", "-q", "-b", "lane")
-        baseline.write_text('{"operation": "lane"}\n')
-        self.git("commit", "-qam", "lane baseline")
-        self.git("checkout", "-q", "main")
-        baseline.write_text('{"operation": "newer-base"}\n')
-        self.git("commit", "-qam", "newer baseline")
-        self.git("checkout", "-q", "lane")
-        merged = self.git("merge", "--no-edit", "main", check=False)
-        self.assertEqual(merged.returncode, 1, merged.stdout + merged.stderr)
-        self.assertIn(path, self.git("diff", "--name-only", "--diff-filter=U").stdout)
-        self.assertIn('"lane"', baseline.read_text())
-        self.assertIn('"newer-base"', baseline.read_text())
-        self.assertEqual(generated_merge.plan([path])[0], [])
 
     def test_a_generated_only_conflict_merges_and_regenerates_with_no_person(self):
         self.git("checkout", "-q", "-b", "lane")

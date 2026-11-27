@@ -2265,9 +2265,3 @@
 .acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
-/* Cloud's options, indented under it (Leo 2026-11-24: "Cloud's options are indented rows under Cloud"). */
-.acpmux-env-popover .acpmux-env-row[data-indent] > :first-child { margin-inline-start: 16px; }
-/* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
-.acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
-}

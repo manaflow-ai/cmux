@@ -157,7 +157,7 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// lists each build as its own Mac). Nil when the Mac never said (an older host).
     public var machineID: String?
     /// How long the cmux service had not heard the Mac's heartbeat when it last said, in ms,
-    /// kept only past the service's freshness bound (``MacReachability/lateQuiet(_:)``) (PROTOCOL.md "Mac freshness") and rounded
+    /// kept only past ``MacReachability/freshMillis`` (PROTOCOL.md "Mac freshness") and rounded
     /// down to 10 s, so a healthy Mac's every poll changes nothing. Nil: fresh, offline or unknown.
     public var quietMs: Int?
 

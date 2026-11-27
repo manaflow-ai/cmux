@@ -949,8 +949,6 @@ fn an_ssh_linux_desktop_is_shared_through_the_screen_host_the_hub_lists() {
                                    "online": true, "screenShared": false})),
             row("desk-none", json!({"listed": false})),
             row("desk-unread", Value::Null),
-            row("desk-away", json!({"listed": true, "id": "dev_away", "platform": "linux",
-                                    "online": false, "screenShared": true})),
         ]}),
         ..Sources::default()
     };
@@ -963,9 +961,6 @@ fn an_ssh_linux_desktop_is_shared_through_the_screen_host_the_hub_lists() {
         ("peer:desk-none", none(NoScreen::NoScreenHost), None),
         // No share host here read the hub's list: its kind decides, as before.
         ("peer:desk-unread", view, None),
-        // The machine answers ssh, but its screen host is off the hub: the hub would refuse a
-        // View as offline, so the row says so instead of offering it.
-        ("peer:desk-away", none(NoScreen::Offline), Some("dev_away")),
     ] {
         let d = device(&listing, id);
         assert_eq!((d.screen, d.hub_device.as_deref()), (screen, hub_device), "{id}");

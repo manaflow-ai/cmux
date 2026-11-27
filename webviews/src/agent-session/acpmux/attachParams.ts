@@ -32,7 +32,7 @@ export const SUBSESSION_KIND = "subsession";
 export type PlainAttach = Pick<
   AttachParams,
   "sessionId" | "waitLogs" | "settled" | "afterSeq" | "limit" | "maxBytes" | "kinds" | "eventStream" | "visible"
-> & { attending: boolean; quietHidden: boolean };
+> & { attending: boolean };
 
 /// The attach of a chat drawn by v1: its newest page, then its records live. With `afterSeq` (a
 /// reconnect that holds the chat through that seq) the page is the records after it instead, oldest

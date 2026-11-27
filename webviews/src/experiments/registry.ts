@@ -88,7 +88,6 @@ import { hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experime
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { subagentForkChipsLook } from "../agent-session/acpmux/subagents/subagentForkChips.experiment";
 import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
-import { hatLineLook } from "../agent-session/acpmux/subagents/hatLine.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
@@ -239,7 +238,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatOpenLook,
   subagentForkChipsLook,
   hatHeaderLook,
-  hatLineLook,
   goalHatPlace,
   customizeBarPlace,
   hatDoneLook,

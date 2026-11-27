@@ -42,16 +42,6 @@ import UIKit
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
     }
 
-    /// A cover with no kept frame ends at the composer's top, never under the composer bar
-    /// (iOS regression row 20, Aziz 2026-11-26: "the loading terminal placeholder shouldnt leak
-    /// under the composer bar").
-    @Test func theCoverEndsAtTheComposersTop() {
-        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: 120) == 680)
-        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: nil) == 800)
-        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: -5) == 800)
-        #expect(TerminalConnectingView.coverBottom(height: 100, rowsLift: 300) == 0)
-    }
-
     /// Connection changes keep the cached frame (only drawn live rows replace it).
     @Test func connectionChangesKeepTheCachedFrame() {
         let model = makeModel()

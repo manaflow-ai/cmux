@@ -22,7 +22,7 @@ enum CmuxAppLinks {
         if url.isFileURL { return openPath(url, services: services) }
         if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
         if let action = DeepLink.linkAction(for: url, linkScheme: services.linkScheme) { // settings, Fork and customize
-            return action.ran(from: url, done: services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user)))
+            return services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user))
         }
         if let agent = openAgentWeb(url, services: services, click: click) { return agent }
         // A pull request link clicked in an agent chat: the native GitHub page when `browser.openPullRequestsInGitHubPage` is on.

@@ -10,7 +10,6 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -137,7 +136,6 @@ test("another chat's message on the rail has the card's bookmark, as the person'
       }),
     ),
   );
-  await railFrame();
   await settle();
   expect(host.querySelectorAll("[data-tick]").length).toBe(2);
   for (const index of [0, 1]) {

@@ -50,7 +50,6 @@ on:
       - web/scripts/cmux-vm-image/machine-health.ts
       - web/scripts/cmux-vm-image/dns.ts
       - web/scripts/cmux-vm-image/machine-commands.ts
-      - web/scripts/cmux-vm-image/detached-exec.ts
       - web/scripts/cmux-vm-image/metadata-guard.ts
       - images/cmux-vm/machine-health/**
       - "!web/services/vms/images/**/*.md"
@@ -99,7 +98,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Only this head's history: pinCmuxTui walks the last 80 cmux-tui
           # commits (about 250 commits deep on 11-25). fetch-depth 0 also pulls

@@ -65,8 +65,6 @@ import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
 
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
 import { sectionOrder, tuckedSections } from "./sectionOrder";
-import { withoutHiddenSections } from "./shownSections";
-import { useSessionInfoHiddenSections } from "../chatDisplay";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import {
@@ -556,8 +554,6 @@ export function SessionInfo({
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
-  // The sections the person turned off in Settings (shownSections.ts): never drawn.
-  const hiddenSections = useSessionInfoHiddenSections();
   const showMore = more ?? sessionInfoState.more;
   const setMore = onMore ?? setSessionInfoMore;
   const stored = sessionInfoState.sections;
@@ -947,7 +943,7 @@ export function SessionInfo({
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}
-        onShowSubagents={subagentsSection && !hiddenSections.includes("subagents") ? showSubagents : undefined}
+        onShowSubagents={subagentsSection ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
         cacheLayout={usageCacheLayout}
@@ -964,22 +960,19 @@ export function SessionInfo({
         look={compactLook}
         more={compactLook !== "more" || showMore}
         onMoreChange={compactLook === "more" ? setMore : undefined}
-        sections={withoutHiddenSections(
-          {
-            environment,
-            context,
-            usage: usageSection,
-            connectors,
-            carried,
-            changes,
-            sources: sourcesSection,
-            outputs: outputsSection,
-            subagents: subagentsSection,
-            tasks,
-            ...appNodes,
-          },
-          hiddenSections,
-        )}
+        sections={{
+          environment,
+          context,
+          usage: usageSection,
+          connectors,
+          carried,
+          changes,
+          sources: sourcesSection,
+          outputs: outputsSection,
+          subagents: subagentsSection,
+          tasks,
+          ...appNodes,
+        }}
       />
       {gallery && (
         <GalleryDialog

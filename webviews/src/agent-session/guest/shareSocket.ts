@@ -10,7 +10,7 @@ export type GuestParticipant = { id: string; name: string; kind?: string; viewin
 export type GuestPromptState = {
   client_id: string;
   prompt_id?: string;
-  state: "held" | "sent" | "approved" | "declined" | "removed" | "refused";
+  state: "held" | "approved" | "declined" | "removed" | "refused";
   reason?: string;
 };
 /** Why the share ended for this guest: the room's `end` reason, or `kicked`. */
@@ -181,7 +181,7 @@ const promptStateOf = (value: unknown): GuestPromptState | undefined => {
   if (
     !isObject(value) ||
     typeof value.client_id !== "string" ||
-    !["held", "sent", "approved", "declined", "removed", "refused"].includes(String(value.state))
+    !["held", "approved", "declined", "removed", "refused"].includes(String(value.state))
   )
     return undefined;
   return {

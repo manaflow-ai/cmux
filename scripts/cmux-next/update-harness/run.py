@@ -14,15 +14,12 @@ What it does (plans: .cmux-scratch/hq-ff/updates-plan.md, slice S0):
      builds read CMUXNextUpdateHarness (UpdateHarness.swift, #if DEBUG).
   3. Zips v2, signs the zip, writes a loopback appcast, serves it on
      127.0.0.1:<port>.
-  4. Launches v1 (no activation, automation socket) and checks. By default
-     (automatic downloads on) the update must stage with no click, nothing
-     relaunches until Restart to Update, and the harness presses it once:
-     the run fails unless the update took exactly one click (the click marks
-     and the app's own update_clicks_N). With --downloads-off the update-found
-     step asks: the harness checks that nothing downloads, presses Update,
-     waits for the update to stage (Sparkle downloads, verifies and extracts
-     it), checks that nothing relaunches, then presses Restart to Update.
-     --scenario runs the install action through the control socket.
+  4. Launches v1 (no activation, automation socket) and checks. Without the
+     automatic-install opt-in (the default) the update-found step asks: the
+     harness checks that nothing downloads, presses Update, waits for the
+     update to stage (Sparkle downloads, verifies and extracts it), checks
+     that nothing relaunches, then presses Restart to Update. Otherwise it
+     runs the install action through the control socket.
   5. Waits for v1 to exit (kernel exit event) and for the relaunched app's
      launch marks, then writes <out>/timeline.json and prints the numbers.
   6. Stops what it started (exact pids), the server, and deletes the key.
@@ -566,10 +563,6 @@ def main():
     ap.add_argument("--required-update", action="store_true",
                     help="turn automatic downloads off (cmux.json) and require v2 (managed MinimumVersion): "
                          "the update must still download and stage with no click")
-    ap.add_argument("--downloads-off", action="store_true",
-                    help="turn automatic downloads off (cmux.json): the found update asks (Update), then the staged "
-                         "update asks (Restart to Update), two clicks. Without it (the default since #39680) the "
-                         "update stages with no click and Restart to Update is the one click")
     ap.add_argument("--sparkle-auto", action="store_true",
                     help="v1 runs with SUAutomaticallyUpdate on and starts with Sparkle's scheduled background "
                          "check (Sparkle's own silent driver stages the update, as on a Mac whose nightly "
@@ -811,18 +804,6 @@ def main():
                 plistlib.dump({"MinimumVersion": i2["CFBundleShortVersionString"]}, f)
             env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_NEXT_MANAGED_PREFS_FILE=managed)
             result["required"] = {"from": i1.get("CFBundleShortVersionString"), "minimum": i2["CFBundleShortVersionString"]}
-        elif a.downloads_off:
-            config = env.get("CMUX_NEXT_CONFIG_FILE") or os.path.join(work, "cmux.json")
-            settings = {}
-            if os.path.exists(config):
-                with open(config) as f:
-                    settings = json.load(f)
-            updates = settings.setdefault("updates", {})
-            updates.pop("downloadAutomatically", None)
-            updates["automatic"] = "notify"  # checks, then asks before it downloads (the base folded the toggle in here)
-            with open(config, "w") as f:
-                json.dump(settings, f)
-            env["CMUX_NEXT_CONFIG_FILE"] = config
         binary = os.path.join(v1, "Contents/MacOS", i1["CFBundleExecutable"])
         arguments = ["-SUAutomaticallyUpdate", "YES"] if a.sparkle_auto else []
         if a.language:
@@ -865,8 +846,7 @@ def main():
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
         if not a.sparkle_auto:
             log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
-        # With automatic downloads (the default) the update stages with no click; with --downloads-off
-        # the check stops on the update-found step.
+        # Without the automatic-install opt-in (the default) the check stops on the update-found step.
         ends = ["phase.ready", "phase.note", "phase.available"]
         staged = marks.wait(lambda rows: next((first(rows, end, pid=v1_pid) for end in ends if first(rows, end, pid=v1_pid)), None),
                             a.stage_timeout)
@@ -879,24 +859,8 @@ def main():
         # ~/.config/cmux, another lane's): then staging straight to ready is right, not a skip.
         auto_downloads = bool((rpc(sock, "updates.status").get("result") or {}).get("automatic_downloads"))
         result["automatic_downloads"] = auto_downloads
-        if not a.required_update and not a.sparkle_auto and auto_downloads and a.scenario is None:
-            # The default: one click. The found update downloads and stages by itself (no Update
-            # step), and the staged update waits for Restart to Update, the only click.
-            if not staged or staged["name"] != "phase.ready":
-                raise SystemExit(f"the update did not stage without a click: {staged and staged['name']}; "
-                                 f"{json.dumps(rpc(sock, 'updates.status'))[:1500]}")
-            rows = marks.read()
-            result["one_click"] = {"clicks_before_stage": [r["name"] for r in rows if r["pid"] == v1_pid
-                                                           and r["name"] in ("download_clicked", "install_clicked")],
-                                   "phases": [r["name"] for r in rows if r["pid"] == v1_pid and r["name"].startswith("phase.")]}
-            if result["one_click"]["clicks_before_stage"] or "phase.available" in result["one_click"]["phases"]:
-                raise SystemExit(f"the update asked before staging: {json.dumps(result['one_click'])}")
-            relaunched = wait_exit(v1_pid, 0 if a.click_at_stage else 5) is not None
-            if relaunched or first(marks.read(), "install_started", pid=v1_pid):
-                raise SystemExit("the staged update installed or relaunched before Restart to Update")
-            log("one click: staged with no click", json.dumps(result["one_click"]))
         if not a.required_update and not a.sparkle_auto and not auto_downloads:
-            # Automatic downloads off (--downloads-off, or this host's own settings): the check must stop on the
+            # No automatic-download opt-in here (the default): the check must stop on the
             # update-found step. Anything else (straight to staged) skipped the first ask.
             if not staged or staged["name"] != "phase.available":
                 raise SystemExit(f"the check did not stop on the update-found step: {staged and staged['name']}")
@@ -988,7 +952,7 @@ def main():
             if not status.get("badge") or not answered:
                 raise SystemExit("a check while the update waits did not keep the staged update card")
         install_action = ATTEMPT_ACTION if a.scenario == "attempt-staged" else INSTALL_ACTION
-        if ("asked" in result or "one_click" in result) and a.scenario is None:
+        if "asked" in result and a.scenario is None:
             # The answer to the ready step: the Update Ready card's Restart to Update.
             install_action = "debug.updater press restart"
         result["install_action"] = install_action
@@ -1044,18 +1008,13 @@ def main():
         # Home's first page (launch.home.first_page): the post-update launch's own end, when Home is the page it opens.
         marks.wait(lambda rows: first(rows, "launch.home.first_page", not_pid=v1_pid), 20)
         rows = marks.read()
-        click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
-        # The relaunched app: the process whose window drew first after the click. The first row of any
-        # other pid was a helper's or an earlier launch's, and every click_to_v2 mark read null (ask-ad4a68e740).
-        v2_pid = next((r["pid"] for r in rows if r["pid"] != v1_pid and r["unix_ms"] >= click
-                      and r["name"] == RESTORED_MARKS[0]), None)
-        if v2_pid is None:
-            raise SystemExit("no process drew a window after the click")
+        v2_pid = next(r["pid"] for r in rows if r["pid"] != v1_pid)
         remember_app(v2_pid)
         remember_tag()
         result["v2_pid"] = v2_pid
         with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
             result["installed_build"] = plistlib.load(f)["CFBundleVersion"]
+        click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
         if a.handoff:
             handed = marks.wait(lambda rows: first(rows, "launch.daemon_version_handoff", not_pid=v1_pid), 60)
             result["daemon_handoff_mark"] = bool(handed)
@@ -1125,11 +1084,6 @@ def main():
                                  if click <= r["start_ms"] <= t_exit * 1000] if a.feed_latency_ms else None,
             "click_to_v2": {n: at(n, v2_pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS
                             + ["launch.home.first_page"]},
-            # Every mark of v1 after the click (its quit steps) and of v2 to its first frame plus 10 s:
-            # where the click-to-frame time went, without guessing names up front.
-            "v1_after_click": {r["name"]: r["unix_ms"] - click for r in reversed(rows) if r["pid"] == v1_pid and r["unix_ms"] >= click},
-            "v2_marks": {r["name"]: r["unix_ms"] - click for r in reversed(rows) if r["pid"] == v2_pid
-                         and r["unix_ms"] - click <= (at(RESTORED_MARKS[0], v2_pid) or 0) + 10_000},
         }
         try:
             with open(updater_log, "rb") as f:
@@ -1142,15 +1096,6 @@ def main():
         result["rows"] = rows
         result["v2_marks"] = sorted({r["name"] for r in rows if r["pid"] == v2_pid and not r["name"].startswith("launch.")})
         log(json.dumps(timeline, indent=1))
-        # The detector: the person's clicks from the found update to the relaunch (the app's own
-        # count, update_clicks_N at will_relaunch, and the click marks). One is the contract.
-        clicks = [r["name"] for r in rows if r["pid"] == v1_pid and r["name"] in ("download_clicked", "install_clicked")]
-        counted = next((int(r["name"].rsplit("_", 1)[1]) for r in rows
-                        if r["pid"] == v1_pid and r["name"].startswith("update_clicks_")), None)
-        result["update_clicks"] = {"marks": clicks, "app_count": counted}
-        log("update clicks", json.dumps(result["update_clicks"]))
-        if "one_click" in result and (len(clicks) != 1 or counted != 1):
-            raise SystemExit(f"the update needed {counted if counted is not None else len(clicks)} clicks, not one: {clicks}")
         # The relaunched app as the user sees it, and what its updater says.
         try:
             wait_socket(sock, 30)

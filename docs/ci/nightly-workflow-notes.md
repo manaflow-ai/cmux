@@ -452,10 +452,8 @@ on one commit). This job runs the same `fast_gate_webviews_checks.py` on decide'
 resolve (~4.5 min), so it adds no time to a green run. nightly-next-one skips only when resolve's
 build_sha equals the red sha; the Mac's own check stays the publish guard's input. retry-nightly-next
 skips a webview red (early on the built commit, or the Mac's `webview_red`), which is deterministic, and
-waits for a new commit instead. Route: check-nightly-webviews' Linux pool, cmux-linux (a fork: ubuntu-24.04).
-Both jobs run Bun, Node and Python and hold no secret, so neither needs a Mac: ci-web.yml runs the same script on
-Linux for every webviews push. On the nightly-only Mac they held it 2-5 min per nightly run. Leo, 2026-11-26: "How
-about freeing up the Mac's from doing things that don't need Mac's asap?"
+waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
+test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
 
 ## note-53
 

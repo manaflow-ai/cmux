@@ -90,7 +90,6 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
-import frame_timing  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 import split_move_metrics as smm  # noqa: E402
 import split_scale_metrics as ssm  # noqa: E402
@@ -959,7 +958,6 @@ def finish(results):
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
-    timeline = frame_timeline(results)
     if opts.json:
         with open(opts.json + ".tmp", "w") as handle:
             json.dump(results, handle, indent=1)
@@ -967,32 +965,7 @@ def finish(results):
     if opts.md:
         with open(opts.md, "w") as handle:
             handle.write("```\n" + text + "\n```\n")
-            if timeline:
-                handle.write("\nThe app's own frame timeline (frame_timing.py --table):\n\n```\n" + timeline + "\n```\n")
     pack_frames()
-
-
-def frame_timeline(results):
-    """The app's own frame-timing log over this run (TransitionFrameLog: every split, close, zoom, sidebar toggle and
-    divider drag the cells made), as `frame_timing.py --table`: one row per surface x transition, worst first. Into
-    `results["frame_timing_table"]` and the log between FRAME-TIMING-TABLE markers; "" when the app logged none."""
-    started = results.get("started_ms", 0)
-    lines = []
-    for paths in frame_timing.default_files().values():
-        for path in paths:
-            try:
-                with open(path, encoding="utf-8", errors="replace") as handle:
-                    lines.extend(handle)
-            except OSError as error:  # a half the ring rotated away mid-read: the other still counts
-                say(f"split-scale: frame timing log {path}: {error}")
-    rows, _ = frame_timing.read_lines(lines)
-    table = frame_timing.table([r for r in rows if isinstance(r.get("at_ms"), (int, float)) and r["at_ms"] >= started])
-    results["frame_timing_table"] = table
-    if not table:
-        return ""
-    text = frame_timing.format_table(table)
-    print("FRAME-TIMING-TABLE-BEGIN\n" + text + "\nFRAME-TIMING-TABLE-END", flush=True)
-    return text
 
 
 def main():
@@ -1001,7 +974,7 @@ def main():
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
                "matrix": {"splits": SPLITS, "contents": WANTED_CONTENTS, "workspaces": WORKSPACES, "transitions": WANTED,
                           "rounds": opts.rounds, "scrollback": opts.scrollback, "chat_turns": opts.chat_turns},
-               "raw": {}, "errors": {}, "started_ms": int(time.time() * 1000)}
+               "raw": {}, "errors": {}}
     signal.signal(signal.SIGTERM, bm.interrupted)
     run, display = None, None
     try:

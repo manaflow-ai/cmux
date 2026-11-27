@@ -23,7 +23,7 @@ declare global {
     benchRowRenders: { mark(): void; since(): number };
     benchCommitRenders: { mark(): void; since(): number };
     /** Renames one older revision and has the page read the file and its history again. */
-    benchChangeOne(index?: number): void | Promise<void>;
+    benchChangeOne(): Promise<void>;
   }
 }
 

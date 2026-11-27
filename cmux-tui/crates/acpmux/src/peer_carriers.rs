@@ -14,9 +14,7 @@
 //!   the remembered path at once, and the link moves to a direct path after its probes.
 
 use super::carrier::{DialError, connect_fail, fail_of_chain};
-use super::{
-    DIAL_TIMED_OUT, EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens,
-};
+use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
 use crate::no_panic::LockExt;
 use crate::peer_link::{Heard, HeardStream};
 use crate::peer_paths::{PROBE_EVERY, Paths, Via};
@@ -491,15 +489,11 @@ impl Peer {
             (paths.dial_order(now), paths.dial_together(now))
         });
         let read = Box::pin(self.direct_tokens(&order)).shared();
-        // Whether a dial ran past its connect deadline: the link's end class (`link_timed_out`).
-        let timed_out = Arc::new(AtomicBool::new(false));
         let dials: Vec<_> = order
             .iter()
             .map(|via| {
                 let read = read.clone();
-                let dial =
-                    async move { self.open_via(*via, self.dial_tokens(*via, read).await).await };
-                (*via, DIAL_TIMED_OUT.scope(timed_out.clone(), dial))
+                (*via, async move { self.open_via(*via, self.dial_tokens(*via, read).await).await })
             })
             .collect();
         let mut stopped = self.stop_changed.subscribe();
@@ -513,9 +507,6 @@ impl Peer {
             Err(failed) => {
                 for (via, _) in &failed {
                     self.path_failed(*via);
-                }
-                if timed_out.load(Ordering::SeqCst) {
-                    self.link_timed_out.store(true, Ordering::SeqCst);
                 }
                 // Every path failed: the route is down, for the most telling of their kinds.
                 self.went_down(connect_fail(failed.iter().map(|(_, error)| error)));

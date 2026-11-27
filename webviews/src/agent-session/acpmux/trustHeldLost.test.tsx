@@ -15,8 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import type { ComposerAttachment } from "./attachments";
-import { clientWaiter, lostPrompt, resentAfterLoss, type LostPrompt, type ResendWaiter } from "./lostPrompt";
-import { keptInChat } from "./pane/sendHost";
+import { lostPrompt, type LostPrompt } from "./lostPrompt";
 import { noteHandedBack, onHandedBackRecorded, promptRecorded, wasRecorded } from "./handedBack";
 import { useTrustHeldPrompts, type TrustHeldPrompt } from "./trustHeld";
 
@@ -206,112 +205,4 @@ test("a copy handed back before its record comes leaves the composer when it doe
   expect(heard).toEqual(["and the branch symbol switch."]);
   expect(wasRecorded("late-1")).toBe(true);
   stop();
-});
-
-/// The person moves to another chat while a lost held prompt waits for the host's resend. The pane's
-/// wait says no at once (direct.ts `awaitResent`: another chat shows), while the host's outbox still
-/// sends the prompt to its own chat. `keeps`: the host's store keeps the prompt for its chat
-/// (direct.ts `keepsUnsentPrompt`), as the app host's does.
-async function switchScenario(keeps: boolean) {
-  const main = mountDom();
-  const took: string[] = [];
-  const stored = new Set<string>();
-  const givenBack: TrustHeldPrompt[][] = [];
-  const clients = clientWaiter<ResendWaiter>();
-  // The connection the prompts went on: it dropped before acpmux answered the first.
-  const from: ResendWaiter = {
-    isClosed: true,
-    awaitResent: async () => false,
-    ...(keeps ? { keepsUnsentPrompt: (promptId: string) => stored.has(promptId) } : {}),
-  };
-  const lostOn = new WeakMap<object, ResendWaiter>();
-  let up = false;
-  let hold: Hold | undefined;
-  let setHolds: (holds: boolean) => void = () => undefined;
-  let setChat: (chat: string) => void = () => undefined;
-  function Pane() {
-    const [holds, set] = useState(true);
-    const [chat, choose] = useState("chat-1");
-    setHolds = set;
-    setChat = choose;
-    hold = useTrustHeldPrompts({
-      chat,
-      cwd: "/repo",
-      holds,
-      send: (entry) => {
-        // On disk before it goes (direct.ts `keepUnsent`), until acpmux records it.
-        stored.add(entry.id);
-        if (up) {
-          took.push(entry.text);
-          stored.delete(entry.id);
-          return Promise.resolve("chat-1");
-        }
-        const error = Object.assign(new Error("connection closed"), {
-          code: "native.connection_closed",
-          lostPrompt: { sessionId: "chat-1", promptId: entry.id } satisfies LostPrompt,
-        });
-        lostOn.set(error, from);
-        return new Promise<string | undefined>((_, reject) => setTimeout(() => reject(error), 0));
-      },
-      reserve: () => Promise.resolve(undefined),
-      putBack: (entries) => givenBack.push(entries),
-      refusedForTrust: () => false,
-      keptElsewhere: keptInChat,
-      // As App wires it.
-      resent: async (error) => {
-        const lost = lostPrompt(error);
-        if (!lost || !error || typeof error !== "object") return undefined;
-        return (await resentAfterLoss(error, clients, lostOn.get(error))) ? lost.sessionId : undefined;
-      },
-    });
-    return null;
-  }
-  await act(async () => {
-    root = createRoot(main);
-    root.render(<Pane />);
-  });
-  await act(async () => {
-    hold!.hold("like the save as prompt is still here. i told you all to remove it.", [image("1ea4f73b")]);
-    hold!.hold("and the branch symbol switch.", []);
-  });
-  // The hold lets go while the connection is gone: the first send is lost.
-  await act(async () => {
-    setHolds(false);
-    await macrotasks();
-  });
-  const lostId = [...stored][0]!;
-  // The person picks another chat; the next connection shows it, so its resend wait says no.
-  await act(async () => {
-    setChat("chat-2");
-    clients.connected({ isClosed: false, selectedSession: "chat-2", awaitResent: async () => false });
-    await macrotasks();
-  });
-  // The host's outbox sends the lost prompt to its chat all the same.
-  took.push("like the save as prompt is still here. i told you all to remove it.");
-  up = true;
-  await act(async () => {
-    await macrotasks();
-  });
-  return { took, givenBack, stored, lostId };
-}
-
-test("a chat switch while a lost held prompt waits: the host's store keeps it in its chat, never its draft", async () => {
-  const { took, givenBack, stored, lostId } = await switchScenario(true);
-  const back = givenBack.flat().map((entry) => entry.text);
-  // Only the one behind it, which never left, goes back (into its chat's draft).
-  expect(back).toEqual(["and the branch symbol switch."]);
-  // The outbox's send is the only one: no copy waits in the draft for the next Send.
-  expect(took.filter((text) => text.startsWith("like the save as"))).toHaveLength(1);
-  // The store still has it: the chat, shown again, drops it as acpmux has it, or draws it as not
-  // sent with Retry if the outbox never got it there (direct.ts `restoreUnsentPrompts`).
-  expect(stored.has(lostId)).toBe(true);
-});
-
-test("without the host's store the switch still gives the lost prompt back (nothing else keeps it)", async () => {
-  const { givenBack } = await switchScenario(false);
-  // The old path, and the double-send the store now prevents: the delivered prompt went back too.
-  expect(givenBack.flat().map((entry) => entry.text)).toEqual([
-    "like the save as prompt is still here. i told you all to remove it.",
-    "and the branch symbol switch.",
-  ]);
 });

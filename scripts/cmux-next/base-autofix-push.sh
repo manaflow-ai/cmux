@@ -89,7 +89,7 @@ output_areas() {
     case "$path" in
       Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
       */generated/strings.json) echo strings; echo webviews ;;
-      cmux-tui/bindings/* | cmux-tui/spec/api-compat.surface.json) echo sdk ;;
+      cmux-tui/bindings/*) echo sdk ;;
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
@@ -105,8 +105,6 @@ output_areas() {
       web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
-      # The undeclared-job record (base-autofix.sh 6).
-      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;

@@ -25,7 +25,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use super::super::mcp::{self, Backend, CallFailure};
 use super::super::{GlobalArgs, OutputMode};
@@ -84,72 +84,12 @@ pub(in crate::cli) trait Port {
 
 /// The turn that ended last in `items` (a read from the turn's prompt on), when its prompt came
 /// after event `baseline` (a send's: the turn before it, or one its prompt was still held for,
-/// is not its turn): its end's seq and status, its last answer, and why it failed.
+/// is not its turn): its end's seq and status, and its last answer.
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::cli) struct Ended {
     pub seq: u64,
     pub status: String,
     pub reply: Option<String>,
-    /// What its end says of why it failed (`chat::turn_failure`): `error`, `code`, `error_kind`,
-    /// `recovery`, `detail`, ...; empty when it said nothing.
-    pub failure: Map<String, Value>,
-}
-
-/// The keys of a `turn_end` item that say why its turn failed (`chat::turn_failure`).
-const FAILURE_KEYS: &[&str] = &[
-    "error",
-    "error_code",
-    "code",
-    "error_kind",
-    "error_source",
-    "recovery",
-    "detail",
-    "stalled_ms",
-];
-
-/// The `chat.turn_failed` message for `ended`: its status and the reason its end carries, or,
-/// when it carries none, says so and where to look, never a bare "the turn ended failed".
-pub(in crate::cli) fn failed_turn_message(ended: &Ended, chat: &str) -> String {
-    let status = ended.status.as_str();
-    let field = |key: &str| {
-        ended.failure.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
-    };
-    let mut message = match field("error") {
-        Some(error) => format!("the turn ended {status}: {error}"),
-        None if field("detail") == Some("stalled") || ended.failure.contains_key("stalled_ms") => {
-            match ended.failure.get("stalled_ms").and_then(Value::as_u64) {
-                Some(ms) => format!(
-                    "the turn ended {status}: the agent stalled, with no output for {} s",
-                    ms / 1000
-                ),
-                None => format!("the turn ended {status}: the agent stalled"),
-            }
-        }
-        None if status == "cancelled" => "the turn ended cancelled".to_owned(),
-        None => {
-            let code = ended
-                .failure
-                .get("code")
-                .or_else(|| ended.failure.get("error_code"))
-                .filter(|code| !code.is_null())
-                .map(|code| match code {
-                    Value::String(code) => format!(" (code {code})"),
-                    other => format!(" (code {other})"),
-                })
-                .unwrap_or_default();
-            format!(
-                "the turn ended {status}{code} and acpmux recorded no reason; \
-                 cmux chat read {chat} shows what it did"
-            )
-        }
-    };
-    if let Some(recovery) = field("recovery")
-        && !message.contains(recovery)
-    {
-        message.push_str(if message.ends_with(['.', '!', '?']) { " " } else { ". " });
-        message.push_str(recovery);
-    }
-    message
 }
 
 pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended> {
@@ -176,20 +116,10 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
     }
     let turn = before.get(prompt.map_or(0, |index| index.saturating_add(1))..).unwrap_or_default();
     let answer = turn.iter().rev().find(|item| role(item) == "assistant");
-    let failure = FAILURE_KEYS
-        .iter()
-        .filter_map(|key| {
-            turn_end
-                .get(*key)
-                .filter(|value| !value.is_null())
-                .map(|v| ((*key).to_owned(), v.clone()))
-        })
-        .collect();
     Some(Ended {
         seq,
         status: turn_end.get("status").and_then(Value::as_str).unwrap_or("completed").to_owned(),
         reply: answer.and_then(|item| item.get("text")).and_then(Value::as_str).map(str::to_owned),
-        failure,
     })
 }
 
@@ -313,20 +243,6 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
                         2,
                     );
                 }
-                // Queued behind a failed turn: the queue is paused, so no turn answers it
-                // until someone resumes the chat; waiting would only run out the clock.
-                Some("queued") if text(&receipt, "/result/waits_for") == Some("resume") => {
-                    answer.set("sent", json!(false));
-                    answer.set("queued", json!(true));
-                    let reason = text(&receipt, "/result/reason")
-                        .unwrap_or("the chat's queue is paused after a failed turn");
-                    return failed(
-                        "chat.queue_paused",
-                        format!("{reason}; then: cmux chat wait {chat}"),
-                        json!({"answer": answer, "receipt": receipt}),
-                        2,
-                    );
-                }
                 _ => {}
             }
             answer.set("sent", json!(true));
@@ -401,19 +317,12 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
         };
         match ended {
             Some(ended) => {
-                let mut turn = json!({"seq": ended.seq, "status": ended.status});
-                for (key, value) in &ended.failure {
-                    turn.set(key, value.clone());
-                }
-                answer.set("turn", turn);
-                let failed = FAILED
-                    .contains(&ended.status.as_str())
-                    .then(|| failed_turn_message(&ended, &chat));
+                answer.set("turn", json!({"seq": ended.seq, "status": ended.status}));
                 answer.set("reply", ended.reply.map_or(Value::Null, Value::String));
-                if let Some(message) = failed {
+                if FAILED.contains(&ended.status.as_str()) {
                     return Outcome::Failed {
                         error: json!({"code": "chat.turn_failed",
-                                      "message": message,
+                                      "message": format!("the turn ended {}", ended.status),
                                       "details": answer, "retryable": false}),
                         exit: 1,
                     };

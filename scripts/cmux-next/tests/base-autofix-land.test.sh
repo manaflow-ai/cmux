@@ -33,14 +33,6 @@ set -euo pipefail
 repo="$1"
 echo "${TOKEN-unset}" >> "$FAKE_TOKENS"
 [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 ]] && echo again >> "$FAKE_AGAIN"
-if [[ -n "${FAKE_DAEMON_FIX:-}" ]]; then
-  if [[ "${FAKE_OTHER_REPAIR:-}" == yes ]]; then
-    mkdir -p "$repo/cmux-tui/bindings/rust/src/generated"
-    echo bindings-for-tip > "$repo/cmux-tui/bindings/rust/src/generated/api.rs"
-    echo 'fixed: refreshed bindings'
-  fi
-  exec bash "$FAKE_DAEMON_FIX" --no-fmt --sdk "$repo"
-fi
 graph="Packages/macOS/CmuxNext/ci-target-graph.json"
 cap_source="Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
 cap="plans/cmux-next/daemon-capabilities.json"
@@ -358,62 +350,4 @@ run > "$tmp/out" 2>&1 || fail "a repair of the FFI bindings failed: $(cat "$tmp/
 [[ "$(remote_show "$ffi")" == "bindings for the crate" ]] || fail "the FFI bindings did not land on the branch: $(cat "$tmp/out")"
 git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources >/dev/null && fail "the FFI bindings went to a proposal"
 
-# A held daemon repair must use the newer tip's baseline, and refusal is not a clean no-op.
-surface=cmux-tui/spec/api-compat.surface.json
-mkdir -p "$tmp/abi-bin"
-cat > "$tmp/abi-bin/cargo" <<'CARGO'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$*" == 'run --locked -p cmux-api-compat --bin api-compat-check -- --write' ]]
-cat spec/api-compat.surface.json >> "$ABI_BASELINES"
-case "${ABI_RESULT:-write}" in
-  clean) exit 0 ;;
-  refuse)
-    echo invalid-partial-write > spec/api-compat.surface.json
-    echo 'api-compat-check: breaking protocol change without a compat rule' >&2
-    exit 1 ;;
-  *) printf 'surface for %s\n' "$(cat spec/sdk-schema.json)" > spec/api-compat.surface.json ;;
-esac
-CARGO
-chmod +x "$tmp/abi-bin/cargo"
-setup_daemon() {
-  setup
-  lane_commit "daemon schema and baseline" cmux-tui/spec/sdk-schema.json v1 "$surface" baseline-v1 \
-    cmux-tui/spec/api-compat.json rules-v1 cmux-tui/spec/api-compat-fixtures.json fixtures-v1 \
-    cmux-tui/crates/cmux-api-compat/Cargo.toml '[package]'
-  (cd "$tmp/bot" && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
-  base="$(git -C "$tmp/bot" rev-parse HEAD)"
-  (cd "$tmp/bot" && echo stale-candidate > "$surface" && git commit -q -am 'chore(next): base autofix')
-  : > "$tmp/abi-baselines"
-}
-run_daemon() {
-  run PATH="$tmp/abi-bin:$PATH" ABI_BASELINES="$tmp/abi-baselines" \
-    FAKE_DAEMON_FIX="$here/../base-autofix.sh" "$@"
-}
-for input in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
-  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/coverage.rs "$surface"; do
-  setup_daemon
-  lane_commit "newer daemon input" "$input" v2
-  expected=baseline-v1
-  [[ "$input" == "$surface" ]] && expected=v2
-  run_daemon > "$tmp/out" 2>&1 || fail "daemon input move was not repaired: $(cat "$tmp/out")"
-  [[ "$(cat "$tmp/abi-baselines")" == "$expected" ]] || fail "writer did not compare the newer tip baseline for $input"
-  [[ "$(remote_show "$surface")" != stale-candidate ]] || fail "older daemon candidate landed"
-done
-setup_daemon
-lane_commit "another lane refreshed the baseline" "$surface" current-baseline
-moved="$(remote_tip)"
-run_daemon ABI_RESULT=clean > "$tmp/out" 2>&1 || fail "current daemon baseline must be a clean no-op"
-[[ "$(remote_tip)" == "$moved" ]] || fail "current baseline unexpectedly produced a commit"
-for other_repair in no yes; do
-  setup_daemon
-  lane_commit "breaking daemon schema" cmux-tui/spec/sdk-schema.json incompatible "$surface" newer-baseline
-  if run_daemon ABI_RESULT=refuse FAKE_OTHER_REPAIR="$other_repair" > "$tmp/out" 2>&1; then fail "refused daemon refresh passed: $(cat "$tmp/out")"; fi
-  [[ "$(remote_show "$surface")" == newer-baseline ]] || fail "refusal lost the newer baseline"
-  if grep -q 'needs none of it again' "$tmp/out"; then fail "refused ABI repair was reported as clean"; fi
-  grep -q 'left: cmux-tui/spec/api-compat.surface.json' "$tmp/out" || fail "refused surface not reported"
-  if [[ "$other_repair" == yes ]]; then
-    [[ "$(remote_show cmux-tui/bindings/rust/src/generated/api.rs)" == bindings-for-tip ]] || fail "refusal stopped an independent repair"
-  fi
-done
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"

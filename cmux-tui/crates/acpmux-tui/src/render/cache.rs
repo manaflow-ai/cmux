@@ -17,9 +17,6 @@ pub(crate) struct TranscriptCache {
     status: String,
     prefix_items: usize,
     prefix_rows: usize,
-    /// The finished turns hold an error card a later turn may supersede (`superseded_error`):
-    /// a turn's end rebuilds them once so the card goes, then never again.
-    prefix_errors: bool,
     /// Parsed markdown within the mutable turn. Older replies in a long
     /// tool loop do not need highlighting again when a new chunk arrives.
     markdown: std::collections::HashMap<usize, Vec<Row>>,
@@ -67,11 +64,7 @@ impl TranscriptCache {
             // A turn's prompt, never a steer in it: `late_steers_last` reorders across a steer.
             .rposition(|i| matches!(i, Item::User { queued: false, steer: false, .. }))
             .unwrap_or(0);
-        let turn_ended = self.status != t.status && t.status != "running";
-        let rebuild_prefix = reset
-            || dirty < self.prefix_items
-            || split < self.prefix_items
-            || (self.prefix_errors && turn_ended);
+        let rebuild_prefix = reset || dirty < self.prefix_items || split < self.prefix_items;
         let changed_row = if rebuild_prefix { 0 } else { self.prefix_rows };
         if rebuild_prefix {
             self.rows.clear();
@@ -80,7 +73,6 @@ impl TranscriptCache {
         } else {
             self.rows.truncate(self.prefix_rows);
         }
-        let prefix_changed = rebuild_prefix || split > self.prefix_items;
         if split > self.prefix_items {
             let rows = transcript_rows_range(
                 t,
@@ -96,12 +88,6 @@ impl TranscriptCache {
             self.append(rows);
             self.prefix_items = split;
             self.prefix_rows = self.rows.len();
-        }
-        if prefix_changed {
-            self.prefix_errors =
-                t.items.iter().take(self.prefix_items).enumerate().any(|(i, x)| {
-                    matches!(x, Item::Error { .. }) && !crate::turn_fold::superseded_error(t, i)
-                });
         }
         self.markdown.retain(|&item, _| item >= split);
         let rows = transcript_rows_range(

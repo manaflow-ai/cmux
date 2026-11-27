@@ -44,7 +44,7 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     .github/*|*/Cargo.lock|*/Cargo.toml|*/package.json|*.lock|*/package-lock.json|*/rust-toolchain.toml|*/node_modules/*) return 1 ;;
     Packages/macOS/CmuxNext/ci-target-graph.json) return 0 ;;
     webviews/*) return 0 ;; # page strings and vp fmt
-    cmux-tui/bindings/*|cmux-tui/spec/api-compat.surface.json) return 0 ;; # SDK wire layers and checked daemon baseline
+    cmux-tui/bindings/*) return 0 ;; # SDK wire layers
     cmux-tui/crates/cmux-app-host/generated/*) return 0 ;; # the typed cmux global, scopes and ops
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     web/data/next-docs/*.generated.json) return 0 ;; # docs reference pages (export-next-docs.ts)

@@ -113,8 +113,6 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
     /// the status line and the rows (rebuilt only when they or a running Remove changed).
     func update() {
         if field.stringValue != model.account { field.stringValue = model.account }
-        rolePopup.itemArray.first { $0.representedObject as? String == "drive" }?.isHidden =
-            model.account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if let item = rolePopup.itemArray.first(where: { $0.representedObject as? String == model.role }), rolePopup.selectedItem !== item {
             rolePopup.select(item)
         }
@@ -222,7 +220,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         field.setAccessibilityLabel(model.accountPlaceholder)
         let box = ThemedFieldBox(field: field, height: 24 * Typography.userScale)
         box.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        for role in ["talk", "view", "drive"] {
+        for role in ["talk", "view"] {
             rolePopup.addItem(withTitle: model.roleTitle(role))
             rolePopup.lastItem?.representedObject = role
         }

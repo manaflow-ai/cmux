@@ -168,7 +168,6 @@ import {
   metadataGuardUnit,
 } from "../services/vms/images/metadataGuard";
 import { machineHealthBakeCommand, machineHealthFiles } from "./cmux-vm-image/machine-health";
-import { detachedExec } from "./cmux-vm-image/detached-exec";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -245,37 +244,26 @@ async function deleteBuilder(): Promise<void> {
 // step (npm and the installers all read it).
 const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6)}"';
 
-let stepIndex = 0;
 async function step(label: string, command: string): Promise<void> {
   const t0 = Date.now();
-  // Detached, with short polls (detached-exec.ts): one exec held open for a
-  // long step is what run 45920283687 lost in media-apt, with no step named.
-  let r: Awaited<ReturnType<typeof detachedExec>>;
-  try {
-    r = await detachedExec(vm, command, {
-      dir: `/var/tmp/cmux-bake-steps/${String(++stepIndex).padStart(3, "0")}-${label}`,
-      budgetMs: STEP_TIMEOUT_MS,
-      env: BUILD_ENV,
-      prefix: HOME_PREFIX,
-      // The 0.2 API's default guest user is uid 1000 (the work user). Every
-      // build step writes to /usr/local and /etc, so the bake runs as root.
-      linuxUser: "root",
-    });
-  } catch (error) {
-    console.error(`STEP FAILED [${label}] ${String(error)} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
-    await deleteBuilder();
-    process.exit(1);
-  }
+  const r = await vm.exec({
+    command: `${HOME_PREFIX} && ${command}`,
+    env: BUILD_ENV,
+    timeoutMs: STEP_TIMEOUT_MS,
+    // The 0.2 API's default guest user is uid 1000 (the work user). Every
+    // build step writes to /usr/local and /etc, so the bake runs as root.
+    linuxUser: "root",
+  });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  if (r.code !== 0) {
-    const why = r.code === 124 || r.code === 137 ? ` (its ${STEP_TIMEOUT_MS / 1000} s budget ran out)` : "";
-    console.error(`STEP FAILED [${label}] status=${r.code}${why} (${secs}s)`);
-    console.error("stdout:", r.stdout.slice(-3000));
-    console.error("stderr:", r.stderr.slice(-3000));
+  const exitCode = r.statusCode ?? 124;
+  if (exitCode !== 0) {
+    console.error(`STEP FAILED [${label}] status=${exitCode} (${secs}s)`);
+    console.error("stdout:", (r.stdout ?? "").slice(-3000));
+    console.error("stderr:", (r.stderr ?? "").slice(-3000));
     await deleteBuilder();
     process.exit(1);
   }
-  const tail = r.stdout.trim().split("\n").slice(-3).join(" | ");
+  const tail = (r.stdout ?? "").trim().split("\n").slice(-3).join(" | ");
   console.log(`ok [${label}] ${secs}s :: ${tail}`);
 }
 

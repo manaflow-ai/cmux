@@ -1,37 +1,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
-const GATEWAY: (&str, &str) = ("ANTHROPIC_BASE_URL", "http://127.0.0.1:4016");
-
 fn run(pairs: &[(&str, &str)]) -> Option<String> {
-    let mut env: BTreeMap<String, String> =
+    let env: BTreeMap<String, String> =
         pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-    env.entry(GATEWAY.0.to_owned()).or_insert_with(|| GATEWAY.1.to_owned());
-    custom_headers(|k| env.get(k).cloned(), false)
-}
-
-#[test]
-fn a_direct_anthropic_chat_sends_no_priority() {
-    let env = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
-    };
-    // A plain `claude` on the person's own login: no base URL.
-    let plain = env(&[(ENV, INTERACTIVE)]);
-    assert_eq!(custom_headers(|k| plain.get(k).cloned(), false), None);
-    // Anthropic's own API named by hand is not a gateway either.
-    let direct = env(&[(ENV, BACKGROUND), ("ANTHROPIC_BASE_URL", "https://api.anthropic.com")]);
-    assert_eq!(custom_headers(|k| direct.get(k).cloned(), false), None);
-    // The sr2 launcher with no base URL still reaches its gateway.
-    assert_eq!(
-        custom_headers(|k| plain.get(k).cloned(), true).as_deref(),
-        Some("X-Subrouter-Priority: interactive")
-    );
-    // A gateway base URL gets it.
-    let sr2 = env(&[(ENV, BACKGROUND), ("ANTHROPIC_BASE_URL", "http://sr2-gateway.example:4016/")]);
-    assert_eq!(
-        custom_headers(|k| sr2.get(k).cloned(), false).as_deref(),
-        Some("X-Subrouter-Priority: background")
-    );
+    custom_headers(|k| env.get(k).cloned())
 }
 
 #[test]

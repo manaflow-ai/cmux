@@ -485,13 +485,6 @@ pub trait Tickets: Send + Sync + 'static {
     }
 }
 
-/// The relay discards arbitrary callback errors. Record the hub's safe diagnostic at the
-/// renewal site, where we also know whether it was asking to Register or Connect.
-fn log_ticket_renewal_failure(operation: &str, reason: &str) {
-    let reason = crate::mesh_http::ticket_failure_reason(reason);
-    tracing::warn!("hub carrier: {operation} ticket renewal failed: {reason}");
-}
-
 /// The longest wait between two register asks; the wait doubles from 1 s up to it.
 const REGISTER_WAIT_MAX: Duration = Duration::from_secs(60);
 
@@ -1275,9 +1268,6 @@ impl HubCarrier {
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
-                                if kept.held {
-                                    mux.hold();
-                                }
                                 kept.live = Some(mux.clone());
                                 kept.path = Some(path);
                                 kept.reopen_at = None;
@@ -1506,9 +1496,6 @@ impl HubCarrier {
                     self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                     self.stats.kept_reopens.fetch_add(1, Ordering::Relaxed);
                     tracing::info!(daemon, ?path, "hub carrier: opened a kept circuit again");
-                    if kept.held {
-                        mux.hold();
-                    }
                     kept.live = Some(mux);
                     kept.reopen_at = None;
                     kept.reopen_wait = Duration::ZERO;
@@ -1719,11 +1706,7 @@ impl HubCarrier {
                 match first {
                     Some(ticket) => Ok(ticket.to_string()),
                     // The relay refused the ticket in hand (or wants another): a fresh one.
-                    None => tickets
-                        .connect_fresh(&peer)
-                        .await
-                        .inspect_err(|e| log_ticket_renewal_failure("Connect", e))
-                        .map(|a| placed::ticket_on(&a, &on)),
+                    None => tickets.connect_fresh(&peer).await.map(|a| placed::ticket_on(&a, &on)),
                 }
             }
         });
@@ -1946,10 +1929,7 @@ impl HubCarrier {
                     if let Some(ticket) = first {
                         return Ok(ticket.to_string());
                     }
-                    let answer = tickets
-                        .register()
-                        .await
-                        .inspect_err(|e| log_ticket_renewal_failure("Register", e))?;
+                    let answer = tickets.register().await?;
                     set_allowed(&allowed, &answer.peers);
                     set_peer_services(&services, &answer);
                     Ok::<_, String>(answer.ticket)
@@ -2914,8 +2894,6 @@ pub async fn start_configured(
     hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     carrier.keep_reopening();
-    // Off unless `ACPMUX_HUB_HOLD_CIRCUITS` names machines (`hub_carrier_hold.rs`).
-    carrier.hold_configured();
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -3027,10 +3005,6 @@ pub mod broker;
 
 #[path = "hub_carrier_rehome.rs"]
 mod rehome;
-
-#[path = "hub_carrier_hold.rs"]
-mod hold;
-pub use hold::{HOLD_CIRCUITS_ENV, held_machines};
 
 #[path = "hub_carrier_placed.rs"]
 pub mod placed;

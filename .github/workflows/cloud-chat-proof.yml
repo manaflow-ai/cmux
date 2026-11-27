@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
@@ -217,7 +217,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
@@ -319,7 +319,7 @@ jobs:
     steps:
       - name: Checkout cmux
         if: inputs.flow != 'share-two-accounts'
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -329,7 +329,7 @@ jobs:
 
       - name: Checkout the Linux owner client and its build dependencies
         if: inputs.flow == 'share-two-accounts'
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: recursive
@@ -500,7 +500,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
@@ -541,7 +541,7 @@ jobs:
     steps:
       - name: Checkout pool helper
         if: github.run_attempt == 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
@@ -632,7 +632,7 @@ jobs:
           fi
 
       - name: Checkout cmux
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: recursive
@@ -1068,7 +1068,7 @@ jobs:
           fi
 
       - name: Checkout cmux
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts

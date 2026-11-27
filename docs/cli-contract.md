@@ -99,16 +99,6 @@ max}` over the last 60 round trips and 120 frames. It is read-only: it never
 connects, disconnects or sends input, and carries no credential or screen
 content.
 
-`tab <tab> show --json` on a Mac Screen tab adds `mac_screen`, the same read
-shaped for an agent: `tab`, `device`, `device_id`, `route` (the daemon's: what
-the tab shows), `state`, `connect_stage`, `hub_phase`, `phase`, `connected`,
-`has_frame`, `first_frame_ms`, `fps`, `transport` (the stream's path, `Direct`
-or `Relayed`), `carrier` (the transport under it), `scope`, `error`, `failure`
-and `timed_out_at`. With no app, or a tab the app does not list, `mac_screen`
-is `{route, unavailable}` with the reason and the tab's record stands. `tab
-new-mac-screen --json` answers with the opened tab's id as `tab` and its
-`mac_screen`, when the app lists the tab once the open returns.
-
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,

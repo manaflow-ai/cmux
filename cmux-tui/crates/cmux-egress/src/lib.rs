@@ -30,11 +30,6 @@
 //! `egress.unlisted host=H site=S mode=M` line to stderr and is kept in
 //! [`unlisted`] for diagnostics.
 //!
-//! The audit trail: every connection the gate sees, allowed or refused, is
-//! kept once per (host, site, verdict) in [`audit`]; when `CMUX_EGRESS_AUDIT`
-//! names a file, each new entry is also appended to it as one JSON line
-//! (`{"ts":…,"host":…,"site":…,"verdict":…,"mode":…,"refused":…}`).
-//!
 //! tests/test_egress_gate.py finds every client the code makes by hand
 //! instead; tests/egress_ungated.json lists those not moved here yet.
 
@@ -58,9 +53,6 @@ const HOSTS_TXT: &str = include_str!("../hosts.txt");
 
 /// The environment variable that picks the mode.
 pub const MODE_ENV: &str = "CMUX_EGRESS";
-
-/// The environment variable naming the audit file (JSON lines, appended).
-pub const AUDIT_ENV: &str = "CMUX_EGRESS_AUDIT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -127,7 +119,7 @@ pub fn set_mode(mode: Mode) {
 }
 
 /// Why a host may be reached.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
     /// docs/privacy.md lists it.
     Listed,
@@ -156,91 +148,6 @@ fn listed() -> &'static [Vec<String>] {
 fn named() -> &'static Mutex<BTreeSet<String>> {
     static NAMED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
     NAMED.get_or_init(Mutex::default)
-}
-
-impl Verdict {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Verdict::Listed => "listed",
-            Verdict::Named => "named",
-            Verdict::Session => "session",
-            Verdict::Local => "local",
-            Verdict::Unlisted => "unlisted",
-        }
-    }
-}
-
-/// One connection the gate saw, kept once per process.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AuditEntry {
-    pub host: String,
-    pub site: &'static str,
-    pub verdict: Verdict,
-    /// The gate refused it ([`Mode::Enforce`] and [`Verdict::Unlisted`]).
-    pub refused: bool,
-}
-
-fn audit_log() -> &'static Mutex<BTreeSet<AuditEntry>> {
-    static AUDIT: OnceLock<Mutex<BTreeSet<AuditEntry>>> = OnceLock::new();
-    AUDIT.get_or_init(Mutex::default)
-}
-
-fn audit_path() -> Option<&'static std::path::Path> {
-    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
-    PATH.get_or_init(|| std::env::var_os(AUDIT_ENV).filter(|p| !p.is_empty()).map(Into::into))
-        .as_deref()
-}
-
-/// Every connection the gate saw in this process, allowed and refused, once
-/// per (host, site, verdict).
-pub fn audit() -> Vec<AuditEntry> {
-    audit_log().lock().map(|seen| seen.iter().cloned().collect()).unwrap_or_default()
-}
-
-fn json_string(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-fn audit_line(entry: &AuditEntry, mode: Mode, ts: u64) -> String {
-    format!(
-        "{{\"ts\":{ts},\"host\":{},\"site\":{},\"verdict\":\"{}\",\"mode\":\"{}\",\"refused\":{}}}\n",
-        json_string(&entry.host),
-        json_string(entry.site),
-        entry.verdict.as_str(),
-        mode.as_str(),
-        entry.refused,
-    )
-}
-
-fn record(entry: AuditEntry, mode: Mode) {
-    let first = audit_log().lock().is_ok_and(|mut seen| seen.insert(entry.clone()));
-    if !first {
-        return;
-    }
-    let Some(path) = audit_path() else { return };
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs());
-    let line = audit_line(&entry, mode, ts);
-    let written = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
-    if let Err(error) = written {
-        eprintln!("egress.audit could not append to {}: {error}", path.display());
-    }
 }
 
 fn session() -> &'static Mutex<BTreeMap<String, usize>> {
@@ -412,16 +319,10 @@ impl Error for Refused {}
 /// caller, as `crate::module`). Err only in [`Mode::Enforce`].
 pub fn check(host_or_url: &str, site: &'static str) -> Result<(), Refused> {
     let mode = mode();
-    if mode == Mode::Off {
+    if mode == Mode::Off || verdict(host_or_url) != Verdict::Unlisted {
         return Ok(());
     }
-    let verdict = verdict(host_or_url);
     let host = host_of(host_or_url);
-    let refused = verdict == Verdict::Unlisted && mode == Mode::Enforce;
-    record(AuditEntry { host: host.clone(), site, verdict, refused }, mode);
-    if verdict != Verdict::Unlisted {
-        return Ok(());
-    }
     let first = unlisted_log().lock().is_ok_and(|mut seen| seen.insert((host.clone(), site)));
     if first {
         eprintln!("egress.unlisted host={host} site={site} mode={}", mode.as_str());

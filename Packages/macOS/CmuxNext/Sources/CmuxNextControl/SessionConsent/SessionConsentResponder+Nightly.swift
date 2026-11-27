@@ -21,7 +21,6 @@ extension SessionConsentResponder {
                                accountEmail: auth.user?.primaryEmail)
             },
             consent: { ask in
-                // main-actor-ok: one consent ask's message, a few lines, on a sign-in request.
                 await dialog(ask.title, ask.message.split(separator: "\n").map(String.init), ask.allow, ask.deny)
             },
             mint: { call in await mintSession(call, auth: auth) })
@@ -37,7 +36,7 @@ extension SessionConsentResponder {
         request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
         request.setValue(tokens.refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.httpBody = call.body
-        guard let (body, response) = try? await URLSession.cloudNoStore.data(for: request) else { return (0, Data()) }
+        guard let (body, response) = try? await CloudAPIClient.noStoreTransport.data(for: request) else { return (0, Data()) }
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, body)
     }
 }

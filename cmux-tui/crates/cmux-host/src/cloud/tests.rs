@@ -47,8 +47,6 @@ struct FakeState {
     prefix_env: String,
     ops: VecDeque<(u16, Value)>,
     empty_posts: Vec<Seen>,
-    /// The platform edge's sign-in answer; none answers 404.
-    edge: Option<(u16, Value)>,
 }
 
 #[derive(Clone, Default)]
@@ -115,7 +113,6 @@ impl Http for Fake {
                 ))
             }
             "/v1/ops" => Ok(st.ops.pop_front().unwrap_or((200, applied()))),
-            "/v1/cloud/machine-identity/token" => Ok(st.edge.clone().unwrap_or((404, json!({})))),
             _ => Ok((404, json!({}))),
         }
     }
@@ -875,75 +872,4 @@ fn a_bind_without_a_valid_sccache_section_binds_with_the_cache_off() {
         assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
         assert_eq!(store.read(KEPT_FILE), None);
     }
-}
-
-/// A bound machine and a client that signs in through an edge at the fake's origin.
-fn edge_client(edge: Option<(u16, Value)>) -> (Fake, super::client::CloudClient<Fake>) {
-    let fake = Fake::new();
-    let rng = SystemRandom::new();
-    let mut store = MemoryStore::default();
-    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
-    let key = ensure_install_key(&mut store, "i-edge", &rng).unwrap().key;
-    assert!(matches!(
-        bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0),
-        BindResult::Bound(..)
-    ));
-    let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
-    fake.0.borrow_mut().edge = edge;
-    let url = format!("{DEV}/v1/cloud/machine-identity/token");
-    (fake.clone(), super::client::CloudClient::new(fake, saved, key).with_edge(Some(&url)))
-}
-
-fn edge_token(install: &str) -> (u16, Value) {
-    (
-        200,
-        json!({ "access_token": "edge-tok", "token_type": "Bearer", "expires_at": T0 + 3_600_000,
-            "user": USER, "install": install, "grant": "grant_v000000000000000004", "team": TEAM }),
-    )
-}
-
-fn auth_calls(fake: &Fake) -> (usize, usize) {
-    let st = fake.0.borrow();
-    let n = |p: &str| st.seen.iter().filter(|s| s.url.ends_with(p)).count();
-    (n("/v1/cloud/machine-identity/token"), n("/v1/auth/challenge"))
-}
-
-/// T17 key_off_machine: a machine whose platform edge answers mints its bearer there, with no
-/// install-key challenge, sends no credential of its own to the edge, and caches the answer.
-#[test]
-fn a_machine_with_an_edge_signs_in_through_it_without_the_install_key() {
-    let (fake, mut client) = edge_client(Some(edge_token(INSTALL)));
-    assert_eq!(client.token(T0).as_deref(), Ok("edge-tok"));
-    assert_eq!(client.token(T0 + 1).as_deref(), Ok("edge-tok"));
-    assert_eq!(auth_calls(&fake), (1, 0));
-    let st = fake.0.borrow();
-    let edge = st.seen.iter().find(|s| s.url.ends_with("/machine-identity/token")).unwrap();
-    assert_eq!((edge.bearer.as_deref(), &edge.body), (None, &json!({})));
-}
-
-/// No edge route (an older platform) or a refusal: the install key's challenge, as before.
-#[test]
-fn an_edge_that_refuses_falls_back_to_the_install_key() {
-    for answer in [None, Some((403, json!({ "code": "auth.forbidden" })))] {
-        let (fake, mut client) = edge_client(answer);
-        assert_eq!(client.token(T0).as_deref(), Ok("tok-1"));
-        assert_eq!(auth_calls(&fake), (1, 1));
-    }
-}
-
-/// An edge answer for another enrollment is never cached or used.
-#[test]
-fn an_edge_token_for_another_install_is_refused() {
-    let (fake, mut client) = edge_client(Some(edge_token("inst_other000000000000004")));
-    assert_eq!(client.token(T0).as_deref(), Ok("tok-1"));
-    assert_eq!(auth_calls(&fake), (1, 1));
-}
-
-/// A client with no edge never asks one.
-#[test]
-fn a_client_without_an_edge_never_asks_it() {
-    let (fake, client) = edge_client(Some(edge_token(INSTALL)));
-    let mut client = client.with_edge(None);
-    assert_eq!(client.token(T0).as_deref(), Ok("tok-1"));
-    assert_eq!(auth_calls(&fake), (0, 1));
 }

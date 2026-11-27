@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "C ABI of the screen stream's rules (cmux-rd-screen's screen_* and cmux-vnc's vnc_* JSON ops) for processes outside the app: cmux Remote's Screen Sharing worker and cmux-vnc-host (libcmux_rd_screen.dylib)"
+description = "C ABI of the screen stream's rules (cmux-rd-screen's screen_* JSON ops) for processes outside the app: cmux Remote's Screen Sharing worker and cmux-vnc-host (libcmux_rd_screen.dylib)"
 
 [lib]
 name = "cmux_rd_screen_ffi"
@@ -17,5 +17,4 @@ workspace = true
 
 [dependencies]
 cmux-rd-screen = { path = "../cmux-rd-screen" }
-cmux-vnc = { path = "../cmux-vnc" }
 serde_json.workspace = true

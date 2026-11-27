@@ -141,11 +141,10 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
-        # The routing jobs check out the workflow revision itself (full-carry:
-        # the base's scripts/ci, for head_tier.py); every other checkout,
-        # including the retry after a failed seeded checkout, is pinned to the
-        # one resolved commit SHA.
-        routing = {"runner", "detect-ios-changes", "full-carry"}
+        # The routing jobs check out the workflow revision itself; every other
+        # checkout, including the retry after a failed seeded checkout, is
+        # pinned to the one resolved commit SHA.
+        routing = {"runner", "detect-ios-changes"}
         jobs = yaml.safe_load(workflow)["jobs"]
         pinned = 0
         for name, job in jobs.items():

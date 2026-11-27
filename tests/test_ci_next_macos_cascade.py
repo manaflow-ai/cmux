@@ -2621,6 +2621,8 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cmux-tui-team-signed.yml build-helper: runs-on[0]",
         "cmux-tui-team-signed.yml sign-helper: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
+        # #50338: the App Store keys in the release environment, as ios-appstore-upload.
+        "ios-internal-submit.yml submit: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",

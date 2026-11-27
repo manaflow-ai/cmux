@@ -53,7 +53,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 import ci_steps  # noqa: E402
-import gh_http  # noqa: E402
 
 KIT = "cmux-next-ios/CmuxMobileKit/"
 APP_PATHS = (
@@ -180,10 +179,9 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
                                                   "Authorization": f"Bearer {token}",
                                                   "X-GitHub-Api-Version": "2022-11-28"})
             try:
-                status, answer, _ = gh_http.request(req, 20)
-                if status == 201:
-                    return True
-                print(f"{STATUS_CONTEXT}: post refused (HTTP {status}: {answer[:200]!r})", file=sys.stderr)
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    if resp.status == 201:
+                        return True
             except Exception as e:  # noqa: BLE001 - the next token, then the next round
                 print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
         if attempt + 1 < rounds:

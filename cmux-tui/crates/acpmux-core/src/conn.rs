@@ -1,7 +1,6 @@
 //! One bounded v2 connection over any ordered byte stream.
 
 use crate::hub::HubError;
-use acpmux_list_types::resume::ResumeErrorClass;
 mod list;
 #[cfg(test)]
 mod replay_gates;
@@ -65,33 +64,6 @@ pub enum ConnError {
 impl ConnError {
     pub fn coded(code: &'static str, message: impl Into<String>) -> Self {
         Self::Coded { code, message: message.into() }
-    }
-
-    /// What this error means to a resume (`acpmux_list_types::resume`), by
-    /// variant, io kind and code, never by message text. Exhaustive on
-    /// purpose: a new variant must be classified here.
-    pub fn resume_class(&self) -> ResumeErrorClass {
-        match self {
-            ConnError::Io(error) => ResumeErrorClass::from_io_kind(error.kind()),
-            ConnError::Hub(error) => error.resume_class(),
-            ConnError::Coded { code, .. } => match *code {
-                // The row id names another edition of the book: the stream it
-                // followed was replaced, so resync from a window.
-                "stale_edition" => ResumeErrorClass::GapTooOld,
-                // The chat's mailbox is full for now; it drains.
-                "mailbox_full" => ResumeErrorClass::Transient,
-                _ => ResumeErrorClass::Unknown,
-            },
-            // Bad input and limits: the same request is refused the same way.
-            ConnError::Frame(_)
-            | ConnError::TooManySubscriptions
-            | ConnError::DuplicateSubscription(_)
-            | ConnError::UnknownSubscription(_)
-            | ConnError::ReplyBudget
-            | ConnError::InvalidRequest(_)
-            | ConnError::IdentifierTooLong
-            | ConnError::IdentityTooLarge => ResumeErrorClass::Unknown,
-        }
     }
 }
 

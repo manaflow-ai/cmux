@@ -170,6 +170,7 @@ test/latency/adapter-measure.test.ts
 test/latency/rail-adapter.test.ts
 test/link-store-limits.test.tsx
 test/machine-card.test.tsx
+test/machines-section.test.tsx
 test/markdown-comments.test.ts
 test/markdown-field-blockwise.test.ts
 test/markdown-field-inline-gate.test.tsx

@@ -702,7 +702,8 @@ final class NotificationCenterService {
     }
 
     func note(_ line: String) {
-        FileHandle.standardError.write(Data("notification note: \(line)\n".utf8)); log.append(line); if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) } // stderr: the probes read the app's output log
+        log.append(line)
+        if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }
 }
 

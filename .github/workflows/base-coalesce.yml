@@ -20,12 +20,6 @@ name: base coalesce
 # opens; a base red is seen at most HOLD + the gap to the next push + the run's own time after it lands, and
 # base-red-watch (cmuxterm-hq fleet-reconcilers, commit_bisect) bisects the red job over the covered range.
 #
-# A direct push (its head commit's committer is not GitHub's merge committer `noreply@github.com`, so no PR merge
-# made it) runs too when the caller passes `run_direct_pushes: true`, even inside a taken window: it covers from the
-# last tested tip and records itself, so a hand-pushed break gets its own run. cmux-next.yml passes it for the app
-# compile: on 2026-11-25 a direct push at 09:17Z broke the compile and its run skipped every compile job, because an
-# earlier push had taken the 09:00-09:30 window (cmuxterm-hq docs/handbook/required-checks-are-not-the-compile.md).
-#
 # Always runs (run=true): a pull request, a workflow_dispatch or workflow_call, any ref but feat-cmux-next, the off
 # switch, and a re-run (attempt > 1), which routes from the base its first attempt recorded. State is two tiny
 # Actions cache entries per run on feat-cmux-next's scope: `base-coalesce-KEY-w-WINDOW` (this window has its run) and
@@ -61,12 +55,6 @@ on:
         default: 30
       no_coalesce:
         description: no coalescing; every push runs (the caller passes its vars switch)
-        type: boolean
-        default: false
-      run_direct_pushes:
-        description: >-
-          a push whose head commit GitHub did not commit (no PR merge: a hand push, a bot's autofix) runs even inside a
-          taken window; lander merges keep coalescing
         type: boolean
         default: false
       runner:
@@ -139,9 +127,6 @@ jobs:
       HOLD_MINUTES: ${{ inputs.hold_minutes }}
       ON: ${{ !inputs.no_coalesce && '1' || '0' }}
       RETRIES: 3
-      # Read from the push payload, no API call. GitHub commits every PR merge (squash, merge, rebase through the API)
-      # as `GitHub <noreply@github.com>`; anything else on the tip was pushed by hand or by a bot.
-      DIRECT: ${{ inputs.run_direct_pushes && github.event.head_commit.committer.email != 'noreply@github.com' && '1' || '0' }}
     steps:
       - name: Name this push's window
         id: window
@@ -255,7 +240,7 @@ jobs:
       # The newest `-t-` entry is the last tip a run started on; its key names it.
       - name: Find the last tested tip
         id: last
-        if: ${{ env.ON == '1' && steps.own.outputs.cache-hit != 'true' && (steps.claimed.outputs.cache-hit != 'true' || env.DIRECT == '1' || (steps.failed.outputs.retry != '' && steps.retried.outputs.cache-hit != 'true')) }}
+        if: ${{ env.ON == '1' && steps.own.outputs.cache-hit != 'true' && (steps.claimed.outputs.cache-hit != 'true' || (steps.failed.outputs.retry != '' && steps.retried.outputs.cache-hit != 'true')) }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -280,22 +265,13 @@ jobs:
           sha_re='^[0-9a-f]{40}$'
           if [ "$ON" != 1 ]; then
             echo "not coalescing (the off switch): the checks run on this push's own range"
-            printf 'run=true\nbase=\nsave=false\nsave_window=false\n' >> "$GITHUB_OUTPUT"; exit 0
+            printf 'run=true\nbase=\nsave=false\n' >> "$GITHUB_OUTPUT"; exit 0
           fi
           if [ "$OWN_HIT" = true ]; then
             base=$(head -c 64 .base-coalesce/record | tr -dc '0-9a-z')
             [[ "$base" =~ $sha_re ]] || base=unknown
             echo "a re-run of ${GITHUB_SHA:0:12}: the checks run again from ${base:0:12}, the range its first attempt covered"
-            printf 'run=true\nbase=%s\nsave=false\nsave_window=false\n' "$base" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if [ "$CLAIMED" = true ] && [ "$DIRECT" = 1 ]; then
-            base=${LAST_KEY##*-t-}
-            [[ "$base" =~ $sha_re ]] || base=unknown
-            [ "$base" != "$GITHUB_SHA" ] || base=unknown
-            echo "a direct push (not a PR merge) inside a taken window: the checks run on ${GITHUB_SHA:0:12}, covering since ${base:0:12}"
-            echo "### $KEY: direct push, runs on ${GITHUB_SHA:0:12}, covering since ${base}" >> "$GITHUB_STEP_SUMMARY"
-            mkdir -p .base-coalesce && printf '%s\n' "$base" > .base-coalesce/record
-            printf 'run=true\nbase=%s\nsave=true\nsave_window=false\n' "$base" >> "$GITHUB_OUTPUT"; exit 0
+            printf 'run=true\nbase=%s\nsave=false\n' "$base" >> "$GITHUB_OUTPUT"; exit 0
           fi
           round=0
           if [ "$CLAIMED" = true ] && [ -n "$RETRY" ] && [ "$RETRIED" != true ]; then
@@ -304,7 +280,7 @@ jobs:
           elif [ "$CLAIMED" = true ]; then
             echo "this ${HOLD_MINUTES}-minute window's run has started on an earlier push: the next window's first push covers ${GITHUB_SHA:0:12}"
             echo "### $KEY: coalesced (a later push's run covers this one)" >> "$GITHUB_STEP_SUMMARY"
-            printf 'run=false\nbase=\nsave=false\nsave_window=false\n' >> "$GITHUB_OUTPUT"; exit 0
+            printf 'run=false\nbase=\nsave=false\n' >> "$GITHUB_OUTPUT"; exit 0
           fi
           base=${LAST_KEY##*-t-}
           [[ "$base" =~ $sha_re ]] || base=unknown
@@ -314,10 +290,10 @@ jobs:
           # mkdir again: a pool runner's disk-floor prune can empty the workspace between steps (2026-11-25 20:11Z, job
           # 139480437957 on w2a-0015: "No such file or directory", and the window's retry built nothing).
           mkdir -p .base-coalesce && printf '%s\n' "$base" > .base-coalesce/record
-          printf 'run=true\nbase=%s\nsave=true\nsave_window=true\nround=%s\n' "$base" "$round" >> "$GITHUB_OUTPUT"
+          printf 'run=true\nbase=%s\nsave=true\nround=%s\n' "$base" "$round" >> "$GITHUB_OUTPUT"
 
       - name: Claim this window
-        if: ${{ steps.decide.outputs.save_window == 'true' && github.run_attempt == '1' }}
+        if: ${{ steps.decide.outputs.save == 'true' && github.run_attempt == '1' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

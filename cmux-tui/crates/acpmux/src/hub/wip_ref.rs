@@ -6,8 +6,7 @@
 //! not ignore, on top of HEAD.
 //!
 //! Off unless `ACPMUX_WIP_REF=1` (an agent VM's daemon sets it): a person's own machine does not
-//! push their folder anywhere on its own. A folder with no git repository, one with no `origin`
-//! and no commit yet (a plain folder, nothing is written), one with no `origin`, an
+//! push their folder anywhere on its own. A folder with no git repository or no `origin`, an
 //! unreachable remote and a push that is refused are logged and never fail or hold up a turn or
 //! a pause. It runs the same for every harness: it reads the folder, not the agent.
 
@@ -72,9 +71,6 @@ pub(super) fn save_blocking(cwd: &Path, session_id: &str) -> Saved {
         return Saved::Skipped;
     };
     let top = PathBuf::from(top);
-    if is_unborn_without_origin(&top) {
-        return Saved::Skipped;
-    }
     let Some(gitdir) = git(&top, None, &["rev-parse", "--absolute-git-dir"]) else {
         return Saved::Skipped;
     };
@@ -101,15 +97,6 @@ pub(super) fn save_blocking(cwd: &Path, session_id: &str) -> Saved {
     let pushed =
         git(&top, None, &["push", "--no-verify", "--force", "-q", "origin", &refspec]).is_some();
     Saved::Written { commit, pushed }
-}
-
-/// A repository with no `origin` and no commit on HEAD (a lane VM's `/home/cmux` is `git init`
-/// and nothing more) holds no work a save could keep: no push can succeed, and `add -A` would
-/// hash every file under it, the whole home folder, at each turn end. It is a plain folder, as a
-/// move reads it (`cli/run/session_move.rs` `checkout_of`).
-fn is_unborn_without_origin(top: &Path) -> bool {
-    git(top, None, &["remote", "get-url", "origin"]).is_none()
-        && git(top, None, &["rev-parse", "--verify", "-q", "HEAD^{commit}"]).is_none()
 }
 
 /// [`save_blocking`] off the runtime, bounded; logs what it could not do.

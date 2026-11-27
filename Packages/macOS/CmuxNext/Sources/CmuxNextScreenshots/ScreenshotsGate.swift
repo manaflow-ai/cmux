@@ -1,4 +1,3 @@
-import CCmuxScreenshots
 public import Foundation
 
 /// Which Screenshots tabs the person has unlocked with Show Screenshots, by tab key, and whether the person
@@ -14,12 +13,9 @@ public import Foundation
 /// let gate = ScreenshotsGate(defaults: .standard) // the app; a test passes UserDefaults(suiteName:)
 /// gate.wire(page.view, key: key) { service.unlock(key) }
 /// ```
-///
-/// The unlock rules are Rust's (cmux-screenshots `gate.rs`); this keeps the remembered click.
 @MainActor
 public final class ScreenshotsGate {
-    private let handle = RustHandle(cmux_screenshots_gate_new()) { cmux_screenshots_gate_free($0) }
-    private var gate: OpaquePointer? { handle.pointer }
+    private var unlocked: Set<String> = []
     private let defaults: UserDefaults
     private static let accessKey = "screenshots.showScreenshotsClicked"
 
@@ -34,14 +30,14 @@ public final class ScreenshotsGate {
     public var remembersAccess: Bool { defaults.bool(forKey: Self.accessKey) }
 
     /// Whether the person unlocked the tab `key` in this launch.
-    public func isUnlocked(_ key: String) -> Bool { ScreenshotsFFI.bytes(key) { cmux_screenshots_gate_is_unlocked(gate, $0, $1) } }
+    public func isUnlocked(_ key: String) -> Bool { unlocked.contains(key) }
 
     /// Whether any tab is unlocked: only then may the folders be detected.
-    public var mayDetect: Bool { cmux_screenshots_gate_may_detect(gate) }
+    public var mayDetect: Bool { !unlocked.isEmpty }
 
     /// The person clicked Show Screenshots in the tab `key`, or its page listed from a remembered click.
     public func unlock(_ key: String) {
-        ScreenshotsFFI.bytes(key) { cmux_screenshots_gate_unlock(gate, $0, $1) }
+        unlocked.insert(key)
         defaults.set(true, forKey: Self.accessKey)
     }
 
@@ -63,6 +59,6 @@ public final class ScreenshotsGate {
     public func wire(_ view: ScreenshotsView, key: String, onShow: @escaping () -> Void) {
         view.onShowScreenshots = onShow
         view.onAccessMissing = { [weak self] in self?.forgetAccess() }
-        view.startsWhenShown = ScreenshotsFFI.bytes(key) { cmux_screenshots_gate_starts_when_shown(gate, $0, $1, remembersAccess) }
+        view.startsWhenShown = remembersAccess && !isUnlocked(key)
     }
 }

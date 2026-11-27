@@ -247,18 +247,6 @@ async fn a_guests_prompt_names_its_sender_to_the_agent_and_keeps_its_words() {
     assert_eq!(ran.len(), 1, "{ran:?}");
     assert_eq!(ran[0]["text"], "guest words", "the transcript keeps the guest's own words");
     assert_eq!(ran[0]["_meta"]["provenance"]["fromAvatar"], avatar, "{:?}", ran[0]);
-
-    let drive = json!({"sessionId": session.id, "prompt": [{"type":"text", "text":"driver words"}],
-        "_meta":{"acpmux":{"promptId":"g-drive", "author":{
-            "id":"guest:s1.g2", "name":"Dee", "role":"drive"}}}});
-    tx.send(send(3, method::SESSION_PROMPT, drive)).await.unwrap();
-    let completed = until(&mut out, |v| v.get("id") == Some(&json!(3))).await;
-    assert!(completed.get("result").is_some(), "{completed}");
-    let ran = user_messages(&hub, &session.id, "g-drive");
-    assert_eq!(ran.len(), 1, "the driver's turn ran without approval: {ran:?}");
-    let provenance = ran.first().unwrap().pointer("/_meta/provenance").unwrap();
-    assert_eq!(provenance.get("role"), Some(&json!("drive")));
-    assert_eq!(provenance.get("from"), Some(&json!("guest:s1.g2")));
     hub.shutdown_all().await;
 }
 

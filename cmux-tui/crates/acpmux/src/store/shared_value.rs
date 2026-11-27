@@ -80,6 +80,7 @@ pub struct SharedValue(Arc<Value>);
 
 impl SharedValue {
     /// Whether both are the one copy.
+    #[cfg(test)]
     pub(crate) fn shares(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
@@ -116,6 +117,7 @@ pub struct SharedRows(Arc<Vec<ToolRow>>);
 
 impl SharedRows {
     /// Whether both are the one copy.
+    #[cfg(test)]
     pub(crate) fn shares(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }

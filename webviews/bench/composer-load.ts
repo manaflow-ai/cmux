@@ -2,9 +2,6 @@
 import type { Frame, Page } from "playwright";
 import { waitForPageHook, watchPageErrors } from "./support/benchPage";
 
-/// One display refresh at 60 Hz, the headless browsers' frame interval (ms).
-const REFRESH_MS = 1000 / 60;
-
 type Surface = Page | Frame;
 type LoadReceipt = {
   running: boolean;
@@ -328,11 +325,6 @@ export async function runComposerLoad(
     longest_observed_task_ms: result.watch.longest_observed_task_ms,
     long_task_supported: result.watch.long_task_supported,
     task_observation_threshold_ms: result.watch.task_observation_threshold_ms,
-    // Keys whose frame came more than one refresh after the keydown: the key's task ended past that refresh's
-    // main-frame deadline (or no frame was being produced and the first came a refresh late), so the key waited a
-    // whole refresh more. At a 60 Hz refresh, keydown to the next frame is up to 16.7 ms by phase alone, so a p95
-    // over 16 ms is these keys (nightly a94af724, Chromium L0: 107 of 500, to_paint p95 25.1).
-    keys_missed_refresh: samples.filter((s) => Number.isFinite(s.frame) && s.frame > REFRESH_MS + 1).length,
     keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
     driver_late_p95_ms: quantile(late, 0.95),
     driver_late_max_ms: Math.max(0, ...late),

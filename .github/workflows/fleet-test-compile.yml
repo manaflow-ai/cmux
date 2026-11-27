@@ -96,7 +96,7 @@ jobs:
       packages: ${{ steps.plan.outputs.packages }}
     steps:
       - name: Checkout the merge commit and its base
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: false
@@ -173,7 +173,7 @@ jobs:
       - name: Checkout the trusted compile result reader
         if: ${{ needs.plan.outputs.needed == 'true' }}
         continue-on-error: true
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci

@@ -37,12 +37,6 @@
       "targets": [],
       "packages": []
     },
-    "CCmuxScreenshots": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CCmuxScreenshots",
-      "targets": [],
-      "packages": []
-    },
     "CmuxNextAccounts": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
@@ -2259,8 +2253,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
-        "CCmuxAppFFI",
-        "CCmuxScreenshots",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextFileGrid",

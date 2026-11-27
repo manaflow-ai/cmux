@@ -30,8 +30,6 @@ export type JourneyFixture = {
   cold?: string;
   /** What cloud.machine.get says the machine's size is; without one, the size the create asked. */
   recordedSize?: { cpu: number; memory_mb: number; disk_mb: number };
-  /** What cloud.machine.get says once the reply came (AutoSize grew it under the agent's start); before it, recordedSize. */
-  grownSize?: { cpu: number; memory_mb: number; disk_mb: number };
   /** cloud.plan.get's answer for the capacity preflight; unset, a team with room (5 active, none in use). */
   plan?: unknown;
 };
@@ -77,7 +75,6 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const log = (line: string) => console.log("@@fake " + line);
 let createdAt = 0;
 let createdSize = null;
-let agentSent = false;
 let deleted = false;
 let lastMarker = "";
 const exec = (command: string) => {
@@ -89,7 +86,6 @@ const exec = (command: string) => {
   // waitOwnerKind (OWNER_KIND_PROGRAM): the fixture's machine is an owner machine from its first exec.
   if (command.includes("cmux-vm-kind-sync")) return answer("vm-kind=owner\\n");
   // A later turn: history lists the last sent prompt's marker, so the turn reads as started.
-  if (command.includes("acp send")) agentSent = true;
   if (command.includes("acp send")) lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;
   if (command.includes("acp --json history")) return answer(JSON.stringify({ turns: lastMarker ? [{ prompt: lastMarker + " ..." }] : [] }));
   const script = fixture.github?.script;
@@ -175,7 +171,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   }
   if (op === "cloud.machine.get") {
     log("get");
-    return json({ ok: true, value: { id: MACHINE, status: deleted ? "deleted" : "running", host: "host-fixture.internal", ready: true, image: { daemon_version: "0.9.1" }, size: (agentSent ? fixture.grownSize : undefined) ?? fixture.recordedSize ?? createdSize } });
+    return json({ ok: true, value: { id: MACHINE, status: deleted ? "deleted" : "running", host: "host-fixture.internal", ready: true, image: { daemon_version: "0.9.1" }, size: fixture.recordedSize ?? createdSize } });
   }
   if (op === "cloud.machine.connect_info") return json({ ok: true, value: { host: "h", state: "running", epoch: 1 } });
   if (op === "cloud.machine.delete") { log("delete"); deleted = true; return json({ ok: true, value: {} }); }

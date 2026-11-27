@@ -142,7 +142,7 @@ export default agentPaneEntry({
       note: "The default: 14 subagents working, 6 background commands running. One muted line, no bar.",
       play: (ctx) => lineHolds(ctx, /14 subagents working, 6 background commands running/),
       snapshot: burst,
-      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "words" },
+      experiments: { "subagent-tray-fold-head": "line" },
     },
     "burst-before": {
       note: "Before: the `groups` header on the same work, a tall bar.",
@@ -154,25 +154,25 @@ export default agentPaneEntry({
       note: "3 subagents working, 2 background commands running, 1 failed: the done one needs nothing.",
       play: (ctx) => lineHolds(ctx, /3 subagents working, 2 background commands running, 1 failed/),
       snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "words" },
+      experiments: { "subagent-tray-fold-head": "line" },
     },
     "lone-command": {
       note: "One background command: the line reads it in the singular, never a bare 1.",
       play: (ctx) => lineHolds(ctx, /^1 background command running$/),
       snapshot: loneCommand,
-      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "words" },
+      experiments: { "subagent-tray-fold-head": "line" },
     },
     "lone-subagent": {
       note: "One subagent: 1 subagent working.",
       play: (ctx) => lineHolds(ctx, /^1 subagent working$/),
       snapshot: loneAgent,
-      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "words" },
+      experiments: { "subagent-tray-fold-head": "line" },
     },
     "mixed-open": {
       note: "Clicked open: the list of what runs, each with its name, state, time and Stop; a click again or Esc tucks it.",
       play: open,
       snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "line", "composer-hat-line-deck": "words" },
+      experiments: { "subagent-tray-fold-head": "line" },
     },
   },
 });

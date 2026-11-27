@@ -56,9 +56,6 @@ export const SNAPSHOT_SHEETS_ATTRIBUTE = "data-cmux-snapshot-sheets";
 /// `data-copy` names the copy's sheet beside it: the page's rules with ``shadowSelector`` applied
 /// (scripts/agent-pane/snapshotCss.mjs), a file so every chat page of the renderer shares one parse.
 export const PAGE_STYLE_ID = "cmux-pane-styles";
-/// On the transcript's scroller while a hidden page has let go of its rows (VirtualTranscript.tsx HIDDEN
-/// RELEASE): what it draws then is not the chat, so no copy is written from it (live.ts).
-export const TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE = "data-rows-released";
 
 /// `html`, `body` and `:root` in a selector, where they are a selector and not part of a name.
 const PAGE_ROOTS = /(^|[\s,(>+~])(html|body)(?![-\w])|:root(?![-\w])/g;

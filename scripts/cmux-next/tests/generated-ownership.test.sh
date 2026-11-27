@@ -62,24 +62,6 @@ drift "$cap" Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEnd
   || fail "a capability source change causes the daemon export"
 drift "$cap" scripts/cmux-next/base-autofix.sh \
   && fail "the capability export is drift without its source"
-# ABI baseline ownership follows all compatibility inputs, independently of bindings.
-surface=cmux-tui/spec/api-compat.surface.json
-drift "$surface" webviews/src/main.tsx && fail "an unrelated edit cannot own the ABI baseline"
-for input in cmux-tui/spec/resource-operations-v2.json cmux-tui/spec/api-compat.json \
-  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/main.rs \
-  cmux-tui/crates/cmux-api-compat/Cargo.toml cmux-tui/Cargo.toml cmux-tui/Cargo.lock \
-  cmux-tui/rust-toolchain.toml; do
-  drift "$surface" "$input" || fail "$input must own the ABI baseline"
-  printf '%s\n' "$input" > "$tmp/changed"
-  printf '%s\n' "$surface" | python3 "$OUTPUTS" drop --changed "$tmp/changed" > "$tmp/out"
-  [[ ! -s "$tmp/out" ]] || fail "$input must retain its ABI repair"
-done
-for input in cmux-tui/spec/api-compat.json cmux-tui/spec/api-compat-fixtures.json; do
-  python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; assert g.output_of(sys.argv[2]) is None' \
-    "$ROOT_DIR/scripts/cmux-next" "$input" || fail "$input must remain authored"
-done
-drift cmux-tui/bindings/go/raw/.cmux-sdk-manifest.json "$surface" \
-  && fail "a baseline refresh alone must not own bindings"
 # An output never causes another output: the exports alone do not own the action exports.
 drift plans/cmux-next/actions.md "$schema" && fail "the settings export alone must not cause the action exports"
 # Every output the autofix may push is in the table, so the push never drops a repair the
@@ -175,9 +157,6 @@ rows=(
   "4|cmux-tui/crates/cmux-core/src/lib.rs|1|1|none"               # cargo fmt
   "4|Native/OptChat/optchat-chief/src/main.rs|1|1|none"
   "5|cmux-tui/Cargo.lock|1|0|none"                                # a lock: apply refuses lockfiles by design
-  "5b|cmux-tui/crates/acpmux/spec/acpmux-protocol.json|1|0|none"
-  "5b|cmux-tui/crates/acpmux/spec/acpmux-abi.surface.json|1|0|none"
-  "5c|cmux-tui/spec/api-compat.surface.json|1|1|out"              # checked daemon ABI baseline
   "5a|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift|1|1|none"  # uniffi Swift bindings
   "6|scripts/ci/job-inputs-always.json|0|1|none"                  # job_inputs.py fix: PR autofix only (--job-inputs), never remade on a moved tip
 )

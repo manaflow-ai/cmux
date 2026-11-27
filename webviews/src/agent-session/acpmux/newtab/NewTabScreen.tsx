@@ -2208,15 +2208,12 @@ export function NewTabScreen(props: Props) {
       }
       return;
     }
-    // In the inline view only: the strip's attachments go by their × (ComposerBox's Backspace).
-    const placed = attachmentView === "strip" ? undefined : new Set(input.inlineIds());
-    const backspaced = placed
-      ? backspacedAttachment(
-          event,
-          input.atStart(),
-          attachments.filter((chip) => !placed.has(chip.id)),
-        )
-      : undefined;
+    const placed = new Set(input.inlineIds());
+    const backspaced = backspacedAttachment(
+      event,
+      input.atStart(),
+      attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
+    );
     if (backspaced) {
       event.preventDefault();
       inline.remove(backspaced.id);
@@ -3084,7 +3081,6 @@ export function NewTabScreen(props: Props) {
                 transformPaste={shell ? undefined : emoji.transformPaste}
                 onInlineViews={!shell ? inline.onInlineViews : undefined}
                 isInlineAttachment={!shell ? inline.known : undefined}
-                inlineHidden={attachmentView === "strip"}
                 attributes={{
                   [WEB_SWAP_KEPT_TEXT]: "",
                   "data-focus-ring": "none",

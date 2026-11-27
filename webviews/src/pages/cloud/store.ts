@@ -1142,15 +1142,15 @@ export class CloudStore {
           revision = event.revision;
         }
         buffer = null;
-        // A relist (Retry, a recovery) brings every machine as a new object: keep each unchanged one,
-        // so only the machines that changed draw again. Events need none of this (applyEvent keeps
-        // the others).
-        machines = keptMachines(this.state.machines, machines);
         return { machines, revision, surge };
       };
       return { unwatch, take };
     } catch (error) {
       buffer = null;
+      // A relist (Retry, a recovery) brings every machine as a new object: keep each unchanged one,
+      // so only the machines that changed draw again. Events need none of this (applyEvent keeps
+      // the others).
+      machines = keptMachines(this.state.machines, machines);
       // A list that failed leaves no watch behind: a quiet re-read or Retry subscribes again, and an
       // early read a signed-out answer drops has nothing left open.
       if (watch) {

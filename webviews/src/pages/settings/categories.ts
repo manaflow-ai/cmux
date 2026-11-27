@@ -39,7 +39,6 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
-  "cloudCompute",
   "cloudModels",
   "worktreeSetup",
   "extensions",

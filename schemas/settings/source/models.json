@@ -13,7 +13,7 @@
         {
           "key": "models.spreadUsage",
           "name": "spreadUsage",
-          "note": "acpmux's `spread` (routes/bindings.json), off unless the person turns it on: on, a thread may move to another of the person's connections serving the same model when one is out, staying on one while its cache is warm. The app is the writer; acpmux keeps a copy.",
+          "note": "acpmux's `spread` (routes/bindings.json): on, a thread may move to another of the person's connections serving the same model when one is out, staying on one while its cache is warm. The app is the writer; acpmux keeps a copy.",
           "title": {
             "key": "settings.models.spreadUsage",
             "text": "Spread Usage Across My Subscriptions"
@@ -23,7 +23,7 @@
             "text": "When one subscription runs out, a chat moves to another with the same model."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "page_hidden": "the Models card draws it beside the connections it spreads over",
           "palette_shown": true,
           "keywords": [

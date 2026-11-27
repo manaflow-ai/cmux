@@ -109,30 +109,9 @@ class InAppPathTests(unittest.TestCase):
         [why] = tti.round_failures("terminal", "in_app", row, marks, 30)
         self.assertIn("probe_no_key_window", why)
 
-    def test_in_app_chat_round_types_at_the_chat_paint(self):
-        # The app types into the drawn chat (CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT), not at the first frame.
-        env = tti.launch_env({"HOME": "/h"}, Path("/p.csv"), "in_app", which="chat")
-        self.assertEqual("1", env[tti.CHAT_PROBE_VARIABLE])
-        self.assertNotIn(tti.TYPE_PROBE_VARIABLE, env)
-        self.assertNotIn(tti.CHAT_PROBE_VARIABLE, tti.launch_env({"HOME": "/h"}, Path("/p.csv"), "in_app"))
-        self.assertNotIn(tti.CHAT_PROBE_VARIABLE, tti.launch_env({"HOME": "/h"}, Path("/p.csv"), "posted", which="chat"))
-        # It typed and the composer echoed: measured, no failure.
-        marks = {"agent_pane.painted": 900.0, tti.CHAT_PROBE_TYPED: 901.0, tti.CHAT_MARK: 930.0}
-        self.assertEqual("typed", tti.chat_probe_state(marks))
-        self.assertEqual([], tti.round_failures("chat", "in_app", {"post_access": False, "input_ms": 930.0}, marks, 30))
-        # It typed and the composer never echoed: the round fails, naming the probe.
-        marks.pop(tti.CHAT_MARK)
-        [why] = tti.round_failures("chat", "in_app", {"post_access": False, "input_ms": None}, marks, 30)
-        self.assertIn("chat.probe_key_typed", why)
-        # No window took keys when the chat drew.
-        [why] = tti.round_failures("chat", "in_app", {"post_access": False, "input_ms": None},
-                                   {"agent_pane.painted": 900.0, tti.CHAT_PROBE_NO_KEY_WINDOW: 901.0}, 30)
-        self.assertIn("chat.probe_no_key_window", why)
-
-    def test_in_app_chat_round_on_a_build_without_the_chat_probe_fails_nothing(self):
-        # No chat.probe_* mark after the paint: an older build, `unmeasured`, measures nothing and fails nothing.
-        self.assertIsNone(tti.chat_probe_state({"agent_pane.painted": 900.0}))
-        row = {"post_access": False, "input_ms": None, "unmeasured": "in_app: no chat.probe_* mark"}
+    def test_in_app_chat_round_without_the_echo_fails_nothing(self):
+        # The app's one key goes in before a chat page is up: an in_app chat round measures nothing, fails nothing.
+        row = {"post_access": False, "input_ms": None}
         self.assertEqual([], tti.round_failures("chat", "in_app", row, {"agent_pane.painted": 900.0}, 30))
         # The posted path's keys time the chat: a build with the mark that never echoes fails the round.
         self.assertTrue(tti.round_failures("chat", "posted", {"post_access": True, "input_ms": None}, {}, 30))

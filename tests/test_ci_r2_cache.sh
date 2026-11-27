@@ -304,13 +304,6 @@ kill "$LAN_PID" 2>/dev/null || true; wait "$LAN_PID" 2>/dev/null || true
 rm -rf "$lan_dir"; unset CMUX_LAN_CACHE_SOCKET
 echo "PASS: archives come from the LAN cache host first and fall back to the bucket"
 
-CI_CACHE_R2_SAVE_HEADROOM_KIB=$((1 << 40)) output_of save "$WORK/src" no-room-one >/dev/null \
-  || fail "a save without disk room must not fail the job"
-ls "$NS/objects/" | grep -q '^no-room-one' && fail "a save without disk room must upload nothing"
-grep -q '::warning::r2-cache: no-room-one not saved' "$WORK/log" || fail "a save without disk room must warn, log: $(cat "$WORK/log")"
-ls "$NS/latest/" | grep -q '^no-room-' && fail "a skipped save must publish no pointer"
-echo "PASS: a save whose disk lacks room for its archive warns and uploads nothing"
-
 unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"

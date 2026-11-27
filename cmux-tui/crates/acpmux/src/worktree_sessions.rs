@@ -165,7 +165,6 @@ pub fn on_disk(home: &Path, skip: Option<&Path>) -> Vec<Session> {
                 name: file.name,
                 cwd: file.cwd,
                 open: running && file.status != "closed",
-                archived_checkout: None,
                 updated_ms: file.updated_at,
                 ids,
             });

@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, parseWaitOutput, historyTurnStatus, waitVerdict, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, laterCapabilities, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, parseWaitOutput, historyTurnStatus, waitVerdict, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -81,21 +81,6 @@ describe("pool", () => {
       live--;
     });
     expect(done.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(peak).toBe(3);
-  });
-  test("pairs start in pair order, 3 at a time (runs 45869919450, 45886952582: one at a time reached 4 of 10 pairs)", async () => {
-    const rows = [1, 2, 3, 4, 5].flatMap((pair) => ["turn_end", "aggressive"].map((arm) => ({ pair, arm })));
-    const started: number[] = [];
-    let live = 0;
-    let peak = 0;
-    await pool(pairsOf(rows), 3, async ({ pair, machines }) => {
-      started.push(pair);
-      expect(machines.map((m) => m.arm)).toEqual(["turn_end", "aggressive"]);
-      peak = Math.max(peak, ++live);
-      await new Promise((r) => setTimeout(r, 5));
-      live--;
-    });
-    expect(started).toEqual([1, 2, 3, 4, 5]);
     expect(peak).toBe(3);
   });
 });
@@ -330,22 +315,5 @@ describe("waitVerdict (run 45869919450: acp wait exit 1 after a resume, right re
     const f = waitVerdict({ ...a, waitFails: 3 });
     expect(f.kind).toBe("fail");
     expect(f.kind === "fail" && f.error).toContain("socket closed; turn running");
-  });
-});
-
-describe("laterCapabilities (run 45898762249 attempt 2: turn 1 read a just-restarted daemon)", () => {
-  const full = { capabilities: ["activity", "activity-turns", "activity-turn-end"], version: "1.0.0+ee905dc44cc2" };
-  test("a later report with the capability replaces turn 1's, naming the turn", () => {
-    const r = { arm: "turn_end", capabilities: ["fs-v1", "activity"], daemon_version: "1.0.0+ee905dc44cc2" };
-    const out = laterCapabilities(r, full, 2);
-    expect(out).toEqual({ capabilities: full.capabilities, turn_end_advertised: true, capabilities_turn: 2, daemon_version: "1.0.0+ee905dc44cc2" });
-    expect(missingCapability([{ name: "t", ...r, ...out }])).toEqual([]);
-  });
-  test("an old build that never advertises it still fails; aggressive and already-advertised keep turn 1's", () => {
-    const old = { arm: "turn_end", capabilities: ["activity"], daemon_version: "1.0.0+67d01201b152" };
-    expect(laterCapabilities(old, { capabilities: ["activity"], version: "1.0.0+67d01201b152" }, 5)).toEqual({});
-    expect(laterCapabilities(old, { capabilities: null, version: null }, 5)).toEqual({});
-    expect(laterCapabilities({ arm: "aggressive", capabilities: null, daemon_version: null }, full, 2)).toEqual({});
-    expect(laterCapabilities({ arm: "turn_end", capabilities: full.capabilities, daemon_version: "x" }, full, 3)).toEqual({});
   });
 });

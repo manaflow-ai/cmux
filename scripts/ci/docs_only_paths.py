@@ -293,7 +293,7 @@ jobs:
       missing: ${{{{ steps.plan.outputs.missing }}}}
     steps:
       - name: Checkout the planner
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The merge commit and its parents' trees: merge_files() and merge_commit_files() list the changed paths

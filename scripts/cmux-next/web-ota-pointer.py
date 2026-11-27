@@ -25,8 +25,7 @@ alias of it, and a channel pointer at a tree), and `expires_at`. Every Linux rel
 explicit version and stays valid (`--allow-expired`).
 
 Usage:
-  web-ota-pointer.py payload --manifest M --abi-file F --channel C --commit SHA --committed-at T --out P [--cas CAS]
-      --cas: cas-publish's {"manifest", "pack"}; the payload gains "cas": {prefix, manifest, pack}
+  web-ota-pointer.py payload --manifest M --abi-file F --channel C --commit SHA --committed-at T --out P
   web-ota-pointer.py sign --payload P --key PEM [--extra-key PEM2]... --keys KEYS --out POINTER
       --extra-key: a rotation's next key; signs too when KEYS lists it, else skipped with a warning
   web-ota-pointer.py verify --pointer POINTER --keys KEYS [--channel C] [--purpose P [--allow-expired]]
@@ -101,10 +100,6 @@ def load_keys(path):
     return keys
 
 
-# Where `cas-publish`'s objects live on files.cmux.com: m/<manifest>, p/<pack>.pack, p/<pack>.idx.
-CAS_PREFIX = "cmux-next-web/cas/"
-
-
 def make_payload(args):
     manifest = json.load(open(args.manifest))
     abi = json.load(open(args.abi_file))["abi"]
@@ -128,21 +123,8 @@ def make_payload(args):
         "sha256": manifest["sha256"], "size": int(manifest["size"]), "outputs": manifest["outputs"], "abi": abi,
         "commit": args.commit, "committed_at": int(args.committed_at), "published_at": int(time.time()),
     }
-    if args.cas:
-        payload["cas"] = cas_field(args.cas)
     with open(args.out, "wb") as out:
         out.write(compact(payload))
-
-
-def cas_field(path):
-    """The pointer's `cas` field (RFD 0166, cas/1): the manifest and pack `cas-publish` wrote for this
-    key's tree, under CAS_PREFIX on files.cmux.com. An app that reads it fetches only the chunks it
-    lacks; one that does not reads `archive` as before."""
-    cas = json.load(open(path))
-    for field in ("manifest", "pack"):
-        if not re.fullmatch(r"[0-9a-f]{64}", str(cas.get(field) or "")):
-            fail(f"{path}: bad cas {field} {cas.get(field)!r}")
-    return {"prefix": CAS_PREFIX, "manifest": cas["manifest"], "pack": cas["pack"]}
 
 
 def openssl(*argv):
@@ -382,7 +364,6 @@ def main(argv):
     p = sub.add_parser("payload")
     for name in ("--manifest", "--abi-file", "--channel", "--commit", "--committed-at", "--out"):
         p.add_argument(name, required=True)
-    p.add_argument("--cas", help="cas.json from cas-publish: add the cas/1 manifest and pack (RFD 0166)")
     s = sub.add_parser("sign")
     for name in ("--payload", "--key", "--keys", "--out"):
         s.add_argument(name, required=True)

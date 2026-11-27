@@ -194,14 +194,9 @@ fn patch(source: &Path, key: &str) {
 fn build(source: &Path, out: &Path) -> PathBuf {
     let archive = out.join("libtailscale.a");
     let mut go = Command::new(std::env::var("GO").unwrap_or_else(|_| "go".into()));
-    // -buildvcs=false: the copied source carries the cache's .git, so Go runs
-    // `git status` there to stamp VCS info, and a git that refuses the folder
-    // fails the whole build ("error obtaining VCS status: exit status 128",
-    // cmux run 45914140431, aarch64-apple-darwin, 2026-11-27: that window's
-    // tree never published). The stamp is not wanted in a -trimpath archive.
     go.current_dir(source)
         .env("CGO_ENABLED", "1")
-        .args(["build", "-trimpath", "-buildvcs=false", "-buildmode=c-archive", "-o"])
+        .args(["build", "-trimpath", "-buildmode=c-archive", "-o"])
         .arg(&archive);
     configure_target(&mut go);
     match go.status() {

@@ -390,11 +390,9 @@ public final class MacScreenSession {
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
         // `clock` and `ledger`: every frame's stage times, on the host's clock.
         // `video.sharp_text`: the person asked a Linux host for screen usage (`offersSharpText`).
-        // `video.ltr`: the decode pipeline acknowledges each decoded frame (`noteDecoded(frame:)`),
-        // so a host started with `--ltr 1` recovers a loss without a keyframe; others ignore it.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
                                   caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
-                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap, RemoteRdHello.ltrCap]
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap]
                                       + (offersSharpText ? [RemoteRdHello.sharpTextCap] : []))
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true, clipboard: offersClipboard) else {

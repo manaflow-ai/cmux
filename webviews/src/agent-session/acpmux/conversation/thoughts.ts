@@ -2,7 +2,6 @@
 // thoughts in one step are one row, and a thought with nothing to read draws no row at all.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { keptPrefix, noteKeptPrefix, PrefixFlatCache, type PrefixFlat } from "./prefixFlatMap";
-import { RowMemo } from "../../shared/rowMemo";
 
 /// A thought shorter than this many characters (trimmed)...
 export const QUIET_THOUGHT_CHARS = 40;
@@ -59,7 +58,7 @@ export function mergeThoughts(items: readonly AcpmuxActivity[]): readonly Acpmux
 
 /// Each row as drawn: its thoughts merged and quiet ones left out (WeakMap: one result per row
 /// object, so an unchanged row keeps its identity for turnViewFrom and the row memo).
-const shaped = new RowMemo<AcpmuxRow, AcpmuxRow | null>();
+const shaped = new WeakMap<AcpmuxRow, AcpmuxRow | null>();
 
 /// A changed row takes a fractional version no row reaches by itself, one for each `keepLast`, so
 /// the transcript draws it again when its turn stops working (permissions/askRows.ts adds 0.5).

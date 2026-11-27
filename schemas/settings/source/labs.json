@@ -327,31 +327,6 @@
           ]
         },
         {
-          "key": "labs.teamCompute",
-          "name": "teamCompute",
-          "note": "Opt-in Settings > Cloud > Compute card (webviews ComputeCard, Ledger layout): the team's monthly Cloud allotment and each member's use this month, read from the Cloud app server's cloud.allotment.get through `cmux.settings.cloud.allotment.get`. Read-only: the app does not serve cloud.allotment.set yet. Off by default; off, the card draws nothing and the page asks for nothing.",
-          "title": {
-            "key": "settings.labs.teamCompute",
-            "text": "Team Compute"
-          },
-          "help": {
-            "key": "settings.labs.teamCompute.help",
-            "text": "Show your team's compute allotment and each member's use in Settings > Cloud."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "labs",
-            "team",
-            "compute",
-            "allotment",
-            "usage",
-            "cloud",
-            "members",
-            "spend"
-          ]
-        },
-        {
           "key": "labs.hostsSidebar",
           "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {

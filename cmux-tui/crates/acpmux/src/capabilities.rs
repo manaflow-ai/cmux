@@ -543,12 +543,6 @@ pub const CAPABILITIES: &[Capability] = &[
     // A listen on another member's agent address: open, list, close, and read what it receives
     // (`server/team.rs` `listen`), under the same team-messaging gate.
     Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
-    // RFD 0170 phase 1: the team navigator, recipient picker and Session Info, under the same
-    // team-messaging gate (`server/team_directory.rs`).
-    Capability {
-        id: "team-directory-v1",
-        wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
-    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints

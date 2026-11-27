@@ -34,7 +34,6 @@ import {
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
-import type { PeerGroup } from "./environments";
 import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { AutoSession } from "./autoSession/autoSession";
 import type { CapacityWaitState } from "./capacityWait";
@@ -1373,8 +1372,6 @@ export type AcpmuxSnapshot = {
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
-  /// Each peer's group (`peers[].group`, environments.ts peerGroupsFromStatus): own or agent.
-  peerGroups?: Record<string, PeerGroup>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
@@ -1547,13 +1544,6 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
-  /// The kept tail drawn while the open connects ends inside a turn (the chat was kept while it ran,
-  /// as on a revive after an update), and neither acpmux's list nor its attach has said yet whether
-  /// that turn still runs. The transcript draws the turn's rows as running (its live line at the
-  /// bottom, as the last launch's copy drew them) so the attach that says it runs moves nothing;
-  /// `isWorking` stays false, so no Stop, clock or queue acts on it (Leo, 2026-11-24, on a revive:
-  /// "tons of layout shifts ... juts show the latest bit").
-  tailMidTurn?: true;
   /// The chat on screen was opened from acpmux's settled view of it (`settled-attach-v1`,
   /// cmuxterm-hq#9655): where that frame ends and the turn ends a fork can go through. The page tells
   /// the host once the frame is drawn (`pane.painted` with `settled: true`).

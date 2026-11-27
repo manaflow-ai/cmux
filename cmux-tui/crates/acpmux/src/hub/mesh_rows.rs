@@ -74,7 +74,6 @@ impl Hub {
                             &m.succeeds,
                         ),
                         roles: crate::mesh::heartbeat_roles(&m.roles),
-                        updated_at: (m.updated_at > 0).then_some(m.updated_at),
                     };
                     (rank(m.status), m.updated_at, row)
                 })

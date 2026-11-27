@@ -33,7 +33,6 @@
 
 use super::*;
 
-mod pr_archive;
 pub(in crate::hub) mod revive;
 pub(in crate::hub) mod scratch;
 
@@ -117,7 +116,7 @@ use std::time::Duration;
 
 use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::pass::{self, Options};
-use cmux_worktree_care::policy::{Pressure, Settings as CareSettings};
+use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 use cmux_worktree_care::{Store as ArchiveStore, caches, disk};
 
@@ -250,10 +249,6 @@ impl Hub {
             SessionStatus::Closed => "session_close",
             _ => return,
         };
-        self.care_wake(why);
-    }
-
-    pub(super) fn care_wake(&self, why: &'static str) {
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = why;
         CARE.wake.notify_one();
     }
@@ -286,7 +281,7 @@ impl Hub {
         })
     }
 
-    async fn care_if_due(self: &Arc<Self>, why: &'static str) {
+    async fn care_if_due(&self, why: &'static str) {
         let Some(_running) = Running::claim(&CARE.running) else { return };
         let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
@@ -368,23 +363,17 @@ impl Hub {
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
     /// which ends with the pass.
     async fn care_run(
-        self: &Arc<Self>,
+        &self,
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
-        let hub = Arc::clone(self);
+        let live = self.care_sessions();
         let daemon_home = crate::config::home();
         let only_given = !only.is_empty();
         let report = tokio::task::spawn_blocking(move || {
-            let managed = pr_archive::managed_root(&home);
-            let rules = super::auto_settle::read_rules();
-            let mut sessions = hub.care_sessions(managed.as_deref(), &rules);
-            let released: std::collections::HashMap<_, _> = sessions
-                .iter()
-                .filter_map(|s| s.archived_checkout.as_ref().map(|c| (c.root.clone(), c.clone())))
-                .collect();
+            let mut sessions = live;
             sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
             let configs = crate::worktree_sessions::state_configs(&home);
             let options = Options {
@@ -393,17 +382,7 @@ impl Hub {
                 uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
                     &home, &configs,
                 )),
-                open: Arc::new({
-                    let home = home.clone();
-                    move |root| {
-                        if let Some(expected) = released.get(root) {
-                            let open = cmux_worktree_care::procs::open_tree(root)?;
-                            hub.recheck_pr_archive(expected, &home, managed.as_deref())?;
-                            return Ok(open);
-                        }
-                        cmux_worktree_care::procs::open_inside(root)
-                    }
-                }),
+                open: Arc::new(cmux_worktree_care::procs::open_inside),
                 // A recorded session on the Desktop: no git there unasked (LAUNCH-NO-TCC-PROMPTS).
                 guarded: Arc::new(crate::protected_folders::in_protected_location),
                 settings: CareSettings::default(),
@@ -477,6 +456,28 @@ impl Hub {
     /// The last pass's report, if one ran since the daemon started.
     pub(crate) fn care_last_report(&self) -> Option<Value> {
         CARE.last_report.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// This daemon's sessions, as cleanup sees them.
+    fn care_sessions(&self) -> Vec<care_policy::Session> {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions
+            .values()
+            .map(|session| {
+                let meta = session.meta();
+                care_policy::Session {
+                    name: meta.name.clone(),
+                    cwd: meta.cwd.clone(),
+                    open: meta.status != SessionStatus::Closed,
+                    updated_ms: meta.updated_at,
+                    ids: std::iter::once(&meta.id)
+                        .chain(meta.agent_session_id.as_ref())
+                        .chain(&meta.previous_agent_session_ids)
+                        .cloned()
+                        .collect(),
+                }
+            })
+            .collect()
     }
 
     /// Before a session's harness starts: its folder back, when cleanup

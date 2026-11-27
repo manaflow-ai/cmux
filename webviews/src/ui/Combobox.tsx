@@ -556,7 +556,8 @@ export function Combobox({
         <VirtualRows
           items={enabledSuggestions}
           count={enabledSuggestions.length}
-          estimate={ESTIMATED_ROW_PX}
+          estimate={virtualRows?.estimate ?? ESTIMATED_ROW_PX}
+          sizeKey={virtualRows?.sizeKey}
           keep={keyboardIndex}
           virtualizerRef={virtualizer}
           render={renderOption}

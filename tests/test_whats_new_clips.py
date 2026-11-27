@@ -2,7 +2,6 @@
 """scripts/cmux-next/media/whats-new-clips.py: specs, cutting a capture to its clip steps, the
 idle-clip refusal, the clip's length, and the highlight's clip line. Encoding (ffmpeg, img2webp)
 and the fleet capture are not run here."""
-import re
 import importlib.util, io, json, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
@@ -191,14 +190,6 @@ class TimelineTests(unittest.TestCase):
     def test_a_clip_that_never_changes_is_refused(self):
         with self.assertRaisesRegex(clips.ClipError, "idle"):
             self.plan([bytes([10] * 64)] * 8)
-
-    def test_a_before_that_never_changes_is_its_one_frame_held(self):
-        # space-button-spacing's before (2026-11-27): the old app has no spacing setting, so the window is
-        # the same throughout, and that window is the before. An after like it stays refused (above).
-        frames = [Path(f"f{i}.png") for i in range(8)]
-        with mock.patch.object(clips, "gray", return_value=bytes([10] * 64)):
-            plan = clips.timeline(SPEC, frames, "crop", still=True)
-        self.assertEqual(plan, [(Path("f0.png"), clips.MIN_SECONDS)])
 
     def test_a_clip_past_eight_seconds_is_refused(self):
         frames = [bytes([i * 7 % 256] * 64) for i in range(40)]
@@ -565,7 +556,7 @@ class NightlyTourTests(unittest.TestCase):
             self.assertEqual([r["id"] for r in rows], ["f1", "newer"])
 
     def test_publish_auto_marks_each_clip_whose_tour_failed_with_its_tip_and_spec(self):
-        def render_tour(clip_id, tour_dir, out, keep, role="after"):
+        def render_tour(clip_id, tour_dir, out, keep):
             raise clips.ClipError("the tour did not run every step")
         put = mock.Mock()
         module = mock.Mock(put_files=put)
@@ -678,7 +669,7 @@ class NightlyTourTests(unittest.TestCase):
     def test_publish_auto_marks_no_failure_for_a_tour_that_never_ran(self):
         # "no app at 62da558...; its befores wait": the before tours never ran, and publish-auto marked them
         # failed with their spec, which put them behind every other row on the next plan.
-        def render_tour(clip_id, tour_dir, out, keep, role="after"):
+        def render_tour(clip_id, tour_dir, out, keep):
             raise clips.ClipError("the tour did not run every step")
         put = mock.Mock()
         module = mock.Mock(put_files=put)
@@ -784,28 +775,6 @@ class NightlyTourTests(unittest.TestCase):
         frames = clips.tour_frames(SPEC, manifest, Path("/tour"), Path("/unused"))
         self.assertEqual([f.name for f in frames], ["frame-00001.jpg", "frame-00004.jpg", "frame-00007.jpg"])
 
-    def test_a_window_that_goes_away_in_a_clip_step_ends_the_clip_on_an_empty_frame(self):
-        # warn-before-quit-shortcut's before (2026-11-27): the old app quits on the first ⌘Q, its frames stop
-        # 0.1 s into the step, and the clip was refused as "1 frame(s)". It now ends on the window, then empty.
-        manifest = self.manifest(0.0, 2.0, 3.5, video=False)
-        manifest["frames"] = [{"file": f"frames/frame-{i:05d}.jpg", "step": step, "time": t}
-                              for i, (step, t) in enumerate([(1, 0.0), (1, 1.9), (2, 2.0), (2, 2.1)])]
-        made = []
-        with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.object(clips, "size_of", return_value=(660, 612)), \
-                mock.patch.object(clips, "run", side_effect=lambda argv, **kw: made.append(argv)):
-            with self.assertRaisesRegex(clips.ClipError, "span 1 frame"):
-                clips.tour_frames(SPEC, manifest, Path("/tour"), Path(tmp))
-            self.assertEqual(made, [], "no empty frame while the window is there")
-            manifest["frames_ended"] = {"step": 2, "time": 2.2, "reason": "no window"}
-            ended = clips.tour_frames(SPEC, manifest, Path("/tour"), Path(tmp))
-        self.assertEqual([f.name for f in ended], ["frame-00001.jpg", "frame-00003.jpg", "closed.png"])
-        self.assertIn(f"color=c={clips.CLOSED_COLOR}:s=660x612", made[0])
-        # A window that went away outside the clip steps adds nothing.
-        manifest["frames_ended"]["step"] = 3
-        with self.assertRaisesRegex(clips.ClipError, "span 1 frame"):
-            clips.tour_frames(SPEC, manifest, Path("/tour"), Path("/unused"))
-
     def test_a_tour_with_a_failed_clip_step_or_no_step_times_is_refused(self):
         with self.assertRaisesRegex(clips.ClipError, "steps failed: Archive"):
             clips.tour_frames(SPEC, self.manifest(0, 1, 2, statuses={1: "unavailable"}), Path("/t"), Path("/u"))
@@ -820,7 +789,7 @@ class NightlyTourTests(unittest.TestCase):
     def test_publish_auto_renders_each_role_from_its_tour_folder_and_uploads_nothing_without_ocr(self):
         rendered = []
 
-        def render_tour(clip_id, tour_dir, out, keep, role="after"):
+        def render_tour(clip_id, tour_dir, out, keep):
             rendered.append((clip_id, tour_dir.parent.name, tour_dir.name))
             keep.mkdir(parents=True)
             (keep / "0000.png").write_bytes(b"png")
@@ -844,7 +813,7 @@ class NightlyTourTests(unittest.TestCase):
             ocr.write_text('#!/bin/sh\ncase "$1" in *.webp) exit 2;; esac\ncat "$1"\n')
             ocr.chmod(ocr.stat().st_mode | stat.S_IEXEC)
 
-            def render_tour(clip_id, tour_dir, out, keep=None, role="after"):
+            def render_tour(clip_id, tour_dir, out, keep=None):
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(b"RIFF\0\0\0\0WEBPVP8X animated")
                 keep.mkdir(parents=True)
@@ -1191,16 +1160,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("whats-new-clips.py iphone-runs", run)
         self.assertIn('artifact --failed "$step"', run)
         self.assertLess(run.index("done < <("), run.index('"$out/plan.json"'))
-        # Bounded to its job (cmux-next-iphone-clips on 11-26: clips one after another, each with an unbounded
-        # queue wait, sat to the 240-min timeout): every clip's step starts at once, then the job waits for all,
-        # and the queue wait, cmux-ci's uncounted compile (5400 s) and the run fit the job with room to upload.
-        self.assertIn('record_one "$id" "$roles" "$before" &', run)
-        self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
-        self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
-        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
-        self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
-                             (jobs["record"]["timeout-minutes"] - 20) * 60)
-        self.assertIn('"$client" cancel', run)
         publish = jobs["publish"]
         self.assertEqual((publish["needs"], publish["environment"]), ("record", "pr-media"))
         self.assertIn("publish-auto", next(s for s in publish["steps"] if s.get("name") == "Publish the clips")["with"]["command"])

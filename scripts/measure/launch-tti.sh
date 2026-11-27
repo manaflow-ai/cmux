@@ -2,8 +2,7 @@
 # Launch to first interaction (startup-tti) of a cmux NEXT build on a fleet Mac with a console session: the nightly
 # launch-tti leg (cmuxterm-hq next-dogfood.yml) run on demand, so a number comes now and not at the next nightly.
 # scripts/ci/launch_tti_check.py does the driving: 120 workspaces, cold and warm relaunches, process start to the
-# front's first paint and to a typed key taken (the terminal's echo, a Chromium browser tab, the agent chat composer's
-# agent_pane.input_echoed).
+# front's first paint and to a typed key taken (terminal, Chromium browser tab, agent chat).
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL|build] [--arg=build=SHA] \
 #     [--arg=config=bench|Release|Debug] [--arg=input=auto|posted|in_app] [--arg=plan=warm:terminal,warm:browser,warm:chat] \
@@ -23,8 +22,7 @@
 #                that commit's own reload.sh (scripts/measure/app-at-commit.sh), while the check stays this checkout's
 #                (the controller runs this script only at a landed commit; relaunch-restore.sh does the same)
 #   input=       who types (the check's --input): auto posts keys when this process holds the PostEvent grant and
-#                otherwise has the app type its own key: a terminal round's at its first frame (CMUX_NEXT_LAUNCH_TYPE_PROBE=1),
-#                a chat round's when the chat first drew (CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1)
+#                otherwise has the app type its own first-frame key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1)
 #   load=busy    one `yes > /dev/null` per core through each measured launch (the check stops them, on any exit too)
 #   chats=N      chats in the session list (the l5 one and N - 1 more)
 #   launch=      open (default): LaunchServices, activated, as a Dock click; exec: the harness execs the app

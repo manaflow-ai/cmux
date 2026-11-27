@@ -147,17 +147,15 @@ def is_comparison(text: str, end: int) -> bool:
 def default_chain_reaches_literal(text: str, end: int) -> bool:
     """True when a chain ends in a literal, a literal label list or a declared runner pool.
 
-    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`) is a constant non-empty runs-on, as a quoted label
-    is, and so is a list read that falls back to one inside fromJSON (`fromJSON(needs.X.outputs.fallback != '' &&
-    needs.X.outputs.fallback || '["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback).
+    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback) is a constant
+    non-empty runs-on, as a quoted label is.
     """
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
             return re.match(
-                r"\s*\|\|\s*(?:'[^']+'|fromJSON\('\[\s*\"[^']+\]'\)|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+"
-                r"|fromJSON\([^()]*?\|\|\s*'\[\s*\"[^']+\]'\))",
+                r"\s*\|\|\s*(?:'[^']+'|fromJSON\('\[\s*\"[^']+\]'\)|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)",
                 rest,
             ) is not None
         rest = rest[chained.end():]

@@ -3937,127 +3937,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role takes view, talk or drive."
+            "value": "--role takes view or talk."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role nimmt view, talk oder drive."
+            "value": "--role nimmt view oder talk."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role accepte view, talk ou drive."
+            "value": "--role accepte view ou talk."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يقبل ‎--role القيمة view، talk أو drive."
+            "value": "يقبل ‎--role القيمة view أو talk."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role admite view, talk o drive."
+            "value": "--role admite view o talk."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role 只接受 view、talk 或 drive。"
+            "value": "--role 只接受 view 或 talk。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role 只接受 view、talk 或 drive。"
+            "value": "--role 只接受 view 或 talk。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role에는 view, talk 또는 drive를 지정하세요."
+            "value": "--role에는 view 또는 talk를 지정하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role には view、talk か drive を指定します。"
+            "value": "--role には view か talk を指定します。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role prima view, talk ili drive."
+            "value": "--role prima view ili talk."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role tager view, talk eller drive."
+            "value": "--role tager view eller talk."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role accetta view, talk o drive."
+            "value": "--role accetta view o talk."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role ទទួល view, talk ឬ drive។"
+            "value": "--role ទទួល view ឬ talk។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role tar view, talk eller drive."
+            "value": "--role tar view eller talk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role przyjmuje view, talk lub drive."
+            "value": "--role przyjmuje view lub talk."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role aceita view, talk ou drive."
+            "value": "--role aceita view ou talk."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role принимает view, talk или drive."
+            "value": "--role принимает view или talk."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role รับค่า view, talk หรือ drive"
+            "value": "--role รับค่า view หรือ talk"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role view, talk ya da drive alır."
+            "value": "--role view ya da talk alır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role приймає view, talk або drive."
+            "value": "--role приймає view або talk."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role nhận view, talk hoặc drive."
+            "value": "--role nhận view hoặc talk."
           }
         }
       }
@@ -4189,137 +4189,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đã mời %@. Sau khi đăng nhập, họ có thể xem cuộc trò chuyện này."
-          }
-        }
-      }
-    },
-    "agentShare.invite.invitedDrive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invited %@. They can run the agent as you, on your plan and your machine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ eingeladen. Diese Person kann den Agenten unter deinem Namen mit deinem Abo auf deinem Rechner ausführen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ a été invité. Cette personne peut exécuter l’agent en votre nom, avec votre forfait et sur votre machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تمت دعوة %@. يمكن لهذا الشخص تشغيل الوكيل باسمك باستخدام خطتك وعلى جهازك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se invitó a %@. Esta persona puede ejecutar el agente en tu nombre con tu plan y en tu equipo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已邀請 %@。對方可以你的身分，使用你的方案在你的電腦上執行代理程式。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已邀请 %@。对方可以你的身份，使用你的套餐在你的设备上运行智能体。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 님을 초대했습니다. 이 사용자는 회원님의 계정과 요금제를 사용해 회원님의 컴퓨터에서 에이전트를 실행할 수 있습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を招待しました。このユーザーは、あなたのプランを使い、あなたのマシン上であなたとしてエージェントを実行できます。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozvano: %@. Ova osoba može pokretati agenta u tvoje ime, koristeći tvoj plan i tvoj računar."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ er inviteret. Personen kan køre agenten som dig med dit abonnement på din computer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invito inviato a %@. Questa persona può eseguire l’agente a tuo nome, con il tuo piano e sul tuo computer."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានអញ្ជើញ %@។ បុគ្គលនេះអាចដំណើរការភ្នាក់ងារក្នុងនាមអ្នក ដោយប្រើគម្រោងរបស់អ្នកនៅលើម៉ាស៊ីនរបស់អ្នក។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ er invitert. Personen kan kjøre agenten som deg med abonnementet ditt på maskinen din."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaproszono %@. Ta osoba może uruchamiać agenta w Twoim imieniu, w ramach Twojego planu i na Twoim komputerze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Convite enviado a %@. Essa pessoa pode executar o agente em seu nome, usando seu plano e seu computador."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Приглашение отправлено %@. Этот пользователь может запускать агента от вашего имени, используя ваш тариф и ваш компьютер."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เชิญ %@ แล้ว บุคคลนี้สามารถเรียกใช้เอเจนต์ในนามของคุณ โดยใช้แพ็กเกจของคุณบนเครื่องของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ davet edildi. Bu kişi sizin adınıza, planınızı kullanarak bilgisayarınızda aracıyı çalıştırabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запрошено %@. Цей користувач може запускати агента від вашого імені, використовуючи ваш тариф і ваш комп’ютер."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã mời %@. Người này có thể chạy tác nhân thay mặt bạn, bằng gói của bạn trên máy của bạn."
           }
         }
       }
@@ -5106,137 +4975,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Họ có thể xem nhưng không gửi được tin nhắn."
-          }
-        }
-      }
-    },
-    "agentShare.invite.consent.drive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "They can run the agent as you, on your plan and your machine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Person kann den Agenten unter deinem Namen mit deinem Abo auf deinem Rechner ausführen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette personne peut exécuter l’agent en votre nom, avec votre forfait et sur votre machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن لهذا الشخص تشغيل الوكيل باسمك باستخدام خطتك وعلى جهازك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta persona puede ejecutar el agente en tu nombre con tu plan y en tu equipo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對方可以你的身分，使用你的方案在你的電腦上執行代理程式。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对方可以你的身份，使用你的套餐在你的设备上运行智能体。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 사용자는 회원님의 계정과 요금제를 사용해 회원님의 컴퓨터에서 에이전트를 실행할 수 있습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このユーザーは、あなたのプランを使い、あなたのマシン上であなたとしてエージェントを実行できます。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ova osoba može pokretati agenta u tvoje ime, koristeći tvoj plan i tvoj računar."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personen kan køre agenten som dig med dit abonnement på din computer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa persona può eseguire l’agente a tuo nome, con il tuo piano e sul tuo computer."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បុគ្គលនេះអាចដំណើរការភ្នាក់ងារក្នុងនាមអ្នក ដោយប្រើគម្រោងរបស់អ្នកនៅលើម៉ាស៊ីនរបស់អ្នក។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personen kan kjøre agenten som deg med abonnementet ditt på maskinen din."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ta osoba może uruchamiać agenta w Twoim imieniu, w ramach Twojego planu i na Twoim komputerze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Essa pessoa pode executar o agente em seu nome, usando seu plano e seu computador."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот пользователь может запускать агента от вашего имени, используя ваш тариф и ваш компьютер."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บุคคลนี้สามารถเรียกใช้เอเจนต์ในนามของคุณ โดยใช้แพ็กเกจของคุณบนเครื่องของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu kişi sizin adınıza, planınızı kullanarak bilgisayarınızda aracıyı çalıştırabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей користувач може запускати агента від вашого імені, використовуючи ваш тариф і ваш комп’ютер."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Người này có thể chạy tác nhân thay mặt bạn, bằng gói của bạn trên máy của bạn."
           }
         }
       }
@@ -6154,137 +5892,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Email hoặc @tên người dùng"
-          }
-        }
-      }
-    },
-    "agentShare.sheet.canDrive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can drive"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Darf den Agenten steuern"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Peut piloter l’agent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكنه التحكم بالوكيل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Puede controlar el agente"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可控制代理程式"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可控制智能体"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 제어 가능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントを操作可能"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Može upravljati agentom"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kan styre agenten"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Può controllare l’agente"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អាចបញ្ជាភ្នាក់ងារ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kan styre agenten"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Może sterować agentem"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pode controlar o agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Может управлять агентом"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ควบคุมเอเจนต์ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aracıyı yönetebilir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Може керувати агентом"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Có thể điều khiển tác nhân"
           }
         }
       }

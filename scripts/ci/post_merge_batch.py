@@ -59,14 +59,9 @@ DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
-# Runs read back to find the last batch run where a job ran, a page at a time (GitHub's largest page).
+# Runs read back to find the last batch run where a job ran (one page, GitHub's largest: at a batch every
+# ~10 merges, about 100 a day, it reaches back about a day, plus probes).
 RUNS_PAGE = 100
-# The judge reads back this many batch runs (about a day at one every ~55 min), paging past the probes between them,
-# at most MAX_RUNS_PAGES pages. One page was the whole reach before 2026-11-27: at 01:57Z its 100 runs were 94 probes
-# and 6 batch runs (5.5 h), so a red older than that had no green in reach and stuck_reds skipped it; the 01:2xZ batch
-# run 45919537854 called 25 of its 28 reds "a known red, no bisect" (cmuxterm-hq goals/base-batch-reverts-culprit.md).
-LOOKBACK_BATCHES = 24
-MAX_RUNS_PAGES = 8
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
 # At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
@@ -334,34 +329,13 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0) -> list[dict]:
-    """This workflow's runs on branch, newest first: one page, or with batches, the runs older than run id before
-    (all, when 0) back to and including the batches-th batch run among them, paging at most MAX_RUNS_PAGES pages.
-    A batch run's judge and its probes' judges pass the same before and batches, so they read the same batch runs."""
+def list_runs(repo: str, branch: str, api=None) -> list[dict]:
+    """This workflow's runs on branch, newest first (one page)."""
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
-    runs: list[dict] = []
-    for page in range(1, (MAX_RUNS_PAGES if batches else 1) + 1):
-        data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}"
-                   + (f"&page={page}" if page > 1 else ""))
-        got = list((data or {}).get("workflow_runs") or [])
-        runs += got
-        older = [r for r in runs if not before or (r.get("id") or 0) < before]
-        if not batches or len(got) < RUNS_PAGE or sum(map(is_batch, older)) >= batches:
-            break
-    seen: set = set()
-    runs = [r for r in runs if not (r.get("id") in seen or seen.add(r.get("id")))]
+    data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
+    runs = list((data or {}).get("workflow_runs") or [])
     runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
-    if not batches:
-        return runs
-    out, count = [], 0
-    for r in runs:
-        if before and (r.get("id") or 0) >= before:
-            continue
-        if count >= batches:
-            break
-        out.append(r)
-        count += is_batch(r)
-    return out
+    return runs
 
 
 def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
@@ -800,38 +774,13 @@ SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
 DISPATCH_WAITS = (15, 45)
 
 
-def probe_title(probe: Probe) -> str:
-    """The probe run's title (the workflow's run-name for a probe dispatch)."""
-    return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
-
-
-def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
-    """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
-    (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
-    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
-    return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
-
-
-def known_verdict(runs: list[dict], probe: Probe, jobs_of) -> tuple[str, dict] | None:
-    """A finished probe run of the same title (suite, job, commit) from an earlier bisect, and its verdict, if it
-    gave one: a bisect the next batch starts again then reads it instead of running the same probe again (the
-    web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first)."""
-    title = probe_title(probe)
-    for run in runs:
-        if (run.get("display_title") or "") == title and run.get("status") == "completed":
-            conclusion = probe_conclusion(jobs_of(run["id"])[0], probe)
-            if conclusion in ("success", "failure"):
-                return conclusion, run
-    return None
-
-
 def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
     """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
     run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    title = probe_title(probe)
+    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
     for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
         if attempt:
             listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
@@ -926,7 +875,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
 
     if args.mode != PROBE:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
-        runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
+        runs = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < int(args.run_id or 0) or not args.run_id]
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
         stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
         stuck_names = {name for name, *_ in stuck}
@@ -955,28 +904,16 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 0
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0), args.pieces or "")
-    found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
-        if origin and is_batch(origin):
-            before = list_runs(args.repo, args.branch, before=origin["id"], batches=LOOKBACK_BATCHES)
-            origin_verdicts = jobs_of(origin["id"])[0]
-            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
-            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
-    except RuntimeError as err:
-        # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
-        # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
-        # again from its first probe (probe run 45910283297, 11-26 23:34Z: "origin run 45901639171 is
-        # unreadable" after the full 600 s budget; its web-tests chain was re-probed commit for commit an hour
-        # later). Run the same probe again instead: its judge checks the inputs once GitHub answers.
-        if probe.tries < MAX_PROBE_RETRIES:
-            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1})
-            summary(args.summary, f"The origin run could not be read ({str(err)[-200:]}); running the probe at `{probe.sha[:11]}` again.")
-            if not args.dry_run:
-                dispatch_probe(args.repo, args.branch, again)
-            write_outputs(args.github_output, out)
-            return 0
-        origin, found = None, []
+    except RuntimeError:
+        origin = None
+    found: list[tuple[str, str, str]] = []
+    if origin and is_batch(origin):
+        before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
+        origin_verdicts = jobs_of(origin["id"])[0]
+        found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+        found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
     state = None
     if probe.pieces:
         try:
@@ -994,7 +931,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 1
     # The probe ran one suite job (or the whole suite when the red job had no manifest id):
     # its verdict is the job with the red job's name, else the worst of the suite's jobs.
-    conclusion = probe_conclusion(verdicts, probe)
+    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    conclusion = mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
     if state is not None:
         out.update(judge_pieces(args, probe, state, conclusion))
         write_outputs(args.github_output, out)
@@ -1002,17 +940,6 @@ def cmd_judge(args: argparse.Namespace) -> int:
     head = probe.bad or probe.sha
     commits = first_parent_range(probe.good, head)
     step, value = next_step(probe, conclusion, commits)
-    try:
-        runs = list_runs(args.repo, args.branch) if step == "probe" else []
-    except RuntimeError:
-        runs = []
-    for _ in range(len(commits)):  # each known verdict narrows the range, so this ends
-        known = known_verdict(runs, value, jobs_of) if step == "probe" and isinstance(value, Probe) else None
-        if not known:
-            break
-        summary(args.summary, f"`{value.job}` was already {known[0]} at `{value.sha[:11]}` (probe run {known[1]['id']}); not probing it again.")
-        conclusion, probe = known[0], value
-        step, value = next_step(value, known[0], commits)
     if step in ("probe", "retry"):
         assert isinstance(value, Probe)
         summary(args.summary, f"`{probe.job}` was {conclusion or 'unfinished'} at `{probe.sha[:11]}`; next probe `{value.sha[:11]}` (good `{value.good[:11]}`, bad `{value.bad[:11]}`).")

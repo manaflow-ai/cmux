@@ -759,9 +759,8 @@ class RealWorkflow(unittest.TestCase):
         setup_python = next(i for i, s in enumerate(steps) if s.get("id") == "setup-python")
         self.assertLess(setup_python, index)
         self.assertTrue(all(not str(s.get("id") or "").startswith("tt-") for s in steps[:index]))
-        # No routing job of its own: tooling-tests waits on coalesce, on the base-red check (#52891) and on the
-        # full-ci base merge carry (scripts/ci/head_tier.py full_carry), which only a labeled event runs.
-        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red", "full-carry"])
+        # No routing job of its own: tooling-tests waits on coalesce and on the base-red check (#52891).
+        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
         self.assertIn("(!cancelled() && needs.coalesce.outputs.run != 'false')", self.job["if"])  # after the draft tier
 

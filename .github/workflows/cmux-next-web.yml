@@ -76,7 +76,7 @@ jobs:
       TICK: ${{ github.event_name == 'workflow_dispatch' && inputs.tick && '1' || '0' }}
     steps:
       - name: Checkout the coalesce helper
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -157,7 +157,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout with history
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           filter: blob:none

@@ -37,7 +37,7 @@ public final class RemoteVNCSession {
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
         endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
-        if host == demoHost { demo = VNCDemoServer(configuration: .init(rules: RemoteVNCRules.rules)) }
+        if host == demoHost { demo = VNCDemoServer() }
     }
 
     /// A Cloud machine's desktop (`via=cloud`): its VNC server, reached by `makeTransport`.

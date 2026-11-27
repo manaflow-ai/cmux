@@ -52,7 +52,7 @@ public final class ChiefComputerControlStore {
         public var message: String {
             switch self {
             case .noMachine: String(localized: "cloud.computerControl.noMachine", defaultValue: "Name the Cloud machine whose computer it is (machine).", table: "HostedChief", bundle: .localizedModule)
-            case .badAction: String(localized: "cloud.computerControl.badAction", defaultValue: "Unknown action. Try status.", table: "HostedChief", bundle: .localizedModule)
+            case .badAction: String(localized: "cloud.computerControl.badAction", defaultValue: "Say what to do: status, take_over, hand_back or request_human.", table: "HostedChief", bundle: .localizedModule)
             case .notHere: String(localized: "cloud.computerControl.notHere", defaultValue: "Who drives a Chief's computer changes only on this Mac.", table: "HostedChief", bundle: .localizedModule)
             case .userOriginRequired: "computer.user_origin_required: " + String(localized: "cloud.computerControl.userOriginRequired", defaultValue: "Only the person can take over this computer or give it back once they took it.", table: "HostedChief", bundle: .localizedModule)
             case .humanHasControl: "computer.human_has_control: " + String(localized: "cloud.computerControl.humanHasControl", defaultValue: "The person is using this machine's computer. Wait until they give it back.", table: "HostedChief", bundle: .localizedModule)

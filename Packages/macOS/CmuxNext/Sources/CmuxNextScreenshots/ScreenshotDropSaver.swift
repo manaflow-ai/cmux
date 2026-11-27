@@ -1,5 +1,4 @@
 public import AppKit
-import CCmuxScreenshots
 public import CmuxNextFileGrid
 public import CmuxNextFiles
 
@@ -53,12 +52,10 @@ public struct ScreenshotDropSaver {
     ///
     /// - Parameter date: when it was dropped.
     public nonisolated static func droppedName(at date: Date) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-        let name = cmux_screenshots_dropped_name(Int32(parts.year ?? 0), UInt32(parts.month ?? 0), UInt32(parts.day ?? 0),
-                                                 UInt32(parts.hour ?? 0), UInt32(parts.minute ?? 0), UInt32(parts.second ?? 0))
-        return ScreenshotsFFI.take(name) ?? ""
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return "Dropped Image \(formatter.string(from: date)).png"
     }
 
     private func copy(_ urls: [URL], into folder: URL) async throws -> [URL] {

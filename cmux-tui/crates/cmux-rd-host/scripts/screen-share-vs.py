@@ -1018,8 +1018,6 @@ CLOCK_PROBE_SECONDS = 20.0
 
 
 def cmd_clock_serve(args):
-    if getattr(args, "tcp", False):
-        return clock_serve_tcp(args)
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((args.bind, args.port))
     print(json.dumps({"listening": s.getsockname()[1]}), flush=True)
@@ -1034,51 +1032,8 @@ def cmd_clock_serve(args):
         s.sendto(data[:8] + struct.pack("!Q", mono_ns()), peer)
 
 
-def clock_serve_tcp(args):
-    """clock-serve --tcp: the same 8-byte question and 16-byte answer over one TCP connection at a
-    time. A fleet pair job runs it on the viewer, so the host dials in over the path its peer-serve
-    calls already use: macOS Local Network privacy refuses a UDP send from a cmux-ci step to a LAN
-    peer (Errno 65), and UDP over the tailnet got no answer, while an accepted TCP socket replies."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((args.bind, args.port))
-    s.listen(4)
-    print(json.dumps({"listening": s.getsockname()[1], "tcp": True}), flush=True)
-    end = time.time() + args.seconds
-    conns = []
-    while time.time() < end:
-        r, _, _ = select.select([s, sys.stdin] + conns, [], [], 0.5)
-        if sys.stdin in r and not os.read(sys.stdin.fileno(), 4096):
-            return  # the orchestrator went away
-        for c in r:
-            if c is s:
-                conn, _ = s.accept()
-                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                conns.append(conn)
-            elif c in conns:
-                data = recv_exact(c, 8)
-                if data is None:
-                    conns.remove(c)
-                    c.close()
-                    continue
-                c.sendall(data + struct.pack("!Q", mono_ns()))
-
-
-def recv_exact(sock, n):
-    """N bytes from a stream socket, or None when the peer closed first."""
-    buf = b""
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
-            return None
-        buf += chunk
-    return buf
-
-
 def cmd_clock_probe(args):
     host, port = args.addr.rsplit(":", 1)
-    if getattr(args, "tcp", False):
-        return clock_probe_tcp(args, host, int(port))
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0.5)
     best = None
@@ -1110,47 +1065,6 @@ def cmd_clock_probe(args):
         if best is None or rtt < best[0]:
             best = (rtt, offset)
         time.sleep(args.gap_ms / 1000.0)
-    if best is None:
-        print(json.dumps({"error": "no clock replies"}))
-        sys.exit(2)
-    print(json.dumps({"offset_ns": best[1], "rtt_min_ms": best[0] / 1e6,
-                      "rtt_ms": summary(rtts), "replies": len(rtts)}))
-
-
-def clock_probe_tcp(args, host, port):
-    """clock-probe --tcp: ask clock-serve --tcp over one connection; the same JSON as the UDP probe
-    (offset_ns is the server's clock minus this Mac's)."""
-    deadline = time.time() + args.max_seconds
-    try:
-        s = socket.create_connection((host, port), timeout=5)
-    except OSError as e:
-        print(json.dumps({"error": f"clock connect: {e}"}))
-        sys.exit(2)
-    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    s.settimeout(2)
-    best = None
-    rtts = []
-    try:
-        for i in range(args.count):
-            if time.time() >= deadline:
-                break
-            t0 = mono_ns()
-            s.sendall(struct.pack("!Q", i))
-            data = recv_exact(s, 16)
-            t1 = mono_ns()
-            if data is None or struct.unpack("!Q", data[:8])[0] != i:
-                break
-            th = struct.unpack("!Q", data[8:16])[0]
-            rtt = t1 - t0
-            rtts.append(rtt / 1e6)
-            offset = th - (t0 + rtt // 2)
-            if best is None or rtt < best[0]:
-                best = (rtt, offset)
-            time.sleep(args.gap_ms / 1000.0)
-    except OSError:
-        pass
-    finally:
-        s.close()
     if best is None:
         print(json.dumps({"error": "no clock replies"}))
         sys.exit(2)
@@ -2438,16 +2352,7 @@ class Orchestrator:
                 print(f"clock probe try {len(errors)} of {self.CLOCK_TRIES} failed: {errors[-1]}", file=sys.stderr, flush=True)
         raise RuntimeError(f"clock probe failed {len(errors)} times: " + " | ".join(errors))
 
-    def clock_over_peer(self):
-        """Whether the clock rides TCP from the host to the viewer's LAN address: a fleet pair job
-        (the host local, the viewer a PeerRemote). That is the path the host's peer-serve calls
-        already proved; the UDP probe from the viewer died on Local Network privacy over the LAN
-        (Errno 65) and got no answer over the tailnet (2026-11-27)."""
-        return isinstance(self.viewer, PeerRemote) and getattr(self.host, "via", None) == "local"
-
     def clock_once(self):
-        if self.clock_over_peer():
-            return self.clock_once_tcp()
         # Port 0: a clock server still draining from the last probe never collides.
         srv = self.host.popen(f"{self.py} {self.me} clock-serve --bind {self.a.host_ip} "
                               f"--port 0 --seconds 180")
@@ -2467,27 +2372,6 @@ class Orchestrator:
         finally:
             srv.terminate()
         return json.loads(out.strip().splitlines()[-1])
-
-    def clock_once_tcp(self):
-        from urllib.parse import urlsplit
-        viewer_ip = urlsplit(self.viewer.url).hostname
-        srv = self.viewer.popen(f"{self.py} {self.me} clock-serve --tcp --bind {viewer_ip} "
-                                f"--port 0 --seconds 180")
-        line = readline(srv, time.time() + 45)
-        try:
-            port = json.loads(line or "{}").get("listening")
-            if not port:
-                raise RuntimeError(f"clock-serve --tcp on {self.a.viewer} did not start: {line!r}")
-            out = self.host.run(f"{self.py} {self.me} clock-probe --tcp --addr {viewer_ip}:{port} "
-                                f"--count {self.a.clock_count} --max-seconds {CLOCK_PROBE_SECONDS}",
-                                timeout=CLOCK_PROBE_SECONDS + 60)
-        finally:
-            srv.terminate()
-        r = json.loads(out.strip().splitlines()[-1])
-        # The probe measured the viewer's clock minus the host's; every reader wants host minus viewer.
-        r["offset_ns"] = -r["offset_ns"]
-        r["path"] = "tcp host->viewer"
-        return r
 
     # cmux ------------------------------------------------------------------------------
 
@@ -3626,7 +3510,6 @@ def build_parser():
     s.add_argument("--bind", default="0.0.0.0")
     s.add_argument("--port", type=int, default=47123)
     s.add_argument("--seconds", type=float, default=30)
-    s.add_argument("--tcp", action="store_true", help="answer over TCP (a fleet pair job's viewer)")
     s.set_defaults(fn=cmd_clock_serve)
     p = sub.add_parser("clock-probe")
     p.add_argument("--addr", required=True)
@@ -3634,7 +3517,6 @@ def build_parser():
     p.add_argument("--max-seconds", type=float, default=CLOCK_PROBE_SECONDS,
                    help="stop probing after this long, replies or not (a lossy link)")
     p.add_argument("--gap-ms", type=float, default=5)
-    p.add_argument("--tcp", action="store_true", help="ask clock-serve --tcp")
     p.set_defaults(fn=cmd_clock_probe)
     b = sub.add_parser("rfb-bench")
     b.add_argument("--host", required=True)

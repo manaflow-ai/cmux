@@ -1,7 +1,6 @@
 //! Peer link-loop operations; requests and notifications are in `peer_runtime_requests.rs`.
 
 use super::*;
-use acpmux_list_types::resume::ResumeErrorClass;
 
 tokio::task_local! {
     /// Set while a link that heard nothing for this long dials its replacement
@@ -42,11 +41,7 @@ impl Peer {
         }
         self.watch_tailnet();
         let mut immediate_redial = false;
-        // A peer nothing uses waits here instead of dialing (`peer_demand.rs`). This loop's
-        // retry bound is its existing park schedule, not a `ResumeBudget`: the doubling backoff,
-        // then the hourly park of a peer down for a day (`park_at_start`, `PeerLink::retry_delay`).
-        // Network-drop recovery depends on those timings; the class of each end only goes to the
-        // log.
+        // A peer nothing uses waits here instead of dialing (`peer_demand.rs`).
         while !self.stop.load(Ordering::SeqCst) && self.await_demand().await {
             crate::gauges::bump(&crate::gauges::links().link_dials);
             if immediate_redial {
@@ -56,8 +51,6 @@ impl Peer {
             let restarting =
                 matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching | LinkEnd::Idle));
             let was_ready = self.link().is_ready();
-            let class = self.link_end_class(&outcome);
-            tracing::debug!(peer = %self.name, class = %class, "the peer link ended");
             let notice = self.finish_link(outcome, &mut backoff);
             // A ready link that just died (a dropped network, a wake from sleep) redials at once:
             // chats are open on it. Only with no failure counted since its backoff last started
@@ -113,15 +106,6 @@ impl Peer {
         // Stopping during backoff (or before the loop starts) also retires
         // accepted callers retained by the previous link. No reconnect owns them now.
         self.fail_link_requests(&mut out_rx).await;
-    }
-
-    /// What one connect attempt's end means ([`crate::peer_link::link_end_class`]), from typed
-    /// facts the attempt left: a refused ssh login or token, a `LinkTimings` deadline passed.
-    pub(super) fn link_end_class(&self, outcome: &Result<LinkEnd, String>) -> ResumeErrorClass {
-        let refused =
-            self.login_refused.load(Ordering::SeqCst) || self.facts.lock_or_recover().refused;
-        let timed_out = self.link_timed_out.load(Ordering::SeqCst);
-        crate::peer_link::link_end_class(outcome.is_ok(), refused, timed_out)
     }
 
     /// Publish the link ending before settling requests. Restart neither increments failed
@@ -236,7 +220,6 @@ impl Peer {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
         self.login_refused.store(false, Ordering::SeqCst);
-        self.link_timed_out.store(false, Ordering::SeqCst);
         #[cfg(test)]
         if test_dial::refused() {
             if test_dial::login_refused() {
@@ -1040,7 +1023,6 @@ impl Peer {
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
-                    self.link_timed_out.store(true, Ordering::SeqCst);
                     break Err(self.deadline_passed(timed_out(handshake_started)));
                 }
                 // The silence budget ran out between two ping ticks (`silence_due`). The same rule
@@ -1142,7 +1124,6 @@ impl Peer {
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
                     // the handshake (or move the deadline on past its cap).
                     if (!self.link().is_ready() || !listed) && handshake_deadline.is_elapsed() {
-                        self.link_timed_out.store(true, Ordering::SeqCst);
                         break Err(self.deadline_passed(timed_out(handshake_started)));
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
@@ -1533,25 +1514,6 @@ pub(crate) fn page_max_seq(page: &Value) -> Option<u64> {
 /// these codes.
 pub(crate) fn refuses_attach(e: &RpcError) -> bool {
     matches!(e.code, -32002 | -32601 | -32602)
-}
-
-/// What a failed attach of a peer's chat means to its resume (`acpmux_list_types::resume`), by
-/// code and `data.reason`, never by message text. A refusal ([`refuses_attach`]) is never tried
-/// again: `-32002` is `not_found` (no session matches on the peer: the chat is gone there, so
-/// its cursor names nothing), and `-32601` / `-32602` say the peer takes no such attach. A wait
-/// past its deadline is `deadline_exceeded`; a link that dropped or took no new request is
-/// `peer_unreachable` / `peer_disconnected`. Both of those are tried again on the same link
-/// ([`ATTACH_RETRY_AFTER`]), as is anything else the link failed with.
-pub(crate) fn attach_failure_class(e: &RpcError) -> ResumeErrorClass {
-    match e.code {
-        -32002 => ResumeErrorClass::GapTooOld,
-        -32601 | -32602 => ResumeErrorClass::Unknown,
-        _ => match e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
-            Some("deadline_exceeded") => ResumeErrorClass::DeadlineExceeded,
-            Some("peer_unreachable" | "peer_disconnected") => ResumeErrorClass::Transient,
-            _ => ResumeErrorClass::Unknown,
-        },
-    }
 }
 
 /// The list position an `_acpmux/watch` reply is current to (`hub/row_log.rs`): its

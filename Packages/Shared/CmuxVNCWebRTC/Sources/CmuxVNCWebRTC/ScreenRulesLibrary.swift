@@ -1,10 +1,9 @@
 #if canImport(Darwin)
 import Darwin
 #endif
-import CmuxVNC
 import Foundation
 
-/// ``ScreenRules`` (and the RFB client's ``VNCRules``) from libcmux_rd_screen.dylib (cmux-tui/crates/cmux-rd-screen-ffi, its header
+/// ``ScreenRules`` from libcmux_rd_screen.dylib (cmux-tui/crates/cmux-rd-screen-ffi, its header
 /// include/cmux_rd_screen.h), for a process that runs a host outside the app: cmux Remote's Screen
 /// Sharing worker (the dylib in its Contents/Frameworks) and cmux-vnc-host (the dylib beside it).
 /// The app hands its hosts CCmuxAppFFI's channel instead, and the phone cmux-mobile-link-ffi's.
@@ -15,30 +14,28 @@ extension ScreenRules {
     /// The rules of the library this process ships, found once: `CMUX_RD_SCREEN_DYLIB`, else the
     /// running bundle's Frameworks, else the executable's folder. None (the full display, the cursor
     /// in the picture, no focus signals) when there is no library there.
-    public static let bundled: ScreenRules = RulesLibrary.bundled.map { library in
-        ScreenRules { operation, data in library.call(operation, data) }
-    } ?? ScreenRules()
+    public static let bundled: ScreenRules = {
+        var candidates: [URL] = []
+        if let path = ProcessInfo.processInfo.environment["CMUX_RD_SCREEN_DYLIB"], !path.isEmpty {
+            candidates.append(URL(fileURLWithPath: path))
+        }
+        if let frameworks = Bundle.main.privateFrameworksURL {
+            candidates.append(frameworks.appendingPathComponent(libraryName))
+        }
+        if let executable = Bundle.main.executableURL {
+            candidates.append(executable.deletingLastPathComponent().appendingPathComponent(libraryName))
+        }
+        for url in candidates where FileManager.default.fileExists(atPath: url.path) {
+            if let rules = library(at: url) { return rules }
+        }
+        return ScreenRules()
+    }()
 
     /// The rules answered by the library at `url`; nil when it does not open or is not ABI v1.
     /// The library stays loaded for the life of the process.
     public static func library(at url: URL) -> ScreenRules? {
         guard let library = RulesLibrary(path: url.path) else { return nil }
         return ScreenRules { operation, data in library.call(operation, data) }
-    }
-}
-
-extension VNCRules {
-    /// The RFB client's rules (cmux-vnc's `vnc_*` ops) from the same library as
-    /// ``ScreenRules/bundled``, for a host outside the app that reads Screen Sharing
-    /// (``VNCLoopbackBackend``); none without the library, and its handshake fails.
-    public static let bundled: VNCRules = RulesLibrary.bundled.map { library in
-        VNCRules { operation, data in library.call(operation, data) }
-    } ?? VNCRules()
-
-    /// The rules answered by the library at `url`; nil when it does not open or is not ABI v1.
-    public static func library(at url: URL) -> VNCRules? {
-        guard let library = RulesLibrary(path: url.path) else { return nil }
-        return VNCRules { operation, data in library.call(operation, data) }
     }
 }
 
@@ -53,24 +50,6 @@ private struct RulesLibrary: Sendable {
     /// `cmux_rd_screen_json`'s address, kept as an integer so the struct is plainly Sendable (the
     /// library never unloads, and the function is safe to call from any thread).
     let address: UInt
-
-    /// The library this process ships (see ``ScreenRules/bundled``), opened once.
-    static let bundled: RulesLibrary? = {
-        var candidates: [URL] = []
-        if let path = ProcessInfo.processInfo.environment["CMUX_RD_SCREEN_DYLIB"], !path.isEmpty {
-            candidates.append(URL(fileURLWithPath: path))
-        }
-        if let frameworks = Bundle.main.privateFrameworksURL {
-            candidates.append(frameworks.appendingPathComponent(ScreenRules.libraryName))
-        }
-        if let executable = Bundle.main.executableURL {
-            candidates.append(executable.deletingLastPathComponent().appendingPathComponent(ScreenRules.libraryName))
-        }
-        for url in candidates where FileManager.default.fileExists(atPath: url.path) {
-            if let library = RulesLibrary(path: url.path) { return library }
-        }
-        return nil
-    }()
 
     init?(path: String) {
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else { return nil }

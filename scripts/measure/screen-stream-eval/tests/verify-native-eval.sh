@@ -4,8 +4,6 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 # Fetching the counterexamples must not start background Git maintenance.
 source "$root/scripts/cmux-next/tests/lib/git-fixture.sh"
-# A fleet step's source has no origin: measure_fetch_commit falls back to the public repository.
-source "$root/scripts/measure/fetch-commit.sh"
 eval_dir="$root/scripts/measure/screen-stream-eval"
 crate="$root/cmux-tui/crates/cmux-rd-host"
 work=$(mktemp -d)
@@ -20,7 +18,7 @@ finish() {
 git_fixture_trap_exit finish
 # Broker snapshots contain the requested tree, not its complete history.
 # Fetch the exact old commit used by both counterexamples explicitly.
-measure_fetch_commit "$root" 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7
+git fetch --no-tags --depth=1 origin 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7
 cp "$eval_dir/test_netem.py" "$work/test_netem.py"
 git show 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7:scripts/measure/screen-stream-eval/netem.py >"$work/netem.py"
 if python3 "$work/test_netem.py" RelayTests.test_idle_tcp_survives_connect_deadline >"$work/tcp-before.log" 2>&1; then
@@ -57,7 +55,7 @@ python3 "$eval_dir/test_netem.py"
 # AV1 feature without requiring a system codec library.
 cargo test --manifest-path "$crate/Cargo.toml" --no-default-features --features bench,av1 bench::eval_tests
 cp "$crate/src/bench.rs" "$work/bench-after.rs"
-measure_fetch_commit "$root" 2d4c0800300a0e3e52ec9ced6c3aa99e61fdb147
+git fetch --no-tags --depth=1 origin 2d4c0800300a0e3e52ec9ced6c3aa99e61fdb147
 git show 2d4c0800300a0e3e52ec9ced6c3aa99e61fdb147:cmux-tui/crates/cmux-rd-host/src/bench.rs >"$crate/src/bench.rs"
 cat >>"$crate/src/bench.rs" <<'EOF'
 

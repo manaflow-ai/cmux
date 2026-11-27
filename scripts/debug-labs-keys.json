@@ -13,7 +13,6 @@
   "labs.machineJoin": {"case": "keep", "why": "Mints a line that joins any machine to the team: a network switch only the person turns on."},
   "labs.liveCode": {"case": "keep", "why": "Loads Swift patches into the running app: a switch only the person turns on."},
   "labs.agentCustomization": {"case": "keep", "why": "Shows and edits Claude Code's and Codex's own settings files from Settings: off until the card is finished, and only the person turns it on."},
-  "labs.teamCompute": {"case": "keep", "why": "Shows the team's compute allotment in Settings > Cloud: off until the platform serves allotments to every team, and only the person turns it on."},
   "agent.chromium": {"case": "keep", "why": "Kill switch for the agent chat in Chromium: off returns to WebKit, which shows window glass through the page and Chromium does not."},
   "agent.composerPlainFooter": {"case": "keep", "why": "A look comparison for the composer footer; the default plain look (Claude Code desktop's) is the chosen one."},
   "agent.harnessPlacement": {"case": "keep", "why": "A look comparison of four model picker layouts; the default top row of symbols is the chosen one."},

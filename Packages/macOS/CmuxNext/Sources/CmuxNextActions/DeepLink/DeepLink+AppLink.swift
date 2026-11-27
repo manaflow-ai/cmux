@@ -1,5 +1,4 @@
 public import Foundation
-import os
 
 extension DeepLink {
     /// The scheme the Chief and its documents write, whatever the build.
@@ -132,15 +131,6 @@ extension DeepLink {
         public init(_ id: ActionID, arguments: [String: ActionValue] = [:]) {
             self.id = id
             self.arguments = arguments
-        }
-
-        /// Logs that the clicked link `url` ran this action (its id, its argument keys, done or refused;
-        /// category app.links, which the onboarding walk's turn-on row reads) and returns `done`.
-        public func ran(from url: URL, done: Bool) -> Bool {
-            let keys = arguments.keys.sorted().joined(separator: ",")
-            Logger(subsystem: "com.cmuxterm.app.next", category: "app.links")
-                .notice("app link \(url.host ?? "", privacy: .public)\(url.path, privacy: .public) ran \(id.rawValue, privacy: .public) \(keys, privacy: .public): \(done ? "done" : "refused", privacy: .public)")
-            return done
         }
     }
 

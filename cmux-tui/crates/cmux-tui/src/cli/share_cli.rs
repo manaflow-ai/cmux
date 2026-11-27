@@ -231,11 +231,7 @@ pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
         "share chat" | "agent.share" => result.get("url")?.as_str().map(|url| format!("{url}\n")),
         "share invite" | "agent.share.invite" => {
             let account = result.get("account")?.as_str()?;
-            let can = match result.get("role")?.as_str()? {
-                "view" => "view",
-                "drive" => "drive",
-                _ => "talk",
-            };
+            let can = if result.get("role")?.as_str()? == "view" { "view" } else { "talk" };
             let mut line = format!("Invited {account} (can {can})\n");
             // The link the owner sends the invitee (none without a room).
             if let Some(link) = result.get("invite_url").and_then(Value::as_str) {

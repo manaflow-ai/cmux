@@ -93,7 +93,7 @@ extension WindowManager {
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? members(), profile: state.profileID, machines: machines)
             registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true, keepsPage: gone && !wanted.contains($0 ?? ""), via: gesture ? "repair" : "reconcile-repair") }
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true, keepsPage: gone && !wanted.contains($0 ?? "")) }
         }
     }
 
@@ -113,10 +113,10 @@ extension WindowManager {
     }
 
     /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:keepsPage:)`.
-    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false, keepsPage: Bool = false, via: String = "select") {
+    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false, keepsPage: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.shownVia = via; state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state), keepsPage: keepsPage)
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state), keepsPage: keepsPage)
         recordSaver.stateDidChange(state)
     }
 
@@ -137,7 +137,7 @@ extension WindowManager {
         }
         if origin == .anywhere, !value.isGuest(workspaceID, in: state.id), let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = liveController(for: owner) {
-            select(workspaceID, in: target.state, via: "show")
+            select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
             return
@@ -183,7 +183,7 @@ extension WindowManager {
         let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
         if let owner = actingWindow(for: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
-            if shows { select(workspaceID, in: target.state, via: "reveal") }
+            if shows { select(workspaceID, in: target.state) }
             return target
         }
         if let active {
@@ -220,7 +220,7 @@ extension WindowManager {
         if !shows, claims.pending[workspaceID] != nil { claims.quiet.insert(workspaceID) }
         // Listed here, as its own or as a view of another window's (a shared space): selected, never taken.
         if registry.value.lists(workspaceID, in: state.id) {
-            if shows { select(workspaceID, in: state, via: "claim") }
+            if shows { select(workspaceID, in: state) }
             return
         }
         // A workspace of another room: the window enters that room first, so the selection repair
@@ -228,7 +228,7 @@ extension WindowManager {
         // Spaces off (#48355): this window keeps its view. A workspace of another space shows in its open window, else
         // opens in a window of its own on its space.
         if shows, !spacesOn, let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) {
-            if let owner = openOwner(of: workspaceID), let target = controller(for: owner) { return select(workspaceID, in: target.state, via: "claim") }
+            if let owner = openOwner(of: workspaceID), let target = controller(for: owner) { return select(workspaceID, in: target.state) }
             let windowID = UUID().uuidString.lowercased()
             self.state(for: windowID).enterProfile(room)
             openWindow(id: windowID, workspaces: [workspaceID])

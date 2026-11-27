@@ -39,7 +39,6 @@ import { integrationCallbackUrl, signState, verifyState, type ConnectState } fro
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
-import { vmEdgeMintCheck } from "./vm-edge-mint.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { pairInvite } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
@@ -291,9 +290,6 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
         const refusedMint = gate.refusal ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
         if (refusedMint) return yield* new PolicyRefused(refusedMint)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(requestEnv(), r))
-        // T17: a machine that signs in through its platform edge never mints with its own (copyable) install key.
-        const edge = yield* Effect.promise(() => vmEdgeMintCheck(requestEnv(), requestEnv().CLOUD_API_ORIGIN ?? "https://platform", r, token))
-        if (edge.refused) return yield* new Forbidden({ code: "auth.forbidden", message: edge.message })
         return { access_token: token, token_type: "Bearer" as const, expires_at, user: r.user, team: r.team, install: r.install, grant: r.grant }
       })
     )

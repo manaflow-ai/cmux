@@ -192,7 +192,7 @@ impl State {
             probe,
             archives: crate::archive::Archives::default(),
             auth: AuthCache::new(cfg.auth_ttl),
-            mirrors: Mirrors::new(cfg.cache_root.clone()).with_http(http.clone()),
+            mirrors: Mirrors::new(cfg.cache_root.clone()),
             stats: Arc::new(Stats::default()),
             crate_stats: crate::crates::CrateStats::default(),
             cfg,

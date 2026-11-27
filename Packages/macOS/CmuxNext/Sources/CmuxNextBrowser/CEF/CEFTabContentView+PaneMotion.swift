@@ -37,7 +37,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
     /// has now; one that cannot lays out live, as it would at the hold's start.
     func resumePageHold() {
         guard pageMotionHold != nil, heldPageSize == nil, !pageFollowsPane else { return }
-        if startPageHold() { requestLayout() } else { pageMotionHold = nil }
+        if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
     }
 
     /// The page window stays attached through the hold (RESIZE P0 5): only a divider drag detaches it (``paneMotion(active:)``).
@@ -57,7 +57,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         }
         if pageFollowsPane {
             pageMotionHold = hold
-            requestLayout()
+            needsLayout = true
             return
         }
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
@@ -66,7 +66,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             pageHoldTopLeft = true
         }
         pageMotionHold = hold
-        requestLayout()
+        needsLayout = true
     }
 }
 

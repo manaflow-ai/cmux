@@ -65,7 +65,7 @@ pub fn enabled_by(doc: Option<&Value>, env: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
-pub(crate) fn enabled() -> bool {
+fn enabled() -> bool {
     let env = std::env::var(ENV_KILL).ok();
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => enabled_by(Some(&doc), env.as_deref()),

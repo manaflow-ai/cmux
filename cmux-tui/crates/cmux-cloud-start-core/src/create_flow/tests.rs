@@ -136,7 +136,10 @@ fn an_approved_create_the_server_finishes_soon_is_seen_within_a_second() {
 fn the_retries_fill_the_patience_and_no_more() {
     let waits = waits(TIMEOUT_MS);
     let pauses: u64 = (1..waits).map(backoff_ms).sum();
-    assert!((TIMEOUT_MS..TIMEOUT_MS + 2_000).contains(&pauses), "{waits} waits add up to {pauses}");
+    assert!(
+        pauses >= TIMEOUT_MS && pauses < TIMEOUT_MS + 2_000,
+        "{waits} waits add up to {pauses}"
+    );
     assert_eq!(super::waits(0), 1);
 }
 
@@ -413,7 +416,7 @@ fn the_bootstrap_left_to_do() {
         bootstrap_needs(&running, &failed),
         Needs { script: false, machine_config: true, bootstrap: true }
     );
-    assert!(!bootstrap_needs(&running, &running).bootstrap);
+    assert_eq!(bootstrap_needs(&running, &running).bootstrap, false);
 }
 
 fn key(name: &str) -> CreateKey {

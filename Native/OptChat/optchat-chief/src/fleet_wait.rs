@@ -7,15 +7,19 @@
 /// What a cloud subagent's first message says about fleet waits.
 pub const NOTE: &str = "Waiting on a fleet job: never block on `cmux-ci wait` for a job that runs longer than a minute. Submit it, then end your turn with a line `fleet-wait: JOB_ID` (one line per job) and nothing else to do: your VM pauses while the job runs, and the Chief host wakes you with `fleet job JOB_ID finished: STATE` when it ends. Then read its result (`cmux-ci status JOB_ID`, `cmux-ci log JOB_ID`) and go on.";
 
-/// Whether this host has the fleet client (`cmux-ci`, which [`CommandFleet`] polls
-/// fleet-wait jobs with): only then does a cloud subagent's first message carry
-/// [`NOTE`], so a person without the fleet gets no fleet instructions (Leo,
+/// [`NOTE`] and a blank line when this host has the fleet client (`cmux-ci`, which
+/// [`CommandFleet`] polls fleet-wait jobs with), else nothing: a person without the
+/// fleet gets no fleet instructions in a cloud subagent's first message (Leo,
 /// 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the
 /// app and remove them").
-pub fn client_here() -> bool {
+pub fn note_here() -> String {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let path = std::env::var_os("PATH");
-    client_in(home.as_deref(), path.as_deref())
+    if client_in(home.as_deref(), path.as_deref()) {
+        format!("{NOTE}\n\n")
+    } else {
+        String::new()
+    }
 }
 
 /// Whether `cmux-ci` is in `home`/.local/bin or on `path`.

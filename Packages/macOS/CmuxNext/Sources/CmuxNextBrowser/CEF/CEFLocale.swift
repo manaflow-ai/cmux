@@ -8,9 +8,7 @@ import Foundation
 /// (`NSLocale.preferredLanguages`), never from LANG/LC_* (a Finder or
 /// `env -i` launch has none). The UI locale is the first preferred language
 /// that Chromium ships a locale pak for, else en-US, so CEF always gets a
-/// locale whose pak exists and never needs its own fallback. The paks are the
-/// framework's (a NIGHTLY keeps only `en` there) and the ones downloaded on
-/// first use into `ChromiumLocalePaks.directory` (`locales_dir_path`).
+/// locale whose pak exists and never needs its own fallback.
 nonisolated struct CEFLocale: Equatable, Sendable {
     /// Chromium locale name, for example `en-US`, `ja` or `zh-TW`.
     var locale: String
@@ -20,22 +18,11 @@ nonisolated struct CEFLocale: Equatable, Sendable {
     static let fallback = "en-US"
 
     /// The locale for this process: the system's preferred languages against
-    /// the locale paks in `frameworkDirectory/Resources` and in `downloadedDirectory`
-    /// (only a folder holding a `locale.pak` counts).
-    static func current(frameworkDirectory: URL, downloadedDirectory: URL? = nil,
-                        preferredLanguages: [String] = Locale.preferredLanguages) -> CEFLocale {
-        var names = listing(frameworkDirectory.appending(path: "Resources"))
-        if let downloadedDirectory {
-            names += listing(downloadedDirectory).filter {
-                FileManager.checked.fileExists(atPath: downloadedDirectory.appending(path: "\($0)/locale.pak").path)
-            }
-        }
-        return resolve(preferredLanguages: preferredLanguages, available: available(lprojNames: names))
-    }
-
-    /// The entries of `directory`, none when it is missing. The library is opened off the main thread.
-    private static func listing(_ directory: URL) -> [String] {
-        (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+    /// the locale paks in `frameworkDirectory/Resources`.
+    static func current(frameworkDirectory: URL) -> CEFLocale {
+        let resources = frameworkDirectory.appending(path: "Resources")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: resources.path)) ?? []
+        return resolve(preferredLanguages: Locale.preferredLanguages, available: available(lprojNames: names))
     }
 
     static func resolve(preferredLanguages: [String], available: Set<String>) -> CEFLocale {

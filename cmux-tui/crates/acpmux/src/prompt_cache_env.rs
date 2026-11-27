@@ -62,17 +62,7 @@ impl PromptCache {
     /// so a change applies to the next chat). No file, no key or a file
     /// that does not parse is one hour: the setting widens nothing.
     pub fn current() -> Self {
-        Self::from_settings(crate::user_settings::read())
-    }
-
-    /// The setting for a chat started in `cwd`: its trusted project's value over the user's
-    /// (`user_settings::read_for`).
-    pub fn for_cwd(cwd: &std::path::Path) -> Self {
-        Self::from_settings(crate::user_settings::read_for(cwd))
-    }
-
-    fn from_settings(settings: crate::user_settings::Settings) -> Self {
-        match settings {
+        match crate::user_settings::read() {
             crate::user_settings::Settings::Parsed(doc) => Self::parse(
                 crate::user_settings::value(&doc, SETTING).as_ref().and_then(|v| v.as_str()),
             ),

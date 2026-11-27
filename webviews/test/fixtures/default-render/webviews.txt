@@ -47,7 +47,6 @@ experiment composer-goal-place = head
 experiment composer-hat-done = check
 experiment composer-hat-grow = grow
 experiment composer-hat-header = today
-experiment composer-hat-line-deck = trail
 experiment composer-hat-open = today
 experiment composer-hat-step = phase
 experiment composer-machine-at-rest = off

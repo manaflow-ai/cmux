@@ -22,9 +22,6 @@
 //! - [`invariants`]: the input invariants (model, transition, world).
 //! - [`type_ahead::TypeAheadQueue`]: keys typed before a page can take them.
 //! - [`child_window`]: what a window does when a child window becomes key.
-//! - [`state_rules`]: the focus read view's rules (what a focus types
-//!   into, type-ahead survival, a topology without a pane, who chose an
-//!   event), the app FFI's `focus_state_*`.
 //! - [`escape_exit::EscapeExit`]: browser focus mode's Esc Esc exit.
 //! - [`work_context::WorkContextTrail`]: the terminals and chats focused
 //!   last, what new ones copy their folder and chat settings from.
@@ -54,7 +51,6 @@ pub mod invariants;
 pub mod omnibar_memory;
 pub mod reducer;
 pub mod state;
-pub mod state_rules;
 pub mod topology;
 pub mod type_ahead;
 pub mod ui;

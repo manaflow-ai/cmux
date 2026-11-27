@@ -230,8 +230,6 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),
     ("cloud.owner.handoffs", CLOUD_API_REASON),
     ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
-    ("cloud.owner.slack", CLOUD_API_REASON),
-    ("cloud.owner.slack_awake", CLOUD_API_REASON),
     ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
     ("cloud.owner.turn_rewind", CLOUD_API_REASON),
     ("cloud.owner.turns", CLOUD_API_REASON),

@@ -1,6 +1,5 @@
 import AppKit
 import CmuxHomeCore
-import OSLog
 
 /// cmux: what a click on a bubble's link opens. Every destination is re-checked at click
 /// time with `MarkdownLinkPolicy` (only http, https and mailto, plus a host's extra
@@ -57,15 +56,6 @@ extension ChatController {
         }
         return true
     }
-
-    /// A mouse-up on a link that opened nothing: says what took it (the onboarding walk's turn-on row
-    /// reads it, category app.links). Only the dropped path pays for the hit test.
-    func noteDroppedLinkClick(at p: CGPoint, _ taker: String) {
-        guard let url = linkURL(at: p) else { return }
-        Self.linkLog.notice("app link click on \(url.host ?? "", privacy: .public)\(url.path, privacy: .public) taken by \(taker, privacy: .public): opened nothing")
-    }
-
-    static let linkLog = Logger(subsystem: "com.cmuxterm.app.next", category: "app.links")
 
     /// The URL a click at `p` (host coordinates) opens, or nil (tests, accessibility).
     func linkURL(at p: CGPoint) -> URL? {

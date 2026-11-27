@@ -35,25 +35,6 @@ public final class ControlService {
 
     public var socketPath: String { server.configuration.path }
 
-    /// Binds after the first window frame, so the launch probe can observe that frame without waiting for
-    /// ``LaunchSettle``'s post-frame warm-up work.
-    public static func startAfterFirstFrame(
-        firstFrame: @escaping @MainActor () async -> Void,
-        registry: ActionRegistry,
-        settings: SettingsController?,
-        launch: LaunchIdentity,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundle: Bundle = .main,
-        accessMode explicitMode: ControlAccessMode? = nil,
-        frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
-        sessionConsent: SessionConsentResponder? = nil
-    ) async throws -> ControlService {
-        await firstFrame()
-        return try start(registry: registry, settings: settings, launch: launch, environment: environment, bundle: bundle,
-                         accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog, sessionConsent: sessionConsent)
-    }
-
     /// Resolves path and access mode, binds, and starts serving.
     public static func start(
         registry: ActionRegistry,

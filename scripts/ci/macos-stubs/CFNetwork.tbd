@@ -10,12 +10,9 @@ exports:
                        '_CFNetworkCopyProxiesForAutoConfigurationScript',
                        '_CFNetworkCopyProxiesForURL',
                        '_CFNetworkCopySystemProxySettings',
-                       '_CFNetworkExecuteProxyAutoConfigurationScript',
-                       '_CFNetworkExecuteProxyAutoConfigurationURL',
                        '_kCFProxyAutoConfigurationJavaScriptKey',
                        '_kCFProxyAutoConfigurationURLKey',
                        '_kCFProxyHostNameKey',
-                       '_kCFProxyPasswordKey',
                        '_kCFProxyPortNumberKey',
                        '_kCFProxyTypeAutoConfigurationJavaScript',
                        '_kCFProxyTypeAutoConfigurationURL',
@@ -23,6 +20,5 @@ exports:
                        '_kCFProxyTypeHTTPS',
                        '_kCFProxyTypeKey',
                        '_kCFProxyTypeNone',
-                       '_kCFProxyTypeSOCKS',
-                       '_kCFProxyUsernameKey' ]
+                       '_kCFProxyTypeSOCKS' ]
 ...

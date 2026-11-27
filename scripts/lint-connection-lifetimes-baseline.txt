@@ -475,6 +475,7 @@ R6 | Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyMacLock.swift 
 R6 | Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/VerificationAutofill/VerificationScriptRunning.swift | 53a563dcccef | let process = Process()
 R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/CLIPathInstaller.swift | 53a563dcccef | let process = Process()
 R6 | Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/TarChromiumRuntimeUnpacker.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachineStatePush.swift | 581e56f5d411 | let task = session.webSocketTask(with: request)
 R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudEnvironmentBootstrap.swift | 53a563dcccef | let process = Process()
 R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift | 5af59a7033c8 | let task = URLSession.shared.webSocketTask(with: request)
 R6 | Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceHubSocket.swift | 24730ad225fe | let task = session.webSocketTask(with: handshake.request)

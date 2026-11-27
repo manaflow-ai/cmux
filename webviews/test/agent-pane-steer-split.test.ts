@@ -4,10 +4,7 @@
 // reply still streams after the steer's bubble, then the steer's answer follows as a new message.
 // The pane drew the reply split mid-word around the bubble ("The S" [steer] "un also rises") and
 // glued the answer onto its last sentence ("…of space.DONE"). The reply's text belongs to its
-// message: it stays one paragraph, and the answer is a row of its own. Ended, a steer the agent
-// started no call after draws over the reply it was finishing (#56293 `lateSteersLast`, Leo
-// 2026-11-25: "worked for above my message and then yours and then boom that's it"), so the bubble
-// comes first, then the whole reply, then the steer's answer.
+// message: it stays one paragraph above the bubble, and the answer is a row of its own below.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -133,7 +130,7 @@ await requireBrowserLane("agent-pane-steer-split.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("a late steer's bubble draws over the whole reply, and its answer starts a row below it", async () => {
+  test("a steer's bubble follows the whole reply, and its answer starts a row below it", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.getByText("Then say DONE").waitFor();
@@ -143,7 +140,7 @@ await requireBrowserLane("agent-pane-steer-split.test.ts", async () => {
         .map((node) => node.textContent?.trim() ?? "")
         .filter((text) => text && !text.startsWith("Write two")),
     );
-    expect(drawn).toEqual(["Then say DONE", "The Sun also rises. It warms a cold reach of space.", "DONE"]);
+    expect(drawn).toEqual(["The Sun also rises. It warms a cold reach of space.", "Then say DONE", "DONE"]);
     await page.close();
   });
 });

@@ -35,17 +35,6 @@ fn answers_as_the_rules_do() {
 }
 
 #[test]
-fn answers_the_vnc_ops_as_cmux_vnc_does() {
-    let request = json!({"offered": [2, 30], "hasUsername": true, "hasPassword": true}).to_string();
-    let (code, _, output) = call("vnc_security_choose", request.as_bytes(), 4096);
-    assert_eq!(code, OK);
-    let ours: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(Ok(ours), cmux_vnc::json::respond("vnc_security_choose", request.as_bytes()));
-    assert_eq!(call("vnc_nope", b"{}", 64).0, ERR_UNKNOWN);
-    assert_eq!(call("vnc_security_choose", b"not json", 64).0, ERR_INVALID);
-}
-
-#[test]
 fn too_small_a_buffer_names_the_length() {
     let request = json!({"longEdge": 1179, "displayLongEdge": 3456, "now": 0.0}).to_string();
     let (code, needed, _) = call("screen_demand_report", request.as_bytes(), 1);

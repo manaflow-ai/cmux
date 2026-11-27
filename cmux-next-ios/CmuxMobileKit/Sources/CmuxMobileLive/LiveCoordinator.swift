@@ -526,7 +526,7 @@ public final class LiveCoordinator {
     }
 
     /// Presence down at least this long before its return redials the links.
-    static let presenceOutageMin = PresenceTiming.outageMin
+    static let presenceOutageMin: Duration = .seconds(3)
 
     // MARK: Warm start
 

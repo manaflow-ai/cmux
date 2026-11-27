@@ -28,21 +28,18 @@
 // the state alone and is hidden from assistive tech: the radios carry every answer.
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
-import { Button } from "../../ui/Button";
 import { Switch } from "../../ui/Switch";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import {
-  COMPUTER_USE_MODES,
+  CHAT_FEELS,
   LOOK_BUNDLES,
   NOISES,
   PERMISSIONS,
   bundleWrites,
-  computerUse,
-  computerUseWrites,
-  finishSoundOn,
-  finishSoundWrites,
+  chatFeel,
+  chatFeelWrites,
   noise,
   noiseWrites,
   permission,
@@ -54,11 +51,12 @@ import {
   type MakeItYoursScreen,
   type WalkValues,
   type WalkWrite,
-  CHAT_FEELS,
-  chatFeel,
-  chatFeelWrites,
+  COMPUTER_USE_MODES,
+  computerUse,
+  computerUseWrites,
+  finishSoundOn,
+  finishSoundWrites,
 } from "./walk";
-import { SHELF_SETUPS, keepSetup, revertSetup, shelfValues, trySetup, type SetupId, type Shelf } from "./setupShelf";
 import { Faces } from "./walkLook";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
@@ -250,77 +248,6 @@ function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValu
   );
 }
 
-/** `experiments.setupShelf` (off by default): the four setups, each with Try, then Keep or Revert.
- * The shelf's trials live on the page (setupShelf.ts); each click is one walk op, one publish. */
-function SetupShelf({ choices }: { choices: MakeItYoursState }) {
-  const { strings } = useOnboarding();
-  const walk = useWalk();
-  const [shelf, setShelf] = useState<Shelf>({});
-  const current = shelfValues(choices);
-  const run = (next: { shelf: Shelf; writes: WalkWrite[] }) => {
-    setShelf(next.shelf);
-    walk(next.writes);
-  };
-  return (
-    <fieldset className="onb-make-group onb-setups" aria-describedby="onb-setups-detail">
-      <legend className="onb-make-label">{strings.t("onboarding.makeItYours.setups.label")}</legend>
-      <p className="onb-make-option-detail onb-setups-detail" id="onb-setups-detail">
-        {strings.t("onboarding.makeItYours.setups.detail")}
-      </p>
-      <ul className="onb-setups-list">
-        {SHELF_SETUPS.map((setup) => {
-          const entry = shelf[setup.id];
-          const id: SetupId = setup.id;
-          const name = strings.t(setup.nameKey);
-          return (
-            <li key={id} className="onb-setups-row" data-setup={id} data-status={entry?.status}>
-              <span className="onb-make-option-text">
-                <span className="onb-make-option-title">{name}</span>
-                <span className="onb-make-option-detail">{strings.t(setup.lineKey)}</span>
-              </span>
-              <span className="onb-setups-actions">
-                {entry == null && (
-                  <Button
-                    size="sm"
-                    aria-label={`${strings.t("onboarding.makeItYours.setups.try")} ${name}`}
-                    onClick={() => run(trySetup(shelf, id, current))}
-                  >
-                    {strings.t("onboarding.makeItYours.setups.try")}
-                  </Button>
-                )}
-                {entry?.status === "trying" && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`${strings.t("onboarding.makeItYours.setups.revert")} ${name}`}
-                      onClick={() => run(revertSetup(shelf, id, current))}
-                    >
-                      {strings.t("onboarding.makeItYours.setups.revert")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      aria-label={`${strings.t("onboarding.makeItYours.setups.keep")} ${name}`}
-                      onClick={() => setShelf(keepSetup(shelf, id))}
-                    >
-                      {strings.t("onboarding.makeItYours.setups.keep")}
-                    </Button>
-                  </>
-                )}
-                {entry?.status === "kept" && (
-                  <span className="onb-make-option-detail" role="status">
-                    {strings.t("onboarding.makeItYours.setups.kept")}
-                  </span>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </fieldset>
-  );
-}
-
 /** Screen 3: how much agents may do (each mode explained; Full Access, as cmux ships, preselected on a
  * new Mac) and how loudly cmux tells you, each as radios with their line. */
 function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
@@ -471,9 +398,6 @@ export function MakeItYoursStep({
   opened?: WalkValues | null;
 }) {
   const { strings, store } = useOnboarding();
-  // The walk's Tune asks density as three levels, the outer two behind More (hq RFD 0057, S6); it opens
-  // on all of them when the setting is already an outer one.
-  const [outerShown, setOuterShown] = useState(() => !DENSITY_THREE.includes(choices?.density ?? "cozy"));
   if (choices == null) return null;
   const current = walkValues(choices);
   if (screen === "look" || screen === "trust") {
@@ -579,17 +503,14 @@ export function MakeItYoursStep({
         </p>
       </Group>
     );
-  const three = choices.densities.filter((item) => DENSITY_THREE.includes(item.id));
-  const folds = screen === "tune" && three.length === DENSITY_THREE.length && three.length < choices.densities.length;
-  const densities = folds && !outerShown && DENSITY_THREE.includes(choices.density) ? three : choices.densities;
   const density = (
     <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
       <div
         className="onb-make-segments ui-slide-host"
-        style={{ "--onb-make-count": densities.length } as CSSProperties}
+        style={{ "--onb-make-count": choices.densities.length } as CSSProperties}
       >
         <SlidingIndicator selected={choices.density} selector="[data-checked]" className="onb-make-thumb" />
-        {densities.map((item) => (
+        {choices.densities.map((item) => (
           <label
             key={item.id}
             className="onb-make-segment ui-slide-item"
@@ -611,19 +532,6 @@ export function MakeItYoursStep({
           </label>
         ))}
       </div>
-      {folds && densities.length < choices.densities.length && (
-        <Button
-          type="button"
-          className="onb-walk-more-button"
-          variant="ghost"
-          size="sm"
-          data-density-more=""
-          aria-expanded={false}
-          onClick={() => setOuterShown(true)}
-        >
-          {strings.t("onboarding.makeItYours.density.more")}
-        </Button>
-      )}
     </Group>
   );
   const background = (
@@ -708,9 +616,6 @@ export function MakeItYoursStep({
     </Group>
   );
 
-  // The setups shelf leads today's one screen and the walk's How you work (experiments.setupShelf).
-  const shelf = askWork && choices.setupShelf === true ? <SetupShelf choices={choices} /> : null;
-
   // The walk shows the preview on Tune, where the picks it draws are made; screen 2 has no stage.
   if (look === "preview" && askTune) {
     return (
@@ -720,7 +625,6 @@ export function MakeItYoursStep({
           <figcaption className="onb-make-caption">{chosenLabel}</figcaption>
         </figure>
         <div className="onb-make-choices">
-          {shelf}
           {askWork && work}
           {askWork && runIn}
           {density}
@@ -731,7 +635,6 @@ export function MakeItYoursStep({
   }
   return (
     <div className="onb-make" data-look={look} data-screen={walkScreen}>
-      {shelf}
       {askWork && work}
       {askWork && runIn}
       {walkScreen === "work" && <ChatFeelRow opened={opened ?? current} current={current} />}
@@ -740,9 +643,6 @@ export function MakeItYoursStep({
     </div>
   );
 }
-
-/** The walk's three density levels; the outer two (the tightest and the roomiest) wait behind More. */
-const DENSITY_THREE = ["compact", "cozy", "comfortable"];
 
 /** One choice: a fieldset with its question. The form look sets the question beside the control. */
 function Group({

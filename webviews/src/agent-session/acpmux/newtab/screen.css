@@ -1007,11 +1007,8 @@
    dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
 .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) { --nt-stage-foot: 0px; }
-/* The optional template switch (StyleSwitch.tsx) keeps room under the stage footer. The page follows the
-   switch in the pane (pane/PaneBody.tsx), so a sibling combinator finds it, not a `:has()` over the pane: a
-   pane-level `:has()` restyles every row on screen at each composer edit (paneAncestorHas.test.ts). */
-.acpmux-main > .nt-style ~ .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot),
-.acpmux-main > .nt-style ~ * .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) {
+/* The optional template switch keeps room under the stage footer. */
+.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-composer > .nt-foot) {
   --nt-stage-foot: 22px;
 }
 .nt-screen[data-layout="stage"] .nt-stage {
@@ -1814,9 +1811,6 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
   --nt-row-detail: var(--text-detail);
   --acpmux-composer-glyph: 16px;
 }
-/* The rows' list owns the padding (.nt-rows), so the popup has none. Two classes, so a shared `.ui-popup` padding
-   (ui/ui.css, when a chunk brings it in) never adds a second 6 px by load order. */
-.ui-popup.nt-popover { padding: 0; }
 :root .ui-popup.nt-popover .nt-rows > .nt-row {
   gap: var(--uc-row-gap);
   padding-inline: var(--ui-row-padding-inline);

@@ -40,13 +40,21 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             // also spares a snapshot the walk of every project.
             let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
             if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
-                return claude_transcript_with_children(own);
+                return vec![("claude-project".to_owned(), own)];
             }
             for p in walk(&root, 2) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name == format!("{sid}.jsonl") {
-                    out.extend(claude_transcript_with_children(p));
+                    // Its `Task` children's transcripts: `<session-id>/subagents/*.jsonl`
+                    // beside it, which Claude reads back for the subagents it ran.
+                    let children = p.with_extension("").join(CLAUDE_SUBAGENTS);
+                    out.push(("claude-project".to_owned(), p));
+                    for child in walk(&children, 0) {
+                        if child.extension().is_some_and(|e| e == "jsonl") {
+                            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
+                        }
+                    }
                 }
             }
         }
@@ -74,21 +82,6 @@ fn is_codex_rollout(name: &str, sid: &str) -> bool {
 }
 
 /// The folder beside a Claude transcript (`<session-id>/subagents`) that holds its subagents'.
-/// A Claude transcript and its `Task` children's transcripts
-/// (`<session-id>/subagents/*.jsonl` beside it, which Claude reads back for the subagents
-/// it ran). Both the chat's own folder and the walk of every project list through this, so
-/// neither leaves the children behind.
-fn claude_transcript_with_children(transcript: PathBuf) -> Vec<(String, PathBuf)> {
-    let children = transcript.with_extension("").join(CLAUDE_SUBAGENTS);
-    let mut out = vec![("claude-project".to_owned(), transcript)];
-    for child in walk(&children, 0) {
-        if child.extension().is_some_and(|e| e == "jsonl") {
-            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
-        }
-    }
-    out
-}
-
 const CLAUDE_SUBAGENTS: &str = "subagents";
 /// The bundle label of a Claude subagent's transcript (`<session-id>/subagents/*.jsonl`).
 pub const CLAUDE_SUBAGENT_LABEL: &str = "claude-subagent";

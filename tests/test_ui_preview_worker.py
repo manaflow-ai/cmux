@@ -263,48 +263,7 @@ class FollowTests(unittest.TestCase):
             with self.assertRaises(w.LookError):
                 w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq")
         self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
-        self.assertEqual(ran[1][3:], ["manaflow-ai/cmuxterm-hq", "-"])
-
-    def test_a_host_taking_the_lease_over_posts_nothing_its_predecessor_had(self):
-        # Host A led and posted 7614..7616; host B, last leading at 7613, takes the lease over and resumes there.
-        with tempfile.TemporaryDirectory() as tmp:
-            b = FakeWorker(Path(tmp))
-            b.host = "preview-b"
-            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
-            web = ["webviews/src/a.tsx"]
-            posted = [dict(request(head_sha=f"{n:040x}", ui_files=web, pushed_at=ago(7620 - n + 900)), seq=n)
-                      for n in (7614, 7615, 7616)]
-            in_flight = dict(request(head_sha=f"{7617:040x}", ui_files=web, pushed_at=ago(30)), seq=7617)
-            jobs = w.queue.Queue()
-            _, call = self.broker({"seq": 7617, "requests": [*posted, in_flight]})
-            lines, real = [], w.log
-            w.log = lines.append
-            try:
-                self.assertEqual(w.follow_once(b, jobs, 7613, call), 7617)
-            finally:
-                w.log = real
-            req, _ = jobs.get_nowait()
-            self.assertEqual(req["head_sha"], f"{7617:040x}")  # pushed as A stopped: may never have been posted
-            self.assertTrue(jobs.empty())
-            self.assertFalse(b.receipts_path.exists())  # A's receipts stand: B writes none for A's pushes
-            self.assertEqual(sum("before this worker took the role" in x for x in lines), 3, lines)
-
-    def test_state_put_carries_its_json_on_stdin_not_argv(self):
-        # 2026-11-27: a 768 KiB census copy in one argv string failed E2BIG (128 KiB per string on Linux).
-        from unittest import mock
-        ran = []
-
-        def fake(argv, **kw):
-            ran.append((argv, kw.get("input")))
-            return mock.Mock(returncode=0, stdout=json.dumps({"status": 200, "data": {}}), stderr="")
-
-        big = {"name": "now-census", "files": {"ui-preview/h.json": "x" * (700 << 10)}}
-        with mock.patch.object(w.subprocess, "run", fake):
-            w.lane_gh_call("state_put", big, 5, repo="manaflow-ai/cmuxterm-hq")
-        argv, stdin = ran[0]
-        self.assertEqual(argv, ["lane-gh", "call", "state_put", "manaflow-ai/cmuxterm-hq", "-"])
-        self.assertEqual(json.loads(stdin), big)
-        self.assertLess(max(map(len, argv)), 128 << 10)
+        self.assertEqual(ran[1][3], "manaflow-ai/cmuxterm-hq")
 
     def test_a_reset_broker_queue_restarts_at_its_newest(self):
         with tempfile.TemporaryDirectory() as tmp:

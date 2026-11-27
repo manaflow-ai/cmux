@@ -479,7 +479,7 @@ export function LiveChat({
   name?: string;
   /** The signed-in account's picture this guest joined with, for its own chip. */
   avatar?: string;
-  /** Talk and Drive can send. Only Drive can stop an active turn. */
+  /** This guest's role: only `talk` sends (a composer); `view` or none watches. */
   role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
@@ -567,12 +567,9 @@ export function LiveChat({
       waiting.length = 0;
       client?.dispose();
     };
-    // The room cookie is shared across tabs. Reconnect only as the guest this tab redeemed.
-    const url = new URL(socketUrl, document.baseURI);
-    url.searchParams.set("guest_id", guestId);
     const room = new ShareSocket(
       {
-        url: url.href,
+        url: socketUrl,
         unresolved: () => prompts.held(),
         ...(openSocket ? { open: openSocket } : {}),
       },
@@ -615,7 +612,7 @@ export function LiveChat({
       stop();
       pageArrived.current?.();
     };
-  }, [guestId, socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
+  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
 
   const loadOlder = useCallback(
     () =>
@@ -708,22 +705,12 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestQueue queue={waiting} owner={owner} />
-          <GuestMessages
-            prompts={mine}
-            me={me}
-            owner={ownerName}
-            onRetry={role === "talk" || role === "drive" ? retry : undefined}
-          />
-          {/* A `talk` or `drive` guest sends (a Drive invite can also stop the active turn); no role or `view` watches. */}
-          {role === "talk" || role === "drive" ? (
+          <GuestMessages prompts={mine} me={me} owner={ownerName} onRetry={role === "talk" ? retry : undefined} />
+          {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
+          {role === "talk" ? (
             <GuestComposer
               initialText={prompts.draft()}
               onSend={send}
-              onStop={
-                role === "drive" && snapshot?.isWorking && connection === "live"
-                  ? () => socket.current?.send({ t: "cancel" })
-                  : undefined
-              }
               onDraft={(draft) => {
                 prompts.keepDraft(draft);
                 typing.input(draft);

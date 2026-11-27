@@ -271,13 +271,7 @@ def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], .
 
 # `cargo update --locked` accepts a lock that still lists a package nothing resolves to any more: cmux#57348
 # deleted the cmux-coderouter crate and its workspace entries, the check passed, and cmux-tui/Cargo.lock kept the
-# crate's [[package]] entry until `cargo update -w` dropped it (33 lines). cargo metadata's resolve holds only the
-# features its run turns on, so an optional dependency (cmux-mobile-tailnet's `tsnet` = cmux-tailnet and its clap;
-# cmux-tui's wasmtime and dhat) is missing from it though the lock rightly lists it: cmux#57506 refused every push
-# into those two workspaces. An orphan is a lock entry the lock's own dependency lists (every feature's) do not
-# reach from what cargo resolves. A path package (no `source`) cargo did not resolve and no tracked Cargo.toml names
-# is gone, and the walk does not pass through it: the lock from before cmux#57348's fix still had acpmux list
-# cmux-coderouter, so a walk through that stale edge called the deleted crate reachable.
+# crate's [[package]] entry until `cargo update -w` dropped it (33 lines).
 ORPHANED = "lists packages its manifests no longer resolve: "
 LOCK_PACKAGE = re.compile(r'^\[\[package\]\]\s*\nname = "([^"]+)"\s*\nversion = "([^"]+)"', re.M)
 
@@ -288,91 +282,14 @@ def lock_packages(text: str) -> set[tuple[str, str]]:
     return set(LOCK_PACKAGE.findall(text))
 
 
-LOCK_DEPENDENCIES = re.compile(r'^dependencies = \[\n(.*?)^\]', re.M | re.S)
-LOCK_DEPENDENCY = re.compile(r'^\s*"([^" ]+)(?: ([^" ]+))?(?: \([^)]*\))?",?$', re.M)
-
-
-def lock_graph(text: str) -> dict[tuple[str, str], set[tuple[str, str]]]:
-    """Each [[package]]'s dependencies as the lock lists them: every feature's, optional ones too. A dependency
-    written by name alone is the one package of that name; `name version` picks the version."""
-    blocks = text.split("[[package]]")[1:]
-    graph: dict[tuple[str, str], list[tuple[str, str | None]]] = {}
-    versions: dict[str, list[str]] = {}
-    for block in blocks:
-        head = LOCK_PACKAGE.match("[[package]]" + block)
-        if not head:
-            continue
-        key = (head.group(1), head.group(2))
-        versions.setdefault(key[0], []).append(key[1])
-        listed = LOCK_DEPENDENCIES.search(block)
-        graph[key] = [(m.group(1), m.group(2)) for m in LOCK_DEPENDENCY.finditer(listed.group(1))] if listed else []
-    resolved: dict[tuple[str, str], set[tuple[str, str]]] = {}
-    for key, deps in graph.items():
-        edges = set()
-        for name, version in deps:
-            for candidate in ([version] if version else versions.get(name, [])):
-                edges.add((name, candidate))
-        resolved[key] = edges
-    return resolved
-
-
-def sourceless(text: str) -> set[tuple[str, str]]:
-    """The lock's path packages: entries with no `source` line (workspace members and path dependencies)."""
-    found = set()
-    for block in text.split("[[package]]")[1:]:
-        head = LOCK_PACKAGE.match("[[package]]" + block)
-        if head and not re.search(r'^source = ', block, re.M):
-            found.add((head.group(1), head.group(2)))
-    return found
-
-
-def manifest_names(repo: Path) -> set[str] | None:
-    """The [package] name of every Cargo.toml in REPO's index; None when git cannot say."""
-    try:
-        done = subprocess.run(["git", "-C", str(repo), "grep", "--cached", "-h", "-A12", "-e", r"^\[package\]",
-                               "--", "*Cargo.toml"], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if done.returncode not in (0, 1):
-        return None
-    names, inside = set(), False
-    for line in done.stdout.splitlines():
-        stripped = line.strip()
-        if stripped == "[package]":
-            inside = True
-        elif stripped.startswith("[") or stripped == "--":
-            inside = False
-        elif inside:
-            named = re.match(r'name\s*=\s*"([^"]+)"', stripped)
-            if named:
-                names.add(named.group(1))
-                inside = False
-    return names
-
-
-def unreached(text: str, roots: set[tuple[str, str]],
-              gone: set[tuple[str, str]] = frozenset()) -> set[tuple[str, str]]:
-    """The lock's packages its dependency lists do not reach from ROOTS, never walking through GONE."""
-    graph = lock_graph(text)
-    seen, todo = set(), [root for root in roots if root in graph and root not in gone]
-    while todo:
-        key = todo.pop()
-        if key in seen or key in gone:
-            continue
-        seen.add(key)
-        todo.extend(graph.get(key, ()))
-    return set(graph) - seen
-
-
 def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
-    """`name version` of each package ROOT's lock lists that its dependency lists do not reach from the packages
-    its resolve (`cargo metadata --all-features --locked --offline`) holds: a lock entry for a crate no manifest
-    names. Empty when cargo gives no resolve (a fake, a
+    """`name version` of each package ROOT's lock lists that its resolve (`cargo metadata --locked --offline`, all
+    targets) does not: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
     failure, no time left): this only adds to cargo's own verdict."""
     if timeout <= 1:
         return []
     out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--all-features", "--locked", "--offline"], repo / root, env,
+    code, _ = cargo(["metadata", "--format-version", "1", "--locked", "--offline"], repo / root, env,
                     timeout=timeout, out=out)
     if code != 0 or not out or not out[0].strip():
         return []
@@ -383,15 +300,12 @@ def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[
         return []
     lock = repo / root / "Cargo.lock"
     try:
-        text = lock.read_text(encoding="utf-8")
+        listed = lock_packages(lock.read_text(encoding="utf-8"))
     except OSError:
         return []
     if not resolved:
         return []
-    # cargo's resolve is the roots, not the whole answer: an optional dependency is reached through the lock.
-    names = manifest_names(repo)
-    gone = set() if names is None else {key for key in sourceless(text) - resolved if key[0] not in names}
-    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text), gone))
+    return sorted(f"{name} {version}" for name, version in listed - resolved)
 
 
 def label(root: str) -> str:

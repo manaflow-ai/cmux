@@ -19,14 +19,12 @@
 //!   - [`theme`]
 //!   - [`effective`]
 //!   - [`looks`]
-//!   - [`home_table`]
 //!   - [`shortcut`]
 //!   - [`schema`]
 //!   - [`snapshot`]
 
 pub mod chrome_theme;
 pub mod effective;
-pub mod home_table;
 pub mod jsonc;
 pub mod looks;
 pub mod schema;
@@ -54,7 +52,6 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         _ => theme::call(op, request)
             .or_else(|| effective::call(op, request))
             .or_else(|| looks::call(op, request))
-            .or_else(|| home_table::call(op, request))
             .or_else(|| chrome_theme::call(op, request))
             .or_else(|| snapshot::call(op, request))
             .or_else(|| shortcut::call(op, request))

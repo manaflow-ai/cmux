@@ -32,7 +32,6 @@ import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
 import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
-import { sweepIdleVms } from "./upstream/idle-sweep.ts";
 import { cronPlan } from "./cron-plan.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
@@ -182,7 +181,7 @@ const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resol
  */
 const runOrphanSweep = async (env: Env) => {
   const plan = cronPlan(env.ENVIRONMENT);
-  if (!plan.sweepVms && !plan.sweepTunnels && !plan.sweepIdleVms) return;
+  if (!plan.sweepVms && !plan.sweepTunnels) return;
   const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment: parseEnvironment(env.ENVIRONMENT) };
   const tunnels = !plan.sweepTunnels
     ? Promise.resolve()
@@ -201,20 +200,6 @@ const runOrphanSweep = async (env: Env) => {
       },
       () => console.error(JSON.stringify({ event: "cmux_vm_tunnel_sweep_failed" })),
     );
-  // Staging VMs paused or stopped for 24 h, every tenant (src/upstream/idle-sweep.ts); provider calls only, no database.
-  const idle = !plan.sweepIdleVms
-    ? Promise.resolve()
-    : Effect.runPromise(sweepIdleVms(config, { nowMs: Date.now(), dryRun: false })).then(
-      (report) => {
-        if (report.idle.length > 0 || !report.complete) {
-          console.log(JSON.stringify({
-            event: "cmux_vm_idle_sweep", listed: report.listed, complete: report.complete, idle: report.idle.length,
-            deleted: report.deleted, kept: report.kept, failed: report.failed,
-          }));
-        }
-      },
-      () => console.error(JSON.stringify({ event: "cmux_vm_idle_sweep_failed" })),
-    );
   try {
     if (!plan.sweepVms) return;
     const report = await Effect.runPromise(
@@ -230,7 +215,6 @@ const runOrphanSweep = async (env: Env) => {
     }
   } finally {
     await tunnels;
-    await idle;
   }
 };
 

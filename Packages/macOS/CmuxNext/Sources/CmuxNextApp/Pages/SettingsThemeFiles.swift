@@ -107,5 +107,7 @@ final class SettingsThemeFiles {
         return "cmux.settings.theme.\(suffix)"
     }
 
-    private static func importName(_ file: URL) -> String { ThemeFileColors.importedName(file) }
+    private static func importName(_ file: URL) -> String {
+        ["conf", "theme"].contains(file.pathExtension.lowercased()) ? file.deletingPathExtension().lastPathComponent : file.lastPathComponent
+    }
 }

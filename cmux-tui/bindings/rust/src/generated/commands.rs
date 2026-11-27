@@ -2096,8 +2096,6 @@ pub struct IdentifyRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub restore_progress: Option<bool>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
 }
 
@@ -3585,8 +3583,6 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub restore_progress: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -5281,9 +5277,6 @@ impl CmuxClient {
             self.require_protocol_field("identify", 12)?;
             self.require_capability_field("identify", "machine-identity-v1")?;
         }
-        if request.restore_progress.is_some() {
-            self.require_protocol_field("identify", 12)?;
-        }
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
         }
@@ -5980,9 +5973,6 @@ impl CmuxClient {
     }
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
-        if request.restore_progress.is_some() {
-            self.require_protocol_field("server-stats", 12)?;
-        }
         self.execute(&SERVER_STATS_METADATA, &request)
     }
 

@@ -6,8 +6,7 @@ cmux-4f ...)" for a month after cmux-4f was gone and reached no one (cmux#50549,
 whoever holds it now, read from the live sessions at push time, in this order:
 
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
-   several), or with the area's name or its start (`owns=package-layering`, `owns=Chromium hosting`; owns_area): a
-   holder takes a workstream by tagging itself, and gives it up by ending;
+   several): a holder takes a workstream by tagging itself, and gives it up by ending;
 2. a live lane the row's role names: `lanes tabs-refine,tab-strip-*` (fnmatch globs on the session's short name, commas
    between them; `|` would split the OWNERS.md table cell), the most recently active one (never a PR finisher, `finish-REPO-N-...`, which holds one PR). A role outlives every session that fills it, so a row written
    `lanes ...` does not go dead when one lane ends (2026-11-23: seven rows named ended sessions, cmux-b6, cmux-4f,
@@ -83,33 +82,8 @@ def is_live(row: dict) -> bool:
     return str(row.get("status") or "").casefold() not in DEAD and row.get("stale") is not True and bool(_name(row))
 
 
-def _owns_list(row: dict) -> list[str]:
-    return [w.strip() for w in str(_tags(row).get("owns") or "").split(",") if w.strip()]
-
-
 def owns(row: dict, workstream: str) -> bool:
-    return workstream in _owns_list(row)
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", str(text or "").casefold()).strip("-")
-
-
-def owns_area(row: dict, area: str) -> str | None:
-    """The `owns=` value of ROW that names the OWNERS.md AREA, or None. A coordinator tags a holder with the area it
-    reads, not the row's PL- token: on 2026-11-27 `owns=package-layering` (gcp-agent-lane-13), `owns=Chromium hosting`
-    and `owns=Guardrails, pre-push gate, codebase health` were live tags and those areas still read "no live holder",
-    their pushes going to the coordinator. A value names the area when it is the area's name or its start, compared
-    case- and punctuation-blind and ending at a word ("package-layering" and "Package layering" name "Package
-    layering, signpost catalog (...)"; "pack" names nothing)."""
-    target = _slug(area)
-    if not target:
-        return None
-    for value in _owns_list(row):
-        key = _slug(value)
-        if key and (target == key or target.startswith(key + "-")):
-            return value
-    return None
+    return workstream in [w.strip() for w in str(_tags(row).get("owns") or "").split(",")]
 
 
 def _named(rows: list[dict], name: str) -> list[dict]:
@@ -159,19 +133,14 @@ def registry_coordinator(path: Path | None = None) -> str | None:
     return current if isinstance(current, str) and current else None
 
 
-def holder(cell: str, rows: list[dict], coordinator: str | None = None,
-           area: str | None = None) -> tuple[str | None, str]:
-    """(live session, how) for the owner CELL of AREA, or (None, why none)."""
+def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple[str | None, str]:
+    """(live session, how) for the owner CELL, or (None, why none)."""
     workstreams, sessions = cell_names(cell)
     live = [r for r in rows if is_live(r)]
     for w in workstreams:
         tagged = sorted((r for r in live if owns(r, w)), key=lambda r: -(r.get("updatedAt") or 0))
         if tagged:
             return _name(tagged[0]), f"holds owns={w}"
-    if area:
-        tagged = sorted((r for r in live if owns_area(r, area)), key=lambda r: -(r.get("updatedAt") or 0))
-        if tagged:
-            return _name(tagged[0]), f"holds owns={owns_area(tagged[0], area)}"
     globs = cell_lanes(cell)
     if globs:
         lanes = sorted((r for r in live if not FINISHER.match(_short(_name(r)))
@@ -339,15 +308,6 @@ def notify(to: str, area: str, head: str, text: str) -> str | None:
     return None
 
 
-def tag_hint(area: str, cell: str) -> str:
-    """The `owns=` value that makes a session the holder of AREA: the row's first PL- workstream, else the area's name
-    up to its first comma or parenthesis, as a slug (owns_area reads either)."""
-    workstreams, _ = cell_names(cell)
-    if workstreams:
-        return workstreams[0]
-    return _slug(re.split(r"[,(;]", area or "", maxsplit=1)[0]) or _slug(area) or "AREA"
-
-
 def is_fallback(how: str) -> bool:
     """A holder() answer that is the Performance Lead or the coordinator standing in, not the area's own holder."""
     return "; the " in how
@@ -356,7 +316,7 @@ def is_fallback(how: str) -> bool:
 def unheld_notice(area: str, cell: str, files: list[str], head: str, branch: str | None, doc: str) -> str:
     return (f"OWNERS.md area {area} has no live holder ({cell}), so its pushes come to you; this one: {branch or 'a branch'} "
             f"at {head[:12]} ({len(files)} file(s), {files[0]}). Give it a live holder: tag one "
-            f"(`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or rewrite the OWNERS.md row. You hear of it once a day "
+            f"(`acpmux session tag SESSION owns=WORKSTREAM`) or rewrite the OWNERS.md row. You hear of it once a day "
             f"while it stays unheld.")
 
 
@@ -364,4 +324,4 @@ def notice(area: str, cell: str, files: list[str], head: str, branch: str | None
     shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
     return (f"A push to {branch or 'a branch'} at {head[:12]} changes {area}, which OWNERS.md gives to {cell}; you hold "
             f"it now. Files: {shown}. Read {doc}; `git show {head[:12]}` for the change. If it is not yours, tag the "
-            f"holder (`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or fix the OWNERS.md row.")
+            f"holder (`acpmux session tag SESSION owns=WORKSTREAM`) or fix the OWNERS.md row.")

@@ -7,20 +7,16 @@ license.workspace = true
 publish.workspace = true
 description = "cmux remote desktop engine core: FEC, packetizer, reassembly, flow and congestion control, input, sessions and access policy (pure, injected clock)"
 
+[lints]
+workspace = true
+
 [features]
-# The Mac app's rules over JSON: `mac_screen` (its session reducer and offer rules) and `rd_hub` (the device hub side).
-app = ["dep:serde", "dep:serde_json", "cmux-rd-proto/serde"]
 # The screen viewer core's C ABI (`screen_kit::ffi`) for the Swift apps:
 # cmux-rd-ffi turns it on for the Mac's app library, cmux-mobile-ffi for iOS's.
 c-abi = []
 
-[lints]
-workspace = true
-
 [dependencies]
 cmux-rd-proto = { path = "../cmux-rd-proto" }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

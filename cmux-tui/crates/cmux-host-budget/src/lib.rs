@@ -394,10 +394,6 @@ pub use probe::{
 // Timer lateness, the interactive-speed signal (RFD 0072): a thread, and the pure window.
 pub mod lateness;
 
-// Memory stall shaped as PSI from `/proc/vmstat` where PSI is off (RFD 0182 B1): a thread,
-// and the pure averages.
-pub mod mem_stall;
-
 // The level the app shows, which does not flicker, and a verdict judged again
 // with a newer memory pressure.
 mod level;

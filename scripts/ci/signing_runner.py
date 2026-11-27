@@ -103,7 +103,7 @@ SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
                     "generate-nightly-deltas", "publish-nightly",
                     "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
-                    "nightly-next-pkg", "sign-live-code-variant", "nightly-next-deltas"),
+                    "nightly-next-pkg", "sign-live-code-variant"),
     "release.yml": ("build-sign-notarize",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
 }

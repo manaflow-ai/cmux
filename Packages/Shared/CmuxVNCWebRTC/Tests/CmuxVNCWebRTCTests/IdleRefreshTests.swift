@@ -1,73 +1,42 @@
 @testable import CmuxVNCWebRTC
 import Testing
 
-/// RFD 0088 slice 3b, nothing on an idle screen: the host repeats a still
-/// picture a few times for the encoder, then sends no video until the
-/// picture changes or something asks for it again.
+/// A still screen's last picture is encoded again on a back-off (RFD 0088 slice 3b): soon after a change, then
+/// every 4 s, where it used to be every 500 ms whatever the screen did.
 struct IdleRefreshTests {
-    typealias Policy = ScreenStreamHost.IdleRefresh
-    static let period = Policy.periodNs
+    private static let ms: UInt64 = 1_000_000
 
-    @Test func aNewPictureIsRepeatedABoundedNumberOfTimesThenNothing() {
-        var policy = Policy()
-        policy.pushed(now: 0, fresh: true)
-        var now: UInt64 = 0
-        var repeats = 0
-        for _ in 0 ..< 40 {
-            now += Self.period
-            if policy.repeatNow(now: now) {
-                repeats += 1
-                policy.pushed(now: now, fresh: false)
+    /// The refresh times a still screen gets after one change, stepping the clock 250 ms as the host's loop does.
+    private static func refreshes(over seconds: UInt64) -> [UInt64] {
+        var lastPush: UInt64 = 0
+        var times: [UInt64] = []
+        for now in stride(from: 250 * ms, through: seconds * 1000 * ms, by: Int(250 * ms)) {
+            if ScreenStreamHost.idleRefreshDue(sinceChangeNs: now, sincePushNs: now - lastPush) {
+                times.append(now / ms)
+                lastPush = now
             }
         }
-        #expect(repeats == Policy.repeats)
-        #expect(policy.isIdle(now: now + Self.period))
+        return times
     }
 
-    @Test func noRepeatWhileThePictureIsFresh() {
-        var policy = Policy()
-        policy.pushed(now: 1_000, fresh: true)
-        let early = policy.repeatNow(now: 1_000 + Self.period / 2)
-        #expect(!early)
-        #expect(!policy.isIdle(now: 1_000 + Self.period * 10), "repeats are still owed")
+    @Test func refreshesSoonAfterAChangeThenBacksOff() {
+        let times = Self.refreshes(over: 10)
+        #expect(Array(times.prefix(4)) == [500, 1000, 2000, 4000])
+        let gaps = zip(times.dropFirst(), times).map { $0 - $1 }
+        #expect(gaps == gaps.sorted(), "the gaps only grow: \(times)")
+        #expect(gaps.allSatisfy { $0 <= 4000 })
     }
 
-    @Test func armingOnAStillScreenRepeatsAgain() {
-        var policy = Policy()
-        policy.pushed(now: 0, fresh: true)
-        var now: UInt64 = 0
-        while !policy.isIdle(now: now) {
-            now += Self.period
-            if policy.repeatNow(now: now) { policy.pushed(now: now, fresh: false) }
-        }
-        let whileIdle = policy.repeatNow(now: now + Self.period)
-        #expect(!whileIdle)
-        policy.arm() // a keyframe request, a quality change, the viewer's refresh
-        let afterArm = policy.repeatNow(now: now + Self.period)
-        #expect(afterArm)
-        #expect(policy.remaining == Policy.repeats - 1)
+    @Test func aStillMinuteCostsAboutFifteenFrames() {
+        // At the old 500 ms refresh it was 120.
+        let count = Self.refreshes(over: 60).count
+        #expect((14 ... 22).contains(count), "\(count) refreshes in a still minute")
     }
 
-    /// Regression: the viewer's own 3 s no-frame keyframe request re-armed
-    /// the repeats, so a still screen still sent 4 frames every few seconds.
-    @Test func theReceiversTimeoutRequestDoesNotRepeatAStillScreen() {
-        var policy = Policy()
-        policy.pushed(now: 1, fresh: true)
-        var now: UInt64 = 1
-        while !policy.isIdle(now: now) {
-            now += Self.period
-            if policy.repeatNow(now: now) { policy.pushed(now: now, fresh: false) }
-        }
-        let lastPicture = now - Self.period
-        policy.keyframeRequested(now: lastPicture + 3_000_000_000)
-        #expect(policy.remaining == 0)
-        policy.keyframeRequested(now: lastPicture + 500_000_000) // a loss right after the picture
-        #expect(policy.remaining == Policy.repeats)
-    }
-
-    @Test func nothingToRepeatBeforeTheFirstPicture() {
-        var policy = Policy()
-        let beforeFirst = policy.repeatNow(now: Self.period * 3)
-        #expect(!beforeFirst)
+    @Test func neverFasterThanTheFloor() {
+        #expect(!ScreenStreamHost.idleRefreshDue(sinceChangeNs: 0, sincePushNs: 400 * Self.ms))
+        #expect(ScreenStreamHost.idleRefreshDue(sinceChangeNs: 0, sincePushNs: 450 * Self.ms))
+        #expect(!ScreenStreamHost.idleRefreshDue(sinceChangeNs: 3600_000 * Self.ms, sincePushNs: 3999 * Self.ms))
+        #expect(ScreenStreamHost.idleRefreshDue(sinceChangeNs: 3600_000 * Self.ms, sincePushNs: 4000 * Self.ms))
     }
 }

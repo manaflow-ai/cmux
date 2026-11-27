@@ -49,10 +49,8 @@ const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
   // A machine that failed to start says so, never "Not connected", which reads as a link to fix.
   failed: "switch.failedShort",
 };
-/// A stage this list does not know yet is still a pick that opens the machine (cloudMachines.ts
-/// cloudMachineAction), so it says Open, never "Not connected" for a link nobody can fix.
 function cloudMachineLabel(machine: CloudMachine): string {
-  return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envOpenMachine");
+  return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envNotConnected");
 }
 
 /// The machines (and saved environments) a list holds before it gets a search field.

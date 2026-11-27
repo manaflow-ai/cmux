@@ -22,7 +22,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     benchCommitRenders: { mark(): void; since(): number };
-    benchChangeOne(index?: number): void | Promise<void>;
+    benchChangeOne(): Promise<void>;
   }
 }
 

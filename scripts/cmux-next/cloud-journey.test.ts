@@ -13,7 +13,6 @@ import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
@@ -3711,67 +3710,6 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
   test("a machine neither read finds fails", async () => {
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => { throw new Error("HTTP 404"); })).rejects.toThrow("vm_99 missing from 3 machines, and cloud.machine.get: HTTP 404");
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
-  });
-});
-
-describe("terminal scroll leg (carrier serve + __scroll-probe)", () => {
-  const report = (o: Record<string, unknown> = {}) => JSON.stringify({
-    surface: "cloud", bad: 1, seconds: 41.27, stream: { lines: 9000 },
-    views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 1, bad: 1, samples: 80 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0, bad: 0 } }, ...o,
-  });
-
-  test("keeps only the counts of both views and the seconds", () => {
-    expect(parseScrollReport(`noise\n${report()}\n`)).toEqual({
-      surface: "cloud", bad: 1, seconds: 41.3,
-      views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 1 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } },
-    });
-    expect(scrollDetail(parseScrollReport(report()))).toBe("bad 1 (mirror: 0 blank, 0 missing, 1 jumps; daemon: 0 blank, 0 missing, 0 jumps), 41.3 s");
-  });
-
-  test("a report that is not whole is refused, never read as 0", () => {
-    expect(() => parseScrollReport("")).toThrow("not a JSON report");
-    expect(() => parseScrollReport(report({ views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 0 } } }))).toThrow("daemon view");
-    expect(() => parseScrollReport(report({ bad: 0 }))).toThrow("bad is not the sum");
-    expect(() => parseScrollReport(report({ views: { mirror: { blank_rows: -1, missing_rows: 0, jumps: 0 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } } }))).toThrow("mirror view");
-  });
-
-  // One stand-in for both verbs: `carrier serve` writes its ready line and waits for stdin to end; `__scroll-probe`
-  // records its arguments and prints PROBE_OUT.
-  const fake = (probe: string, serve = `echo '{"ok":true,"socket":"'"$6"'","route":"carrier"}' >&2; cat >/dev/null; echo served-out > "$D/serve-ended"`) => {
-    const dir = mkdtempSync(join(tmpdir(), "journey-scroll-"));
-    const bin = join(dir, "cmux");
-    writeFileSync(bin, `#!/bin/bash\nD="${dir}"\nif [ "$1" = carrier ]; then printf '%s\\n' "$*" > "$D/serve-args"; printf '%s\\n' "$CMUX_CLOUD_API_URL $CMUX_CLOUD_ACCESS_TOKEN" > "$D/serve-env"; ${serve}; exit 0; fi\nprintf '%s\\n' "$*" > "$D/probe-args"\n${probe}\n`, { mode: 0o755 });
-    return { dir, bin };
-  };
-  const api = { origin: "https://api.example", bearer: "session-value", team: "team_0123456789abcdef0123" };
-
-  test("serves the machine on a private socket and runs the probe against it as the cloud surface", async () => {
-    const { dir, bin } = fake(`echo '${report()}'`);
-    const t = await carrierScrollProbe(bin, api, "vm_abcdefghij0123456789", 5);
-    expect(t.bad).toBe(1);
-    const serveArgs = readFileSync(join(dir, "serve-args"), "utf8").trim().split(" ");
-    expect(serveArgs.slice(0, 5)).toEqual(["carrier", "serve", "--machine", "vm_abcdefghij0123456789", "--socket"]);
-    expect(serveArgs.slice(6)).toEqual(["--team", "team_0123456789abcdef0123"]);
-    const socket = serveArgs[5];
-    expect(readFileSync(join(dir, "serve-env"), "utf8").trim()).toBe("https://api.example session-value");
-    expect(readFileSync(join(dir, "probe-args"), "utf8").trim()).toBe(`__scroll-probe --socket ${socket} --surface-label cloud --json --timeout-seconds 5`);
-    // The state dir (and the socket in it) goes with the step.
-    expect(existsSync(dirname(socket))).toBe(false);
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("a serve that refuses before its ready line is the step's reason, and no probe runs", async () => {
-    const { dir, bin } = fake(`echo '${report()}'`, `echo '{"ok":false,"error_code":"device_key","route":"carrier"}' >&2; exit 5`);
-    await expect(carrierScrollProbe(bin, api, "vm_abcdefghij0123456789", 5)).rejects.toThrow('carrier serve: {"ok":false,"error_code":"device_key"');
-    expect(existsSync(join(dir, "probe-args"))).toBe(false);
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("a probe that fails names its stderr and the serve's connection lines", async () => {
-    const { dir, bin } = fake(`sleep 0.3; echo 'scroll-probe: identify: no answer' >&2; exit 1`,
-      `echo '{"ok":true,"socket":"x","route":"carrier"}' >&2; echo '{"ok":false,"error_code":"relay","route":"carrier"}' >&2; cat >/dev/null`);
-    await expect(carrierScrollProbe(bin, api, "vm_abcdefghij0123456789", 5)).rejects.toThrow(/exit 1: scroll-probe: identify: no answer; carrier serve: .*relay/);
-    rmSync(dir, { recursive: true, force: true });
   });
 });
 

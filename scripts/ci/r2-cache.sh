@@ -226,24 +226,6 @@ not_saved() {
   return 0
 }
 
-# The archive is written whole before its upload (an S3 PUT needs its length). Its size is at most the
-# directory's, so a save whose disk lacks that room plus headroom is skipped with a warning: the cache
-# misses once, and the job stays green. Filling the disk instead killed the runner itself: machine
-# channel x86_64 musl leg, job 140250090793 (2026-11-27, cmux-runner-pool-e5a-0207), "No space left on
-# device" in the runner's own _diag log while "Save the workspace delta to R2" wrote its archive.
-room_for_archive() { # <work dir>
-  local need_kib free_kib headroom_kib="${CI_CACHE_R2_SAVE_HEADROOM_KIB:-1048576}"
-  [[ "$headroom_kib" =~ ^[0-9]+$ ]] || headroom_kib=1048576
-  need_kib="$(du -sk "$dir" 2>/dev/null | cut -f1)" || need_kib=""
-  free_kib="$(df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }')" || free_kib=""
-  [[ "$need_kib" =~ ^[0-9]+$ && "$free_kib" =~ ^[0-9]+$ ]] || return 0
-  if ((free_kib < need_kib + headroom_kib)); then
-    room_short="$key not saved: $((free_kib >> 10)) MiB free for its archive, $(((need_kib + headroom_kib) >> 10)) MiB needed (scripts/ci/r2-cache.sh room_for_archive)"
-    return 1
-  fi
-  echo "r2-cache: $((free_kib >> 10)) MiB free, archive at most $((need_kib >> 10)) MiB"
-}
-
 save() {
   local name
   for name in CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET CI_CACHE_R2_PUBLIC_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
@@ -267,12 +249,6 @@ save() {
   work="$(mktemp -d)"
   url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/objects/$key.$extension"
   status="$(request --head --dump-header "$work/headers" "$url")" || status=000
-  local room_short=""
-  if [[ "$status" == 404 ]] && ! room_for_archive "$work"; then
-    rm -rf "$work"
-    not_saved "$room_short"
-    return
-  fi
   if [[ "$status" == 404 ]]; then
     if [[ "$extension" == "tar.zst" ]]; then
       tar -cf - -C "$dir" . | zstd -T0 -3 -q -o "$work/archive"

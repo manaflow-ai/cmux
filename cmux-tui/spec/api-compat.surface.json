@@ -10022,9 +10022,6 @@
       "/machine_metadata": {
         "ty": "boolean"
       },
-      "/restore_progress": {
-        "ty": "boolean"
-      },
       "/revisions": {
         "ty": "boolean"
       }
@@ -12208,9 +12205,6 @@
       },
       "/include/*": {
         "ty": "string"
-      },
-      "/restore_progress": {
-        "ty": "boolean"
       }
     },
     "request:set-attach-visibility": {
@@ -12780,10 +12774,6 @@
       },
       "/icon": {
         "ty": "string",
-        "nullable": true
-      },
-      "/keep_awake": {
-        "ty": "boolean",
         "nullable": true
       },
       "/key": {
@@ -18229,31 +18219,6 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
-      },
-      "/data/restore": {
-        "ty": "object"
-      },
-      "/data/restore/done": {
-        "ty": "uint64",
-        "required": true,
-        "nullable": true
-      },
-      "/data/restore/elapsed_ms": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/data/restore/last_advance_ms": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/data/restore/phase": {
-        "ty": "string",
-        "required": true
-      },
-      "/data/restore/total": {
-        "ty": "uint64",
-        "required": true,
-        "nullable": true
       },
       "/data/screen_device_id": {
         "ty": "string",

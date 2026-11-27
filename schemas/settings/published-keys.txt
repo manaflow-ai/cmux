@@ -4,7 +4,6 @@
 # CMUX_PUBLISHED_KEYS_WRITE=1 cargo test -p cmux-config --test published_keys
 agentPane.attachmentView
 agentPane.composerLook
-agentPane.composerPlaceholder
 agentPane.composerRing
 agentPane.composerVimKeys
 agentPane.dictationShortcut
@@ -45,7 +44,6 @@ agentPane.display.rail.control
 agentPane.display.rail.show
 agentPane.display.rail.side
 agentPane.display.sendPop
-agentPane.display.sendScrollsToTop
 agentPane.display.senderIcon.badge
 agentPane.display.senderIcon.corner
 agentPane.display.senderIcon.lead
@@ -199,7 +197,6 @@ appearance.glassControls
 appearance.glassTransparency
 appearance.gooeyTabs
 appearance.highlightColor
-appearance.homeCardStyle
 appearance.hue
 appearance.iconTheme
 appearance.inactiveWindowDim
@@ -312,7 +309,6 @@ appearance.themeFile
 appearance.themeFileExceptions
 appearance.titleAreaContrast
 appearance.titleAreaTone
-appearance.toolbarButtonStyle
 appearance.twoTone
 appearance.wallpaperLighting
 appearance.wallpaperTint
@@ -491,18 +487,14 @@ experiments.agentBadges
 experiments.agentBadgesBeam
 experiments.appFontChrome
 experiments.appStoreFeatures
-experiments.appsTier
 experiments.attachmentTypeIcons
 experiments.browserProfileCard
-experiments.chatInstantUnderLoad
 experiments.chatWidgets
 experiments.cloudDiskBar
-experiments.cloudToggle
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
 experiments.composerV2
-experiments.eventsAsToolCalls
 experiments.expandedEditsEstimate
 experiments.foldSummaryCounts
 experiments.forum
@@ -525,7 +517,6 @@ experiments.threadMinimapRestReveal
 experiments.toastGlass
 experiments.toastsV2
 experiments.transcriptWorkLog
-experiments.writtenHTMLOpenBeside
 feed.agentPermissionPrompts
 feed.github.enabled
 feed.github.pollIntervalSeconds
@@ -578,7 +569,6 @@ labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
 labs.previousBuild
-labs.teamCompute
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
@@ -769,7 +759,6 @@ sidebar.priorityView.filters
 sidebar.priorityView.showIdle
 sidebar.priorityView.shown
 sidebar.priorityView.statusWords
-sidebar.profileMenu.style
 sidebar.sectionLook
 sidebar.sections.hidden
 sidebar.sections.order
@@ -800,7 +789,6 @@ sidebar.style
 sidebar.textSize
 sidebar.topBandMaxShare
 sidebar.workspaceIcons
-sidebar.workspaceListApp
 sidebar.workspaceRow.agent.agentStatus
 sidebar.workspaceRow.agent.branch
 sidebar.workspaceRow.agent.directory

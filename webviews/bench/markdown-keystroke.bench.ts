@@ -15,15 +15,10 @@
 //             that frame's rendering, p95.
 //   bun bench/markdown-keystroke.bench.ts [rounds=1] [--dev]
 // PROFILE=1 prints the 15 functions with the most self time while typing (an unminified build).
-// TRACE=1 types TRACE_KEYS more under a Chromium trace and prints, per key: the main thread's time
-// p95 (a light trace: tasks from one keydown to the next), and from a trace with invalidation
-// tracking the elements restyled, the objects laid out, the area of the layout roots and the
-// layout time, and the area painted.
 /// <reference types="bun" />
 import type { Browser, CDPSession, Page } from "playwright";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { chromium } from "./browsers";
-import { traceWindow } from "./styleInvalidationTrace";
 import { PERF_ROW_MARK, TARGET_MS, type PerfRow } from "./perfRow";
 import {
   benchPositionals,
@@ -37,9 +32,6 @@ const ROUNDS = Number(benchPositionals()[0] ?? 1);
 const SIZES = (process.env.SIZES ?? "1000,10000").split(",").map(Number);
 const KEYS = 40;
 const RESIZE_FRAMES = 60;
-/** Keystrokes traced (TRACE=1) for the renderer's work per key. */
-const TRACE_KEYS = 40;
-const TRACE = process.env.TRACE === "1";
 const RESIZE_STEP_PX = 4;
 const DEADLINE_MS = 120_000;
 const PROFILE = process.env.PROFILE === "1";
@@ -120,13 +112,11 @@ async function caretAfter(page: Page, needle: string): Promise<void> {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
-/** Types `keys` characters at the caret; each one's keydown to the first painted frame that shows it. */
-async function typeKeys(page: Page, keys = KEYS): Promise<number[]> {
+/** Types KEYS characters at the caret; each one's keydown to the first painted frame that shows it. */
+async function typeKeys(page: Page): Promise<number[]> {
   await page.evaluate(() => {
-    const bench = window as unknown as { __keys: number[]; __keysHeard?: boolean };
-    bench.__keys = [];
-    if (bench.__keysHeard) return;
-    bench.__keysHeard = true;
+    const out: number[] = [];
+    (window as unknown as { __keys: number[] }).__keys = out;
     // The text of the block holding the caret: one block, never the document.
     const blockText = () => {
       const node = getSelection()?.anchorNode;
@@ -138,7 +128,6 @@ async function typeKeys(page: Page, keys = KEYS): Promise<number[]> {
       (event) => {
         const start = event.timeStamp;
         const before = blockText();
-        const out = bench.__keys;
         window.cmuxAfterPaint(() => {
           if (blockText() === before) return true;
           out.push(performance.now() - start);
@@ -148,7 +137,7 @@ async function typeKeys(page: Page, keys = KEYS): Promise<number[]> {
       { capture: true },
     );
   });
-  for (let key = 0; key < keys; key++) {
+  for (let key = 0; key < KEYS; key++) {
     await page.keyboard.press(String.fromCharCode(97 + (key % 26)));
     await page.waitForFunction((count) => (window as unknown as { __keys: number[] }).__keys.length >= count, key + 1, {
       timeout: 10_000,
@@ -156,86 +145,6 @@ async function typeKeys(page: Page, keys = KEYS): Promise<number[]> {
     });
   }
   return page.evaluate(() => (window as unknown as { __keys: number[] }).__keys);
-}
-
-/** What one keystroke made the renderer do, from a Chromium trace: averaged per key, and each key's main-thread time. */
-type KeyWork = {
-  restyled: number;
-  layoutObjects: number;
-  layoutRootArea: number;
-  layoutMs: number;
-  paintArea: number;
-  mainMs: number[];
-};
-
-/**
- * TRACE_KEYS keystrokes at the caret under a Chromium trace: the elements each style update
- * restyled (UpdateLayoutTree's element count), the objects each layout laid out (its dirty
- * objects), the area of its layout roots and its time, and the area each paint covered, per key;
- * and each key's main-thread time, its tasks from its keydown to the next key's.
- */
-async function traceKeys(browser: Browser, page: Page): Promise<KeyWork> {
-  type Ev = {
-    name: string;
-    ph: string;
-    ts: number;
-    tid: number;
-    pid: number;
-    dur?: number;
-    args?: Record<string, any>;
-  };
-  const counted = (await traceWindow(browser, page, () => typeKeys(page, TRACE_KEYS))) as Ev[];
-  // The main thread's time from a light trace: invalidation tracking slows the page several times.
-  await browser.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"] });
-  await typeKeys(page, TRACE_KEYS);
-  const timed = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: Ev[] }).traceEvents;
-  const rendererMain = (events: Ev[]) => {
-    const mains = new Set(
-      events
-        .filter((e) => e.ph === "M" && e.name === "thread_name" && e.args?.name === "CrRendererMain")
-        .map((e) => `${e.pid}:${e.tid}`),
-    );
-    return events.filter((e) => mains.has(`${e.pid}:${e.tid}`)).sort((a, b) => a.ts - b.ts);
-  };
-  const main = rendererMain(counted);
-  const light = rendererMain(timed);
-  const area = (quad: unknown): number => {
-    if (!Array.isArray(quad) || quad.length !== 8 || quad.some((v) => Math.abs(v) > 1e7)) return 0;
-    const xs = [quad[0], quad[2], quad[4], quad[6]] as number[];
-    const ys = [quad[1], quad[3], quad[5], quad[7]] as number[];
-    return (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
-  };
-  let restyled = 0;
-  let layoutObjects = 0;
-  let layoutRootArea = 0;
-  let layoutMs = 0;
-  let paintArea = 0;
-  for (const e of main) {
-    if (e.name === "UpdateLayoutTree" && (e.ph === "X" || e.ph === "E"))
-      restyled += Number(e.args?.elementCount ?? e.args?.data?.elementCount ?? 0);
-    else if (e.name === "Layout" && e.ph === "X") {
-      layoutObjects += Number(e.args?.beginData?.dirtyObjects ?? 0);
-      layoutMs += (e.dur ?? 0) / 1000;
-      layoutRootArea += area(e.args?.endData?.layoutRoots?.[0]?.quads?.[0]);
-    } else if (e.name === "Paint" && e.ph === "X") paintArea += area(e.args?.data?.clip);
-  }
-  const keydowns = light.filter((e) => e.name === "EventDispatch" && e.args?.data?.type === "keydown").map((e) => e.ts);
-  const mainMs = keydowns.map((start, index) => {
-    const end = keydowns[index + 1] ?? Infinity;
-    let busy = 0;
-    for (const e of light)
-      if (e.name === "RunTask" && e.ph === "X" && e.ts >= start && e.ts < end) busy += (e.dur ?? 0) / 1000;
-    return busy;
-  });
-  const keys = Math.max(1, main.filter((e) => e.name === "EventDispatch" && e.args?.data?.type === "keydown").length);
-  return {
-    restyled: restyled / keys,
-    layoutObjects: layoutObjects / keys,
-    layoutRootArea: layoutRootArea / keys,
-    layoutMs: layoutMs / keys,
-    paintArea: paintArea / keys,
-    mainMs,
-  };
 }
 
 /** Each frame's main-thread work while the root narrows RESIZE_STEP_PX a frame. */
@@ -288,7 +197,7 @@ async function topSelfTime(cdp: CDPSession): Promise<void> {
     log(`  self ${ms.toFixed(0)} ms ${key}`);
 }
 
-type Result = { nodes: number[]; keys: number[]; longest: number[]; resize: number[]; traced: KeyWork[] };
+type Result = { nodes: number[]; keys: number[]; longest: number[]; resize: number[] };
 
 async function runSize(browser: Browser, url: string, text: string, result: Result): Promise<void> {
   const context = await browser.newContext({ viewport: { width: 1200, height: 900 } });
@@ -327,10 +236,6 @@ async function runSize(browser: Browser, url: string, text: string, result: Resu
     result.longest.push(
       await page.evaluate(() => (window as unknown as { __mdBench: { longest: number } }).__mdBench.longest),
     );
-    if (TRACE) {
-      await caretAfter(page, PARAGRAPH);
-      result.traced.push(await traceKeys(browser, page));
-    }
     result.resize.push(...(await resize(page)));
   } finally {
     await context.close().catch(() => {});
@@ -360,7 +265,7 @@ try {
   }
   for (const lines of SIZES) {
     const text = fixture(lines);
-    const result: Result = { nodes: [], keys: [], longest: [], resize: [], traced: [] };
+    const result: Result = { nodes: [], keys: [], longest: [], resize: [] };
     results.set(lines, result);
     for (let round = 0; round < ROUNDS; round++) await runSize(browser, served.url, text, result);
     log(
@@ -368,13 +273,6 @@ try {
         `p95 ${fmt(quantile(result.keys, 0.95))} ms (${result.keys.length} keys), longest task while typing ` +
         `${fmt(Math.max(0, ...result.longest))} ms, resize frame p95 ${fmt(quantile(result.resize, 0.95))} ms`,
     );
-    for (const traced of result.traced)
-      log(
-        `${lines} lines per key (traced): main thread p95 ${fmt(quantile(traced.mainMs, 0.95))} ms, restyled ` +
-          `${fmt(traced.restyled)} elements, layout ${fmt(traced.layoutObjects)} objects over ` +
-          `${fmt(traced.layoutRootArea / 1e3)}k px² of roots in ${fmt(traced.layoutMs)} ms, paint ` +
-          `${fmt(traced.paintArea / 1e3)}k px²`,
-      );
     const row: PerfRow = {
       name: `markdown_viewer.keystroke.l${lines}`,
       p50: quantile(result.keys, 0.5),

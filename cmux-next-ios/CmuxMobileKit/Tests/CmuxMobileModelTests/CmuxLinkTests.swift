@@ -1,5 +1,3 @@
-// The grammar is Rust's (cmux_link.rs, which runs these cases too); it links on iOS only.
-#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileModel
@@ -102,4 +100,3 @@ import Testing
         }
     }
 }
-#endif

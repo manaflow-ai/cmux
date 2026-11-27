@@ -169,44 +169,29 @@ export const revealInPlace = async (engine: "chromium" | "webkit", viteConfig: s
     );
   // fixed-wait: the stream's own cadence, bursts a frame or two apart as an agent sends them, is the input under test.
   const pause = (ms: number) => Bun.sleep(ms);
+  /// The ids of the transcript's rows in the DOM.
+  const rowIds = (page: Page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row[data-row-id]")].map(
+        (row) => row.dataset.rowId!,
+      ),
+    );
   /// How often, and how far apart (ms), the page away is asked whether it drew a block: 5 s in all.
   /// A suspended page's timers run about a second late, so its draw takes that long.
   const AWAY_DRAW_READS = 250;
   const AWAY_DRAW_EVERY_MS = 20;
-  /// How long a page that let go of its rows gets to take a block in when nothing it shows grows.
-  const AWAY_RELEASED_TAKE_IN_MS = 1500;
-  /// What the page away holds: its rows' ids, the transcript's scroll height, and whether a hidden page
-  /// let go of its rows (VirtualTranscript.tsx HIDDEN RELEASE: no rows, the measured heights kept).
-  type AwayState = { rows: string[]; height: number; released: boolean };
-  const awayState = (page: Page) =>
-    page.evaluate((): AwayState => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-      return {
-        rows: [...document.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row[data-row-id]")].map(
-          (row) => row.dataset.rowId!,
-        ),
-        height: scroller?.scrollHeight ?? 0,
-        released: scroller?.hasAttribute("data-rows-released") ?? false,
-      };
-    });
-  /// Waits until the page away has taken in a block `before` does not hold: a row it draws, or, on a
-  /// page that let go of its rows, a taller transcript (the block's place, drawn when the page shows).
-  /// The page is asked from here, since its own frames wait while it is away.
-  const drawnWhileAway = async (page: Page, before: AwayState) => {
-    let now = before;
+  /// Waits until the page away has drawn a row that `before` does not hold: what came while it was
+  /// away is in its DOM. The page is asked from here, since its own frames wait while it is away.
+  const drawnWhileAway = async (page: Page, before: string[]) => {
+    let rows = before;
     for (let read = 0; read < AWAY_DRAW_READS; read++) {
-      now = await awayState(page);
-      if (now.rows.some((id) => !before.rows.includes(id))) return;
-      if (now.released && now.height > before.height) return;
-      // Released with the block folded into a row it already had (no new height to read): the page
-      // takes it in on its away timer (direct.ts `emitInFrame`, up to a second late when suspended)
-      // and draws it with the rest in its first frame back.
-      if (now.released && read * AWAY_DRAW_EVERY_MS >= AWAY_RELEASED_TAKE_IN_MS) return;
+      rows = await rowIds(page);
+      if (rows.some((id) => !before.includes(id))) return;
       // fixed-wait: the time between two reads of the page away (a poll with a bound, no assert on it).
       await pause(AWAY_DRAW_EVERY_MS);
     }
     throw new Error(
-      `the block that came while the page was away was not taken in within ${(AWAY_DRAW_READS * AWAY_DRAW_EVERY_MS) / 1000} s: the page still has the ${now.rows.length} rows it had (the last ones: ${now.rows.slice(-3).join(", ")}), height ${now.height}${now.released ? ", rows released" : ""}`,
+      `the block that came while the page was away was not drawn in ${(AWAY_DRAW_READS * AWAY_DRAW_EVERY_MS) / 1000} s: the page still has the ${rows.length} rows it had (the last ones: ${rows.slice(-3).join(", ")})`,
     );
   };
   async function words(count: number) {
@@ -457,7 +442,7 @@ export const revealInPlace = async (engine: "chromium" | "webkit", viteConfig: s
             [away === "occluded", away === "suspended"] as const,
           );
           if (single) {
-            const drawn = await awayState(page);
+            const drawn = await rowIds(page);
             // One block, then nothing: no later move to land the chase it starts.
             toolCall("away-one", "gh run view 42950 --log-failed", "Read the failed run");
             // The page away draws the block on a timer (direct.ts `emitInFrame`: 50 ms, and a suspended

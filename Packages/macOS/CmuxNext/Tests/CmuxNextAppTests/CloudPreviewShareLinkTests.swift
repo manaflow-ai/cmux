@@ -10,7 +10,7 @@ import Testing
 /// person's access and team, and decodes the platform's answer the daemon passes back.
 @Suite(.serialized)
 struct CloudPreviewShareLinkTests {
-    typealias FakeDaemon = CloudDaemonRunTests.FakeDaemon
+    typealias FakeDaemon = CloudAPIClientRunTests.FakeDaemon
 
     nonisolated static let created = #"{"ok":true,"body":{"link":{"linkId":"link_123","creator":"user_1","team":"team_1","machine":"vm_abc","port":3000,"hostname":"preview.example","ruleId":"rule_1","createdAt":1700000000000,"expiresAt":1700086400000,"maxUses":null,"redemptions":0,"revokedAt":null},"url":"https://preview.example/?cmux_share=secret"}}"#
 
@@ -18,10 +18,10 @@ struct CloudPreviewShareLinkTests {
         FakeDaemon { call, _, _ in call == "previews.create_link" ? Self.created : #"{"ok":true,"body":{"revoked":true}}"# }
     }
 
-    private func api(_ daemon: FakeDaemon) throws -> CloudDaemon {
-        var worker = CloudDaemon.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
+    private func api(_ daemon: FakeDaemon) throws -> CloudAPIClient {
+        var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
                                                    accessToken: { "access" }, teamID: { "team_1" })
-        worker.daemonCall = { input, _ in try daemon.run(input) }
+        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
         return worker.previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 

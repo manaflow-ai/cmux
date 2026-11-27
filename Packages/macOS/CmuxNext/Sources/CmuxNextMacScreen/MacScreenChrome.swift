@@ -258,8 +258,8 @@ extension MacScreenPaneModel {
     /// Why the stream failed, as the failed card says it: the host's own reason when it gave
     /// one (over the link or through the hub), a TURN relay that refused the credentials or
     /// can't be reached, a relay-only path that found no relay, this Mac's link failure, a link
-    /// that came up but carried no picture, this Mac's own hub socket being down, and only when
-    /// nobody said anything, what to check on the other Mac.
+    /// that came up but carried no picture, and only when nobody said anything, what to check on
+    /// the other Mac.
     var failedDetail: String {
         Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
                           hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false),
@@ -275,6 +275,9 @@ extension MacScreenPaneModel {
     static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
                              hubOnline: Bool = true, cause: MacScreenSession.FailureCause? = nil,
                              linkConnected: Bool = false, timedOut: MacScreenConnectStage? = nil) -> String {
+        if hubTab, !hubOnline {
+            return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
+        }
         if case let .host(reason)? = cause { return hostFailedText(reason, name: name) }
         // A connect that ran out of time says the stage it stopped at (no answer, no link, no picture).
         if let detail = timedOut?.timeoutDetail(name: name) { return detail }
@@ -291,12 +294,6 @@ extension MacScreenPaneModel {
         if linkConnected {
             // The link came up, so the other Mac was awake and online: say what was seen instead.
             return String(format: L.t("macScreen.card.noPicture", "Connected to %@, but no picture arrived before the session closed."), name)
-        }
-        // This Mac's own hub socket only carries pushes; the stream signals over the session's
-        // own socket and the ticket falls back to HTTP, so a down hub socket explains a failure
-        // only when nothing more concrete did (it outranked them all and hid the real cause).
-        if hubTab, !hubOnline {
-            return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
         }
         return String(format: L.t("macScreen.card.failedHub", "Check that %@ is awake and online."), name)
     }

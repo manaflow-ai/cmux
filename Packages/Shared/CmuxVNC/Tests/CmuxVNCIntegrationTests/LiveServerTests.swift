@@ -8,9 +8,7 @@ import UniformTypeIdentifiers
 /// Against a real server, only when `CMUX_VNC_LIVE_HOST` is set
 /// (`host[:port]`, plus `CMUX_VNC_LIVE_USER` / `CMUX_VNC_LIVE_PASSWORD`;
 /// `CMUX_VNC_LIVE_PNG` saves the first frame). Used to check macOS Screen
-/// Sharing (Apple DH) and other servers by hand; skipped in CI. The handshake asks cmux-vnc's rules
-/// (``VNCRules``), which this package does not link: these fail with ``VNCRules/unavailable``
-/// until the run hands the client a real channel.
+/// Sharing (Apple DH) and other servers by hand; skipped in CI.
 struct LiveServerTests {
     static let environment = ProcessInfo.processInfo.environment
 

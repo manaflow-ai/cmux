@@ -107,8 +107,7 @@ version="" build=""
 [[ -f "$plist" ]] && build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
 status=0
 if [[ "$skip" != fixture ]]; then
-  mkdir -p "$work/downloads"  # its downloads stay in this run (Debug builds), off the ~/Downloads access prompt
-  CMUX_NEXT_DOWNLOADS_DIR="$work/downloads" "$side" launch "$name" --front >&2 || exit 3
+  "$side" launch "$name" --front >&2 || exit 3
   sock="$("$side" socket "$name")"
   for _ in $(seq 1 90); do [[ -S "$sock" ]] && break; sleep 1; done
   sleep 10

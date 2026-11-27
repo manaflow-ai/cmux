@@ -19,7 +19,6 @@ pub(super) const APP_ONLY_SCOPES: &[&str] = &[
     "avatar",
     "billing",
     "auth",
-    "env",
     "accounts",
     "bookmark",
     "open",

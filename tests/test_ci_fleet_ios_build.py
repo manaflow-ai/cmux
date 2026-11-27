@@ -4,7 +4,6 @@ and keeps `cmux-ci ios-build`'s exit codes (0 pass with every output, 1 a failed
 link-ffi-fleet job calls it from a Linux runner, so no Mac sits idle waiting for the build."""
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import io
 import json
@@ -71,14 +70,11 @@ class Route:
         assert req.get_header("User-agent") == fib.USER_AGENT, req.get_header("User-agent")
         body = json.loads(req.data)
         self.bodies.append(body)
-        if body["op"] == "submit":
-            ans = self.submit.pop(0) if isinstance(self.submit, list) else self.submit
-        else:
-            ans = self.statuses.pop(0)
+        ans = self.submit if body["op"] == "submit" else self.statuses.pop(0)
         if isinstance(ans, tuple):
-            code, retry, text = (ans + (b"not enabled",))[:3]
+            code, retry = ans
             raise urllib.error.HTTPError(fib.ROUTE, code, "x", {"Retry-After": retry} if retry else {},
-                                         io.BytesIO(text))
+                                         io.BytesIO(b"not enabled"))
         return Resp(ans)
 
 
@@ -127,56 +123,9 @@ class FleetIOSBuild(unittest.TestCase):
         route = Route({"job": "j1"}, [{"state": "failed", "verdict": "fail", "reason": "bindings drifted"}])
         self.assertEqual(run(route, self.out), 1)
 
-    def test_failed_build_prints_each_compiler_error_as_an_annotation(self):
-        errors = [
-            {"file": "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileModelTests/WorkspaceGroupTests.swift", "line": 476,
-             "col": 1, "message": "unexpected conditional compilation block terminator"},
-            {"file": "Packages/Shared/A.swift", "line": 3, "col": 9, "message": "50% of\nit, here: x"},
-            {"file": "/etc/passwd", "line": 1, "col": 1, "message": "no"},
-            {"file": "cmux-next-ios/../x.swift", "line": 1, "col": 1, "message": "no"},
-            {"file": "cmux-next-ios/B.swift", "line": "1", "message": "no"},
-            "not a dict",
-        ]
-        route = Route({"job": "j1"}, [{"state": "failed", "verdict": "fail", "reason": "build", "errors": errors}])
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            self.assertEqual(run(route, self.out), 1)
-        self.assertEqual(out.getvalue().splitlines(), [
-            "::error file=cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileModelTests/WorkspaceGroupTests.swift,line=476,col=1,"
-            "title=build fleet::unexpected conditional compilation block terminator",
-            "::error file=Packages/Shared/A.swift,line=3,col=9,title=build fleet::50%25 of%0Ait, here: x",
-        ])
-
-    def test_failed_build_without_errors_prints_none(self):
-        route = Route({"job": "j1"}, [{"state": "failed", "verdict": "fail", "reason": "build"}])
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            self.assertEqual(run(route, self.out), 1)
-        self.assertEqual(out.getvalue(), "")
-
     def test_route_not_enabled_is_2(self):
         route = Route((503, "10"), [])
         self.assertEqual(run(route, self.out), 2)
-        self.assertEqual(len(route.bodies), 1)  # "not enabled" does not change on a retry
-
-    def test_submit_to_a_starting_controller_is_retried(self):
-        # Kit run 45926512987 (2026-11-27): the first submit got 503 "the controller is starting; retry" and the
-        # client gave up after 20 s, so the Mac built the simulator tests instead.
-        starting = (503, None, b"the controller is starting; retry")
-        route = Route([starting, starting, {"job": "j1"}],
-                      [{"state": "done", "verdict": "pass", "get_url": "https://store.example/out.tgz"}], tgz(FFI))
-        self.assertEqual(run(route, self.out), 0)
-        self.assertEqual([b["op"] for b in route.bodies], ["submit", "submit", "submit", "status"])
-
-    def test_submit_to_a_controller_that_stays_down_is_2(self):
-        route = Route([(503, None, b"the controller is starting; retry")] * 100, [])
-        self.assertEqual(run(route, self.out), 2)
-        self.assertLess(len(route.bodies), 15)
-
-    def test_submit_refused_is_not_retried(self):
-        route = Route([(403, None, b"workflow not allowed"), {"job": "j1"}], [])
-        self.assertEqual(run(route, self.out), 2)
-        self.assertEqual(len(route.bodies), 1)
 
     def test_ended_without_verdict_is_2(self):
         route = Route({"job": "j1"}, [{"state": "cancelled"}])
@@ -291,10 +240,8 @@ class KitWorkflow(unittest.TestCase):
         self.assertIn("steps.sim-products.outputs.name", steps["sim-linux-start"]["env"]["PRODUCTS"])
         self.assertIn("steps.sim-products.outputs.ready", steps["sim-linux-start"]["if"])
         self.assertIn("steps.sim-products.outputs.name", self.jobs["kit-tests"]["outputs"]["sim_products"])
-        pool_steps = {s.get("id"): s for s in self.jobs["kit-sim-pool"]["steps"] if s.get("id")}
-        # The pool job's wait step names the products (#60129); the pool run reads that name from it.
-        self.assertIn("needs.kit-tests.outputs.sim_products", pool_steps["wait"]["env"]["PRODUCTS"])
-        self.assertIn("steps.wait.outputs.products", pool_steps["pool"]["env"]["PRODUCTS"])
+        pool = next(s for s in self.jobs["kit-sim-pool"]["steps"] if s.get("id") == "pool")
+        self.assertIn("needs.kit-tests.outputs.sim_products", pool["env"]["PRODUCTS"])
 
     def test_a_shadow_job_never_fails_the_workflow(self):
         steps = {s.get("id"): s for s in self.jobs["kit-sim-fleet"]["steps"] if s.get("id")}

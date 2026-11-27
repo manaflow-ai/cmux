@@ -170,23 +170,6 @@ fn a_renamed_switch_reads_through_the_values_table() {
     assert_eq!(value("schema.stored", json!({"key": "computerUse.mode", "root": {}})), Value::Null);
 }
 
-/// A row that replaced several retired keys (`updates.automatic`, three toggles) reads the
-/// first of them, in the table's order, whose value the table lists, as `replaced_value` does.
-#[test]
-fn a_row_that_replaced_several_keys_reads_the_first_listed() {
-    let stored =
-        |root: Value| value("schema.stored", json!({"key": "updates.automatic", "root": root}));
-    let both = json!({"updates": {"checkAutomatically": false, "installWhenIdle": true}});
-    assert_eq!(stored(both), json!("off"), "checks off wins");
-    let idle = json!({"updates": {"checkAutomatically": true, "installWhenIdle": true}});
-    assert_eq!(stored(idle), json!("idle"), "an unlisted first key gives way to the next");
-    assert_eq!(
-        stored(json!({"updates": {"checkAutomatically": true}})),
-        Value::Null,
-        "the default"
-    );
-}
-
 /// LegacyBackdropArtValueTests.
 #[test]
 fn the_old_backdrop_art_key_reads_as_the_background() {

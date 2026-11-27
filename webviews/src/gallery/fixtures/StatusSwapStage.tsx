@@ -6,7 +6,7 @@
 // ugly bc it's too slow on the transitions and there's breif moments where it just looks like a blank
 // tear that then switches"), so a play, a frame test (test/status-swap-frames.test.ts) and a person
 // watch the same swap.
-import { useEffect, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { trayItems, finishedTrayItems } from "../../agent-session/acpmux/subagents/runningTray";
 import { SubagentTray } from "../../agent-session/acpmux/subagents/SubagentTray";
 import type { Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
@@ -29,45 +29,15 @@ const LEO_STEPS: { doing?: string; tokens: number }[] = [
   { doing: "Sending a message", tokens: 1_700 },
   { tokens: 2_500 },
 ];
-/// A turn that sends messages in quick succession (Leo, 2026-11-25: "the sending messages in rapid
-/// succession is really bad looking"): the line flips between Thinking, a send and a call every
-/// BURST_GAP_MS, quicker than the line's dwell (Thinking.tsx `LINE_DWELL_MS`).
-const BURST_STEPS: { doing?: string; sendTo?: string }[] = [
-  { doing: "SendMessage", sendTo: "tests" },
-  {},
-  { doing: "SendMessage", sendTo: "reviewer" },
-  { doing: "Read ThinkingRow.tsx" },
-  {},
-  { doing: "SendMessage", sendTo: "tests" },
-  {},
-  { doing: "SendMessage", sendTo: "docs" },
-  {},
-];
-export const BURST_GAP_MS = 60;
 const counts = (tokens: number): WorkingCounts => ({
   tokens,
 });
 const NO_WAITING: ReadonlySet<string> = new Set();
 const shown = { current: "gallery-status-swap" as string | undefined };
 
-export function StatusSwapStage({ sequence, dwell = true }: { sequence?: "leo" | "burst"; dwell?: boolean }) {
+export function StatusSwapStage({ sequence }: { sequence?: "leo" }) {
   const [clock] = useState(() => Date.now());
   const [step, setStep] = useState(0);
-  const [burst, setBurst] = useState(-1);
-  useEffect(() => {
-    if (dwell) delete document.documentElement.dataset.liveDwell;
-    else document.documentElement.dataset.liveDwell = "off";
-    return () => {
-      delete document.documentElement.dataset.liveDwell;
-    };
-  }, [dwell]);
-  // One burst: each step BURST_GAP_MS after the last, then the line rests on Thinking.
-  useEffect(() => {
-    if (burst < 0 || burst >= BURST_STEPS.length - 1) return;
-    const id = window.setTimeout(() => setBurst((current) => current + 1), BURST_GAP_MS);
-    return () => window.clearTimeout(id);
-  }, [burst]);
-  const sent = sequence === "burst" && burst >= 0 ? BURST_STEPS[burst] : undefined;
   const lead: Subagent = {
     id: "gallery-status-swap-lead",
     parent: null,
@@ -90,11 +60,6 @@ export function StatusSwapStage({ sequence, dwell = true }: { sequence?: "leo" |
         <button type="button" data-stage="next" onClick={() => setStep((current) => current + 1)}>
           Next step
         </button>
-        {sequence === "burst" ? (
-          <button type="button" data-stage="burst" onClick={() => setBurst(0)}>
-            Send a burst
-          </button>
-        ) : null}
       </div>
       <main className="acpmux-main" data-dock="float" style={{ position: "relative", flex: 1, minHeight: 0 }}>
         <div className="acpmux-thread" style={{ position: "relative", padding: "16px 16px 0" }}>
@@ -103,8 +68,6 @@ export function StatusSwapStage({ sequence, dwell = true }: { sequence?: "leo" |
               <WorkingCountsContext.Provider value={counts(leo.tokens)}>
                 <Thinking since={clock - 60_000} doing={leo.doing} below />
               </WorkingCountsContext.Provider>
-            ) : sequence === "burst" ? (
-              <Thinking since={clock - 34_000} doing={sent?.doing} sendTo={sent?.sendTo} below />
             ) : (
               <Thinking since={clock - 34_000} doing={line?.doing} doingShell={line?.shell} below />
             )}

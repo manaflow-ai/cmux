@@ -125,9 +125,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
-        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(ACPMUX_JOIN))
-        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(PUBLISH_CHECK))
-        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(ACPMUX_JOIN))
+        self.assertEqual(self.index(ACPMUX_JOIN) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)

@@ -66,7 +66,7 @@ extension CEFTab: BrowserEmulating {
         deviceEmulationViewport = nil
         if emulationInputScale != 1 { emulationInputScale = 1 }
         if emulationTouch { emulationTouch = false }
-        container.requestLayout()
+        container.needsLayout = true
     }
 
     /// DevTools device mode ended (turned off, or its DevTools closed): the
@@ -75,7 +75,7 @@ extension CEFTab: BrowserEmulating {
     func devToolsDeviceModeEnded() {
         deviceEmulationNeedsReset = true
         deviceEmulationViewport = nil
-        container.requestLayout()
+        container.needsLayout = true
         applyDeviceEmulation()
     }
 
@@ -83,7 +83,7 @@ extension CEFTab: BrowserEmulating {
     /// now fits better), or resize a fit's layout (no reload).
     func deviceEmulationViewDidResize() {
         guard let emulation = deviceEmulation else { return }
-        container.requestLayout() // a fit's page rect and frame follow the pane
+        container.needsLayout = true // a fit's page rect and frame follow the pane
         guard emulation.viewport(in: emulation.layoutArea(in: container.pageViewportFrame).size) != deviceEmulationViewport else { return }
         applyDeviceEmulation()
     }

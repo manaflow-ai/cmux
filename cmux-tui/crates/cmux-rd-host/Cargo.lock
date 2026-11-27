@@ -667,7 +667,6 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
- "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",

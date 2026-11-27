@@ -13,9 +13,7 @@ use crate::app_connection::AppConnection;
 use crate::install_key::InstallKey;
 use crate::launcher::{self, Launcher};
 use crate::mirror::{Applied, Mirror, MirrorChange};
-use crate::resume_class::{ResumeErrorClass, SessionEnd};
 use crate::spaces::PROFILES_CAPABILITY;
-use acpmux_list_types::resume::{Decision, NextStep, ResumeBudget};
 use cmux::{
     ClientMetadataOptions, Config, ConnectedClientId, EventStreamOptions, Selector,
     StreamCancellation, Update,
@@ -24,7 +22,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::Duration;
 
@@ -223,14 +221,9 @@ pub enum DaemonEvent {
         frame: Box<cmux::SessionEvent>,
     },
     /// The connection failed or ended; the worker retries after `retry_in`.
-    /// `class` is what the failure means ([`ResumeErrorClass`]); `gave_up`
-    /// is set once that class has spent its retry budget, and `retry_in` is
-    /// then the slow park interval (`max_backoff`).
     Disconnected {
         error: String,
         retry_in: Duration,
-        class: ResumeErrorClass,
-        gave_up: bool,
     },
     /// The worker exited (after `stop`). Always the last event.
     Stopped,
@@ -249,9 +242,8 @@ struct Shared {
     stopping: AtomicBool,
     cancel: Mutex<Option<StreamCancellation>>,
     connection: Mutex<Option<ConnectionInfo>>,
-    /// Loaded by the worker before its first connect, and again when the
-    /// daemon refuses it ([`ResumeErrorClass::Auth`]).
-    install_key: Mutex<Option<InstallKey>>,
+    /// Loaded once by the worker before its first connect.
+    install_key: OnceLock<Option<InstallKey>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -281,7 +273,7 @@ impl DaemonClient {
             stopping: AtomicBool::new(false),
             cancel: Mutex::new(None),
             connection: Mutex::new(None),
-            install_key: Mutex::new(None),
+            install_key: OnceLock::new(),
         });
         let (stop_tx, stop_rx) = mpsc::channel();
         let worker_shared = shared.clone();
@@ -314,7 +306,7 @@ impl DaemonClient {
     /// [`AppConnection::connect`]. A secret: never log it (its `Debug`
     /// shows only the install id).
     pub fn install_key(&self) -> Option<InstallKey> {
-        lock(&self.shared.install_key).clone()
+        self.shared.install_key.get().cloned().flatten()
     }
 
     /// Stops the worker and waits for it: at once when it is waiting on the
@@ -349,98 +341,33 @@ fn run(
     stop_rx: mpsc::Receiver<()>,
     on_event: SharedCallback,
 ) {
-    let mut budget = ResumeBudget::new();
-    *lock(&shared.install_key) = load_install_key(&config);
+    let mut backoff = config.min_backoff;
+    let key = config.install_key_path().and_then(|file| InstallKey::load_or_create(&file));
+    if config.install_key_path().is_some() && key.is_none() {
+        log::warn!("cmux daemon: no install key; this app cannot prove itself to the daemon");
+    }
+    let _ = shared.install_key.set(key);
     while !shared.stopping.load(Ordering::SeqCst) {
-        let result = session(&config, &shared, &on_event, &mut budget);
+        let result = session(&config, &shared, &on_event, &mut backoff);
         *lock(&shared.connection) = None;
         lock(&shared.cancel).take();
         if shared.stopping.load(Ordering::SeqCst) {
             break;
         }
-        let end = match result {
-            Ok(()) => SessionEnd::stream_ended(),
-            Err(end) => end,
+        let error = match result {
+            Ok(()) => "event stream ended".to_string(),
+            Err(e) => e,
         };
-        let next = reconnect_after(&mut budget, end.class, &config);
-        let SessionEnd { class, error } = end;
-        let retry_in = next.retry_in;
-        if next.gave_up {
-            log::warn!(
-                "cmux daemon: {error} ({class}: retry budget spent); trying again in {retry_in:?}"
-            );
-        } else {
-            log::warn!("cmux daemon: {error} ({class}); retrying in {retry_in:?}");
-        }
-        emit(
-            &shared,
-            &on_event,
-            &DaemonEvent::Disconnected { error, retry_in, class, gave_up: next.gave_up },
-        );
+        log::warn!("cmux daemon: {error}; retrying in {backoff:?}");
+        emit(&shared, &on_event, &DaemonEvent::Disconnected { error, retry_in: backoff });
         // Interruptible wait: `stop` drops the sender, which wakes this.
-        if !retry_in.is_zero() {
-            match stop_rx.recv_timeout(retry_in) {
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                _ => break,
-            }
+        match stop_rx.recv_timeout(backoff) {
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            _ => break,
         }
-        if next.refresh_key {
-            *lock(&shared.install_key) = load_install_key(&config);
-        }
+        backoff = (backoff * 2).min(config.max_backoff);
     }
     emit(&shared, &on_event, &DaemonEvent::Stopped);
-}
-
-fn load_install_key(config: &DaemonConfig) -> Option<InstallKey> {
-    let key = config.install_key_path().and_then(|file| InstallKey::load_or_create(&file));
-    if config.install_key_path().is_some() && key.is_none() {
-        log::warn!("cmux daemon: no install key; this app cannot prove itself to the daemon");
-    }
-    key
-}
-
-/// What the worker does after a session ended with some class.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Reconnect {
-    /// The wait before connecting again.
-    pub retry_in: Duration,
-    /// Load the install key again before connecting.
-    pub refresh_key: bool,
-    /// The class spent its budget: reported, then one try per `max_backoff`.
-    pub gave_up: bool,
-}
-
-/// The class's decision for this worker. Every reconnect is a fresh
-/// snapshot, so the class decides only the wait and whether the key is
-/// loaded again: a gap or a clean close reconnects at once, a refused key
-/// is loaded again once, and a transient failure keeps the configured
-/// `min_backoff`..`max_backoff` doubling. Once the class's attempts are spent
-/// the failure is surfaced (`gave_up`), the worker waits `max_backoff`, and
-/// the budget starts over: never faster than that, never silently.
-pub(crate) fn reconnect_after(
-    budget: &mut ResumeBudget,
-    class: ResumeErrorClass,
-    config: &DaemonConfig,
-) -> Reconnect {
-    match budget.on_failure(class) {
-        Decision::Act { step, after, attempt } => {
-            let after = match class {
-                ResumeErrorClass::Transient => {
-                    config.min_backoff.saturating_mul(1u32 << (attempt - 1).min(16))
-                }
-                _ => after,
-            };
-            Reconnect {
-                retry_in: after.min(config.max_backoff),
-                refresh_key: step == NextStep::RefreshCredential,
-                gave_up: false,
-            }
-        }
-        Decision::Surface { .. } => {
-            budget.reset();
-            Reconnect { retry_in: config.max_backoff, refresh_key: false, gave_up: true }
-        }
-    }
 }
 
 fn emit(shared: &Shared, on_event: &SharedCallback, event: &DaemonEvent) {
@@ -464,21 +391,21 @@ fn session(
     config: &DaemonConfig,
     shared: &Arc<Shared>,
     on_event: &SharedCallback,
-    budget: &mut ResumeBudget,
-) -> Result<(), SessionEnd> {
+    backoff: &mut Duration,
+) -> Result<(), String> {
     let mut info = ConnectionInfo::default();
     match &config.socket {
         Some(socket) => info.socket = socket.clone(),
         None => {
             let binary = match &config.binary {
                 Some(binary) => binary.clone(),
-                None => launcher::resolve_binary().map_err(|e| SessionEnd::launch(&e))?,
+                None => launcher::resolve_binary().map_err(|e| e.to_string())?,
             };
             let mut launcher = Launcher::new(binary, config.session.clone());
             launcher.state_dir = config.state_dir.clone();
             launcher.timeout = config.ensure_timeout;
-            launcher.install_key = lock(&shared.install_key).clone();
-            let ensured = launcher.ensure().map_err(|e| SessionEnd::launch(&e))?;
+            launcher.install_key = shared.install_key.get().cloned().flatten();
+            let ensured = launcher.ensure().map_err(|e| e.to_string())?;
             info.socket = ensured.socket;
             info.pid = Some(ensured.pid);
             info.started = ensured.status == "started";
@@ -507,8 +434,7 @@ fn session(
     // ([`follow`]): closed first, it would leave the owner a moment with no
     // client at all.
     let mut probe = None;
-    let key = lock(&shared.install_key).clone();
-    if let Some(key) = key.as_ref() {
+    if let Some(key) = shared.install_key.get().and_then(Option::as_ref) {
         match AppConnection::connect(&info.socket, Some(key), config.request_timeout) {
             Ok(connection) => {
                 info.verified_app = connection.verified();
@@ -523,8 +449,8 @@ fn session(
             .with_timeout(config.request_timeout)
             .with_capabilities(declared_capabilities(&config.capabilities, &info.capabilities)),
     )
-    .map_err(|e| SessionEnd::sdk(&format!("connect {}", info.socket.display()), &e))?;
-    let result = follow(config, shared, on_event, budget, &client, info, probe);
+    .map_err(|e| format!("connect {}: {e}", info.socket.display()))?;
+    let result = follow(config, shared, on_event, backoff, &client, info, probe);
     let _ = client.close();
     result
 }
@@ -541,11 +467,11 @@ fn follow(
     config: &DaemonConfig,
     shared: &Arc<Shared>,
     on_event: &SharedCallback,
-    budget: &mut ResumeBudget,
+    backoff: &mut Duration,
     client: &cmux::Client,
     mut info: ConnectionInfo,
     probe: Option<AppConnection>,
-) -> Result<(), SessionEnd> {
+) -> Result<(), String> {
     let session = client.current_session();
     // Names this control connection in `client.list` (protocol/2's
     // set-client-info). Informational, like identify.
@@ -562,13 +488,13 @@ fn follow(
         probe.close();
     }
 
-    let snapshot = session.snapshot().map_err(|e| SessionEnd::sdk("session.snapshot", &e))?;
+    let snapshot = session.snapshot().map_err(|e| format!("session.snapshot: {e}"))?;
     let cursor = snapshot.cursor.clone();
     info.session_id = snapshot.session.id.to_string();
     info.generation = cursor.generation.clone();
     let mut events = session
         .events(EventStreamOptions { cursor: Some(cursor) })
-        .map_err(|e| SessionEnd::sdk("session.events", &e))?;
+        .map_err(|e| format!("session.events: {e}"))?;
     *lock(&shared.cancel) = Some(events.cancellation());
     if shared.stopping.load(Ordering::SeqCst) {
         let _ = events.cancel();
@@ -577,7 +503,7 @@ fn follow(
 
     lock(&shared.mirror).reset(snapshot);
     *lock(&shared.connection) = Some(info.clone());
-    budget.on_success();
+    *backoff = config.min_backoff;
     let advertised = |name: &str| info.capabilities.iter().any(|capability| capability == name);
     let follow = Follow {
         bookmarks: config.bookmark_events && advertised(BOOKMARKS_CAPABILITY),
@@ -606,8 +532,9 @@ fn follow(
             on_event,
             events.cancellation(),
         );
-        Some(follower.inspect_err(|_| {
+        Some(follower.map_err(|e| {
             let _ = events.cancel();
+            format!("subscribe events: {e}")
         })?)
     } else {
         None
@@ -618,8 +545,8 @@ fn follow(
     loop {
         let item = match events.recv() {
             Ok(Some(item)) => item,
-            Ok(None) => return Err(SessionEnd::stream_ended()),
-            Err(e) => return Err(SessionEnd::sdk("session.events", &e)),
+            Ok(None) => return Ok(()),
+            Err(e) => return Err(format!("session.events: {e}")),
         };
         let frame = config.raw_session_deltas.then(|| Box::new(item.value.clone()));
         let applied = {
@@ -643,7 +570,7 @@ fn follow(
             Ok((Applied::Skipped, _)) => {}
             Err(e) => {
                 let _ = events.cancel();
-                return Err(SessionEnd::mirror(&e));
+                return Err(format!("resync: {e}"));
             }
         }
     }
@@ -676,17 +603,16 @@ impl SubscribeEvents {
         shared: &Arc<Shared>,
         on_event: &SharedCallback,
         session_events: StreamCancellation,
-    ) -> Result<Self, SessionEnd> {
+    ) -> Result<Self, String> {
         let raw =
             cmux::raw::ClientConfig::from_socket_path(socket).with_timeout(config.request_timeout);
-        let mut client = cmux::raw::Client::connect(raw)
-            .map_err(|e| SessionEnd::sdk("subscribe events: connect", &e))?;
+        let mut client = cmux::raw::Client::connect(raw).map_err(|e| format!("connect: {e}"))?;
         let mut stream = client
             .subscribe(cmux::raw::SubscribeRequest {
                 surface: cmux::raw::Optional::Missing,
                 tree_events: cmux::raw::Optional::Missing,
             })
-            .map_err(|e| SessionEnd::sdk("subscribe events: subscribe", &e))?;
+            .map_err(|e| format!("subscribe: {e}"))?;
         let closer = stream.closer();
         let (shared, on_event) = (shared.clone(), on_event.clone());
         let thread = std::thread::Builder::new()
@@ -720,12 +646,7 @@ impl SubscribeEvents {
                 let _ = session_events.cancel();
                 drop(client);
             })
-            .map_err(|e| {
-                SessionEnd::new(
-                    ResumeErrorClass::from_io_kind(e.kind()),
-                    format!("subscribe events: thread: {e}"),
-                )
-            })?;
+            .map_err(|e| format!("thread: {e}"))?;
         Ok(Self { closer, thread: Some(thread) })
     }
 }

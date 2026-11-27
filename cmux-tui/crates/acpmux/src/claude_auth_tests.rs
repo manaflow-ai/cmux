@@ -71,19 +71,6 @@ fn a_cloud_machine_with_the_gateway_offers_it() {
     assert!(!super::is_gateway_fallback("Not logged in · Please run /login"));
 }
 
-/// A route that was only late (production cloud-chat-replies 2026-11-26): its text is not the
-/// sign-in explanation, is not the gateway's, and is the one the first send goes again on.
-#[test]
-fn a_late_route_is_not_a_sign_in_ask() {
-    let text = super::route_arrived_text("Not logged in · Please run /login ");
-    assert!(super::is_route_arrived(&text), "{text}");
-    assert!(!super::is_gateway_fallback(&text));
-    assert!(!super::explains(&text));
-    assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
-    assert!(!super::is_route_arrived(&super::gateway_fallback_text("Not logged in")));
-    assert!(!super::is_route_arrived("Not logged in · Please run /login"));
-}
-
 /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
 /// raw API text instead of the sign-in explanation.
 #[test]

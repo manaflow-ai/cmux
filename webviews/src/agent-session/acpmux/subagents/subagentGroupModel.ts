@@ -35,10 +35,7 @@ export const STATE_LABEL = {
   completed: "subagents.state.completed",
   failed: "subagents.state.failed",
   cancelled: "subagents.state.cancelled",
-  // One acpmux lost (its harness went away, its outcome unknown) ended: it reads Stopped, never
-  // "Disconnected", a link state the person can do nothing about (Leo, 2026-11-14, asked
-  // connectivity to stay quiet). Its row offers Resume or Restart where acpmux can.
-  disconnected: "subagents.state.stopped",
+  disconnected: "subagents.state.disconnected",
 } as const;
 
 /// Milliseconds a subagent has run: until it ended, or until `now`.

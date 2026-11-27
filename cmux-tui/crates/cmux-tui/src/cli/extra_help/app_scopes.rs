@@ -101,9 +101,6 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["app", "web-pieces", ..] => {
             return Some(format!("{}\n", super::super::app::WEB_PIECES_USAGE));
         }
-        ["app", "web-cas", ..] => {
-            return Some(format!("{}\n", super::super::app::WEB_CAS_USAGE));
-        }
         ["app", "share", ..] => return Some(format!("{}\n", messages.app_share.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,

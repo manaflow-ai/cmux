@@ -99,10 +99,7 @@ plist="$app/Contents/Info.plist"
 version="" build=""
 [[ -f "$plist" ]] && version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)"
 [[ -f "$plist" ]] && build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
-# Downloads to a folder of this run (Debug builds; a NIGHTLY ignores it and uses ~/Downloads): a fresh copy's
-# first write in ~/Downloads waits on macOS's access prompt, which nobody answers here.
-mkdir -p "$work/downloads"
-CMUX_NEXT_DOWNLOADS_DIR="$work/downloads" "$side" launch "$name" --shown >&2 || exit 3
+"$side" launch "$name" --shown >&2 || exit 3
 sock=""
 for _ in $(seq 1 60); do sock="$("$side" socket "$name" 2>/dev/null)"; [[ -S "$sock" ]] && break; sleep 2; done
 [[ -S "$sock" ]] || { echo "AUTHFLOWS the side copy gave no control socket" >&2; exit 3; }

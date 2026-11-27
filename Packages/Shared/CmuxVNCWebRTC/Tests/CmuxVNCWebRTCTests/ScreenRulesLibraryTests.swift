@@ -1,4 +1,3 @@
-import CmuxVNC
 @testable import CmuxVNCWebRTC
 import Foundation
 import Testing
@@ -23,20 +22,5 @@ struct ScreenRulesLibraryTests {
         _ = demand.report(longEdge: 1179, displayLongEdge: 3456, pinch: false, now: 0)
         _ = demand.report(longEdge: 1179, displayLongEdge: 3456, pinch: false, now: 6)
         #expect(demand.cap == 1280, "a viewer showing 1179 points of a 3456-point display caps the capture at 1280")
-    }
-
-    @Test func noLibraryNoVNCRules() {
-        #expect(VNCRules.library(at: URL(fileURLWithPath: "/nonexistent/\(ScreenRules.libraryName)")) == nil)
-    }
-
-    /// The same library answers the RFB client's ops: the VNC password response is DES.
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_RD_SCREEN_DYLIB"] != nil))
-    func theLibraryAnswersTheVNCOps() throws {
-        let path = try #require(ProcessInfo.processInfo.environment["CMUX_RD_SCREEN_DYLIB"])
-        let rules = try #require(VNCRules.library(at: URL(fileURLWithPath: path)))
-        #expect(VNCRules.bundled.installed)
-        // OpenSSL DES-ECB over bytes 0...15, keyed by "password" bit-reversed.
-        let response = rules.passwordResponse(password: "password", challenge: Array(0 ..< 16))
-        #expect(response == [0xB8, 0x66, 0x92, 0x41, 0x25, 0xC8, 0xEE, 0xBB, 0x9D, 0xEB, 0xC1, 0xDB, 0x61, 0xC5, 0x38, 0xE2])
     }
 }

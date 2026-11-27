@@ -5,8 +5,7 @@ import { menuPartAt } from "./menuParts";
 
 const BODY = ".cv-md, .cv-user__text";
 const OMIT = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet, script, style";
-/** Transcript chrome a copy leaves out: a message's age, its buttons and footer, hidden helpers. */
-export const TRANSCRIPT_CHROME = `${OMIT}, .cv-iconbtn, .cv-user__actions, .cv-turn-actions, .cv-message-footer-row, .cv-user__more, time`;
+const CHROME = `${OMIT}, .cv-iconbtn, .cv-user__actions, .cv-turn-actions, .cv-message-footer-row, .cv-user__more, time`;
 
 function elementOf(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
@@ -32,7 +31,7 @@ export function transcriptSelectionContents(range: Range): HTMLElement | null {
     if (node.nodeType === Node.TEXT_NODE) return !(node.textContent ?? "").trim();
     if (node.nodeType !== Node.ELEMENT_NODE) return true;
     const element = node as Element;
-    if (element.matches(TRANSCRIPT_CHROME)) return true;
+    if (element.matches(CHROME)) return true;
     if (element.matches(BODY)) return true;
     if (element.matches("img, video, canvas, pre, button") || element.shadowRoot) return false;
     return [...element.childNodes].every(supported);
@@ -58,7 +57,7 @@ export function transcriptSelectionContents(range: Range): HTMLElement | null {
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
     const element = node as HTMLElement;
-    if (element.matches(TRANSCRIPT_CHROME)) return null;
+    if (element.matches(CHROME)) return null;
     if (
       element.matches("img, video, canvas, button") ||
       (element.tagName === "TABLE" && (element.contains(range.startContainer) || element.contains(range.endContainer)))

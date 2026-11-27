@@ -14,9 +14,8 @@ public struct LanguagePacksClient: Sendable {
     public enum State: Sendable, Equatable {
         /// The app ships this language (English), or pins no pack for it: nothing to read.
         case bundled
-        /// The pack is unpacked at this folder; `chromiumPak` is the Chromium `locale.pak` it carries
-        /// (`ChromiumLocales/<catalog>.lproj/locale.pak`), nil when it has none.
-        case ready(root: URL, chromiumPak: URL?)
+        /// The pack is unpacked at this folder.
+        case ready(root: URL)
         /// No pack this time (offline, a hash mismatch); the app keeps English.
         case unavailable(code: String, message: String)
     }
@@ -24,14 +23,8 @@ public struct LanguagePacksClient: Sendable {
     private struct Reply: Decodable {
         var state: String
         var root: String?
-        var chromiumPak: String?
         var code: String?
         var message: String?
-
-        enum CodingKeys: String, CodingKey {
-            case state, root, code, message
-            case chromiumPak = "chromium_pak"
-        }
     }
 
     /// Makes sure the pack for `language` is in `cache`, downloading it when it is not, and says
@@ -48,8 +41,7 @@ public struct LanguagePacksClient: Sendable {
         switch reply.state {
         case "ready":
             guard let root = reply.root else { return .unavailable(code: "language_packs.io", message: "no folder") }
-            return .ready(root: URL(fileURLWithPath: root, isDirectory: true),
-                          chromiumPak: reply.chromiumPak.map { URL(fileURLWithPath: $0, isDirectory: false) })
+            return .ready(root: URL(fileURLWithPath: root, isDirectory: true))
         case "unavailable":
             return .unavailable(code: reply.code ?? "language_packs.io", message: reply.message ?? "")
         default:

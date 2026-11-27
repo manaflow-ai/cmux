@@ -127,14 +127,6 @@ def main(out_dir: str | None = None) -> int:
         if not cond:
             fails.append(what)
 
-    # A setting read twice in the same state compares equal; a change does not (denied-os-appearance).
-    from .platform_env import snapshot_text
-    unset = "The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist"
-    a = snapshot_text("", f"2026-11-26 14:17:23.528 defaults[2524:15461] \n{unset}\n", 1)
-    b = snapshot_text("", f"2026-11-26 14:17:31.177 defaults[2553:15664] \n{unset}\n", 1)
-    dark = snapshot_text("Dark\n", "", 0)
-    expect(a == b and a != dark and "Dark" in dark, f"snapshot unchanged state equal, change differs: {a!r} {dark!r}")
-
     lo, hi = wilson(8, 10)
     expect(abs(lo - 0.4902) < 1e-3 and abs(hi - 0.9433) < 1e-3, f"wilson(8,10) = [{lo:.4f}, {hi:.4f}]")
     expect(wilson(0, 0) == (0.0, 1.0), "wilson(0,0) is the whole interval")

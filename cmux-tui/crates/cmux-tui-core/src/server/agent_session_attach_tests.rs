@@ -606,12 +606,9 @@ fn serve(
                 if let Some(delay) = fixture.accept_after {
                     std::thread::sleep(delay);
                 }
-                let provenance =
-                    acpmux::author::of_prompt(params).unwrap().map(|author| author.provenance());
-                let held = acpmux::author::awaits_owner(provenance.as_ref());
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                    "sessionId": params.get("sessionId"), "promptId": params.pointer("/_meta/acpmux/promptId"),
-                    "turnId": "turn_1", "queued": held, "awaitingOwner": held}});
+                    "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
+                    "turnId": "turn_1", "queued": false}});
                 writeln!(writer, "{accepted}").unwrap();
                 None
             }

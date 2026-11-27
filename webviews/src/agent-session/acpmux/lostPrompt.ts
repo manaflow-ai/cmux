@@ -110,33 +110,7 @@ export function clientWaiter<Client>() {
 export type ResendWaiter = {
   readonly isClosed: boolean;
   awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean>;
-  /// The chat the pane shows on this connection (`AcpmuxDirectClient.selectedSession`).
-  readonly selectedSession?: string;
-  /// Whether the host's store keeps the prompt for its chat (`AcpmuxDirectClient.keepsUnsentPrompt`).
-  keepsUnsentPrompt?(promptId: string): boolean;
 };
-
-/// The pane left the lost prompt's chat while it waited, and the host's store keeps the prompt
-/// there (unsentPrompts.ts): the host's outbox still sends it, and the chat, shown again, drops the
-/// stored copy once acpmux has it, or draws it as not sent with Retry if acpmux never took it. Its
-/// sender gives it back nowhere. Before, the wait said "not resent" on the switch and the prompt
-/// went into its chat's draft while the outbox delivered it, and this pane, on another chat, never
-/// heard the record that would take it out: the next Send there ran it twice (Leo, 2026-11-25:
-/// "wait that message got split up and queued").
-function leftForStore(next: ResendWaiter, from: ResendWaiter, lost: LostPrompt): boolean {
-  return !next.isClosed && next.selectedSession !== lost.sessionId && from.keepsUnsentPrompt?.(lost.promptId) === true;
-}
-
-/// Tags a lost prompt's error as kept in its chat by the host's store (`leftForStore`): every
-/// sender reads it as kept in the chat (pane/sendHost.ts `keptInChat`), never to give back.
-function keepInStore(error: unknown): void {
-  if (error && typeof error === "object") Object.assign(error, { keptUnsent: true });
-}
-
-/// Whether `error`'s prompt stays in its chat's store (`keepInStore`).
-export function keptUnsent(error: unknown): boolean {
-  return (error as { keptUnsent?: unknown } | null)?.keptUnsent === true;
-}
 
 /// Waits for the host to send `lost` again on a connection after `from`: the connection it shows
 /// on, or undefined when none comes within `connectMs` or the prompt does not show within
@@ -148,13 +122,12 @@ export async function waitForResend<Client extends ResendWaiter>(
   lost: LostPrompt,
   connectMs: number,
   showMs: number,
-): Promise<Client | "away" | undefined> {
+): Promise<Client | undefined> {
   let previous = from;
   for (;;) {
     const next = await clients.next(previous, connectMs);
     if (!next) return undefined;
     if (await next.awaitResent(lost.sessionId, lost.promptId, showMs)) return next;
-    if (leftForStore(next, from, lost)) return "away";
     if (!next.isClosed) return undefined;
     previous = next;
   }
@@ -162,8 +135,7 @@ export async function waitForResend<Client extends ResendWaiter>(
 
 /// Whether the prompt `error` says connection `from` lost showed on a later connection, sent again
 /// there by the host: false at once for any other failure, and false when it never showed, so its
-/// sender says "Not sent" and gives it back only then. False too when the pane left its chat and
-/// the host's store keeps it there: then `error` says so (`keptUnsent`), and it goes back nowhere.
+/// sender says "Not sent" and gives it back only then.
 export async function resentAfterLoss<Client extends ResendWaiter>(
   error: unknown,
   clients: { next(previous: Client, timeoutMs: number): Promise<Client | undefined> },
@@ -173,9 +145,7 @@ export async function resentAfterLoss<Client extends ResendWaiter>(
 ): Promise<boolean> {
   const lost = lostPrompt(error);
   if (!lost || !from) return false;
-  const went = await waitForResend(clients, from, lost, connectMs, showMs);
-  if (went === "away") keepInStore(error);
-  return went !== undefined && went !== "away";
+  return (await waitForResend(clients, from, lost, connectMs, showMs)) !== undefined;
 }
 
 /// A connection that draws a lost prompt as its own row meanwhile (`AcpmuxDirectClient`).
@@ -190,9 +160,8 @@ export type LostRowHolder = ResendWaiter & {
 };
 
 /// Where a lost prompt ended up (`keepLostPrompt`): it showed as sent on a later connection; it
-/// stays there as a failed row with Retry; the pane left its chat, whose store keeps it
-/// (`leftForStore`); or no connection could hold it, so its sender keeps it.
-export type LostOutcome = "shown" | "failed" | "away" | "none";
+/// stays there as a failed row with Retry; or no connection could hold it, so its sender keeps it.
+export type LostOutcome = "shown" | "failed" | "none";
 
 /// A started chat's prompt its connection lost before the pane heard acpmux take it (acpmux may
 /// well have it: Leo, 2026-11-11, every "Not sent yet" message had reached its chat). It stays
@@ -215,10 +184,6 @@ export async function keepLostPrompt<Client extends LostRowHolder>(
     const next = await clients.next(previous, connectMs);
     if (!next) return "none";
     if (await next.awaitResent(lost.sessionId, lost.promptId, showMs, draw)) return "shown";
-    if (leftForStore(next, from, lost)) {
-      keepInStore(error);
-      return "away";
-    }
     if (!next.isClosed) return next.failLostPrompt(lost.promptId, error) ? "failed" : "none";
     previous = next;
   }

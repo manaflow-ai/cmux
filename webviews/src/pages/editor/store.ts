@@ -394,9 +394,7 @@ export class EditorStore {
     if (this.state.readOnly || this.state.phase !== "ready") return;
     this.reporter.edited();
     const dirty = this.isDirty();
-    // Each key lands here; setting the same status again would wake every subscriber for nothing.
-    const status = dirty ? "edited" : "saved";
-    if (this.state.status !== "saving" && this.state.status !== status) this.set({ status });
+    if (this.state.status !== "saving") this.set({ status: dirty ? "edited" : "saved" });
     this.cancelAutosave?.();
     this.cancelAutosave = null;
     if (!dirty || this.state.conflict) return;

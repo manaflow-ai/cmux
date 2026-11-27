@@ -9,10 +9,6 @@ import { day, usd } from "../cloud/spendCap";
 import { intl } from "../../ui/intl";
 import type { AllotmentPosition, AllotmentReason, AllotmentView, ChiefTier, MemberUse } from "./ops";
 
-/** The Labs switch that mounts the card in Settings > Cloud (schemas/settings/source/labs.json);
- * off, the card draws nothing and reads nothing. */
-export const TEAM_COMPUTE_LAB = "labs.teamCompute";
-
 /** Pooled usage every seat includes each month. */
 export const SEAT_MICROS = 25_000_000;
 /** One step of extra commit, and what it costs a month (20% off). */
@@ -61,10 +57,7 @@ export type DialOption = {
 };
 
 export type MemberRow = {
-  /** The member id (the row's key). */
   member: string;
-  /** What the card prints: the view's display name, else the id. */
-  name: string;
   /** "11 of 14 days", ", Chief Plus" when the tier is not standard. */
   detail: string;
   month: string;
@@ -73,7 +66,7 @@ export type MemberRow = {
   note: string;
 };
 
-export type MeterSegment = { member: string; name: string; fraction: number; month: string };
+export type MeterSegment = { member: string; fraction: number; month: string };
 
 export type ReasonCard = {
   key: string;
@@ -118,11 +111,6 @@ export function sortedMembers(members: readonly MemberUse[]): MemberUse[] {
   );
 }
 
-/** The name a member is printed with: the view's display name, else the id. */
-export function memberName(view: AllotmentView, member: string): string {
-  return view.names?.[member] || member;
-}
-
 /** No one used Cloud at all. */
 export function isEmpty(view: AllotmentView): boolean {
   return view.decision.members.every((row) => row.month_micros === 0 && row.usd14_micros === 0);
@@ -139,18 +127,18 @@ function changeText(micros: number, language: string, auto: boolean, position: A
 }
 
 /** What a reason says on its own, without the cost ("Austin passed the allotment 4 times"). */
-function cause(reason: AllotmentReason, seats: number, language: string, name: (member: string) => string): string {
+function cause(reason: AllotmentReason, seats: number, language: string): string {
   switch (reason.kind) {
     case "unused":
       return reason.members.length === 1
-        ? `${name(reason.members[0])} used nothing in ${DAYS} days`
+        ? `${reason.members[0]} used nothing in ${DAYS} days`
         : `${reason.members.length} of ${seats} members used nothing in ${DAYS} days`;
     case "over":
-      return `${name(reason.member)} passed the allotment ${times(reason.count)}`;
+      return `${reason.member} passed the allotment ${times(reason.count)}`;
     case "runaway":
-      return `${name(reason.member)} is using ${money(reason.rate_micros_h, language)} an hour`;
+      return `${reason.member} is using ${money(reason.rate_micros_h, language)} an hour`;
     case "tier":
-      return `${name(reason.member)} could use ${TIER_NAMES[reason.to]}: +${money(reason.costs_micros, language)} a month`;
+      return `${reason.member} could use ${TIER_NAMES[reason.to]}: +${money(reason.costs_micros, language)} a month`;
   }
 }
 
@@ -175,7 +163,7 @@ export function proposalSentence(view: AllotmentView, language: string): string 
       : "Usage fits the allotment. Nothing to decide.";
   const reason = decision.reasons.find((candidate) => drives(candidate, decision.position));
   const why = reason
-    ? cause(reason, seats, language, (member) => memberName(view, member))
+    ? cause(reason, seats, language)
     : `This month is on track for ${money(decision.forecast_micros, language)} of ${money(decision.allot_micros, language)}`;
   const auto = allotment?.mode === "auto";
   const change = monthlyChange(view, decision.to_commit_micros);
@@ -222,10 +210,8 @@ export function computeModel(view: AllotmentView, language: string): ComputeMode
   });
   const members = sortedMembers(decision.members);
   const allot = Math.max(decision.allot_micros, 1);
-  const name = (member: string) => memberName(view, member);
   const rows = members.map((row): MemberRow => ({
     member: row.member,
-    name: name(row.member),
     detail: `${row.active_days14} of ${DAYS} days${row.tier === "standard" ? "" : `, ${TIER_NAMES[row.tier]}`}`,
     month: money(row.month_micros, language),
     share: percent(row.month_micros / allot),
@@ -257,18 +243,13 @@ export function computeModel(view: AllotmentView, language: string): ComputeMode
       const accept = acceptOf(reason);
       const change = accept ? changeText(monthlyChange(view, commitFor(view, accept)), language, false, accept) : "";
       const then = accept ? ` Scaling ${accept} ${change}.` : "";
-      return {
-        key: `${reason.kind}-${index}`,
-        text: `${cause(reason, members.length, language, name)}.${then}`,
-        accept,
-      };
+      return { key: `${reason.kind}-${index}`, text: `${cause(reason, members.length, language)}.${then}`, accept };
     }),
     meter: {
       segments: members
         .filter((row) => row.month_micros > 0)
         .map((row) => ({
           member: row.member,
-          name: name(row.member),
           fraction: row.month_micros / scale,
           month: money(row.month_micros, language),
         })),

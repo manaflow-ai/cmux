@@ -604,14 +604,6 @@ export type IdMapping = {
   "short_id": string;
 };
 
-export type IdentifyRestore = {
-  "done": (bigint) | null;
-  "elapsed_ms": bigint;
-  "last_advance_ms": bigint;
-  "phase": string;
-  "total": (bigint) | null;
-};
-
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
   "api_version"?: (string) | null;
@@ -639,7 +631,6 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
-  "restore"?: IdentifyRestore;
   "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;

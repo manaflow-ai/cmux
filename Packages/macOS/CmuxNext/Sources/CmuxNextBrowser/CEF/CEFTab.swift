@@ -446,7 +446,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     func attach(browser: Int32) {
         browserID = browser
-        runtime.ownChatRenderer.attached(ObjectIdentifier(self), browser: browser)
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil || loadSinceCreation != nil
@@ -779,7 +778,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func setFocused(_ focused: Bool) {
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
-        if focused { runtime.ownChatRenderer.focused(ObjectIdentifier(self), url: state.url ?? pendingURL, browser: browserID) }
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)

@@ -683,9 +683,6 @@ dependencies = [
 [[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
-dependencies = [
- "unicode-segmentation",
-]
 
 [[package]]
 name = "cmux-mobile-auto"

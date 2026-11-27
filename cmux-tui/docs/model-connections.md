@@ -24,7 +24,7 @@ connections, an Add a connection sheet with Subscriptions and API keys).
 - **Your connections**: this person's, in priority order. Default order with no explicit order set:
   the picker's default account per family first, then the other signed-in accounts, then keys.
   Existing Mac logins appear here with no action (zero setup).
-- **Spread usage across my subscriptions** (`spread`, default off): a thread may move to another
+- **Spread usage across my subscriptions** (`spread`, default on): a thread may move to another
   connection that serves the same model when one is out, staying on one while its cache is warm.
 - **Organization connections**: the team's, used after a member's own: the team gateway
   (`mode`/`machine`, existing platform route) and team shared keys (existing `team.agent_key.*`).

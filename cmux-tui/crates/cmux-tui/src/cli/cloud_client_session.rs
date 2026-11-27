@@ -362,16 +362,6 @@ fn print_exec(
     Ok(answer.exit_code)
 }
 
-/// Why the platform's call to the team's Durable Object threw, when a 503 `vm_unavailable` says
-/// (cmux-platform RpcReset.ts `RpcFailure`): only its three fixed words, never other text. Without
-/// it the staging carrier probe's `vm_unavailable` (cmuxterm-hq run 45819031172, 12:25Z on 11-26,
-/// two minutes after a staging deploy) could not say whether the object restarted or was overloaded.
-fn rpc_failure_reason(reason: Option<&Value>) -> Option<&'static str> {
-    ["overloaded", "restarted", "unreachable"]
-        .into_iter()
-        .find(|known| reason.and_then(Value::as_str) == Some(*known))
-}
-
 /// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
 /// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
 /// `{ok: false, error: {code}}`; only a code from `cmux_cloud_api::session::known_code` is printed.
@@ -404,11 +394,7 @@ pub(super) async fn exec_route(
         let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
         let code = known_code(code);
         let code = if code.contains(credential) { "" } else { code };
-        let reason = rpc_failure_reason(body.get("error").and_then(|e| e.get("reason")));
-        return Err(match reason {
-            Some(reason) => format!("the cmux API refused the command: {status} {code} ({reason})"),
-            None => format!("the cmux API refused the command: {status} {code}"),
-        });
+        return Err(format!("the cmux API refused the command: {status} {code}"));
     }
     let body = body.get("value").filter(|v| v.is_object()).unwrap_or(&body);
     let text = |key: &str| match body.get(key) {

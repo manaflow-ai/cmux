@@ -8,7 +8,6 @@
 //! - `vnc_security_choose` / `vnc_security_server_chosen`: the security type.
 //! - `vnc_version`: the server banner's minor and the reply to send.
 //! - `vnc_password_response` / `vnc_apple_dh`: the authentication responses.
-//! - `vnc_demo_receive|flush|rect`: the loopback demo server ([`crate::demo`]).
 
 use std::fmt;
 
@@ -18,7 +17,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::auth::{ard, des};
-use crate::demo;
 use crate::rules::{self, Refusal};
 
 /// The prefix every op of [`respond`] carries.
@@ -231,95 +229,6 @@ pub fn respond(operation: &str, request: &[u8]) -> Result<Value, JsonError> {
                 }),
                 None => Value::Null,
             }
-        }
-        // The demo server reads a viewer's bytes: what it consumed, sends and saw.
-        "vnc_demo_receive" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                connection: demo::Connection,
-                input: String,
-                config: demo::Config,
-                /// Fixed in tests; random in a session.
-                #[serde(default)]
-                challenge: Option<String>,
-            }
-            let r: Request = read(request)?;
-            let input = bytes("input", &r.input)?;
-            let challenge: [u8; 16] = match r.challenge {
-                Some(c) => bytes("challenge", &c)?,
-                None => random(16)?,
-            }
-            .try_into()
-            .map_err(|_| JsonError::Invalid("challenge: not 16 bytes".into()))?;
-            let mut connection = r.connection;
-            let step = demo::receive(&mut connection, &input, &r.config, challenge);
-            json!({
-                "connection": connection,
-                "consumed": step.consumed,
-                "reply": STANDARD.encode(step.reply),
-                "events": step.events,
-                "flush": step.flush,
-                "failure": step.failure.map(|reason| STANDARD.encode(demo::failure(&reason))),
-            })
-        }
-        // Whether an update goes now; its header comes with the rectangle count.
-        "vnc_demo_flush" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                connection: demo::Connection,
-                damage_pending: bool,
-                /// The damaged rectangles that will follow the cursor, if it goes.
-                #[serde(default)]
-                damage_count: u16,
-            }
-            let r: Request = read(request)?;
-            let mut connection = r.connection;
-            let send = demo::flush(&mut connection, r.damage_pending);
-            let cursor = send == Some(true);
-            let count = r.damage_count + u16::from(cursor);
-            let mut head = Vec::new();
-            if send.is_some() {
-                head = demo::update_header(count);
-                if cursor {
-                    head.extend(demo::cursor_rectangle());
-                }
-            }
-            json!({
-                "connection": connection,
-                "send": send.is_some(),
-                "head": STANDARD.encode(head),
-            })
-        }
-        // One damaged rectangle: its header and, for ZRLE, the tiles to deflate.
-        "vnc_demo_rect" => {
-            #[derive(Deserialize)]
-            struct Request {
-                connection: demo::Connection,
-                x: u16,
-                y: u16,
-                width: u16,
-                height: u16,
-                /// The rectangle's BGRX pixels, row after row, little-endian.
-                pixels: String,
-            }
-            let r: Request = read(request)?;
-            let raw = bytes("pixels", &r.pixels)?;
-            let (w, h) = (usize::from(r.width), usize::from(r.height));
-            if raw.len() != w * h * 4 {
-                return Err(JsonError::Invalid("pixels: not width*height*4 bytes".into()));
-            }
-            let pixels: Vec<u32> =
-                raw.chunks_exact(4).map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]])).collect();
-            let zrle = demo::uses_zrle(&r.connection);
-            let encoding = if zrle { demo::ENCODING_ZRLE } else { demo::ENCODING_RAW };
-            let payload = if zrle { demo::zrle_tiles(&pixels, w, h) } else { demo::raw(&pixels) };
-            json!({
-                "header": STANDARD.encode(demo::rect_header(r.x, r.y, r.width, r.height, encoding)),
-                "zrle": zrle,
-                "payload": STANDARD.encode(payload),
-            })
         }
         _ => return Err(JsonError::UnknownOperation(operation.to_owned())),
     };

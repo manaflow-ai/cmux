@@ -1424,36 +1424,6 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
 }
 
 #[test]
-fn a_never_switched_layout_is_read_from_the_selected_or_only_enabled_source() {
-    use roles::{InputSourceEntry as E, Layout as L, layout_id_from_sources as from};
-    let layout =
-        |name: &str| E { kind: Some("Keyboard Layout".into()), layout_name: Some(name.into()) };
-    let kind = |k: &str| E { kind: Some(k.into()), layout_name: None };
-    let palette = kind("Non Keyboard Input Method");
-    // A Mac never switched records no current layout ID, only its sources:
-    // cmd+s was refused there for every app (2026-11-26 CU suite, TextEdit).
-    let us = from(&[layout("U.S.")], &[layout("U.S."), palette.clone()]);
-    assert_eq!(us.as_deref(), Some("com.apple.keylayout.US"));
-    assert_eq!(roles::layout_of(us.as_deref(), true), L::Ansi);
-    let abc = from(&[], &[layout("ABC"), palette.clone()]);
-    assert_eq!(roles::layout_of(abc.as_deref(), true), L::Ansi);
-    let british = from(&[layout("British")], &[]);
-    assert_eq!(roles::layout_of(british.as_deref(), true), L::LettersDigits);
-    // The selected layout wins over other enabled ones.
-    let selected = from(&[layout("German")], &[layout("U.S."), layout("German")]);
-    assert_eq!(roles::layout_of(selected.as_deref(), true), L::Other);
-    // Still fail closed: two enabled and none selected, an input method,
-    // an unknown name, or nothing.
-    assert_eq!(from(&[], &[layout("U.S."), layout("German")]), None);
-    assert_eq!(from(&[layout("U.S."), kind("Input Mode")], &[]), None);
-    assert_eq!(from(&[], &[layout("ABC"), kind("Keyboard Input Method")]), None);
-    let pc = from(&[layout("British – PC")], &[]);
-    assert_eq!(roles::layout_of(pc.as_deref(), true), L::Other);
-    assert_eq!(from(&[], &[]), None);
-    assert_eq!(from(&[], &[palette]), None);
-}
-
-#[test]
 fn the_services_check_knows_which_keys_each_layout_places() {
     use roles::Layout as L;
     for id in

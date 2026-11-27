@@ -96,8 +96,6 @@ import Testing
 @Suite struct MacStatusLineTests {
     let online = MacDevice(id: "m", name: "Studio", isOnline: true)
 
-    // Rust's reachability rules link on iOS only.
-    #if os(iOS)
     @Test func greenOnlyWhenThisPhoneIsConnected() {
         #expect(MacStatusLine.make(mac: online, connection: .connected, live: true, presence: "Online")
             == MacStatusLine(dot: .connected, text: "Online"))
@@ -107,7 +105,6 @@ import Testing
             == MacStatusLine(dot: .failed, text: "Online · Not responding"))
         #expect(MacStatusLine.make(mac: online, connection: nil, live: true, presence: "Online").dot == .connecting)
     }
-    #endif
 
     @Test func offlineAndMockFollowPresence() {
         var offline = online

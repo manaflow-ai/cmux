@@ -39,12 +39,11 @@ class CheckPaths(unittest.TestCase):
                 self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for path in tracked), pattern)
 
     def test_the_check_that_landed_under_three_merges_is_a_check_path(self):
-        # #23365's files: the base changed these after #22975's CI, and none was #22975's. Its ci-web.yml line no
-        # longer counts: the check itself (package.json, the script, its baseline) is what the fast gates rerun.
+        # #23365's files: the base changed these after #22975's CI, and none was #22975's.
         landed = [".github/workflows/ci-web.yml", "webviews/package.json", "webviews/scripts/check-fixed-waits.ts",
                   "webviews/scripts/fixed-waits-baseline.tsv", "webviews/test/check-fixed-waits.test.ts",
                   "webviews/test/support/pageSwitch.ts"]
-        self.assertEqual(matching(landed), landed[1:4])
+        self.assertEqual(matching(landed), landed[:4])
 
     def test_ordinary_source_files_are_not_check_paths(self):
         # #22975's own files: a source change makes no other pull request's result stale.
@@ -82,21 +81,6 @@ class CheckPaths(unittest.TestCase):
         # Another workflow's change is churn a dispatch cannot catch: the fast gates rerun only their own gates.
         self.assertEqual(matching([".github/workflows/nightly.yml", ".github/workflows/cmux-next.yml"]), [])
 
-    def test_every_workflow_check_path_is_a_gate_input(self):
-        # A workflow is a check path only when a fast gate reads it as a path (the crash-class rules' --rules file)
-        # or it is the fast gates' own workflow. A workflow a gate only stands in for runs the gate's scripts, which
-        # are listed themselves; its churn made every open pull request's fast gates stale for a rerun that could not
-        # differ (2026-11-26 after 12:00Z: ci-web.yml 21 commits, cmux-next-guards.yml 9, cmux-next-web.yml 4,
-        # cmux-next-web-lint.yml 3; next-autoland landed nothing for passes judging only that staleness).
-        source = (ROOT / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
-        read = set(re.findall(r'"(\.github/workflows/[\w.-]+\.yml)"', source)) | {".github/workflows/cmux-next-fast-gates.yml"}
-        workflows = [pattern for pattern in patterns() if pattern.startswith(".github/workflows/")]
-        self.assertTrue(workflows)
-        for pattern in workflows:
-            with self.subTest(pattern=pattern):
-                self.assertIn(pattern, read)
-        self.assertEqual(matching([".github/workflows/ci-web.yml", ".github/workflows/cmux-next-guards.yml",
-                                   ".github/workflows/cmux-next-web.yml", ".github/workflows/cmux-next-web-lint.yml"]), [])
 
 if __name__ == "__main__":
     unittest.main()

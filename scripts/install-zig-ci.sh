@@ -783,33 +783,6 @@ install_downloaded_zig_tree() {
       rm -f "$ZIG_TAR" "$ZIG_CACHED_TAR" "$ZIG_CACHED_SIG"
     fi
   fi
-  # The CI cache bucket holds every pinned tarball for every platform (scripts/ci/zig-tarball-r2.sh), so a
-  # cold runner reads our own copy before the third-party mirrors: on 2026-11-24 all four mirrors ran at
-  # 100-400 KB/s for the NIGHTLY signer (job 138863767001) and its 480 s budget ran out. Only a pinned
-  # tarball is fetched, and it is checked against the pin like any other.
-  ZIG_BUCKET_SIG=""
-  ZIG_R2_SCRIPT="$SCRIPT_DIR/ci/zig-tarball-r2.sh"
-  if [ "$ZIG_FROM_CACHE" -eq 0 ] && [ -f "$ZIG_R2_SCRIPT" ] && [ -z "$ZIG_EXPECTED_SHA256" ] &&
-     [ "$ZIG_RESOLVED_SHA256" = "$(awk -v name="${ZIG_NAME}.tar.xz" '$1 !~ /^#/ && $2 == name { print $1; exit }' "$REPO_ROOT/scripts/ci/zig-tarballs.sha256" 2>/dev/null)" ]; then
-    ZIG_BUCKET_DIR="${ZIG_WORK_ROOT}/bucket"
-    bash "$ZIG_R2_SCRIPT" fetch "$ZIG_NAME" "$ZIG_BUCKET_DIR" || true
-    if [ -f "${ZIG_BUCKET_DIR}/${ZIG_NAME}.tar.xz" ]; then
-      cp "${ZIG_BUCKET_DIR}/${ZIG_NAME}.tar.xz" "$ZIG_TAR"
-      if verify_zig_sha256 "$ZIG_RESOLVED_SHA256" >/dev/null 2>&1; then
-        ZIG_FROM_CACHE=1
-        echo "Using the verified Zig tarball from the CI cache bucket"
-        [ -f "${ZIG_BUCKET_DIR}/${ZIG_NAME}.tar.xz.minisig" ] && ZIG_BUCKET_SIG="${ZIG_BUCKET_DIR}/${ZIG_NAME}.tar.xz.minisig"
-        if [ -n "$ZIG_CACHED_TAR" ]; then
-          mkdir -p "$ZIG_TARBALL_CACHE_DIR"
-          cp "$ZIG_TAR" "${ZIG_CACHED_TAR}.tmp.$$" && mv -f "${ZIG_CACHED_TAR}.tmp.$$" "$ZIG_CACHED_TAR"
-          if [ -n "$ZIG_BUCKET_SIG" ]; then cp "$ZIG_BUCKET_SIG" "$ZIG_CACHED_SIG"; fi
-        fi
-      else
-        echo "The CI cache bucket's Zig tarball does not match the expected SHA-256; downloading it" >&2
-        rm -f "$ZIG_TAR"
-      fi
-    fi
-  fi
   if [ "$ZIG_FROM_CACHE" -eq 0 ]; then
     download_zig_artifact "" "$ZIG_TAR"
     verify_zig_sha256 "$ZIG_RESOLVED_SHA256"
@@ -822,8 +795,6 @@ install_downloaded_zig_tree() {
   if [ "$ZIG_MINISIGN_AVAILABLE" -eq 1 ]; then
     if [ -n "$ZIG_CACHED_SIG" ] && [ -f "$ZIG_CACHED_SIG" ]; then
       cp "$ZIG_CACHED_SIG" "$ZIG_SIG"
-    elif [ -n "$ZIG_BUCKET_SIG" ]; then
-      cp "$ZIG_BUCKET_SIG" "$ZIG_SIG"
     else
       download_zig_artifact ".minisig" "$ZIG_SIG"
       if [ -n "$ZIG_CACHED_SIG" ]; then cp "$ZIG_SIG" "$ZIG_CACHED_SIG"; fi

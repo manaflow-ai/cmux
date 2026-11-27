@@ -34,7 +34,7 @@ import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
-import { useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
@@ -597,8 +597,13 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
+    } else {
+      // Backspace at the field's start takes back the last chip (backspacedAttachment).
+      const backspaced = backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
+      if (!backspaced) return;
+      event.preventDefault();
+      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
-    // Backspace takes no image: this page's attachments are a strip, and go only by their ×.
   };
   const prefixReset = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {

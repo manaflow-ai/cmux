@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // C ABI v1 of libcmux_rd_screen.dylib (cmux-tui/crates/cmux-rd-screen-ffi): the
-// screen stream's rules, the `screen_*` JSON ops of cmux-rd-screen, and the RFB
-// client's, the `vnc_*` ops of cmux-vnc (CmuxVNC's VNCRules). Opened with
+// screen stream's rules, the `screen_*` JSON ops of cmux-rd-screen. Opened with
 // dlopen by processes that run a screen stream host outside the app (cmux
 // Remote's Screen Sharing worker, cmux-vnc-host); Packages/Shared/CmuxVNCWebRTC's
 // ScreenRules.library(at:) binds these two symbols by name.

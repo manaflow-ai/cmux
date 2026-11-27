@@ -214,15 +214,6 @@ IOS_FIXED = """\
     }
 """
 
-DROP_SET = """\
-    const SELF_HEALING: ReadonlySet<string> = new Set([
-      "Reconnecting",
-    ]);
-    export function readStatusItem(raw: Raw): Item | undefined {
-      if (SELF_HEALING.has(raw.words)) return undefined;
-      return { words: raw.words };
-    }
-"""
 WEB = "webviews/src/agent-session/acpmux"
 PAGE = "webviews/src/pages/editor"
 MAC = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote"
@@ -292,31 +283,6 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{WEB}/AutoResumeNotice.tsx", ACTION_NOTICE)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
-
-    def test_a_per_key_hold_at_the_bound_passes(self):
-        """useConnectionQuietKeys (ui/lasting.ts) holds each pending row for the bound, as useConnectionQuiet does."""
-        tree = Tree(self)
-        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
-        tree.write(f"{WEB}/AutoResumeNotice.tsx", HELD_NOTICE.replace(
-            "useConnectionQuiet } from", "useConnectionQuietKeys } from").replace(
-            "useConnectionQuiet(retry !== undefined)", "useConnectionQuietKeys(retry ? [\"r\"] : []).has(\"r\")"))
-        code, out = tree.check()
-        self.assertEqual(code, 0, out)
-
-    def test_the_text_for_a_failed_send_or_start_is_an_outcome(self):
-        """The words for a send or start the person asked for that did not go through answer their action."""
-        for name in ("failedSendText", "startFailureNotice"):
-            with self.subTest(name=name):
-                tree = Tree(self)
-                tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
-                tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", name))
-                code, out = tree.check()
-                self.assertEqual(code, 0, out)
-        tree = Tree(self)
-        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
-        tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", "failedSendBadge"))
-        code, out = tree.check()
-        self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
     def test_a_view_drawing_its_own_button_component_carries_the_action(self):
         tree = Tree(self)
@@ -478,18 +444,6 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{PAGE}/PhaseBadge.tsx", NOT_TEXT)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
-
-
-    def test_a_word_set_read_only_to_drop_what_it_names_shows_nothing(self):
-        """composerStatusModel.ts (cmux#55968) keeps the self-healing link words to drop an older acpmux's item."""
-        tree = Tree(self)
-        tree.write(f"{WEB}/statusModel.ts", DROP_SET)
-        code, out = tree.check()
-        self.assertEqual(code, 0, out)
-        tree.write(f"{WEB}/statusModel.ts", DROP_SET.replace(
-            "if (SELF_HEALING.has(raw.words)) return undefined;", "const shown = SELF_HEALING.has(raw.words);"))
-        code, out = tree.check()
-        self.assertEqual(code, 1, "a set read for anything but a drop still carries its words to its reader")
 
 
 class NativeShapes(unittest.TestCase):

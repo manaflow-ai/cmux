@@ -261,7 +261,7 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserCloseHistoryTests.swift	as
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserPageNativeInputTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserTabCloseLeavesAtOnceTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChangelogReelTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudDaemonRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCLITargetTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCapRefusalRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudChildProcessInputTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized

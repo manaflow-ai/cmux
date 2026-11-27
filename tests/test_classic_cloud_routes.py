@@ -363,8 +363,8 @@ class Matcher(unittest.TestCase):
 
     def test_test_and_mock_files_are_out_of_scope(self):
         paths = {"include": ["Packages/macOS/CmuxNext/", "webviews/src/"]}
-        self.assertTrue(in_scope("Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift", paths))
-        for rel in ("Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudDaemonRunTests.swift",
+        self.assertTrue(in_scope("Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift", paths))
+        for rel in ("Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift",
                     "webviews/src/agent-session/acpmux/run-board/runApi.test.ts",
                     "webviews/src/agent-session/acpmux/mockFixture.ts",
                     "webviews/src/pages/x/Foo.gallery.ts",

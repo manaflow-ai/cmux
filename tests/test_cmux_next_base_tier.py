@@ -134,7 +134,7 @@ def job(name: str, status: str, conclusion: str | None = None) -> dict:
 
 
 QUEUED_MAC = [job("cmux-next path routing", "completed", "success"), job("cmux-next daemon tests", "queued"),
-              job("cmux-next generated files (Mac fallback)", "queued"), job("cmux app scheme compile (Debug)", "queued")]
+              job("cmux-next generated files", "queued"), job("cmux app scheme compile (Debug)", "queued")]
 
 
 _KEEP_QUEUED = tier.KEEP_QUEUED
@@ -179,7 +179,7 @@ class KeepQueued(unittest.TestCase):
 
     def test_once_its_mac_job_started_the_tip_is_dispatched_and_the_started_run_is_kept(self):
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
-        api.open_run(11, OLD, T0, "in_progress", [job("cmux-next generated files (Mac fallback)", "in_progress")] + QUEUED_MAC[1:2])
+        api.open_run(11, OLD, T0, "in_progress", [job("cmux-next generated files", "in_progress")] + QUEUED_MAC[1:2])
         self.assertEqual(kick(api, clock), TIP)
         self.assertEqual(len(api.dispatched), 1)
         self.assertEqual(api.cancelled, [])
@@ -273,7 +273,7 @@ class CancelSuperseded(unittest.TestCase):
     def test_a_run_whose_mac_job_started_or_finished_is_left_alone(self):
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
         running = [job("cmux-next daemon tests", "in_progress")] + QUEUED_MAC[2:]
-        finished = [job("cmux-next generated files (Mac fallback)", "completed", "failure"), job("cmux-next daemon tests", "queued")]
+        finished = [job("cmux-next generated files", "completed", "failure"), job("cmux-next daemon tests", "queued")]
         api.open_run(11, OLD, T0, "in_progress", running)
         api.open_run(12, MID, T0 + 60, "in_progress", finished)
         kick(api, clock)
@@ -283,7 +283,7 @@ class CancelSuperseded(unittest.TestCase):
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
         api.open_run(11, OLD, T0, "in_progress", [job("cmux app scheme compile (Debug)", "completed", "skipped"),
                                                    job("cmux-next daemon tests", "completed", "cancelled"),
-                                                   job("cmux-next generated files (Mac fallback)", "queued")])
+                                                   job("cmux-next generated files", "queued")])
         kick(api, clock)
         self.assertEqual(api.cancelled, [11])
 

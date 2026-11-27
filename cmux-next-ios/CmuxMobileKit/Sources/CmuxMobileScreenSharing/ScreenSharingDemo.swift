@@ -13,16 +13,10 @@ public import SwiftUI
 /// shows the Mac-is-locked / display-asleep notice, placed by
 /// `-CmuxMobileScreenSharingDemoNotice banner|card|toolbar` (the gallery).
 public struct ScreenSharingDemoRoot: View {
-    @State private var session = ScreenSharingDemoRoot.demoSession()
+    @State private var session = ScreenSession(demoPreferences: ScreenPreferences())
     @State private var follow = ScreenSharingFollowDemo.isRequested ? ScreenSharingFollowDemo() : nil
 
     public init() {}
-
-    private static func demoSession() -> ScreenSession {
-        let session = ScreenSession(demoPreferences: ScreenPreferences())
-        session.vncRules = ScreenSharingVNCRules.rules
-        return session
-    }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileScreenSharingDemo") }
 

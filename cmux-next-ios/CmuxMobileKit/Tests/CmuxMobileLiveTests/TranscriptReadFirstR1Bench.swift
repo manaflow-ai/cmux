@@ -25,8 +25,8 @@ import Testing
 /// sets them. `scripts/measure/swift-test-bench.sh ... enable=CMUX_TRANSCRIPT_R1_BENCH` runs it too.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(30))) struct TranscriptReadFirstR1Bench {
-    nonisolated static let env = ProcessInfo.processInfo.environment
-    nonisolated static var enabled: Bool { env["CMUX_TRANSCRIPT_R1_BENCH"] == "1" }
+    static let env = ProcessInfo.processInfo.environment
+    static var enabled: Bool { env["CMUX_TRANSCRIPT_R1_BENCH"] == "1" }
 
     static let summary = AgentSessionSummary(id: "s7", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",
                                              workspaceTitle: "w", macName: "mini", macID: "mac1", accountID: "acct")

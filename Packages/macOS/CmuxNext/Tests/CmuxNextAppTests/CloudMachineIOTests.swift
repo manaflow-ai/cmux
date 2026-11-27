@@ -38,11 +38,12 @@ struct CloudMachineIOTests {
         return (binary, folder)
     }
 
-    private func client(_ binary: URL, _ folder: URL) -> CloudDaemon {
+    private func client(_ binary: URL, _ folder: URL) -> CloudAPIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Route.self]
-        return CloudDaemon.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
+        return CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
                                              accessToken: { "session-access" }, teamID: { "team_cmux" },
+                                             session: URLSession(configuration: configuration),
                                              machineIO: CloudMachineIO(binary: binary, cacheDirectory: folder.appendingPathComponent("sessions"), work: BackgroundWork()))
     }
 
@@ -75,9 +76,9 @@ struct CloudMachineIOTests {
 
     @Test func anExecSendsItsTimeoutAsTheDaemonReadsIt() async throws {
         let seen = Mutex<(input: Data, timeout: Duration)?>(nil)
-        var api = CloudDaemon.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/"),
+        var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: { "session-access" }, teamID: { "team_cmux" })
-        api.daemonCall = { input, timeout in
+        api.daemon.daemonCall = { input, timeout in
             seen.withLock { $0 = (input, timeout) }
             return Data(#"{"ok":true,"body":{"exitCode":0,"stdout":"hi","stderr":""}}"#.utf8)
         }
@@ -121,13 +122,13 @@ struct CloudMachineIOTests {
     }
 
     @Test func aChangeThatMayHaveRunIsReportedSo() async throws {
-        var api = CloudDaemon.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/"),
+        var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: { "session-access" }, teamID: { "team_cmux" })
-        api.daemonCall = { _, _ in throw CloudMachineIO.NoAnswer(dispatched: true) }
+        api.daemon.daemonCall = { _, _ in throw CloudMachineIO.NoAnswer(dispatched: true) }
         await #expect(throws: CloudAPIError.transport("cmux did not answer; the mkdir may have run")) {
             try await api.makeDirectory("vm_abcdefghij0123456789", path: "/a")
         }
-        api.daemonCall = { _, _ in throw CloudMachineIO.NoAnswer(dispatched: false) }
+        api.daemon.daemonCall = { _, _ in throw CloudMachineIO.NoAnswer(dispatched: false) }
         await #expect(throws: CloudAPIError.transport("cmux is not available")) {
             try await api.makeDirectory("vm_abcdefghij0123456789", path: "/a")
         }
@@ -179,8 +180,9 @@ struct CloudMachineIOTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Route.self]
         for machineIO in [CloudMachineIO(bundleResources: folder, cloudRoot: folder, work: BackgroundWork()), nil] {
-            let api = CloudDaemon.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
-                                                    accessToken: { "session-access" }, teamID: { "team_cmux" }, machineIO: machineIO)
+            let api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
+                                                    accessToken: { "session-access" }, teamID: { "team_cmux" },
+                                                    session: URLSession(configuration: configuration), machineIO: machineIO)
             await #expect(throws: CloudAPIError.transport("cmux is not available")) {
                 try await api.makeDirectory("vm_abcdefghij0123456789", path: "/a")
             }

@@ -237,20 +237,11 @@ try {
   console.error(`web_swap: pane ready (${ready.href}, ${JSON.stringify(ready.modules)})`);
 
   // Clock: page offset from round trips over the HMR socket; the minimum round trip's sample is the truest.
-  // A ping can land while the page reloads (a cold dep optimizer full-reloads it once it finds a
-  // late dependency), so a lost one is sent again; a late pong of an earlier id is dropped.
   const pings = [];
-  for (let id = 0, lost = 0; id < Math.max(20, 4 * N); id += 1) {
+  for (let id = 0; id < Math.max(20, 4 * N); id += 1) {
     const hot = server.environments.client.hot;
     hot.send("dev-loop:ping", { id, sent: now() });
-    let pong = null;
-    while (!pong) {
-      const got = await receive("pong", 2_000).catch(() => null);
-      if (got && got.id !== id) continue;
-      if (got) pong = got;
-      else if (++lost > 15) throw new Error(`no pong from the page in ${lost} tries of 2000 ms`);
-      else hot.send("dev-loop:ping", { id, sent: now() });
-    }
+    const pong = await receive("pong", 5_000);
     const back = now();
     pings.push({ rtt: back - pong.sent, offset: pong.received - (pong.sent + back) / 2 });
     await sleep(20);
@@ -329,8 +320,6 @@ try {
         after_update_to_commit: after !== null ? r1(commit - after) : null,
         commit_to_raf: r1(pageTime(seen.raf) - commit),
         transforms_of_module: transforms.length,
-        // Each transformRequest of the module this round, [start, end] after the file event (the page's has `?t=`).
-        transform_calls: transforms.map((mark) => ({ url: mark.url.replace(/^.*ComposerFoot/, "ComposerFoot"), start: r1(mark.start - change), end: r1(mark.end - change) })),
         // Each plugin's own hook time on the edited module this round: update hooks (inside watch to HMR
         // send) and transform/load (inside transform), summed per plugin and hook.
         plugin_hooks: Object.fromEntries(

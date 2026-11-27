@@ -37,7 +37,7 @@ try {
     report.browser = browser.version();
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     try {
-      for (const route of ["settings", "files", "history", "agent-pane"]) {
+      for (const route of ["settings", "machines", "files", "history", "agent-pane"]) {
         const page = await context.newPage();
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));

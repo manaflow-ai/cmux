@@ -82,8 +82,6 @@ class Daemon {
   readsDown = false;
   /// The read of the records after a seq answers only the record at that seq, and says there are more.
   pagesBehind = false;
-  /// The read of the records after a seq answers no records at all, and says there are more.
-  emptyPages = false;
   /// Attaches wait here until let go, while the row changes under them.
   heldAttaches?: (() => void)[];
   /// Reads of the records after a seq wait here, each answered or failed when let go.
@@ -221,7 +219,6 @@ class Daemon {
             error: { code: -32603, message: "peer_unreachable: huge-blue", data: { reason: "peer_unreachable" } },
           }),
         });
-      if (this.emptyPages) return result({ events: [], hasMore: true, lastSeq: last });
       if (this.pagesBehind) {
         const events = this.log.filter((event) => event.seq === Number(p.afterSeq ?? 0));
         return result({ events, hasMore: true, lastSeq: last });
@@ -600,45 +597,6 @@ test("a gap read whose page says more but holds only the record at its cursor ke
   }
   // A good page later fills 17..18.
   chat.daemon().pagesBehind = false;
-  chat.daemon().down = true;
-  chat.daemon().announce();
-  await flush();
-  chat.daemon().down = false;
-  chat.daemon().announce();
-  await until(() => JSON.stringify(chat.drawn.at(-1)?.rows).includes("missed 17."), "the hole read");
-  const rows = JSON.stringify(chat.drawn.at(-1)!.rows);
-  expect(rows).toContain("missed 18.");
-  expect(rows).toContain("missed 24.");
-  expect(holes()).not.toContain(16);
-});
-
-test("a gap read whose page says more but holds no records keeps the hole to read", async () => {
-  const chat = await openChat();
-  chat.daemon().down = true;
-  chat.daemon().announce();
-  await flush();
-  await chat.reconnect();
-  for (let seq = 17; seq <= 24; seq += 1) chat.daemon().log.push(reply(seq, `missed ${seq}. `));
-  // Back for the attach (19..24); the read of 17..18 answers an empty page that says there are more.
-  const drawnFrom = chat.drawn.length;
-  chat.daemon().emptyPages = true;
-  chat.daemon().down = false;
-  chat.daemon().announce();
-  await until(
-    () => chat.daemon().asked.some((message) => message.method === "_acpmux/events" && message.params?.afterSeq === 16),
-    "the gap read",
-  );
-  await flush();
-  const holes = () =>
-    [...(chat.client as unknown as { gapReads: Map<number, { seq: number }> }).gapReads.values()].map((gap) => gap.seq);
-  // The empty page filled nothing: the hole after 16 is still known, and no frame showed 24 without 17.
-  expect(holes()).toContain(16);
-  for (const snapshot of chat.drawn.slice(drawnFrom)) {
-    const text = JSON.stringify(snapshot.rows);
-    if (text.includes("missed 24.")) expect(text).toContain("missed 17.");
-  }
-  // A good page later fills 17..18.
-  chat.daemon().emptyPages = false;
   chat.daemon().down = true;
   chat.daemon().announce();
   await flush();

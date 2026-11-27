@@ -292,8 +292,7 @@ C="$TMP/clippy"
 mkdir -p "$C/.github/scripts" "$C/ghostty-next" "$C/cmux-tui/crates/cmux-tailnet" "$C/scripts/ci"
 cat >"$C/.github/scripts/cmux-tui-clippy-changed.py" <<PY
 import os, sys
-open("$TMP/calls", "a").write("clippy-changed incremental=" + os.environ.get("CARGO_INCREMENTAL", "unset") + " "
-                              + " ".join(a for a in sys.argv[1:] if a.startswith("--")) + "\\n")
+open("$TMP/calls", "a").write("clippy-changed " + " ".join(a for a in sys.argv[1:] if a.startswith("--")) + "\\n")
 sys.exit(int(os.environ.get("CLIPPY_RED", "0")) if "--panic-ratchet" not in sys.argv else 0)
 PY
 printf 'import sys\nsys.exit(0)\n' >"$C/.github/scripts/test_cmux_tui_clippy_changed.py"
@@ -326,8 +325,6 @@ grep -q '^Rust panic ratchet on changed cmux-tui packages *skip (clippy red)' <<
 out=$(crun) || fail "clippy-changed with a green clippy step: $out"
 grep -q -- '--panic-ratchet' "$TMP/calls" || fail "the ratchet did not run after a green clippy step: $(calls)"
 grep -q '^Rust panic ratchet on changed cmux-tui packages *pass' <<<"$out" || fail "no ratchet row: $out"
-# Not incremental: sccache cannot cache an incremental unit, so each workspace crate would be checked from nothing.
-[[ "$(grep -c '^clippy-changed incremental=0 ' "$TMP/calls")" == 2 ]] || fail "clippy and the ratchet must run with CARGO_INCREMENTAL=0: $(calls)"
 rm -f "$TMP/bin/go" "$TMP/bin/zig" "$TMP/calls"
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"

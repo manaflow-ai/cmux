@@ -26,27 +26,26 @@ import {
   THREAD_PADDING_TOP,
   TICK_BOX,
   type MinimapTurn,
-  replyMore,
   type RowsChange,
+  replyMore,
 } from "./model";
 import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
 import { focusRoute } from "../../../ui/focusRoute";
 import {
+  MAP_HIT,
   MAP_MARGIN,
   MAP_MIN_PROMPTS,
   mapMarks,
   mapProgress,
+  mapRows,
+  type MapRows,
   mapThumb,
   markAt,
   marksIn,
+  promptAt,
   scrollTopAt,
   type MapMark,
-  mapY,
-  MAP_HIT,
-  mapRows,
-  type MapRows,
-  promptAt,
 } from "./mapGeometry";
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.

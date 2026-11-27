@@ -104,17 +104,13 @@ KEY_SHAPE = re.compile(r"^[A-Za-z0-9_]+(?:[.\-][A-Za-z0-9_]+)+$")
 
 # An error or failure type's text is the outcome of something the person did (raw-error-text-in-the-ui.md owns it).
 ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
-# The same outcome as a function: the words for a send or a start the person just asked for that did not go
-# through (failedSendText, startFailureNotice). Their copy names the cause and its one way out.
-OUTCOME_UNIT = re.compile(r"^failed[A-Z]\w*(Text|Line|Notice)$|Failure(Text|Line|Notice)$")
 
 # A time gate: the shared bound, and helpers that hold a state before it shows. Each one names, in its own file, a
 # hold of at least the policy bound or the shared constant itself.
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|useLastingKeys|useConnectionQuietKeys|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS"  # web holds
-    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"
+    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"  # web holds
     r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|AutoRetry|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
@@ -451,7 +447,7 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
+    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name)]
 
 
 # A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
@@ -534,8 +530,7 @@ def swift_drawn_actions(units: dict[str, Unit]) -> None:
 
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
     """Move a provider's unbounded hits to the units that draw them, up to a few hops. A provider with a bound or an
-    action keeps its hits (it passes). A map or strings member no unit draws, or a word set read only to drop what it
-    names, shows nothing and is dropped; a helper
+    action keeps its hits (it passes). A map or strings member no unit draws shows nothing and is dropped; a helper
     function no unit is seen to call keeps its hits (a call the scan cannot follow must not hide it)."""
     by_file: dict[str, list[Unit]] = {}
     for unit in units.values():
@@ -575,27 +570,20 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                     if path != unit.path and any(local == unit.name and target in (stem, stem.rsplit("/index", 1)[0])
                                                  for local, target in bindings):
                         pool.extend(by_file.get(path, []))
-            # A word set read only to drop what it names (`if (SELF_HEALING.has(raw.words)) return undefined;`,
-            # composerStatusModel.ts since cmux#55968) draws none of its words: that use is no drawing.
-            drop = re.compile(rf"\b{name}\.has\([^()]*(?:\([^()]*\)[^()]*)*\)\s*\)\s*(?:\{{\s*)?(?:return|continue)\b")
             consumers = []
-            dropped = False
             for other in pool:
                 if other.name == "<file>":
                     continue  # its imports, not a drawing
                 by_value = instance is not None and bool(named.search("\n".join(other.lines)))
                 for i, line in enumerate(other.lines):
                     m = use.search(line) or (instance.search(line) if by_value else None)
-                    if m and drop.search(line) and not use.search(drop.sub("", line)):
-                        dropped = True
-                        continue
                     if m:
                         member = m.groupdict().get("m")
                         said = next((h for h in unit.hits if member_at(unit, h.index) == member), unit.hits[0])
                         consumers.append((other, i, said))
                         break
             if not consumers:
-                if dropped or (None not in members and not unit.path.endswith(".swift")):
+                if None not in members and not unit.path.endswith(".swift"):
                     # A strings map's member that no unit draws (`L.x`, `L[...]`) shows nothing. A Swift strings
                     # member can reach its drawing through a value the scan cannot follow, so it keeps its hits.
                     unit.hits = []

@@ -29,7 +29,7 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
 
     /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
     /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
-    public static func read(cloudMachine machine: String, api: CloudDaemon) async -> RemoteAgentDaemonStatus? {
+    public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
         guard let result = try? await api.exec(machine, command: cloudStatusCommand, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
         return RemoteAgentDaemonStatus(json: result.stdout)
     }

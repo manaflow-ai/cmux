@@ -264,7 +264,6 @@ fn moved(machine: Option<String>, url: String, hop: HopState) -> Record {
         stash_known: true,
         filling: None,
         hop: Some(hop),
-        snapshot: None,
     }
 }
 

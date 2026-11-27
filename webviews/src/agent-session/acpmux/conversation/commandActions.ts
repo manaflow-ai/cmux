@@ -1044,32 +1044,8 @@ function fromTo(key: StringKey, args: string[]): Act | undefined {
   return paths.length === 2 ? { key, values: { from: baseName(paths[0]!), to: baseName(paths[1]!) } } : undefined;
 }
 
-/// Commands read so far, newest last: a command's action depends on its text alone (the table is
-/// fixed), and a live line asks again for the same running command on every render, a whole shell
-/// parse each time (2-3 ms a render of a streaming chat with one long command; settled-page bench,
-/// chat_switch stream). Bounded, oldest out.
-const ACTIONS_KEPT = 256;
-const actionsRead = new Map<string, CommandAction | undefined>();
-
-/// What a command did, from the table; undefined for anything it does not list. The result is
-/// shared between callers, so it is read, never changed.
+/// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
-  if (actionsRead.has(command)) {
-    const kept = actionsRead.get(command);
-    actionsRead.delete(command);
-    actionsRead.set(command, kept);
-    return kept;
-  }
-  const action = readCommandAction(command);
-  actionsRead.set(command, action);
-  if (actionsRead.size > ACTIONS_KEPT) actionsRead.delete(actionsRead.keys().next().value as string);
-  return action;
-}
-
-/// The cache size, for its test.
-export const commandActionsKept = () => actionsRead.size;
-
-function readCommandAction(command: string): CommandAction | undefined {
   const { step, more, loops, values } = mainStep(command);
   // The first stage names the step only when nothing else in it changes anything: no write to a
   // file, no code run inside a word, and only stages after it that trim what it printed (`curl … |
@@ -1312,7 +1288,12 @@ export function commandSaid(t: Translate, tool: Tool): string | undefined {
   if (description) return description;
   const command = tool.command?.trim();
   if (!command) return undefined;
-  if (running(tool)) return runningCommandSaid(t, command, currentCommandRules());
+  if (running(tool)) {
+    const file = singleFileRead(command);
+    return file
+      ? t("command.read", { file: baseName(file) })
+      : (scriptSaid(t, command, true) ?? commandSummary(t, command, currentCommandRules()));
+  }
   const success = succeeded(tool);
   const action = success ? commandAction(command) : undefined;
   if (action && !action.more) return actionText(t, action);
@@ -1321,34 +1302,6 @@ export function commandSaid(t: Translate, tool: Tool): string | undefined {
     pipelineSaid(t, command) ?? scriptSaid(t, command) ?? commandSummary(t, command, currentCommandRules(), completed)
   );
 }
-
-/// A running command's line by command, for one language and one set of rules: the live line asks
-/// for it on every render of a streaming chat, and each ask was a shell parse and a rule match
-/// (~2.5 ms a render; settled-page bench, chat_switch stream). A new translator or new rules start
-/// it over. Bounded, oldest out.
-const RUNNING_SAID_KEPT = 256;
-let runningSaidFor: { t: Translate; rules: readonly CommandRule[]; said: Map<string, string | undefined> } | undefined;
-
-function runningCommandSaid(t: Translate, command: string, rules: readonly CommandRule[]): string | undefined {
-  if (runningSaidFor?.t !== t || runningSaidFor.rules !== rules) runningSaidFor = { t, rules, said: new Map() };
-  const kept = runningSaidFor.said;
-  if (kept.has(command)) {
-    const said = kept.get(command);
-    kept.delete(command);
-    kept.set(command, said);
-    return said;
-  }
-  const file = singleFileRead(command);
-  const said = file
-    ? t("command.read", { file: baseName(file) })
-    : (scriptSaid(t, command, true) ?? commandSummary(t, command, rules));
-  kept.set(command, said);
-  if (kept.size > RUNNING_SAID_KEPT) kept.delete(kept.keys().next().value as string);
-  return said;
-}
-
-/// The running lines kept, for its test.
-export const runningSaidKept = () => runningSaidFor?.said.size ?? 0;
 
 /// A pipeline into inline code reads as its programs and files, "Ran ffmpeg → python3 on *.mov"
 /// (Leo, 2026-11-07: "surely you can make it, like, stretch across the line a little bit more");

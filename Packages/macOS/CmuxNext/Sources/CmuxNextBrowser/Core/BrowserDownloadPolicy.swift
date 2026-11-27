@@ -45,22 +45,13 @@ public nonisolated struct BrowserDownloadPolicy: Sendable {
     /// thread that froze the whole app, every tab and the control socket,
     /// until someone answered (a fleet Mac: never). A folder macOS refuses
     /// fails at its first look, not after `collisionLimit` refused ones.
-    ///
-    /// Before any name, one write in `directory` (`mayWrite`, also off the
-    /// main thread): a look at a name that is not there does not ask for
-    /// access, and the engine then asked on the main thread (WebKit issues
-    /// the file's sandbox extension there), freezing the app the same way.
     @MainActor
     public static func place(chosen: URL?, suggestedFilename: String, directory: URL,
                              reservations: BrowserDownloadReservations = .shared,
-                             probe: @escaping @Sendable (URL) -> DownloadDestination.Entry = DownloadDestination.entry(at:),
-                             mayWrite: @escaping @Sendable (URL) -> Bool = DownloadDestination.mayWrite(in:))
+                             probe: @escaping @Sendable (URL) -> DownloadDestination.Entry = DownloadDestination.entry(at:))
         async -> Result<BrowserDownloadPlacement, PlaceFailure> {
         // The save panel already asked before replacing the chosen file.
         if let chosen { return .success(BrowserDownloadPlacement(finalURL: chosen, chosen: chosen, reservations: reservations)) }
-        guard await Task.detached(priority: .userInitiated, operation: { mayWrite(directory) }).value else {
-            return .failure(.folderDenied)
-        }
         // Another download can take a name while this one looks: look again
         // with the names held now (a bounded number of times).
         for _ in 0..<8 {

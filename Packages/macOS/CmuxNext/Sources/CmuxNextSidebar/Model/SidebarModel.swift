@@ -930,15 +930,4 @@ public final class SidebarModel {
         }
         presentation = presentation == .hidden ? .shown : .hidden
     }
-
-    /// ``toggle()`` timed from this key press or click to the first frame its slide resizes the panes in (`side_open`,
-    /// `side_close`; the layout's `ScreenContentView+FrameTiming`). A toggle that moves no pane (a floating sidebar, the
-    /// rail's overlay) times nothing: its arm lapses. Measurement only.
-    public func toggle(timing: TransitionFrameLog?) {
-        if let timing {
-            timing.arm(isHidden ? .sideOpen : .sideClose)
-            timing.input()
-        }
-        toggle()
-    }
 }

@@ -675,21 +675,5 @@ class AWarningLineIsNotAFailureName(unittest.TestCase):
         self.assertFalse({name for name in names if name.startswith("sys")}, names)
 
 
-class AnObjectAddressIsNotAFailureName(unittest.TestCase):
-    """An object repr's address (`<function f at 0x758be97b8360>`) differs in every process. "0x" glued it into one
-    word the sha pattern never matched, so "Validate the Cloud chat proof script", red on the base for the same
-    reason, read new on every pull request (cmux-next CI guard group, 2026-11-26: `x0e0a0>`, `x0be0b0>`)."""
-
-    def test_two_runs_of_the_same_failure_name_the_same_things(self):
-        import guards_new_reds
-
-        head = guards_new_reds.failure_names(
-            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x758be97b8360>"])
-        base = guards_new_reds.failure_names(
-            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x7f01c0ea2de0>"])
-        self.assertEqual(head, base)
-        self.assertIn("_remove_cached_logins_on_exit", head)
-
-
 if __name__ == "__main__":
     unittest.main()

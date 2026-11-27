@@ -786,10 +786,9 @@ mod tests {
         release.notify_one();
         settle(&scale).await;
         // Repeated last-slot creates after the run ended, within the cooldown, ask nothing.
-        // Four probes spread inside COOLDOWN, the last a fifth of it short of its end.
-        for s in 1..5u32 {
-            let later = now + COOLDOWN * s / 5;
-            assert_eq!(scale.trigger(&owner, one_plan(), later), Trigger::Cooling, "at {s}/5");
+        for s in 1..5 {
+            let later = now + Duration::from_secs(s * 30);
+            assert_eq!(scale.trigger(&owner, one_plan(), later), Trigger::Cooling);
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1, "one machine for the whole burst");
         assert!(owner.close(Duration::from_secs(1)).await.joined());

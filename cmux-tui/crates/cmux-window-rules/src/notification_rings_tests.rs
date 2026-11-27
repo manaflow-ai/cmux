@@ -71,7 +71,7 @@ fn an_agent_request_rings_above_marks_until_hidden() {
 fn a_request_generation_never_spills_into_the_base_bits() {
     let tab = asked(u64::MAX);
     let bases = MARK_RING_BASE | ATTENTION_RING_BASE;
-    assert_eq!(unread_ring(&tab, 0), Some(bases | !bases));
+    assert_eq!(unread_ring(&tab, 0), Some(bases | (u64::MAX & !bases)));
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn a_finished_turn_reads_only_when_asked_for_and_ringing() {
 fn a_held_or_unviewed_tab_is_not_read_on_sight() {
     let viewed = Tab { viewed: true, ..unread(1) };
     assert!(reads_on_sight(&viewed, FOCUS_READS));
-    assert!(!reads_on_sight(&Tab { held: true, ..viewed }, FOCUS_READS));
+    assert!(!reads_on_sight(&Tab { held: true, ..viewed.clone() }, FOCUS_READS));
     assert!(!reads_on_sight(&unread(1), FOCUS_READS));
 }
 
@@ -198,7 +198,7 @@ fn a_finished_chat_rings_its_pane_with_the_chat_ring_on() {
         }]
     );
     assert!(
-        marks(&facts(vec![pane("a", tab)])).is_empty(),
+        marks(&facts(vec![pane("a", tab.clone())])).is_empty(),
         "a finished turn rings nothing by default"
     );
     let remote = MarkFacts { local: false, ..on };
@@ -528,7 +528,7 @@ fn entry_reads_blink_only_removed_panes_the_person_went_into() {
         policy: FOCUS_READS,
         panes: vec![
             EntryPane { pane: "a".into(), tabs: vec![Tab { entry_read: true, ..Tab::default() }] },
-            EntryPane { pane: "b".into(), tabs: vec![viewed] },
+            EntryPane { pane: "b".into(), tabs: vec![viewed.clone()] },
             EntryPane { pane: "c".into(), tabs: vec![unread(1)] },
             EntryPane { pane: "d".into(), tabs: vec![Tab { entry_read: true, ..Tab::default() }] },
         ],

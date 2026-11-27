@@ -120,7 +120,6 @@ RELEASE_PUBLICATION_JOBS = {
 # exempt above, or here with why it keeps the owner fork branch like any other job.
 # test_every_release_environment_job_is_classified fails on a new one.
 RELEASE_JOBS_FORK_GATED = {
-    "nightly-next-deltas": "signs and publishes post-feed deltas on the signing Mac; starts with the owner fork branch",
     "build-sign-notarize-nightly": "signs and notarizes on the nightly mini; its runs-on starts with the owner fork branch",
     "recover-nightly-next-notarization": "finishes a pending notarization on the nightly mini; starts with the owner fork branch",
     "keep-published-dsyms": "uploads dSYMs after publication; starts with the owner fork branch",

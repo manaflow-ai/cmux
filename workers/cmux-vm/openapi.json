@@ -11277,10 +11277,9 @@
           "code": {
             "type": "string",
             "enum": [
-              "mesh.device.intent_revoked",
-              "creation.intent_refused"
+              "mesh.device.intent_revoked"
             ],
-            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it."
+            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again."
           },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"

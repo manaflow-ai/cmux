@@ -50,10 +50,6 @@ APP_TOKEN_EXEMPT = {
         "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
         "it writes nothing to a release and sends no github.token"
     ),
-    "nightly-next-deltas": (
-        "builds and uploads the nightly-next deltas after the feed with the Sparkle key and the nightly-next "
-        "R2 keys; it writes nothing to a release and sends no github.token"
-    ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
@@ -143,8 +139,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual((len(mint), len(app), len(budget)), (1, 1, 1), name)
             # Mint, then this wrapper, then gh_budget_wait.sh, which wraps it and keeps its wait.
             if name in BUDGET_FIRST:
-                # Its build runs before publication, so the budget wrapper is installed first. The App
-                # wrapper still follows its mint step and all github.token users follow both wrappers.
+                # Each wrapper calls the gh first on PATH when it was installed, so here the App wrapper
+                # calls the budget wrapper, which still waits: app -> budget -> gh.
                 self.assertEqual(app[0], mint[0] + 1, name)
                 self.assertLess(budget[0], mint[0], name)
             else:
@@ -168,10 +164,6 @@ class WorkflowTests(unittest.TestCase):
                     self.assertIsNone(GH_CALL.search(str(s.get("run", ""))), (name, s.get("name")))
                     continue
                 if i != app[0] and "github.token" in str(env):
-                    if name in BUDGET_FIRST and i < mint[0]:
-                        # The build phase precedes token minting and intentionally uses the default
-                        # github.token. Publication steps follow both wrappers.
-                        continue
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:

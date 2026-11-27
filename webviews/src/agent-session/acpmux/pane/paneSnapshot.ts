@@ -154,13 +154,13 @@ import {
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
-  hostPlannedRestart,
 } from "../hostRetry";
-import { acpmuxSendsReady, heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
@@ -193,7 +193,6 @@ import { flushHeldModePick } from "../heldModePick";
 import type { NativeRegistry, OpenDiff } from "../rows/rowProps";
 import type { ScrollAnchor } from "../VirtualTranscript";
 import { emptySnapshot, saveSnapshot } from "../snapshotCache";
-import type { ShownChrome } from "../shownChrome";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
@@ -376,10 +375,6 @@ export type PaneSnapshotArgs = {
   thoughtEpoch: React.RefObject<number>;
   pendingPaneDraw: PendingPaneDraw;
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
-  /// The chrome the page drew before its attach answered, kept until then (shownChrome.ts).
-  chrome: ShownChrome;
-  /// What the page showed first, the reload copy, until a frame replaces it.
-  firstShown: React.RefObject<AcpmuxSnapshot | undefined>;
   /// Whether a prompt naming `@computer-use` waits for Computer Use setup (App.tsx
   /// `holdsForComputerUseSetup`, #48541): `/side` forks nothing while it holds.
   holdsForComputerUseSetupRef: React.RefObject<
@@ -538,8 +533,6 @@ export function paneSnapshotEffect({
   thoughtEpoch,
   pendingPaneDraw,
   snapshotRef,
-  chrome,
-  firstShown,
   holdsForComputerUseSetupRef,
   readSendAgain,
   readInterruptedResume,
@@ -729,9 +722,8 @@ export function paneSnapshotEffect({
       )
         setContinuing(true);
     },
-    receive(given) {
-      if (given.protocolVersion !== 1) return;
-      const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
+    receive(next) {
+      if (next.protocolVersion !== 1) return;
       harnessSwitch.reconcile(next);
       rowsRef.current = next.rows;
       snapshotRef.current = next;
@@ -1250,8 +1242,7 @@ export function paneSnapshotEffect({
       acpmuxPerf.markLaunch("connectStart");
       const client = await AcpmuxDirectClient.connect(
         config,
-        (given) => {
-          const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
+        (next) => {
           harnessSwitch.reconcile(next);
           rowsRef.current = next.rows;
           snapshotRef.current = next;
@@ -1371,7 +1362,6 @@ export function paneSnapshotEffect({
           harnessSwitch.disconnect(switchPort);
           setStartModeSource(undefined);
           catalogClientId.current += 1;
-          chrome.clientLost();
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
           notifyDraftActionsChanged();
@@ -2910,8 +2900,6 @@ export function paneSnapshotEffect({
         return sendPrompt(params);
       };
       notifyDraftActionsChanged();
-      // Sends made while the page connected go now, in their order (sendWhenReady.ts).
-      acpmuxSendsReady();
       harnessSwitch.setHandlers({
         restore: (text, attachments) => {
           // A failed New Tab start never surrendered this draft. Restoring it into the future

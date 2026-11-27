@@ -209,23 +209,6 @@ import Testing
         #expect(move(place, "t") != nil)
     }
 
-    /// `cloud.place.get` reads the move's view after its card settled (the header's `move` went), and nothing for a chat
-    /// that never moved: the probe reads a landed move's step times.
-    @Test func aSettledMoveKeepsItsViewForTheProbe() async {
-        let recorder = Recorder()
-        let place = flows(recorder, liveLinger: .zero)
-        #expect(place.moveView(of: "s") == nil)
-        place.begin(session: "s", toCloud: true, trigger: .person, from: "Mac", to: "", cargo: .init())
-        place.step("s", "commit")
-        place.live("s")
-        place.finished("s")
-        for _ in 0..<1000 where move(place, "s") != nil { await Task.yield() }
-        #expect(move(place, "s") == nil)
-        let view = place.moveView(of: "s") as? [String: Any]
-        #expect(view?["state"] as? String == "live")
-        #expect(place.moveView(of: "other") == nil)
-    }
-
     @Test func modesPersist() {
         let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
         let first = CloudPlaceFlows(defaults: defaults)

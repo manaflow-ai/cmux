@@ -214,53 +214,6 @@ test("the row with focus stays mounted while the body scrolls far past it", asyn
   expect(rows()[0]!.getAttribute("aria-setsize")).toBe("1000");
 });
 
-test("an entry added at the top or moved keeps every mounted row's position right, and draws no unchanged row", async () => {
-  const { entries, files } = await mount(1_000);
-  const ADDED = "aaa-added.txt";
-  // The rows that were there before (the added one mounts, which is no redraw of an unchanged row).
-  const unchanged = mountedRowRenders(
-    () => [...rows()].filter((row) => !row.getAttribute("data-path")!.endsWith(`/${ADDED}`)),
-    "FileRow",
-  );
-  /** Each mounted row's place against the listing's: [path, data-index, aria-posinset, aria-setsize]. */
-  const places = () => {
-    const at = new Map(entries.map((entry, index) => [`${FOLDER}/${entry.name}`, index]));
-    return [...rows()].map((row) => {
-      const path = row.getAttribute("data-path")!;
-      return {
-        got: [
-          path,
-          row.getAttribute("data-index"),
-          row.getAttribute("aria-posinset"),
-          row.getAttribute("aria-setsize"),
-        ],
-        want: [path, String(at.get(path)), String(at.get(path)! + 1), String(entries.length)],
-      };
-    });
-  };
-  const relist = async () => {
-    await act(async () => files.open(FOLDER));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  };
-
-  // An entry added above every row: each row moves down one place, and the folder grows by one.
-  unchanged.mark();
-  entries.unshift({ name: ADDED, kind: "file", size: 1 });
-  await relist();
-  expect(rowOf(0)!.getAttribute("aria-posinset")).toBe("2");
-  expect(host.querySelector(`[data-path="${FOLDER}/${ADDED}"]`)).not.toBeNull();
-  for (const { got, want } of places()) expect(got).toEqual(want);
-  expect(unchanged.since()).toBe(0);
-
-  // The added entry moved to the 11th place: the rows it passes move up one, the folder's size the same.
-  unchanged.mark();
-  entries.splice(10, 0, entries.shift()!);
-  await relist();
-  expect(rowOf(0)!.getAttribute("aria-posinset")).toBe("1");
-  for (const { got, want } of places()) expect(got).toEqual(want);
-  expect(unchanged.since()).toBe(0);
-});
-
 const TABBABLE = "button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 async function scrollBody(body: HTMLElement, top: number) {

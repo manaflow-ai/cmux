@@ -50,8 +50,5 @@ if [ "${SKIP_TEST:-}" = 1 ]; then
   exit 0
 fi
 
-# The connection contract's Rust half (cmux-next-ios/contract/README.md): the fixture the Swift
-# suite below reads must say what this library does.
-cargo test --profile "$profile" -p cmux-mobile-link-ffi --test connection_contract
 export CMUX_SWIFTPM_TARGET_LINUX=1 CMUX_MOBILE_LINK_FFI_LINUX=1
 swift test --package-path "$kit_dir" --filter CmuxMobileLinkFFILinuxTests -Xlinker -L"$lib_only"

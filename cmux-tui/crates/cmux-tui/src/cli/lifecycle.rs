@@ -604,9 +604,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
 /// What a stop knows of an owner that is not ready yet.
 #[derive(Clone, Copy)]
 enum RestorePhase {
-    /// The owner restores its session (registry, terminal hosts): it says so
-    /// in its identity (`restore`), or (an older owner) holds the connection
-    /// unanswered, as one too busy to answer does.
+    /// The owner holds the connection unanswered: it restores its session
+    /// (registry, terminal hosts), or it is too busy to answer.
     Restoring,
     /// The owner answered `lifecycle_ready: false` (its pid when it said):
     /// it restored and finishes its startup, and refuses `shutdown-daemon`.
@@ -697,11 +696,7 @@ impl StopWait<'_> {
             let mut id = 0_u64;
             loop {
                 id += 1;
-                let request = json!({
-                    "id": format!("stop-wait-{id}"),
-                    "cmd": "identify",
-                    "restore_progress": true,
-                });
+                let request = json!({"id": format!("stop-wait-{id}"), "cmd": "identify"});
                 let sent = writeln!(connection.get_mut(), "{request}")
                     .and_then(|()| connection.get_mut().flush());
                 if sent.is_err() {
@@ -714,10 +709,6 @@ impl StopWait<'_> {
                     let slice = slice.min(Instant::now() + STOP_WAIT_SLICE);
                     match read_reply(&mut connection, &request["id"], slice) {
                         Ok(identity) => match identity.get("lifecycle_ready") {
-                            // The owner answers while it restores (restoring.rs).
-                            Some(Value::Bool(false)) if identity.get("restore").is_some() => {
-                                break RestorePhase::Restoring;
-                            }
                             Some(Value::Bool(false)) => {
                                 break RestorePhase::Starting(
                                     identity.get("pid").and_then(Value::as_u64),
@@ -1111,20 +1102,15 @@ const ADOPTION_POLL: Duration = Duration::from_millis(25);
 
 /// One restore progress line on stdout (`server ensure --restore-progress`). The
 /// result stays the last JSON line, so a reader that takes the last line
-/// still reads the result. `restore` is the owner's own report (phase,
-/// done, total, elapsed_ms, last_advance_ms) when it gave one: a restore
-/// whose `last_advance_ms` moves is working, however long it takes.
+/// still reads the result.
 fn print_progress(session: &str, restoring: &crate::local_owner::Restoring) {
     use std::io::Write as _;
-    let mut line = json!({
+    let line = json!({
         "progress": "restoring",
         "session": session,
         "pid": restoring.pid,
         "waited_ms": u64::try_from(restoring.waited.as_millis()).unwrap_or(u64::MAX),
     });
-    if let Some(restore) = &restoring.restore {
-        line.set("restore", restore.clone());
-    }
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());
 }

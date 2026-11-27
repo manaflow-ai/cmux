@@ -12,7 +12,6 @@ import type { SenderReference } from "../senderIdentity";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { RAIL_SHOWS, type RailShow } from "./railShow";
 import { SUBAGENT_DONE, SUBAGENT_ROW, SUBAGENT_STARTED } from "../subagents/subagentRows";
-import { RowMemo } from "../../shared/rowMemo";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -547,7 +546,7 @@ export function jumpGlideStart(from: number, target: number, viewport: number): 
 
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
 /// chat's snapshot hashes and previews only the turns that changed.
-const turnsByPrompt = new RowMemo<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
+const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
 /// Each turn's reply row, for the longer excerpt the card reads only when the pointer moves into it
 /// (`replyMore`). Weak by the turn, so a turn that goes takes its entry with it.

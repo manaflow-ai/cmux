@@ -96,15 +96,7 @@ public final class LaunchShell {
         let layoutCache = LayoutCacheLaunch.read(support: support, build: build)
         mark(layoutCache == nil ? "layout_cache.none" : "layout_cache.read")
         guard read, plan.shows_window else { return LaunchShell(prepared: nil, layoutCache: layoutCache, mark: mark) }
-        // A plan with no saved window carries no colours (all zero): stage 0 then paints the layout
-        // cache's last theme, and with neither it makes no window, since a guessed colour (opaque black)
-        // flashed to the real theme on the first frame (startup video at e77af242).
-        let cachedLook = layoutCache?.front.map { LaunchShellLook(cached: $0) }
-        guard Prepared.hasLook(plan) || cachedLook != nil else {
-            mark("launch_shell.none_unknown_look")
-            return LaunchShell(prepared: nil, layoutCache: layoutCache, mark: mark)
-        }
-        let prepared = Prepared(plan: plan, cachedFrame: layoutCache?.front.flatMap { layoutCache?.frame(for: $0.id) }, cachedLook: cachedLook)
+        let prepared = Prepared(plan: plan, cachedFrame: layoutCache?.front.flatMap { layoutCache?.frame(for: $0.id) })
         if let path = prepared.imagePath { prepared.decode(path, mark: mark) }
         return LaunchShell(prepared: prepared, layoutCache: layoutCache, mark: mark)
     }
@@ -290,19 +282,6 @@ public struct LaunchShellLook {
     public let background: NSColor
     public let bar: NSColor
     public let dark: Bool
-
-    public init(background: NSColor, bar: NSColor, dark: Bool) {
-        self.background = background; self.bar = bar; self.dark = dark
-    }
-
-    /// The layout cache's last look of `window`: its theme's backdrop and bar, and its appearance.
-    init(cached window: LayoutCacheWindow) {
-        let color = { (c: [UInt8]) -> NSColor in
-            guard c.count == 4 else { return .windowBackgroundColor }
-            return NSColor(srgbRed: CGFloat(c[0]) / 255, green: CGFloat(c[1]) / 255, blue: CGFloat(c[2]) / 255, alpha: c[3] == 0 ? 1 : CGFloat(c[3]) / 255) // colour-allow: the saved theme's own colors from the layout cache, before the theme loads
-        }
-        self.init(background: color(window.theme.backgroundRgba), bar: color(window.theme.barRgba), dark: window.appearance == .dark)
-    }
 }
 
 /// The launch record's and the image store's paths in the app's Application Support folder.
@@ -330,15 +309,9 @@ public struct LaunchShellPaths {
     let imagePath: String?
     private let decoded = DecodedImage()
 
-    /// The plan carries the saved window's colours (a plan with no saved window leaves them all zero).
-    static func hasLook(_ plan: CmuxLaunchShellPlan) -> Bool {
-        plan.background_rgba != (0, 0, 0, 0) || plan.bar_rgba != (0, 0, 0, 0)
-    }
-
     /// `cachedFrame`: the layout cache's front window, where the real window opens when the
     /// launch record has no frame (`WindowManager.makeController`): stage 0 stands at the same place.
-    /// `cachedLook`: that window's last theme, painted when the plan carries no colours.
-    init(plan: CmuxLaunchShellPlan, cachedFrame: CGRect? = nil, cachedLook: LaunchShellLook? = nil) {
+    init(plan: CmuxLaunchShellPlan, cachedFrame: CGRect? = nil) {
         var plan = plan
         if plan.uses_default_frame, let cachedFrame {
             frame = cachedFrame
@@ -352,8 +325,7 @@ public struct LaunchShellPaths {
         let color = { (c: (UInt8, UInt8, UInt8, UInt8)) in
             NSColor(srgbRed: CGFloat(c.0) / 255, green: CGFloat(c.1) / 255, blue: CGFloat(c.2) / 255, alpha: c.3 == 0 ? 1 : CGFloat(c.3) / 255) // colour-allow: the saved theme's own colors from the launch record, before the theme loads
         }
-        let saved = LaunchShellLook(background: color(plan.background_rgba), bar: color(plan.bar_rgba), dark: plan.appearance == 1)
-        look = Self.hasLook(plan) ? saved : cachedLook ?? saved
+        look = LaunchShellLook(background: color(plan.background_rgba), bar: color(plan.bar_rgba), dark: plan.appearance == 1)
         reason = plan.reason
         usesDefaultFrame = plan.uses_default_frame
         let path = withUnsafeBytes(of: &plan.image_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }

@@ -29,29 +29,22 @@ enum RFBSecurityType {
     static let appleDH: UInt8 = 30
 }
 
-/// Version, security and initialisation (RFC 6143 sections 7.1 to 7.3). The choices and the
-/// authentication answers are cmux-vnc's (``VNCRules``); this reads and writes the bytes.
+/// Version, security and initialisation (RFC 6143 sections 7.1 to 7.3).
 struct RFBHandshake {
     var credentials: VNCCredentials
     var shared = true
-    var rules: VNCRules
 
     func run(reader: RFBReader, transport: any RFBTransport) async throws -> VNCServerInfo {
-        let banner = try await reader.bytes(12)
-        guard rules.installed else { throw VNCRules.unavailable }
-        guard let version = rules.version(banner: banner) else {
-            throw RFBError.unsupportedProtocolVersion(String(decoding: banner, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        let minor = version.minor
-        try await transport.send(version.reply)
+        let serverMinor = try await readVersion(reader)
+        let minor = serverMinor >= 8 ? 8 : (serverMinor == 7 ? 7 : 3)
+        try await transport.send(Array("RFB 003.00\(minor)\n".utf8))
 
         let type = try await negotiateSecurity(reader: reader, transport: transport, minor: minor)
         switch type {
         case RFBSecurityType.vncPassword:
             guard let password = credentials.password else { throw RFBError.passwordRequired }
             let challenge = try await reader.bytes(16)
-            guard let response = rules.passwordResponse(password: password, challenge: challenge) else {
+            guard let response = VNCPasswordAuthentication(password: password).response(challenge: challenge) else {
                 throw RFBError.authenticationFailed("could not compute the VNC response")
             }
             try await transport.send(response)
@@ -64,11 +57,11 @@ struct RFBHandshake {
             guard length > 0, length <= RFBLimits.maxDHKeyBytes else { throw RFBError.protocolViolation("Apple DH key length \(length)") }
             let prime = try await reader.bytes(length)
             let serverKey = try await reader.bytes(length)
-            guard let response = rules.appleDH(generator: generator, prime: prime, serverPublicKey: serverKey,
-                                               username: username, password: password) else {
+            let auth = AppleDHAuthentication(generator: generator, prime: prime, serverPublicKey: serverKey)
+            guard let response = auth.response(username: username, password: password) else {
                 throw RFBError.authenticationFailed("could not compute the Apple DH response")
             }
-            try await transport.send(response)
+            try await transport.send(response.encryptedCredentials + response.clientPublicKey)
         default:
             break
         }
@@ -98,17 +91,45 @@ struct RFBHandshake {
                              protocolMinor: minor, securityType: type)
     }
 
+    private func readVersion(_ reader: RFBReader) async throws -> Int {
+        let text = String(decoding: try await reader.bytes(12), as: UTF8.self)
+        // "RFB 003.008\n". Apple and others send 003.889; treat any 3.x >= 8 as 3.8.
+        guard text.hasPrefix("RFB 003."), let minor = Int(text.dropFirst(8).prefix(3)) else {
+            throw RFBError.unsupportedProtocolVersion(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return minor
+    }
+
     private func negotiateSecurity(reader: RFBReader, transport: any RFBTransport, minor: Int) async throws -> UInt8 {
         if minor == 3 {
-            let word = try await reader.u32()
-            if word == 0 { throw RFBError.authenticationFailed(try await reader.lengthPrefixedString(limit: 4096)) }
-            return try rules.serverChosenSecurity(word: word, credentials: credentials)
+            let type = try await reader.u32()
+            if type == 0 { throw RFBError.authenticationFailed(try await reader.lengthPrefixedString(limit: 4096)) }
+            // Compare the whole word: 258 is not type 2.
+            guard type == UInt32(RFBSecurityType.none) || type == UInt32(RFBSecurityType.vncPassword) else {
+                throw RFBError.noSupportedSecurityType([UInt8(truncatingIfNeeded: type)])
+            }
+            let offered = UInt8(type)
+            if offered == RFBSecurityType.vncPassword, credentials.username != nil { throw RFBError.credentialsRequired }
+            return offered
         }
         let count = Int(try await reader.u8())
         if count == 0 { throw RFBError.authenticationFailed(try await reader.lengthPrefixedString(limit: 4096)) }
         let offered = try await reader.bytes(count)
-        let chosen = try rules.chooseSecurity(offered: offered, credentials: credentials)
+        let chosen = try choose(from: offered)
         try await transport.send([chosen])
         return chosen
+    }
+
+    /// Apple DH when a user name is known, then the VNC password, then none.
+    /// A sign-in with a user name is an account password: it never goes out
+    /// as a VNC password response (8 bytes, DES, offline-crackable).
+    func choose(from offered: [UInt8]) throws -> UInt8 {
+        let hasPassword = credentials.password != nil
+        if offered.contains(RFBSecurityType.appleDH), hasPassword, credentials.username != nil { return RFBSecurityType.appleDH }
+        if offered.contains(RFBSecurityType.vncPassword), hasPassword, credentials.username == nil { return RFBSecurityType.vncPassword }
+        if offered.contains(RFBSecurityType.none) { return RFBSecurityType.none }
+        if offered.contains(RFBSecurityType.appleDH) { throw RFBError.credentialsRequired }
+        if offered.contains(RFBSecurityType.vncPassword) { throw RFBError.passwordRequired }
+        throw RFBError.noSupportedSecurityType(offered)
     }
 }

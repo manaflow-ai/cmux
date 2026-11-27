@@ -911,47 +911,6 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
     --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 26%, var(--agent-page-bg, var(--acpmux-base)));
   }
 }
-/* BORDERLESS COMPOSER: the chat's composer as the New Tab card (newtab/screen.css): no outline and no
-   light rim, the composer's depth instead, in every theme (Lucas 2026-11-26: "remove the border from
-   the agent chat, and make it have a shadow instead"). The outline is the stack's (the card, the queue,
-   the strip, a joined running tray and Goal banner), so it goes from each of them; the edge colour
-   itself stays, so what draws a border inside the stack (chips, attachment tiles, the permission card,
-   row dividers) keeps it. Increase Contrast keeps the outline and its focus step. A shell prompt keeps
-   its accent ring. Specificity: the card (0,8,0) over the glass and queue rules (0,6,0); the queue
-   (0,9,0) over the top-strip variants (0,8,0); the tray (0,5,0) over the stack's edge (0,4,0). */
-:root .acpmux-dock {
-  --acpmux-composer-shadow: var(--cmux-composer-shadow, var(--glass-material-depth-composer, var(--elevation-1)));
-  /* The dock's own edge, for the rows inside a joined tray or banner whose outline goes (below). */
-  --acpmux-dock-edge: var(--acpmux-composer-edge);
-}
-@media not (prefers-contrast: more) {
-  /* The card: its ring and rim go, also on the ::before layers that draw them under a queue or the
-     tray pull; its depth stays. */
-  :root .acpmux-dock .acpmux-composer:not([data-shell]) > .acpmux-composer-box.acpmux-composer-box.acpmux-composer-box.acpmux-composer-box {
-    --acpmux-card-ring: 0 0 transparent;
-    --acpmux-composer-rim: 0 0 transparent;
-    box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
-  }
-  /* The focus step and the strip's rim. */
-  :root .acpmux-dock .acpmux-composer.acpmux-composer:not([data-shell]) {
-    --acpmux-composer-edge-focus: transparent;
-  }
-  :root .acpmux-dock .acpmux-composer.acpmux-composer:not([data-shell]) > .acpmux-composer-strip.acpmux-composer-strip {
-    --acpmux-strip-edge: transparent;
-  }
-  /* The queue's sides and top; the hairlines between its rows stay. */
-  :root .acpmux-dock .acpmux-composer.acpmux-composer.acpmux-composer:not([data-shell]) > .acpmux-composer-queue.acpmux-composer-queue.acpmux-composer-queue {
-    box-shadow: none;
-  }
-  /* A running tray or Goal banner joined over the card: its outline goes, its rows keep the edge. */
-  :root .acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card],
-  :root .acpmux-dock > .acpmux-goal:is([data-look="head"], [data-look="foot"]) {
-    --acpmux-composer-edge: transparent;
-  }
-  :root .acpmux-dock > :is(.acpmux-running-tray[data-card], .acpmux-goal[data-look]) > * {
-    --acpmux-composer-edge: var(--acpmux-dock-edge);
-  }
-}
 /* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
    the card ring, as the chat card's is, so focus lifts it a step, Increase Contrast widens it and
    appearance.borders none clears it. Over art or a see-through window the rule below adds the

@@ -308,18 +308,6 @@ public final class CloudAuth {
     static func tokenStore(configuration: CloudConfiguration, consentSession: ConsentSession? = nil,
                            autoLogin: Bool = false, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
-        let own = ownTokenStore(configuration: configuration, consentSession: consentSession, autoLogin: autoLogin,
-                                memoryOnly: memoryOnly)
-        guard let shared = configuration.sharedSession.map({
-            KeychainStackTokenStore(service: $0.keychainService, accessGroup: $0.accessGroup)
-        }) else { return own }
-        return SharedSessionTokenStore(own: own, shared: shared)
-    }
-
-    /// This build's own Keychain store with its file fallback, adopting once from the namespaced store its
-    /// update used.
-    static func ownTokenStore(configuration: CloudConfiguration, consentSession: ConsentSession? = nil,
-                              autoLogin: Bool = false, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         let own = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
             fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
@@ -382,18 +370,8 @@ public final class CloudAuth {
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
-        // A session adopted from cmux NIGHTLY, or imported from the shared item, is the other build's own: a
-        // sign-out here leaves it alive on the server.
-        var keepsServerSession: (@Sendable (String) async -> Bool)?
-        let base: any StackAuthTokenStoreProtocol = (tokenStore as? CaptureFencedTokenStore)?.base ?? tokenStore
-        if let sharing = base as? any KeepsSharedSessions {
-            keepsServerSession = { (refreshToken: String) async -> Bool in
-                await sharing.isShared(refreshToken: refreshToken)
-            }
-        }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
-                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
-                               keepsServerSession: keepsServerSession)
+                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
     }
 
     /// Starts restoring the stored session (and dev auto sign-in).
@@ -549,149 +527,5 @@ public final class CloudAuth {
         let waiters = captureCleanupWaiters
         captureCleanupWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
-    }
-}
-
-/// A token store that can say a refresh token is another app's session, which a sign-out here must leave
-/// alive on the server (`StackAuthClient`'s `keepsServerSession`).
-protocol KeepsSharedSessions: Sendable {
-    func isShared(refreshToken: String) async -> Bool
-}
-
-extension ImportingTokenStore: KeepsSharedSessions {}
-
-/// The token store of a Team-signed production build that shares its session with the others (Rust's
-/// `shared_session`): this build's own store, plus the one shared item in the Keychain access group every
-/// such build carries. Its rules are Rust's (cmux-cloud-config `shared_session_store`, with their tests:
-/// own session wins, a signed-out launch imports the item read-only in memory, only its own session is
-/// written to or withdrawn from the item); this actor keeps Rust's state and does the Keychain I/O each
-/// answer names. A build signed without the access group gets `errSecMissingEntitlement` from every query
-/// on the item: nothing is imported and nothing written.
-actor SharedSessionTokenStore: StackAuthTokenStoreProtocol, KeepsSharedSessions {
-    private struct Pair: Codable { var access: String?; var refresh: String? }
-    private struct State: Codable { var settled = false; var usesImported = false; var importedTokens: [String] = [] }
-    private struct Event: Encodable {
-        var event: String
-        var skipImport: Bool?, ownRefresh: String?, pair: Pair?, op: String?, refresh: String?
-        var store: String?, compare: String?, before: Pair?, now: Pair?
-    }
-    private struct Effect: Decodable { let kind: String; let store: String?; let access: String?; let refresh: String? }
-    private struct Reply: Decodable { let state: State; let effects: [Effect]; let shared: Bool }
-    private struct Request: Encodable { let state: State; let event: Event }
-    private typealias Apply = (any StackAuthTokenStoreProtocol) async -> Bool
-
-    private let own: any StackAuthTokenStoreProtocol
-    private let shared: any StackAuthTokenStoreProtocol
-    private let imported = MemoryStackTokenStore()
-    private var state = State()
-    private var settling: Task<Void, Never>?
-    private let log = AuthDebugLog()
-
-    /// - Parameters:
-    ///   - own: This build's store; every session it signs in to is written here.
-    ///   - shared: The shared item's store (its Keychain service and access group).
-    init(own: any StackAuthTokenStoreProtocol, shared: any StackAuthTokenStoreProtocol) {
-        self.own = own
-        self.shared = shared
-    }
-
-    func isShared(refreshToken: String) async -> Bool { await run(Event(event: "is_shared", refresh: refreshToken)) }
-    func tokenReadFailureCount() async -> UInt64 { await own.tokenReadFailureCount() }
-    func captureAwaitIdle() async { await own.captureAwaitIdle() }
-
-    func getStoredAccessToken() async -> String? {
-        await settle()
-        return await (state.usesImported ? imported : own).getStoredAccessToken()
-    }
-
-    func getStoredRefreshToken() async -> String? {
-        await settle()
-        return await (state.usesImported ? imported : own).getStoredRefreshToken()
-    }
-
-    func setTokens(accessToken: String?, refreshToken: String?) async {
-        await settle(skippingImport: true)
-        await run(Event(event: "call", op: "set_tokens", refresh: refreshToken)) {
-            await $0.setTokens(accessToken: accessToken, refreshToken: refreshToken); return false
-        }
-    }
-
-    func compareAndSet(compareRefreshToken: String, newRefreshToken: String?, newAccessToken: String?) async {
-        await settle()
-        await run(Event(event: "call", op: "compare_and_set", refresh: compareRefreshToken)) {
-            await $0.compareAndSet(compareRefreshToken: compareRefreshToken, newRefreshToken: newRefreshToken,
-                                   newAccessToken: newAccessToken)
-            return false
-        }
-    }
-
-    func clearTokens() async {
-        await settle(skippingImport: true)
-        await run(Event(event: "call", op: "clear")) { await $0.clearTokens(); return false }
-    }
-
-    @discardableResult
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
-        await settle(skippingImport: true)
-        return await run(Event(event: "call", op: "clear_if_current")) {
-            await $0.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
-        }
-    }
-
-    /// The launch import, once per process (none after an earlier write); later calls wait for it.
-    private func settle(skippingImport: Bool = false) async {
-        if settling == nil {
-            settling = Task {
-                let mine = skippingImport ? nil : await own.getStoredRefreshToken()
-                await run(Event(event: "settle", skipImport: skippingImport, ownRefresh: mine))
-            }
-        }
-        await settling?.value
-    }
-
-    private func store(_ name: String?) -> any StackAuthTokenStoreProtocol { name == "imported" ? imported : own }
-
-    private func pair(_ store: any StackAuthTokenStoreProtocol) async -> Pair {
-        Pair(access: await store.getStoredAccessToken(), refresh: await store.getStoredRefreshToken())
-    }
-
-    /// Asks Rust for `event`'s next state and effects and performs them; `apply` is the call an `apply`
-    /// effect makes on the store it names. Returns `apply`'s answer, or Rust's `shared`.
-    @discardableResult
-    private func run(_ event: Event, apply: Apply? = nil) async -> Bool {
-        let request = Request(state: state, event: event)
-        guard let reply = CloudStartCore().call("cloud_auth_shared_session_next", request, as: Reply.self) else {
-            // No answer: this build's own store only, nothing shared.
-            log.log("shared.store: no answer for \(event.event)")
-            return await apply?(own) ?? false
-        }
-        state = reply.state
-        var answer = reply.shared
-        for effect in reply.effects {
-            switch effect.kind {
-            case "read_shared":
-                await run(Event(event: "shared_read", pair: await pair(shared)))
-            case "seed_imported":
-                await imported.setTokens(accessToken: effect.access, refreshToken: effect.refresh)
-                log.log("shared.store: imported the shared session hasAccess=\(effect.access != nil)")
-            case "apply":
-                guard let apply else { continue }
-                let target = store(effect.store)
-                let before = await pair(target)
-                answer = await apply(target)
-                await run(Event(event: "applied", store: effect.store, compare: event.refresh, before: before,
-                                now: await pair(target)))
-            case "clear":
-                await store(effect.store).clearTokens()
-            case "write_shared":
-                await shared.setTokens(accessToken: effect.access, refreshToken: effect.refresh)
-            case "withdraw_shared":
-                guard let refresh = effect.refresh else { continue }
-                await shared.clearTokensIfCurrent(accessToken: nil, refreshToken: refresh)
-            default:
-                log.log("shared.store: unknown effect \(effect.kind)")
-            }
-        }
-        return answer
     }
 }

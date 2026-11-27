@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, RECORD_TRIES, recorderScript, recordSteps, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -261,46 +261,6 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-
-  test("probe: launches acpmux makes at once (the session and live_models' -p model list) never interleave their records (roll 45906244147)", async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
-    try {
-      const out = path.join(dir, "launches.txt");
-      writeFileSync(path.join(dir, "claude"), recorderScript(out));
-      chmodSync(path.join(dir, "claude"), 0o755);
-      const configFile = path.join(dir, "session.json");
-      writeFileSync(configFile, JSON.stringify({ mcpServers: { cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: { PAD: "x".repeat(4000) } } } }), { mode: 0o600 });
-      // A session launch of ~50 arguments, like acpmux's, beside model-list launches, many times over.
-      const session = [...Array.from({ length: 24 }, (_, i) => [`--flag-${i}`, `value-${i}`]).flat(), "--mcp-config", configFile, "--plugin-dir", "/p/x", "--name", "recorder"];
-      const modelList = ["-p", "--input-format", "stream-json", "--no-session-persistence", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings", '{"disableAllHooks":true}'];
-      const rounds = 12;
-      for (let round = 0; round < rounds; round++) {
-        await Promise.all([runChild(path.join(dir, "claude"), session, { timeout: 20_000 }), ...Array.from({ length: 3 }, () => runChild(path.join(dir, "claude"), modelList, { timeout: 20_000 }))]);
-      }
-      const records = readFileSync(out, "utf8").split("\x1e\n").filter((r) => r.trim());
-      expect(records.length).toBe(rounds * 4);
-      const sessions = records.filter((r) => r.includes("\n--plugin-dir\n") || r.startsWith("--plugin-dir\n"));
-      expect(sessions.length).toBe(rounds);
-      for (const r of sessions) {
-        expect(r).toContain("MCP_CONFIG_FILE ");
-        expect(r).not.toContain("--strict-mcp-config");
-        expect(parseRecordedLaunch(`${r}\x1e\n`).servers.map((s) => s.name)).toEqual(["cmux"]);
-      }
-      // Whichever launch was recorded last, the probe reads the session's.
-      expect(parseRecordedLaunch(readFileSync(out, "utf8")).servers.map((s) => s.name)).toEqual(["cmux"]);
-      expect(parseRecordedLaunch(`${sessions[0]}\x1e\n${records.find((r) => r.includes("--strict-mcp-config"))}\x1e\n`).pluginDir).toBe("/p/x");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("probe: a record step whose session launch was not recorded starts it once more (roll 45914140136)", () => {
-    const script = recordSteps("gateway", "PATH=/x:$PATH", "/tmp/l.txt").join("\n");
-    expect(RECORD_TRIES).toBe(2);
-    expect(script).toContain(`for try in $(seq 1 ${RECORD_TRIES}); do`);
-    expect(script).toContain("grep -qx -- --plugin-dir /tmp/l.txt 2>/dev/null && break");
-    expect(script.match(/acp new -d -m claude -n gateway/g)?.length).toBe(1);
   });
 
   test("probe: a model listing that acpmux starts after the chat's launch is not read as the chat's (roll 45890407908)", () => {

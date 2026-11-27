@@ -1,12 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
 //! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`,
-//! `window_update_*`, `window_editors_*`, `window_keybind_*`, `window_server_*`, `window_crash_*`): their tables and refusals.
+//! `window_update_*`, `window_editors_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, cloud_pairing, crash_report, editors, files, history, keybind_route,
-    launch, launch_recovery, notification_policy, notifications, remote, restore, screen_share,
-    server, update_idle,
+    appearance, browser, editors, files, history, launch, notification_policy, notifications,
+    remote, restore, screen_share, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -197,7 +196,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 13] = [
+const DOMAINS: [&[u8]; 10] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
@@ -208,9 +207,6 @@ const DOMAINS: [&[u8]; 13] = [
     b"window_launch_",
     b"window_editors_",
     b"window_update_",
-    b"window_keybind_",
-    b"window_server_",
-    b"window_crash_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -357,264 +353,6 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             value(appearance::keymap_toast(&request.preset, &request.changed))?
         }
         // Whether the launch snapshot drawn before the daemon answered is stale (cmuxterm-hq#12660).
-        // How this launch follows the previous run (`launch_recovery::plan`); no `previous`: none.
-        b"window_launch_recovery" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                previous: Option<launch_recovery::PreviousRun>,
-            }
-            let request: Request = read(request)?;
-            value(launch_recovery::plan(request.previous.as_ref()))?
-        }
-        // The registry action a Ghostty keybind runs (`keybind_route::route`); `route` null: unbound.
-        b"window_keybind_route" => {
-            let action: keybind_route::Action = read(request)?;
-            json!({ "route": keybind_route::route(&action) })
-        }
-        // One step of Add Server…'s headless approval (`server::approval_step`).
-        b"window_server_approval_step" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                state: Option<server::Approval>,
-                event: server::ApprovalEvent,
-            }
-            let request: Request = read(request)?;
-            let (state, effect) =
-                server::approval_step(request.state.unwrap_or_default(), request.event);
-            json!({ "state": state, "effect": effect })
-        }
-        // A health check's allowlisted fixes and the app's own Fix button for it.
-        b"window_server_fixes" => {
-            #[derive(Deserialize)]
-            struct Request {
-                check: String,
-            }
-            let request: Request = read(request)?;
-            json!({
-                "fixes": server::fixes_for(&request.check),
-                "localFix": server::local_fix(&request.check),
-            })
-        }
-        // What the fix ledger file holds (`text` null: missing) and what Stop Serving reverts.
-        b"window_server_ledger" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                text: Option<String>,
-            }
-            let contents = server::ledger(read::<Request>(request)?.text.as_deref());
-            json!({ "toRevert": contents.to_revert(), "contents": contents })
-        }
-        // The ledger text to write after a record, clear or reset (`text` null: nothing to write).
-        b"window_server_ledger_edit" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(default)]
-                text: Option<String>,
-                edit: server::LedgerEdit,
-                #[serde(default)]
-                fix: String,
-                #[serde(default)]
-                now_ms: i64,
-            }
-            let request: Request = read(request)?;
-            json!({ "text": server::ledger_edit(request.text.as_deref(), request.edit, &request.fix, request.now_ms) })
-        }
-        // A cloud pairing call's Worker path and body (`cloud_pairing::call`).
-        b"window_server_pairing_call" => {
-            let request: cloud_pairing::Request = read(request)?;
-            value(cloud_pairing::call(&request))?
-        }
-        // How a Worker reply reads: its value, or the owner's error; `teamEnsures`: a forbidden team read
-        // runs `user.ensure` once and reads again.
-        b"window_server_pairing_reply" => {
-            let reply = cloud_pairing::reply(&read::<Value>(request)?);
-            let ensures = matches!(&reply, cloud_pairing::Reply::Owner { code, .. } if cloud_pairing::team_read_ensures(code));
-            let mut answer = value(reply)?;
-            answer["teamEnsures"] = json!(ensures);
-            answer
-        }
-        // The team a team read names (`team` null: a bad reply).
-        b"window_server_pairing_team" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                value: Value,
-                #[serde(default)]
-                account: String,
-            }
-            let request: Request = read(request)?;
-            json!({ "team": cloud_pairing::team(&request.value, &request.account) })
-        }
-        // An approve's enrolled host (`approved` null: a bad reply).
-        b"window_server_pairing_approved" => {
-            json!({ "approved": cloud_pairing::approved(&read::<Value>(request)?) })
-        }
-        // After `team.hosts.list` page `index`: read `next`, done, or too many pages.
-        b"window_server_pairing_hosts_next" => {
-            #[derive(Deserialize)]
-            struct Request {
-                index: u32,
-                #[serde(default)]
-                next: Option<String>,
-            }
-            let request: Request = read(request)?;
-            value(cloud_pairing::hosts_next(request.index, request.next.as_deref()))?
-        }
-        // The refusal a failed pairing call shows.
-        b"window_server_pairing_refusal" => {
-            #[derive(Deserialize)]
-            struct Request {
-                stage: cloud_pairing::Stage,
-                failure: cloud_pairing::Failure,
-            }
-            let request: Request = read(request)?;
-            value(cloud_pairing::refusal(request.stage, &request.failure))?
-        }
-        // A crash report's file name (`<bundle>-<name>-<stamp>.json`).
-        b"window_crash_file_name" => {
-            #[derive(Deserialize)]
-            struct Request {
-                bundle: String,
-                name: String,
-                date: crash_report::Stamp,
-            }
-            let request: Request = read(request)?;
-            json!({ "name": crash_report::file_name(&request.bundle, &request.name, &request.date) })
-        }
-        // The reports to delete so the folder keeps `retain` (default 100).
-        b"window_crash_prune" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                files: Vec<crash_report::Listed>,
-                #[serde(default)]
-                retain: Option<usize>,
-            }
-            let request: Request = read(request)?;
-            json!({ "delete": crash_report::prune(&request.files, request.retain.unwrap_or(crash_report::RETAIN)) })
-        }
-        // The newest macOS report of `executable` written since `afterMs` (`name` null: none).
-        b"window_crash_system_log" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(default)]
-                files: Vec<crash_report::Listed>,
-                executable: String,
-                after_ms: i64,
-            }
-            let request: Request = read(request)?;
-            json!({ "name": crash_report::system_log(&request.files, &request.executable, request.after_ms) })
-        }
-        // What Show Crash Logs opens.
-        b"window_crash_log_target" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(default)]
-                previous_system_log: bool,
-                #[serde(default)]
-                previous_report: bool,
-                #[serde(default)]
-                system_logs: Vec<crash_report::Listed>,
-                #[serde(default)]
-                reports: Vec<crash_report::Listed>,
-                executable: String,
-            }
-            let r: Request = read(request)?;
-            value(crash_report::log_target(
-                r.previous_system_log,
-                r.previous_report,
-                &r.system_logs,
-                &r.reports,
-                &r.executable,
-            ))?
-        }
-        // A Chromium failure's report object and file name part; `version` joins the bundle's two versions.
-        b"window_crash_chromium_report" => {
-            #[derive(Deserialize)]
-            struct Request {
-                record: crash_report::Chromium,
-                writer: crash_report::Writer,
-            }
-            let request: Request = read(request)?;
-            let (report, name) = crash_report::chromium_report(&request.record, &request.writer);
-            json!({ "report": report, "name": name })
-        }
-        // An app crash's report object.
-        b"window_crash_app_report" => {
-            #[derive(Deserialize)]
-            struct Request {
-                crash: crash_report::AppCrash,
-                writer: crash_report::Writer,
-            }
-            let request: Request = read(request)?;
-            json!({ "report": crash_report::app_report(&request.crash, &request.writer) })
-        }
-        // The writer's version (`unknown` when the bundle names none).
-        b"window_crash_version" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                short: Option<String>,
-                #[serde(default)]
-                build: Option<String>,
-            }
-            let request: Request = read(request)?;
-            json!({ "version": crash_report::version(request.short.as_deref(), request.build.as_deref()) })
-        }
-        // A crash's cause line (`cause` null: none) and the restart notice's cut of it.
-        b"window_crash_cause" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(default)]
-                exception_summary: Option<String>,
-                #[serde(default)]
-                signal: Option<i32>,
-                #[serde(default)]
-                signal_name: Option<String>,
-                #[serde(default)]
-                home: String,
-            }
-            let r: Request = read(request)?;
-            let cause = crash_report::cause(
-                r.exception_summary.as_deref(),
-                r.signal,
-                r.signal_name.as_deref(),
-                &r.home,
-            );
-            let notice = cause.as_deref().map(crash_report::notice_cause);
-            json!({ "cause": cause, "notice": notice })
-        }
-        // The crashed build the Report button names.
-        b"window_crash_build" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(default)]
-                marker_version: Option<String>,
-                #[serde(default)]
-                marker_commit: Option<String>,
-                #[serde(default)]
-                system_version: Option<String>,
-                running_version: String,
-                #[serde(default)]
-                running_commit: Option<String>,
-            }
-            let r: Request = read(request)?;
-            value(crash_report::crashed_build(
-                r.marker_version.as_deref(),
-                r.marker_commit.as_deref(),
-                r.system_version.as_deref(),
-                &r.running_version,
-                r.running_commit.as_deref(),
-            ))?
-        }
         b"window_launch_snapshot_verdict" => {
             let facts: launch::SnapshotFacts = read(request)?;
             json!({ "verdict": launch::verdict(&facts) })

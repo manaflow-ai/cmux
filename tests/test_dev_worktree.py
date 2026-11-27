@@ -61,20 +61,6 @@ def physical_offset(path: Path) -> int | None:
         os.close(fd)
 
 
-def volume_clones(folder: Path) -> bool:
-    """Whether folder's volume has clones: APFS, or a Linux reflink file system (not ext4 or tmpfs).
-    Where it has none, `add` checks out as git does and makes no seed."""
-    if DARWIN:
-        return True
-    probe, copy = folder / ".probe", folder / ".probe-copy"
-    probe.write_bytes(b"x")
-    try:
-        return subprocess.run(["cp", "--reflink=always", str(probe), str(copy)], capture_output=True).returncode == 0
-    finally:
-        probe.unlink(missing_ok=True)
-        copy.unlink(missing_ok=True)
-
-
 def age(worktree: Path, days: float) -> None:
     """Make a worktree look last used `days` ago (its index, HEAD and reflog times)."""
     gdir = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip())
@@ -142,12 +128,9 @@ class AddTests(unittest.TestCase):
         result = tool(self.f.repo, self.f.seed, "add", "--json", "-b", "feature", str(dest), self.f.c)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
-        if volume_clones(self.f.tmp):
-            self.assertEqual(report["method"], "clone", report)
-            self.assertEqual(report["seed_commit"], self.f.s)
-            self.assertEqual(report["files_written"], 3)  # edit.txt, gone.txt, new.txt
-        else:
-            self.assertEqual(report["method"], "checkout", "a volume without clones would copy every byte")
+        self.assertEqual(report["method"], "clone", report)
+        self.assertEqual(report["seed_commit"], self.f.s)
+        self.assertEqual(report["files_written"], 3)  # edit.txt, gone.txt, new.txt
         self.assertEqual(git(dest, "rev-parse", "HEAD").stdout.strip(), self.f.c)
         self.assertEqual(git(dest, "symbolic-ref", "HEAD").stdout.strip(), "refs/heads/feature")
         self.assert_clean_fresh(dest)
@@ -167,11 +150,6 @@ class AddTests(unittest.TestCase):
         result = tool(self.f.repo, self.f.seed, "add", "--json", "--detach", str(dest), "origin/main")
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
-        if not volume_clones(self.f.tmp):
-            self.assertEqual(report["method"], "checkout", report)
-            self.assertFalse(self.f.seed.exists(), "a seed (a full copy) was made where clones are not possible")
-            self.assert_clean_fresh(dest)
-            return
         self.assertEqual(report["method"], "clone", report)
         self.assertEqual(report["files_written"], 0)
         self.assert_clean_fresh(dest)
@@ -224,98 +202,6 @@ class AddTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("from", json.loads(result.stdout)["cargo"][0])
         self.assertFalse((busy / "src" / "target").exists())
-
-
-class GitCowTests(unittest.TestCase):
-    """Installed as `git-cow` on PATH, the tool is `git cow`: `git worktree add`'s arguments and
-    defaults (the commit is HEAD, a bare path names a new branch), with the files cloned."""
-
-    def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.f = Fixture(Path(self._tmp.name).resolve())
-        self.bin = self.f.tmp / "bin"
-        self.bin.mkdir()
-        os.symlink(TOOL, self.bin / "git-cow")
-        # The commit cmux_worktree.py's own `add` would default to: `git cow` must ignore it.
-        git(self.f.repo, "push", "-q", "origin", f"{self.f.s}:refs/heads/feat-cmux-next")
-        git(self.f.repo, "fetch", "-q", "origin")
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
-
-    def cow(self, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
-        full_env = git_fixture_env.fixture_env()
-        full_env["PATH"] = f"{self.bin}{os.pathsep}{full_env.get('PATH', os.defpath)}"
-        full_env["CMUX_WORKTREE_SEED_DIR"] = str(self.f.seed)
-        full_env.update(env or {})
-        return subprocess.run(["git", "cow", *args], cwd=self.f.repo, text=True, capture_output=True, env=full_env)
-
-    def registered(self) -> dict:
-        out = git(self.f.repo, "worktree", "list", "--porcelain").stdout
-        return {block.split("\n")[0][len("worktree "):]: block for block in out.strip().split("\n\n")}
-
-    def test_add_b_is_registered_at_head_and_shares_the_seeds_blocks(self) -> None:
-        dest = self.f.tmp / "wt"
-        result = self.cow("add", "--no-track", "-b", "feature", "../wt")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(str(dest), self.registered())
-        self.assertIn("branch refs/heads/feature", self.registered()[str(dest)])
-        self.assertEqual(git(dest, "rev-parse", "HEAD").stdout.strip(), self.f.c, "git cow bases on HEAD, as git does")
-        self.assertEqual(git(self.f.repo, "rev-parse", "feature").stdout.strip(), self.f.c)
-        self.assertEqual(git(dest, "diff-files", "--name-only").stdout, "", "the index's stat data is stale")
-        self.assertEqual(git(dest, "status", "--porcelain").stdout, "")
-        self.assertEqual(git(self.f.repo, "config", "--get", "branch.feature.remote", check=False).stdout, "")
-        if DARWIN:
-            self.assertTrue((self.f.seed / ".git").is_file(), "no seed was made on APFS")
-            self.assertEqual(physical_offset(dest / "src" / "big.bin"), physical_offset(self.f.seed / "src" / "big.bin"),
-                             "an unchanged file is not a clone of the seed's")
-
-    def test_a_bare_path_makes_the_branch_it_names(self) -> None:
-        result = self.cow("add", str(self.f.tmp / "topic"))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("branch refs/heads/topic", self.registered()[str(self.f.tmp / "topic")])
-        self.assertEqual(git(self.f.repo, "rev-parse", "topic").stdout.strip(), self.f.c)
-
-    def test_an_existing_branch_is_checked_out(self) -> None:
-        git(self.f.repo, "branch", "old", self.f.s)
-        result = self.cow("add", str(self.f.tmp / "old-wt"), "old")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("branch refs/heads/old", self.registered()[str(self.f.tmp / "old-wt")])
-        self.assertTrue((self.f.tmp / "old-wt" / "gone.txt").exists())
-
-    def test_what_it_cannot_clone_is_a_plain_worktree_and_no_seed(self) -> None:
-        for number, env in enumerate(({"GIT_COW": "0"}, {"CMUX_WORKTREE_NO_CLONE": "1"})):
-            dest = self.f.tmp / f"plain-{number}"
-            result = self.cow("add", "--detach", str(dest), "HEAD", env=env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(str(dest), self.registered())
-            self.assertEqual(git(dest, "status", "--porcelain").stdout, "")
-            self.assertFalse(self.f.seed.exists(), f"{env}: a seed was made for a plain worktree")
-
-    @unittest.skipIf(DARWIN, "a volume without reflinks: Linux ext4 or overlay")
-    def test_a_volume_without_reflinks_gets_a_plain_checkout_and_no_seed(self) -> None:
-        probe = self.f.tmp / "probe"
-        probe.write_text("x")
-        reflinks = subprocess.run(["cp", "--reflink=always", str(probe), str(self.f.tmp / "probe2")],
-                                  capture_output=True).returncode == 0
-        if reflinks:
-            self.skipTest("this volume has reflinks")
-        result = self.cow("add", "--detach", str(self.f.tmp / "wt"), "HEAD")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(self.f.seed.exists(), "a seed (a full copy) was made where clones are not possible")
-        self.assertEqual(git(self.f.tmp / "wt", "status", "--porcelain").stdout, "")
-
-    def test_other_commands_are_git_worktrees(self) -> None:
-        self.assertEqual(self.cow("add", "-b", "x", str(self.f.tmp / "x")).returncode, 0)
-        listed = self.cow("list", "--porcelain")
-        self.assertEqual(listed.returncode, 0, listed.stderr)
-        self.assertIn(str(self.f.tmp / "x"), listed.stdout)
-        removed = self.cow("remove", str(self.f.tmp / "x"))
-        self.assertEqual(removed.returncode, 0, removed.stderr)
-        self.assertNotIn(str(self.f.tmp / "x"), self.registered())
-        version = self.cow("--version")
-        self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertTrue(version.stdout.startswith("git-cow "), version.stdout)
 
 
 @unittest.skipUnless(DARWIN, "dedupe needs APFS clones")
