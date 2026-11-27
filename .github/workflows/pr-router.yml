@@ -28,7 +28,12 @@ permissions: {}
 # so it never cancels a push's run.
 concurrency:
   # Another label (or full-ci taken off) gets a group of its own too, so it never cancels the head's run.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  # An added full-ci gets a group per head: land-judge pulses it (on, then off) and the land's ready-to-land event
+  # follows within a minute; in the shared group that event, routed on labels without full-ci (the affected tier,
+  # which skips pr pipeline), cancelled the full run, so the iOS matrix never ran and the land stopped matrix_missing
+  # (#54957 run 45875774607, cancelled by 45876000317). A push still starts the new head's run; the old head's full
+  # run finishes or is cancelled by its callees' own per-ref groups.
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -71,7 +76,7 @@ jobs:
       machine_channel_artifact_prefix: ${{ steps.machine-channel.outputs.artifact_prefix }}
     steps:
       - name: Checkout the router (the merge commit and the base tip)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -94,14 +99,23 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/cmux-machine-channel-pr-plan.sh
             scripts/ci/cmux_machine_channel_head_built.py
+            scripts/ci/gh_http.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
             scripts/ci/ios_fast_verdict.py
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/cmux-next/cmux-tui-tree-inputs.txt
             ci/steps.toml
+            .github/workflows/
             .gitmodules
           sparse-checkout-cone-mode: false
+      # A workflow whose reusable-workflow call asks for more permissions than its caller grants fails at startup on
+      # every run, and a startup failure posts no check: #55503 merged green over two such calls to base-coalesce.yml
+      # (cmux-tui-artifacts.yml coalesce-failed, cmux-next.yml pure-checks-coalesce), and from 19:08Z 2026-11-25 every
+      # push of both workflows ended startup_failure, so no tree was published for an hour. The workflows a PR changes
+      # are often not ones its own CI runs, so this reads every workflow of the merge commit, here, on every head.
+      - name: Every reusable-workflow call stays within its caller's permissions
+        run: python3 -I scripts/ci/check_reusable_workflow_permissions.py --workflows-dir .github/workflows
       - name: Route
         id: route
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
@@ -134,6 +148,7 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
           # A full-ci or ready-to-land label on a head that only merges the base onto a head whose full run passed
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
@@ -396,6 +411,9 @@ jobs:
       actions: write
       # resolve's receipt and post write the cmux-next/fast-gates status.
       statuses: write
+      # resolve's lane receipt lookup and lane-receipt-audit ask the controller with an OIDC token (audience
+      # cmux-ci-lane-receipt); the controller matches the callee's job_workflow_ref, never this file.
+      id-token: write
 
   pipeline:
     name: pr pipeline

@@ -95,6 +95,7 @@ mod digest;
 pub(crate) mod dispatch;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+mod acp_version;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -2341,7 +2342,7 @@ impl Hub {
         let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(&meta);
+            session.meta_writer.note_saved(&meta, self.store.digest(&meta));
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
