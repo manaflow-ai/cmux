@@ -391,6 +391,7 @@ inputs = [
   "scripts/ci/ui_proof_verdict.py",
   "scripts/cmux-next/hot-verify.py",
   "scripts/ci/ios_verify.py",
+  "scripts/ci/ios_gate_screen_diff.py",
   "scripts/ci/ios-verify.sh",
   "ci/proof-record/**",
   "cmux-next-ios/FlowSuite/**",

@@ -259,7 +259,7 @@ jobs:
   # or slow gate answers "not superseded": tree-preflight then runs and checks again.
   push-gate:
     name: cmux-tui superseded push gate
-    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (seconds; it ran
     # into its 60 s git timeout until its fetches passed --no-recurse-submodules, 2026-11-23).
@@ -299,6 +299,8 @@ jobs:
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
           CMUX_TUI_BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
+          # A rate-limited (403/429) dispatch lookup is no request: the head builds nothing. '1' keeps it (scripts/ci/cmux_tui_superseded_push.py).
+          CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN: ${{ vars.CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN }}
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
       # BRANCH-INPUTS-GATE: a pull request head whose tree key equals its merge base's (it changes no
       # tree-key input) builds nothing: no musl, macOS or daemon-test leg (interim-coord, 2026-11-21:
@@ -327,9 +329,15 @@ jobs:
   # runner or a step; scripts/ci/cmux_tui_feat_supersede.py). A started run is never cancelled, nor
   # a dispatch, a re-run or a nightly-next push. On the persistent pool (cmux-linux), beside
   # tree-preflight (nothing needs it), so a backed-up owned lane label does not hold it.
+  # Only the push whose coalesce window runs (base-coalesce run != 'false') cancels: every other feat-cmux-next push
+  # stops at coalesce, so its own job here only re-did the window run's sweep. 11-26 20Z..11-27 02Z this job ran on
+  # 238 pushes (238 runner-min) while 53 runs got past coalesce; one sweep per window cancels the same never-started
+  # runs (the claimer lists every older one). A failed coalesce (empty output) still sweeps.
+  # Undo: vars.NEXT_TUI_SUPERSEDE_EVERY_PUSH = '1' sweeps on every push again (after coalesce).
   supersede-feat-runs:
     name: cancel superseded queued feat-cmux-next runs
-    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 }}
+    needs: coalesce
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && (needs.coalesce.outputs.run != 'false' || format('{0}', vars.NEXT_TUI_SUPERSEDE_EVERY_PUSH) == '1') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     continue-on-error: true
@@ -545,6 +553,8 @@ jobs:
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
           CMUX_TUI_BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
+          # A rate-limited (403/429) dispatch lookup is no request: the head builds nothing. '1' keeps it (scripts/ci/cmux_tui_superseded_push.py).
+          CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN: ${{ vars.CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           # Set (a sha or 'unknown') only when this push is its coalescing window's one build.
           COALESCE_BASE: ${{ needs.coalesce.outputs.base }}
@@ -2197,6 +2207,8 @@ jobs:
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
           CMUX_TUI_BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
+          # A rate-limited (403/429) dispatch lookup is no request: the head builds nothing. '1' keeps it (scripts/ci/cmux_tui_superseded_push.py).
+          CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN: ${{ vars.CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
