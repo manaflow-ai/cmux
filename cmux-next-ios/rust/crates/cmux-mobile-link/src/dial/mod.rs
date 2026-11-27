@@ -160,6 +160,11 @@ pub struct DialOptions {
     /// TURN allocation, and joins the relay at once, so the link rides it
     /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
     pub force_relay: bool,
+    /// Join the relay as the dial starts (`relay: "first"`, PROTOCOL.md
+    /// "WebSocket relay") when the peer offers that too, rather than 3 s
+    /// after nothing reached it. On by default; off dials as a build before
+    /// relay-first did (tests of the older join rules).
+    pub relay_first: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -171,6 +176,10 @@ pub struct DialOptions {
     /// test TURN server's self-signed certificate); wins over `egress.trust`.
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
+    /// Where TURN and STUN names resolve: DNS raced against the literals they last resolved
+    /// to ([`crate::route_literals`]), so a dial with DNS down still reaches them. The
+    /// process's memory by default; a test's own (with its own resolver) otherwise.
+    pub routes: std::sync::Arc<crate::route_literals::RouteLiterals>,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -324,6 +333,7 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             relay: None,
             force_relay: false,
+            relay_first: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
@@ -333,6 +343,7 @@ impl Default for DialOptions {
             drop_wireguard_udp: false,
             egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
+            routes: crate::route_literals::RouteLiterals::shared(),
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
