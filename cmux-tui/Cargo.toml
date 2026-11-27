@@ -22,6 +22,7 @@ members = [
     "crates/cmux-terminal-host-protocol",
     "crates/acpmux-tui",
     "crates/cmux-egress",
+    "crates/cmux-proxy",
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
@@ -106,6 +107,7 @@ members = [
     "crates/cmux-holder",
     "crates/cmux-launch-preread",
     "crates/cmux-flow-trace",
+    "crates/cmux-critpath",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-hub-host",
@@ -185,9 +187,13 @@ members = [
     "crates/cmux-agent-pane-policy",
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-update-prewarm-core",
     "crates/cmux-health-core",
+    "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-chat-markdown",
+    "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
@@ -360,9 +366,13 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-stack-auth",
     "crates/cmux-daemon-launch-core",
+    "crates/cmux-update-prewarm-core",
     "crates/cmux-health-core",
+    "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-chat-markdown",
+    "crates/cmux-acpmux-remote-wire",
     "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
@@ -436,6 +446,7 @@ await_holding_refcell_ref = "deny"
 
 [workspace.dependencies]
 cmux-egress = { path = "crates/cmux-egress" }
+cmux-proxy = { path = "crates/cmux-proxy" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
