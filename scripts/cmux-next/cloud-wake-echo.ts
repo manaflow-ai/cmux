@@ -38,8 +38,6 @@ export type GuestMarks = {
   surface_lost?: Record<string, unknown>;
 };
 
-type StartAttempt = { sent_at_ms: number; answered_at_ms: number; http_status: number; machine_status: string | null; timing_ms: Record<string, number> };
-
 export type WakeCycle = {
   i: number;
   ok: boolean;
@@ -59,7 +57,6 @@ export type WakeCycle = {
   state_json: boolean;
   state_wake: unknown;
   start_retries?: string[];
-  start_attempts?: StartAttempt[];
 };
 
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
@@ -205,7 +202,7 @@ export type WakeEchoDeps = {
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
   pause: () => Promise<number>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
-  wake: (recordAttempt?: (attempt: StartAttempt) => void) => Promise<void | string[]>;
+  wake: () => Promise<void | string[]>;
   status: () => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
@@ -331,7 +328,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       c.paused_ms = await d.pause();
       await sleep(d.holdMs);
       const wakeAt = Date.now();
-      const retries = await d.wake((attempt) => (c.start_attempts ??= []).push(attempt));
+      const retries = await d.wake();
       c.answered_ms = Date.now() - wakeAt;
       if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.

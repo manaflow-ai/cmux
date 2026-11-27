@@ -144,20 +144,6 @@ extension DeepLink {
         }
     }
 
-    /// A line of the app.links log for a link `CmuxAppLinks.open` took past its action (an action logs its
-    /// own, ``LinkAction/ran(from:done:)``): "app link host/path what: done|refused" (hq's link_log matches
-    /// "app link"; goal agent-shortcut-found: run 45968907489's press logged nothing).
-    public static func linkLine(_ url: URL, _ what: String, done: Bool) -> String {
-        "app link \(url.host ?? "")\(url.path) \(what): \(done ? "done" : "refused")"
-    }
-
-    /// Logs ``linkLine(_:_:done:)`` in category app.links and returns `done`.
-    @discardableResult
-    public static func noteLink(_ url: URL, _ what: String, _ done: Bool) -> Bool {
-        Logger(subsystem: "com.cmuxterm.app.next", category: "app.links").notice("\(linkLine(url, what, done: done), privacy: .public)")
-        return done
-    }
-
     /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
     /// offers it) is Change Background…, the same action as the command palette, the context menus and
     /// `cmux settings change-background`; `cmux://settings/start-agent-from-any-app` (the welcome's

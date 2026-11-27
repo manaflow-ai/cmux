@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import type { ChoiceSelection } from "./model";
 import type { FeedSnapshot, FeedStore } from "./store";
-import type { FeedApproveScope, ViewItem } from "./types";
+import type { ViewItem, FeedApproveScope } from "./types";
 
 /** What every Feed view gets. */
 export interface FeedProps {

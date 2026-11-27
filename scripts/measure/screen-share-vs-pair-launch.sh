@@ -28,9 +28,6 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-# Refused here too, before any half is queued: the host half would exit 2 on it (screen-share-vs-pair.sh).
-[[ " ${run_args[*]-} " == *" --arg=host=nightly "* && " ${run_args[*]-} " == *" --arg=source=synthetic "* ]] \
-  && { echo "host=nightly needs source=screen (the NIGHTLY's helper has no synthetic source; host=commit runs synthetic)" >&2; exit 2; }
 cd "$(git rev-parse --show-toplevel)"
 ref=${ref:-$(git merge-base HEAD origin/feat-cmux-next 2>/dev/null || git merge-base HEAD origin/main)}
 key="ssvp-$(date -u +%m%d%H%M)-$(openssl rand -hex 3)"

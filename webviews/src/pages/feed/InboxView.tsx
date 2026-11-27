@@ -5,7 +5,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/Tabs";
-import { isPending, plain, rowActions, type FeedProps } from "./context";
+import { isPending, plain, type FeedProps, rowActions } from "./context";
 import { SnapAnswerControls } from "./AnswerControls";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
@@ -22,10 +22,10 @@ import {
   isRequest,
   isUnread,
   moveSelection,
-  relativeTime,
   shownItem,
   type FeedLine,
   type InboxConnection,
+  relativeTime,
 } from "./model";
 import { EmptyState, FeedLines, FeedRow, Glyph, PosterLine, PromptSummary } from "./parts";
 import { ReportsView } from "./ReportsView";

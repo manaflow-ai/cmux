@@ -309,34 +309,6 @@ const openFirst: Play = async (ctx) => {
     ?.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
 };
-/// A tool's notice in a delivery draws as one notice line in the flat lane-notice projection
-/// (laneNoticeBatches.ts `inboxChildren`, #56260): `.cv-received.cv-notice` under the batch's head,
-/// never the legacy InboxNoticeCard's `.cv-inbox__notice`. Opens the batch, then waits for `lines`.
-const NOTICE_LINE = ".cv-received.cv-notice";
-const openGroup =
-  (lines: number): Play =>
-  async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(`.cv-lane-batch__toggle, ${NOTICE_LINE}`));
-    // ctx.click, not element.click(): the press declares the batch's expand (playRunner stepDeclarations).
-    if (ctx.document.querySelector(".cv-lane-batch__toggle[aria-expanded=false]"))
-      await ctx.click({ selector: ".cv-lane-batch__toggle[aria-expanded=false]" });
-    await ctx.waitFor(() => ctx.document.querySelectorAll(NOTICE_LINE).length >= lines);
-  };
-/// The same, then the first notice line opened: its newest message's words under it.
-const openNotices =
-  (lines: number): Play =>
-  async (ctx) => {
-    await openGroup(lines)(ctx);
-    await ctx.click({ selector: `${NOTICE_LINE} .cv-disclosure__toggle` });
-    await ctx.waitFor(() => ctx.document.querySelector(`${NOTICE_LINE} .cv-received__text`));
-  };
-/// A running turn draws its work under a closed "Working for" (liveTurnWork.experiment.ts `folded`,
-/// the default since #51082): its tool rows and the inbox groups among them draw once it is opened.
-const openWorking: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-message-group__head"), { capMs: 10_000 });
-  const worked = ctx.document.querySelector<HTMLElement>(".cv-worked.is-toggle[aria-expanded=false]");
-  if (worked) await ctx.click({ selector: ".cv-worked.is-toggle[aria-expanded=false]" });
-};
 /// Opens every delivered batch and the last received line, which is the three-message rail thread
 /// in the fixture after inbox flattening.
 const openRail: Play = async (ctx) => {
@@ -379,14 +351,20 @@ export default agentPaneEntry({
       snapshot: snapshot([[RUNNER]]),
     },
     "notices-open": {
-      note: "The same, opened: its newest message whole, under the one line its three repeats fold into.",
+      note: "The same, opened: its three messages whole.",
       snapshot: snapshot([[RUNNER]]),
-      play: openNotices(1),
+      play: async (ctx) => {
+        ctx.document.querySelector<HTMLButtonElement>(".cv-inbox__notice .cv-agentmsg__toggle")?.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__notice .cv-received__text").length >= 1);
+      },
     },
     "notices-group-open": {
       note: "Two notices in one delivery, the group opened: a FIRE and a WARN line.",
       snapshot: snapshot([NOTICES]),
-      play: openGroup(2),
+      play: async (ctx) => {
+        ctx.document.querySelector<HTMLButtonElement>("button.cv-inbox__head")?.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__notice").length >= 2);
+      },
     },
     "notices-look-tint": {
       note: "Gallery version (theme noticeRowLook tint): each line tinted by its severity.",
@@ -426,10 +404,8 @@ export default agentPaneEntry({
       note: "The same, the group of several opened: its threads' lines under it.",
       snapshot: amongTools(),
       play: async (ctx) => {
-        await openWorking(ctx);
-        // The flat lane-notice projection (#56260) draws the group as a lane batch, not a message-group head.
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle[aria-expanded=false]"));
-        await ctx.click({ selector: ".cv-lane-batch__toggle[aria-expanded=false]" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-message-group__head").length >= 2);
+        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-message-group__head")[1]?.click();
         await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
       },
     },

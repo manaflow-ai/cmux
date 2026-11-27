@@ -139,13 +139,6 @@ bench() {
 }
 
 case "$verb" in
-  # The numbers every rd run owes (eval.py OWED): the OCR error and the encoder's skips; the budget
-  # bits per pixel too with the resolution ladder on (rd-ladder.sh), the only host that logs it.
-  caps)
-    printf 'owes-ocr\nowes-skips\n'
-    [[ " ${EVAL_RD_HOST_FLAGS:-} " == *" --resolution-ladder "* ]] && echo owes-budget-bpp
-    exit 0
-    ;;
   build)
     if [[ -n "${EVAL_PREBUILT:-}" ]]; then
       cp "$EVAL_PREBUILT/cmux-rd" "$rd"

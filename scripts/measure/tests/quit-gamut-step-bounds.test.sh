@@ -8,15 +8,10 @@ git_fixture_trap_exit 'rm -rf -- "$tmp"'
 mkdir -p "$tmp/repo/scripts/measure" "$tmp/repo/scripts/ci" "$tmp/repo/scripts/cmux-next" "$tmp/bin"
 cp "$measure/quit-gamut.sh" "$tmp/repo/scripts/measure/"
 cp "$measure/../ci/timeout.sh" "$tmp/repo/scripts/ci/"
-cp "$measure/build-progress.sh" "$tmp/repo/scripts/measure/"
 touch "$tmp/repo/scripts/cmux-next/resolve-acpmux.sh" "$tmp/repo/scripts/cmux-next/bundle-screen-sharing-helper.sh"
-# Source the actual carrier library, then stub only the expensive Mac build. Historical checkout must not
-# prevent its progress helper from loading in the timeout subprocess (capture 1a2c975f23914675df34a454).
-sed '/^main "\$@"; exit \$?$/d' "$measure/nightly-fresh-launch.sh" > "$tmp/repo/scripts/measure/nightly-fresh-launch.sh"
-cat >> "$tmp/repo/scripts/measure/nightly-fresh-launch.sh" <<'LIB'
+cat > "$tmp/repo/scripts/measure/nightly-fresh-launch.sh" <<'LIB'
 build_dmg() {
-  declare -F measure_quiet >/dev/null || return 88
-  measure_quiet "fixture" "$1/build-$2.log" echo "build detail $2"
+  echo "build detail $2" >> "$1/build-$2.log"
   if [[ "$CASE" == build_timeout ]]; then sleep 30; fi
   [[ "$CASE" == second_side && "$2" == base ]] && return 0
   return 7
@@ -27,7 +22,6 @@ cat > "$tmp/bin/git" <<'GIT'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$TRACE"
 case "$*" in
-  *' rev-parse --show-toplevel') pwd ;;
   'rev-parse HEAD') echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
   'rev-parse --is-shallow-repository') echo "$SHALLOW" ;;
   'cat-file '*) exit 1 ;;
@@ -37,9 +31,8 @@ case "$*" in
     [[ "$CASE" == fetch_failure ]] && exit 9
     exit 0 ;;
   *' checkout '*)
-    # Historical commits need not contain the carrier's timeout or progress helpers.
+    # Historical commits need not contain the carrier's timeout helper.
     : > scripts/ci/timeout.sh
-    rm -f scripts/measure/build-progress.sh
     exit 0 ;;
   *) exit 88 ;;
 esac
@@ -54,7 +47,6 @@ run_case() {
   local expected="$4" rc started=$SECONDS
   : > "$TRACE"
   cp "$measure/../ci/timeout.sh" "$tmp/repo/scripts/ci/timeout.sh"
-  cp "$measure/build-progress.sh" "$tmp/repo/scripts/measure/build-progress.sh"
   set +e
   # An outer bound also detects leaked children that keep tee/command-substitution pipes open.
   output="$(cd "$tmp/repo" && GAMUT_FETCH_TIMEOUT_S=1 GAMUT_BUILD_TIMEOUT_S=1 \

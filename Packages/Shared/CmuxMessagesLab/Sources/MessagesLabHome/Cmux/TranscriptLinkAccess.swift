@@ -123,19 +123,7 @@ final class TranscriptLinkElement: NSAccessibilityElement {
     /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
     /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
     override func isAccessibilityEnabled() -> Bool { true }
-    override func accessibilityPerformPress() -> Bool {
-        guard let controller else {
-            // The transcript went away under the element: say so (category app.links), the press opens nothing.
-            ChatController.noteLink(Self.orphanLine(target))
-            return false
-        }
-        return controller.openLink(target, ref: ref)
-    }
-
-    /// The app.links line a press logs when its transcript went away.
-    static func orphanLine(_ target: PaneLinkTarget?) -> String {
-        ChatController.linkLine(ChatController.url(of: target), "taken by no transcript: opened nothing")
-    }
+    override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
     /// AXPress in the element's AXActionNames, the list an AX client reads (AXUIElementCopyActionNames).
     /// AppKit listed it before this override too (a fleet Mac, 2026-11-26); the link stayed unindexed for
     /// lack of AXEnabled (isAccessibilityEnabled above), not of an action.

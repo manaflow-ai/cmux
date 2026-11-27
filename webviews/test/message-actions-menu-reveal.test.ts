@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit } from "playwright";
-import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("message-actions-menu-reveal.test.ts", async () => {
   const css = readFileSync(
@@ -13,8 +13,6 @@ await requireBrowserLane("message-actions-menu-reveal.test.ts", async () => {
     "utf8",
   );
   for (const [engine, launcher] of Object.entries({ chromium, webkit })) {
-    // An engine that cannot launch here skips its cases; where the lane is required (GitHub Actions) it fails the file.
-    if (!(await probeEngineOrSkip(`message actions menu reveal (${engine})`, engine, launcher))) continue;
     test(`${engine}: received menu stays revealed and lit for either open marker`, async () => {
       const browser = await launcher.launch({ headless: true });
       try {

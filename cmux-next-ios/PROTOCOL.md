@@ -1647,34 +1647,6 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   this Mac."; a missing or bad port: `bad_request`; an older Mac:
   `unknown_service`, and the phone keeps that tab mirrored. The phone never
   names a host.
-- `site-data` (2026-11-24, `site-data-handoff-v1`; hq RFD 0089 "Shared
-  sessions", RFD 0125 D7 and D8): `{"surface", "url", "trigger":
-  "open_on_iphone"}` (`surface`: the tab key `s<surface>`, or the number) hands the phone the Mac browser tab's cookies and local
-  storage for the tab's own site (registrable domain) only, so Open on iPhone
-  loads signed in. The phone opens it only from the person's Open on iPhone,
-  only when `version` lists `site-data-handoff-v1` (the Mac's switch is on;
-  off by default). hostd checks the tab is a browser tab `list-workspaces`
-  lists now (as a remote client, so incognito workspaces are hidden) on that
-  site, asks the app to read the store (`need_site_data`, below), refuses an
-  incognito tab or the Agents profile, keeps cookies whose Domain is the site
-  or below it and storage of origins on it, drops expired cookies and caps
-  every expiry at 24 hours from the hand-off (session cookies stay session
-  cookies). One data frame, then `eof`: `{"v":1, "site", "url",
-  "handed_at_ms", "cookies":[{"name", "value", "domain", "path",
-  "expires_ms"?, "secure", "http_only", "same_site"?}], "local_storage":
-  [{"origin", "items":[[key, value]]}]}`; the phone sets them in the tab's
-  data store before the first load. Nothing comes back to the Mac (v1).
-  Refusals: another trigger `no_person_action`; switch off `off`; not such a
-  tab, or it left the site, the store is incognito or the Agents profile:
-  `forbidden`; not an http(s) address: `bad_request`; over 300 cookies, 1,000
-  storage items or 2 MiB: `too_large`; the app did not answer in 5 s:
-  `unavailable`; a machine peer: `not_offered` (never a Mac or Cloud VM);
-  an older Mac: `unknown_service`, and the phone loads the tab without it.
-  App control lines: the app says `{"type":"site_data_handoff","enabled"}`
-  (the person's switch); hostd asks `{"type":"need_site_data","request",
-  "surface","site","url"}` and the app answers `{"type":"site_data",
-  "request","data":{"profile_id","agents_profile","incognito","cookies",
-  "local_storage"}}` or `{"type":"site_data_failed","request","reason"}`.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
   (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
@@ -1759,7 +1731,6 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
 | `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
-| `site-data-handoff-v1` | hostd `version` | (2026-11-24) The host serves `site-data`: on Open on iPhone, the tab's cookies and local storage for its own site only (RFD 0089); listed only while the person turned it on on the Mac. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |

@@ -23,9 +23,8 @@
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
 # measure_quiet, before any checkout: a base commit may predate build-progress.sh. From the checkout this file is in
-# (launch-ready.sh sources a copy of it from its scratch folder inside the checkout). A new shell after checkout
-# uses the carrier's saved helper via NFL_BUILD_PROGRESS, as quit-gamut.sh's bounded builds do.
-source "${NFL_BUILD_PROGRESS:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/scripts/measure/build-progress.sh}" || exit 3
+# (launch-ready.sh sources a copy of it from its scratch folder inside the checkout).
+source "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)/scripts/measure/build-progress.sh"
 
 # One function, called on the last line: bash has read all of it before a base=SHA checkout changes this file.
 main() {

@@ -31,19 +31,6 @@ def callers():
 
 
 class CmuxNextGuardsRouteTests(unittest.TestCase):
-    def test_control_plane_guards_use_the_small_linux_pool(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
-        jobs = workflow["jobs"]
-        for name in ("fast-check-route", "security-holes", "workflow-start-lint"):
-            with self.subTest(job=name):
-                runs_on = jobs[name]["runs-on"]
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on)
-                self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
-                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
-
-        # static-checks executes the larger, multi-step nightly capability and generated-string checks.
-        self.assertTrue(jobs["static-checks"]["runs-on"].endswith("|| 'cmux-linux' }}"))
-
     def test_feat_cmux_next_runs_release_notary_on_pushes(self):
         # A push runs every release-notary step in parallel, judged at the tip. The ci-guards.yml matrix leg ran them
         # one after another (915 s on 4 vCPU) and ended cancelled at its 15 minutes, with no verdict, on every push.

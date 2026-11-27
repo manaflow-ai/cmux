@@ -174,8 +174,7 @@ export const FeedRow = memo(function FeedRow({
 }, sameRow);
 
 /** A row draws the same: the same line (the owner sends every item again on each change, so its
- * item is compared by content), time, handlers and place (VirtualList hands a row the same style
- * object while its place and size hold). */
+ * item is compared by content), time, handlers and place. */
 function sameRow(a: RowProps, b: RowProps): boolean {
   return (
     a.strings === b.strings &&
@@ -183,7 +182,7 @@ function sameRow(a: RowProps, b: RowProps): boolean {
     a.compact === b.compact &&
     a.onSelect === b.onSelect &&
     a.onOpen === b.onOpen &&
-    a.style === b.style &&
+    sameStyle(a.style, b.style) &&
     a.rowIndex === b.rowIndex &&
     sameLine(a.line, b.line)
   );
@@ -198,6 +197,15 @@ function sameLine(a: RowProps["line"], b: RowProps["line"]): boolean {
       a.threadCount === b.threadCount &&
       sameJson(a.entry.item, b.entry.item))
   );
+}
+
+/** A virtual list's row style is a new object each render; the same values place the row the same. */
+function sameStyle(a: CSSProperties | undefined, b: CSSProperties | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a) as Array<keyof CSSProperties>;
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
 }
 
 export const GroupHeader = memo(function GroupHeader({
