@@ -7704,7 +7704,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
