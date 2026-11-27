@@ -2,20 +2,37 @@
 # Leo: "sounds like you could just simulate that".
 # Linux headless cross-source connectivity: binary cache miss then hit, same preexisting Cargo cache.
 # cmux-ci test --setup rust --timeout 3600 -- \
-#   bash scripts/measure/mobile-pair-skew-cache.sh OLD_CHECKOUT HEAD_CHECKOUT
+#   bash scripts/measure/mobile-pair-skew-cache.sh OLD_CHECKOUT_OR_REF HEAD_CHECKOUT_OR_REF
 # CARGO_TARGET_DIR must already contain release outputs; no dependency-cold claim is made.
 # Import: scripts/bench/cmux-bench mobile-pair-cache --build local --host anywhere --import LOG
 set -euo pipefail
 [[ "$(uname -s)" == Linux ]] || { echo "This headless harness requires Linux and GNU time" >&2; exit 2; }
-old=$(cd "${1:?usage: mobile-pair-skew-cache.sh OLD_CHECKOUT HEAD_CHECKOUT}" && pwd)
-head=$(cd "${2:?usage: mobile-pair-skew-cache.sh OLD_CHECKOUT HEAD_CHECKOUT}" && pwd)
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 [[ -d "${CARGO_TARGET_DIR:?set CARGO_TARGET_DIR to the existing Cargo cache}/release" ]] ||
   { echo "The Cargo release cache must already exist" >&2; exit 2; }
 export CARGO_TARGET_DIR
 CARGO_TARGET_DIR=$(cd "$CARGO_TARGET_DIR" && pwd)
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 work=$(mktemp -d)
-trap 'python3 -I -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$work"' EXIT
+source_worktrees=()
+cleanup() {
+  for tree in "${source_worktrees[@]}"; do git -C "$root" worktree remove "$tree"; done
+  python3 -I -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$work"
+}
+trap cleanup EXIT
+resolve_source() {
+  local input=$1 name=$2 value sha
+  if [[ -d "$input" ]]; then
+    value=$(cd "$input" && pwd)
+  else
+    sha=$(git -C "$root" rev-parse --verify "$input^{commit}")
+    value="$work/$name"
+    git -C "$root" worktree add --detach "$value" "$sha" >&2
+    source_worktrees+=("$value")
+  fi
+  printf -v "$name" '%s' "$value"
+}
+resolve_source "${1:?usage: mobile-pair-skew-cache.sh OLD_CHECKOUT_OR_REF HEAD_CHECKOUT_OR_REF}" old
+resolve_source "${2:?usage: mobile-pair-skew-cache.sh OLD_CHECKOUT_OR_REF HEAD_CHECKOUT_OR_REF}" head
 export SKEW_BINARY_CACHE_DIR="$work/binaries"
 host_sha=$(git -C "$old" rev-parse HEAD)
 dial_sha=$(git -C "$head" rev-parse HEAD)

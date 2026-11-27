@@ -62,8 +62,6 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
 | local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 | autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
-
-
 | mobile-pair-cache | `mobile-pair-skew-cache.sh` on Linux with preexisting Cargo release outputs | Headless phone/Mac connect wall and CPU seconds, immutable binary cache miss then hit; exact source pair and observed cache state retained. |
 
 ## Dev loop
