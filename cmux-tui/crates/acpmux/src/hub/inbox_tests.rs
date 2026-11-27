@@ -542,14 +542,12 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         &mut accept,
     );
     tokio::pin!(prompt);
-    let answer = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        tokio::select! {
-            result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
-            ack = rx.recv() => ack.expect("acceptance"),
-        }
-    })
-    .await
-    .expect("an inbox delivery is accepted while configuration is being written");
+    let answer = tokio::select! {
+        result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+        ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => ack
+            .expect("an inbox delivery is accepted while configuration is being written")
+            .expect("acceptance"),
+    };
     assert_eq!(answer["promptId"], "after-restore");
     assert_eq!(answer["inbox"], true);
     assert_eq!(answer["queued"], true);
@@ -1962,10 +1960,10 @@ fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
     let items = vec![fyi, seen, result];
     // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
     // the noticed one counts for neither.
-    let (overdue, due_at) = deadline_counts(&items, 61 * min);
+    let (overdue, due_at) = deadline_counts(&items, 61 * min, |_| false);
     assert_eq!(overdue, 1);
     assert_eq!(due_at, Some(soonest));
-    assert_eq!(deadline_counts(&[], 61 * min), (0, None));
+    assert_eq!(deadline_counts(&[], 61 * min, |_| false), (0, None));
 }
 
 /// A warm idle chat holds a report for [`WARM_HOLD_MS`] so what else comes goes in with it as one

@@ -462,8 +462,12 @@ if Path(sys.argv[0]).name == "git":
     if args[0] == "log" and "--format=%ct" in args:
         # `git log --format=%ct PIN..RELEASE -- INPUTS`: the times of the FFI commits the base's pin lacks, newest
         # first; the test gives the oldest one's age, else the read fails.
+        state["unpinned_walks"] = state.get("unpinned_walks", 0) + 1; save()
         if state.get("unpinned_age_min") is None: sys.exit(128)
         import time
+        if "--" in args and state.get("input_walk_hangs"):
+            # A treeless clone's walk of the inputs fetching a tree per commit (run 46002456039): it outlasts its bound.
+            time.sleep(30); sys.exit(0)
         print(int(time.time()) - 60 * min(5, state["unpinned_age_min"]))
         print(int(time.time()) - 60 * state["unpinned_age_min"]); sys.exit(0)
     if args[0] == "show":
@@ -514,6 +518,12 @@ elif args[:2] == ["workflow", "run"]:
 elif args[:2] == ["pr", "create"]:
     state["prs"]["2"] = "open"; save()
     print("https://github.com/manaflow-ai/cmux/pull/2")
+elif args[:2] == ["api", "rate_limit"]:
+    # GET /rate_limit (free of the limit): the token's core budget, when the test gives it; else the read fails.
+    if state.get("core_limit") is None: sys.exit(1)
+    import time
+    remaining, reset_in = state["core_limit"]
+    emit({"resources": {"core": {"remaining": remaining, "reset": int(time.time()) + reset_in}}})
 elif args[0] == "api":
     endpoint = next(a for a in args if a.startswith("repos/"))
     if "PATCH" in args and "/pulls/" in endpoint:
@@ -561,7 +571,12 @@ elif args[0] == "api":
         if state.get("jobs_read") == "fail":
             server_error()
         emit({"total_count": len(state.get("jobs", {}).get(run_id, [])), "jobs": state.get("jobs", {}).get(run_id, [])})
-    elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
+    elif "POST" in args and endpoint.endswith("/labels"):
+        # The re-pin PR's stack-blocker label (publish-app-ffi-repin.sh stack_blocker_label).
+        names = [a.split("=", 1)[1] for a in args if a.startswith("labels[]=")]
+        state.setdefault("labelled", []).append(endpoint.split("/")[-2]); state.setdefault("label_names", []).append(names)
+        save(); emit([{"name": n} for n in names])
+    elif "/pulls?" in endpoint: emit([{"number": 1, "labels": [{"name": n} for n in state.get("pr_labels", [])]}])  # stale even after auto-close
     elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
@@ -628,7 +643,7 @@ class RePinPublication(unittest.TestCase):
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
                   rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None, head_runs=(),
-                  head_runs_read="ok", mergeable=None):
+                  head_runs_read="ok", mergeable=None, input_walk_hangs=False, env_extra=None, core_limit=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -695,16 +710,18 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
-                "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
+                "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "core_limit": core_limit, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read,
                 "rate_limits": [dict(rule) for rule in rate_limits], "pr_read": pr_read,
-                "head_runs": list(head_runs), "head_runs_read": head_runs_read}))
+                "head_runs": list(head_runs), "head_runs_read": head_runs_read,
+                "input_walk_hangs": input_walk_hangs}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
                        GITHUB_RUN_ID=RUN_ID, GITHUB_RUN_ATTEMPT="2", GITHUB_SERVER_URL="https://github.com",
-                       RUNNER_TEMP=temp, **({} if wait_bound is None else {"REPIN_RATE_LIMIT_WAIT_S": str(wait_bound)}))
+                       RUNNER_TEMP=temp, **({} if wait_bound is None else {"REPIN_RATE_LIMIT_WAIT_S": str(wait_bound)}),
+                       **(env_extra or {}))
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work,
                                     env=env, capture_output=True, text=True, timeout=10)
             state = json.loads(state_path.read_text())
@@ -753,6 +770,19 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["writes"], 2)
         self.assertEqual(state["prs"]["1"], "open")
         self.assertEqual(list(state["refs"]), ["app-ffi-repin"])
+
+    def test_the_re_pin_pull_request_carries_the_stack_blocker_label(self):
+        # Every PR that needs the new FFI waits on the re-pin landing: its CI ranks as a stack blocker (cmux#60275's
+        # compile waited 69 min behind ordinary PR CI). The open PR is labelled before the push, a new one on create,
+        # and a PR that has it already is not labelled again.
+        result, state = self.run_repin()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("labelled"), ["1"])
+        result, state = self.run_repin(closed=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("labelled"), ["1", "2"])
+        # ready-to-land with it: the PR-head compile does not start without it (land-judge on cmux#60965).
+        self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]] * 2)
 
     def test_closed_cached_pr_is_replaced_by_an_open_pr(self):
         result, state = self.run_repin(closed=True)
@@ -820,6 +850,8 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["writes"], 0)
+                # A kept PR gets the stack-blocker and ready-to-land labels too (cmux#60965 sat unlabelled).
+                self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]])
 
     def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
         # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
@@ -1328,6 +1360,37 @@ class RePinPublication(unittest.TestCase):
                 if not holds:
                     self.assertIn("no newer run holds its re-pin", result.stderr)
 
+    def test_a_release_past_the_bound_skips_the_unpinned_commit_walk(self):
+        # 2026-11-27: the path-limited `git log` of the unpinned FFI commits fetched trees one by one in the treeless
+        # clone, 16 min in job 140515668328 for a release 481 min old against the 60 min bound. The walk can only make
+        # the age larger, so a release already past the bound pins with no walk; a young one still walks.
+        for age, walks in ((481, 0), (5, 1)):
+            with self.subTest(age=age):
+                result, state = self.run_repin(pin_age_min=age, unpinned_age_min=90)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state.get("unpinned_walks", 0), walks)
+                self.assertIn("no newer run holds its re-pin", result.stderr)
+
+    def test_a_headerless_refusal_reads_the_reset_from_rate_limit(self):
+        # 2026-11-27 job 140440306992: gh_pages.py's refusal carries no headers, so the backoff slept 60+120+240+180 s
+        # for a limit that reset 30 min later. GET /rate_limit names the reset: one past the bound fails at once, one
+        # inside it is waited out, and a budget that is not spent (a secondary limit) keeps the backoff.
+        match = "/check-runs"
+        for core, sleeps, ok in (((0, 1800), [], False), ((0, 7), None, True), ((40, 1800), [60], True)):
+            with self.subTest(core=core):
+                result, state = self.run_repin(rate_limits=[{"match": match, "style": "secondary",
+                                                             "times": -1 if not ok else 1}],
+                                               head_age_min=20, core_limit=core)
+                if ok:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if sleeps is None:
+                        self.assertEqual(len(state["sleeps"]), 1)
+                        self.assertLessEqual(state["sleeps"][0], 8)
+                    else:
+                        self.assertEqual(state["sleeps"], sleeps)
+                else:
+                    self.assert_failed_loud(result, state, sleeps)
+
     def test_a_young_release_does_not_hold_once_the_oldest_unpinned_ffi_commit_is_past_the_bound(self):
         # 2026-11-18: four FFI pushes 07:56Z to 09:46Z, each 25 to 45 min apart. Every release run held its re-pin for
         # the next one (44262749842 for 44269219861, then 44272641346, then 44279092668): each release's own commit was
@@ -1343,6 +1406,20 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
                 if not holds:
                     self.assertIn("no newer run holds its re-pin", result.stderr)
+
+    def test_a_walk_of_the_inputs_past_its_bound_reads_the_oldest_commit_since_the_pin(self):
+        # 2026-11-27, app FFI release run 46002456039: the walk of the FFI inputs since a pin 501 min behind fetched a
+        # tree per commit of the treeless checkout from 13:19Z until the job's timeout cancelled it at 13:47Z. Past
+        # its bound the clock reads the range's oldest commit, which is no younger, and the re-pin goes on.
+        newer = "7" * 40
+        result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                       ancestry=[(self.NEWEST, newer)], jobs={"9": []}, pin_age_min=5,
+                                       unpinned_age_min=90, input_walk_hangs=True,
+                                       env_extra={"REPIN_INPUT_WALK_S": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("did not finish in 1 s", result.stderr)
+        self.assertNotIn("Re-pin held", result.stdout)
+        self.assertIn("no newer run holds its re-pin", result.stderr)
 
     def test_a_run_waiting_for_hours_does_not_hold(self):
         # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.

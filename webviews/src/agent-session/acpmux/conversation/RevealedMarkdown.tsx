@@ -5,6 +5,7 @@
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 import { useStreamReveal } from "./revealedMarkdownModel";
+import { useStreamingStyle } from "./streamingStyle";
 import type { ClaimCheck } from "../model";
 /// An assistant reply, its newest words fading in while it streams. A reply that fails to draw falls
 /// back to its plain text (MessageBoundary), never taking the pane with it.
@@ -67,7 +68,7 @@ function Revealed({
   artifactIdentity?: string;
   artifactRevision?: number;
 }) {
-  const { visible, fresh, now } = useStreamReveal(text, streaming);
+  const { visible, fresh, now } = useStreamReveal(text, streaming, useStreamingStyle());
   // Marks draw on the whole reply only: a phrase still revealing would move under its mark.
   const whole = !streaming && visible.length === text.length;
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
