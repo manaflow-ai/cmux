@@ -443,7 +443,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     }
     let lanes = machine.get("lanes");
     // A machine that is never a lane host (`lanes.lane_host` false): a person's own box, no
-    // override (Leo, 2026-11-27, of big-red: "then please don't rely on big-red").
+    // override (Leo, 2026-11-27, of a personal machine: "then please don't rely on" it).
     if lanes.and_then(|l| l.get("lane_host")) == Some(&Value::Bool(false)) {
         let why = lanes.and_then(|l| l.get("lane_host_why")).and_then(Value::as_str);
         return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
