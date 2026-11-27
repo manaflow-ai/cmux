@@ -145,6 +145,23 @@ public nonisolated struct CloudStartCore: Sendable {
         return .rerun(ms: ms, cls: reply.class)
     }
 
+    /// A failed start the table reads: its code, words and whether the card would offer Retry.
+    public struct PaneFailure: Sendable, Equatable {
+        public let code: String?, message: String, retryable: Bool
+        public init(code: String?, message: String, retryable: Bool) { (self.code, self.message, self.retryable) = (code, message, retryable) }
+    }
+
+    /// Runs `once` (one start, which sets its failure) again, as the card's Retry would, while `paneRecovery` says
+    /// rerun; the table bounds the reruns and the time, and cancelling the task ends it. Returns the last answer.
+    public func paneRecovering<Answer>(_ once: (inout PaneFailure?) async -> Answer) async -> Answer {
+        let began = Date(); var failed: PaneFailure?, reruns = 0, answer = await once(&failed)
+        while let f = failed, case .rerun(let ms, _) = paneRecovery(code: f.code, message: f.message, retryable: f.retryable, reruns: reruns, elapsedMs: Int(Date().timeIntervalSince(began) * 1000)),
+              (try? await Task.sleep(for: .milliseconds(ms))) != nil { // wakeup-allow: bounded same-key rerun (recover::pane_step: PANE_RERUNS within PANE_BUDGET)
+            (failed, reruns) = (nil, reruns + 1); answer = await once(&failed)
+        }
+        return answer
+    }
+
     /// Whether `root` is the disk's root or the home folder `home` (each as `standardizedFileURL`
     /// spells it): never copied to a machine. An FFI that does not answer counts it too broad.
     public func isTooBroad(root: String, home: String) -> Bool {

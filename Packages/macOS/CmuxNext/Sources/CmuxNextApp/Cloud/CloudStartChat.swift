@@ -51,8 +51,8 @@ struct CloudStartChat {
     static func sendGesture(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?) -> Void { { [weak tabs, weak services] view in if let services, let tab = localTab(view, tabs, services) { services.cloudStartTitles.sending(tab) } } }
     /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] { await CloudPaneRecovery.run { failed in await replyOnce(start, tab: tab, report: report, failed: &failed) } } // a failure the one recovery table reruns first does what Retry does (CloudPaneRecovery)
-    func replyOnce(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void, failed: inout CloudPaneRecovery.Failure?) async -> [String: Any] {
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] { await CloudStartCore().paneRecovering { failed in await replyOnce(start, tab: tab, report: report, failed: &failed) } } // a failure the one recovery table reruns first does what Retry does
+    func replyOnce(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void, failed: inout CloudStartCore.PaneFailure?) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
