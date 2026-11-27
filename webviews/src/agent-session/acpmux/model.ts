@@ -3,7 +3,7 @@ import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
-import { freshMeasureContext } from "./measureContext";
+import { ensureMeasureContext, freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
 import type { ComposerStatus } from "./composerStatusModel";
@@ -511,6 +511,10 @@ export type ClaimCheck = {
   command?: string;
 };
 
+/// The chat a fork came from, on the fork's "Forked from" notice row (direct.ts `forked`): its
+/// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
+export type ForkedFrom = { parentId: string; chat: string };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -525,6 +529,8 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// A fork's "Forked from" notice: the chat its name links to (conversation/ForkedFromLine.tsx).
+  forkedFrom?: ForkedFrom;
   /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
   assistantPhase?: "commentary" | "final_answer";
   /// The message's text is whole: no further delta will grow it, though the row can still be
@@ -1176,6 +1182,7 @@ export type AcpmuxCatalogModel = {
   curated?: boolean;
   declared?: boolean;
   unavailable?: string;
+  codexUpdateVersion?: string;
   shortName?: string;
   family?: string;
   efforts?: string[];
@@ -3363,6 +3370,7 @@ function textHeight(
   let measured = prepared.get(key);
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
       notePreparedText(text.length);
     } catch {
@@ -3850,6 +3858,7 @@ function preparedLines(
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });

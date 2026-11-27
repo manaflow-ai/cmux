@@ -26,6 +26,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var pinned: Bool
     /// Marked unread by hand (`notification-mark-unread-v1`).
     public var markedUnread: Bool
+    /// Kept awake from a Mac (`workspace-keep-awake-v1`); false on older daemons.
+    public var keepAwake: Bool = false
     /// `home` for the store's home workspace (`workspace-kind-v1`), else `normal`; nil on older daemons.
     public var kind: String?
     /// The store's home workspace, which no close path closes (`home_not_closable`).
@@ -89,6 +91,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         case nameSource = "name_source"
         case nameRevision = "name_revision"
         case markedUnread = "marked_unread"
+        case keepAwake = "keep_awake"
         case resourceID = "resource_id"
         case shortID = "short_id"
         case unreadCount = "unread_count"
@@ -116,6 +119,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         markedUnread = try c.decodeIfPresent(Bool.self, forKey: .markedUnread) ?? false
+        keepAwake = try c.decodeIfPresent(Bool.self, forKey: .keepAwake) ?? false
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         app = kind == "app" ? try? c.decodeIfPresent(String.self, forKey: .app) : nil
         recovered = try c.decodeIfPresent(Bool.self, forKey: .recovered)

@@ -79,6 +79,9 @@ pub struct Transcript {
     pub model: Option<String>,
     pub usage: Option<(u64, u64)>,
     pub available_commands: Vec<String>,
+    /// What each of `available_commands` does, by name, when the agent says (ACP's
+    /// `availableCommands[].description`): the terminal's / rows show it, as the GUI's do (#50541).
+    pub command_descriptions: std::collections::BTreeMap<String, String>,
     /// Transient note for the working row, e.g. an API retry in progress.
     pub note: Option<String>,
     /// Provider-neutral live activity shown by every client.
@@ -447,17 +450,22 @@ impl Transcript {
                 }
             }
             "available_commands_update" => {
-                self.available_commands = update
-                    .get("availableCommands")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|c| {
-                                c.get("name").and_then(Value::as_str).map(str::to_owned)
-                            })
-                            .collect()
+                let listed =
+                    update.get("availableCommands").and_then(Value::as_array).map(Vec::as_slice);
+                self.available_commands = listed
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_owned))
+                    .collect();
+                self.command_descriptions = listed
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|c| {
+                        let name = c.get("name").and_then(Value::as_str)?;
+                        let text = c.get("description").and_then(Value::as_str)?.trim();
+                        (!text.is_empty()).then(|| (name.to_owned(), text.to_owned()))
                     })
-                    .unwrap_or_default();
+                    .collect();
             }
             _ => {}
         }
@@ -879,6 +887,7 @@ impl Transcript {
         rebuilt.usage = self.usage.take().or(rebuilt.usage);
         if !self.available_commands.is_empty() {
             rebuilt.available_commands = std::mem::take(&mut self.available_commands);
+            rebuilt.command_descriptions = std::mem::take(&mut self.command_descriptions);
         }
         // A rebuild names every row afresh: folds move by the prepended count, not by
         // removals the replay made along the way.

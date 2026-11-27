@@ -1815,6 +1815,7 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
   // when the steer came (acpmux cuts it there into two rows, one each side of the steer).
   let from = late;
+  // ends: from walks back to the first row or the preceding change of author
   while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
   const region = rows.slice(from, end);
   const steers = region.filter(isLateSteer);
@@ -3572,6 +3573,7 @@ function shapeLiveTurn(
   // and steers coming in at various times").
   // ES2022 has no findLastIndex (tsconfig `lib`).
   let reply = shaped.length - 1;
+  // ends: reply walks back to a reply or falls below zero
   while (reply >= 0 && !isReply(shaped[reply]!)) reply -= 1;
   if (reply >= 0 && shaped.slice(reply + 1).some(personCameIn))
     return [...shaped.slice(0, reply + 1), card, ...shaped.slice(reply + 1)];
