@@ -487,10 +487,6 @@
     },
     "iroh-release-gate.yml#tailscale-version-skew": "macos-runtime-tests",
     "gateway-e2e.yml#mac": "macos-runtime-tests",
-    "iroh-v2.yml#client": {
-      "class": "apple-swift-tests",
-      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
-    },
     "machine-vault-e2e.yml#e2e": {"class": "macos-runtime-tests", "picker_followup": "adds an OS user and opens ssh to it while holding the dev stack secrets: an ephemeral Blacksmith Mac only, never a persistent owned Mac; an owned route needs a disposable VM on the fleet"},
     "macos-cross-parity.yml#runtime-x86_64": {
       "class": "macos-runtime-tests",

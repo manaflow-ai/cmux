@@ -148,8 +148,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-phone-lane-fields.py"),
     ("Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
      "scripts/agent-icons/generate.py"),
-    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift", "quicktype"),
-    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift", "quicktype"),
 )
 # The claim opens the comment line: prose that mentions generated values (`// The defaults are generated from`) is
 # none.

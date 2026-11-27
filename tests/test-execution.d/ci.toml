@@ -1120,7 +1120,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_iroh_apple_suites_have_mac_home.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_iroh_apple_suites_have_mac_home.py"
 
 [[test]]
 path = "tests/test_ci_workflow_hashfiles_in_workspace.py"
