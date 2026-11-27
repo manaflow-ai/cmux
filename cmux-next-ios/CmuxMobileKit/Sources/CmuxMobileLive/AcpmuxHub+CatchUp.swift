@@ -52,7 +52,11 @@ extension AcpmuxHub {
         let rows = list["sessions"]?.arrayValue ?? []
         guard list["follow"] == .bool(true) else {
             // A first page (or the list again after a stale cursor): as the watch's own.
-            guard list["sessions"]?.arrayValue != nil, let cursor = try? AcpmuxConnection.nextCursor(list) else { return }
+            // Not `let cursor = try? …`: that flattens a whole list's nil cursor into a failed
+            // bind, and a first page with no `nextCursor` went in as nothing.
+            let cursor: String?
+            do { cursor = try AcpmuxConnection.nextCursor(list) } catch { return }
+            guard list["sessions"]?.arrayValue != nil else { return }
             if applyFirstPage(rows, whole: cursor == nil).changed {
                 onWatchEvent?(.sessionsLoaded(Array(sessions.values)))
             }
