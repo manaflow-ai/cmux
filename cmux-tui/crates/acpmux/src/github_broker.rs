@@ -387,6 +387,39 @@ pub fn gh_args(r: &GithubActionParams) -> Vec<String> {
     a
 }
 
+/// The REST form of a `read` (`gh api`, the core pool) that prints the same JSON fields as its
+/// `gh_args` (`--json` views spend the GraphQL pool): what `serve_owner` runs when the Mac's
+/// GraphQL pool is down to its reserve and core is not, so a read never waits on one pool while
+/// the other has calls. `None` for any other action.
+pub fn rest_read_args(r: &GithubActionParams) -> Option<Vec<String>> {
+    if r.action != GithubAction::Read {
+        return None;
+    }
+    let (path, jq) = match r.issue {
+        None => (
+            format!("repos/{}", r.repo),
+            "{nameWithOwner: .full_name, url: .html_url, defaultBranchRef: {name: .default_branch}, \
+             visibility: (.visibility | ascii_upcase)}",
+        ),
+        Some(n) => (
+            format!("repos/{}/pulls/{n}", r.repo),
+            "{number, title, state: (if .merged_at then \"MERGED\" else (.state | ascii_upcase) end), \
+             isDraft: .draft, url: .html_url, headRefName: .head.ref, baseRefName: .base.ref}",
+        ),
+    };
+    Some(vec!["api".into(), path, format!("--jq={jq}")])
+}
+
+/// Whether `e` is the read budget's refusal of a whole pool (`github_pool.rs` `over=pool`), the
+/// one refusal another pool may answer.
+fn pool_refusal(e: &RpcError) -> bool {
+    e.data
+        .as_ref()
+        .and_then(|d| d.get("reason"))
+        .and_then(Value::as_str)
+        .is_some_and(|r| r == "github.budget.pool")
+}
+
 /// `gh`'s output as text: every GitHub token cut out (`redact_github_tokens`), then at most
 /// `OUTPUT_MAX` bytes.
 fn clean_output(bytes: &[u8]) -> String {
@@ -478,12 +511,12 @@ async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u
 /// keyring login, or an App token for this one action and no other, which starts only while the
 /// sign-in it was minted with is still lent (`while_lent`).
 async fn execute(
-    r: &GithubActionParams,
+    args: Vec<String>,
     login: &crate::github_app_token::Source,
     app: Option<&crate::github_app_token::AppLease>,
 ) -> Result<String, RpcError> {
     let mut gh = Command::new("gh");
-    gh.args(gh_args(r));
+    gh.args(args);
     login_env(gh.as_std_mut(), login.token());
     gh.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -599,13 +632,26 @@ pub async fn serve_owner(
         Ok(login) => match check_deadline(request.deadline_ms, crate::store::now_ms()) {
             Ok(()) if request.action == GithubAction::Read => {
                 let caller = format!("{peer}/{}", request.session_id.as_deref().unwrap_or("-"));
-                let pool = crate::github_pool::pool_of(&gh_args(&request));
+                let args = gh_args(&request);
+                let pool = crate::github_pool::pool_of(&args);
                 match crate::github_pool::admit(&caller, pool, login).await {
-                    Ok(()) => execute(&request, login, app).await,
+                    Ok(()) => execute(args, login, app).await,
+                    // GraphQL is down to its reserve: the same fields over REST, if core has
+                    // calls. Core's own refusal is the answer then.
+                    Err(e) if pool_refusal(&e) => match rest_read_args(&request) {
+                        Some(rest) if crate::github_pool::pool_of(&rest) != pool => {
+                            let core = crate::github_pool::pool_of(&rest);
+                            match crate::github_pool::admit(&caller, core, login).await {
+                                Ok(()) => execute(rest, login, app).await,
+                                Err(e) => Err(e),
+                            }
+                        }
+                        _ => Err(e),
+                    },
                     Err(e) => Err(e),
                 }
             }
-            Ok(()) => execute(&request, login, app).await,
+            Ok(()) => execute(gh_args(&request), login, app).await,
             Err(e) => Err(e),
         },
         Err(e) => Err(e.clone()),
