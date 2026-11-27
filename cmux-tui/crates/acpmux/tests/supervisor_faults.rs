@@ -557,10 +557,17 @@ fn update_handoff_the_daemon_waits_for_the_relaunched_app_and_follows_it() {
     let quit_to_back = Instant::now();
     let mut new_app = fake_app(Some(&socket));
     while marker.exists() {
-        assert!(
-            quit_to_back.elapsed() < Duration::from_secs(10),
-            "the relaunched app was never adopted"
-        );
+        if quit_to_back.elapsed() >= Duration::from_secs(10) {
+            let mut seen = Vec::new();
+            while let Some(l) = daemon.line(Duration::from_millis(300), |_| true) {
+                seen.push(l);
+            }
+            panic!(
+                "the relaunched app was never adopted; app alive {:?}; daemon said:\n{}",
+                new_app.try_wait(),
+                seen.join("\n")
+            );
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
     eprintln!(
@@ -642,8 +649,9 @@ fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).unwrap();
     update(&dir, |at| fs::rename(&tmp, at).unwrap());
     let (mut longest, mut last, from) = (Duration::ZERO, Instant::now(), Instant::now());
-    let mut new_pid = None;
+    let (mut new_pid, mut refused) = (None, 0);
     while from.elapsed() < Duration::from_secs(20) {
+        refused += usize::from(std::os::unix::net::UnixStream::connect(&socket).is_err());
         if let Some(pid) = serving_pid(&socket) {
             longest = longest.max(last.elapsed());
             last = Instant::now();
@@ -667,13 +675,14 @@ fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
         );
     };
     eprintln!(
-        "update-handoff: swap {old_pid} -> {new_pid}, longest listener gap {longest:?}; adopted line: {adopted:?}"
+        "update-handoff: swap {old_pid} -> {new_pid}, {refused} refused connects, longest wait for an answer {longest:?}; adopted line: {adopted:?}"
     );
     assert!(adopted.is_some(), "the relaunched app was not adopted before the swap");
-    assert!(
-        longest < Duration::from_millis(500),
-        "the listener went {longest:?} without an answer"
-    );
+    // Where the scratch home is too long for the side socket (`listener_handover::Side::open`),
+    // the successor binds again instead of taking the listener: connects in between are refused
+    // (counted above, 1 to 21 measured) and it answers once it is up, which a loaded host
+    // stretches (1.6 s at load 23; 66 ms idle).
+    assert!(longest < Duration::from_secs(5), "the listener went {longest:?} without an answer");
     // No client now; the new app runs: the successor stays.
     std::thread::sleep(Duration::from_secs(6));
     let alive = unsafe { libc::kill(new_pid as i32, 0) } == 0;

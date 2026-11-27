@@ -155,13 +155,27 @@ fn grace() -> Option<Duration> {
 /// only after its owner app exited. Once its executable is gone (`prune.rs`), a daemon on a home of
 /// its own with that grace and a stored chat log stops after only `prune::RETIRED_GRACE` unused,
 /// by the same census; never a memory-store one (`memory_store`), whose stop loses its chats.
-pub(super) async fn unused(hub: Weak<crate::hub::Hub>, memory_store: bool) -> String {
+pub(super) fn unused(
+    hub: Weak<crate::hub::Hub>,
+    memory_store: bool,
+) -> impl Future<Output = String> {
+    // The owner is read at the call, before the daemon says it is ready, not at the first poll
+    // after it: an app that quit in between left an owner with no executable on record, which no
+    // relaunched app could match (`owner_exit::adopt_if_relaunched`), so it was never followed.
+    let owner = (!super::managed_by_acpmux_unit()).then(owner_exit::follow).flatten();
+    unused_following(owner, hub, memory_store)
+}
+
+async fn unused_following(
+    owner: Option<(u32, watch::Receiver<bool>)>,
+    hub: Weak<crate::hub::Hub>,
+    memory_store: bool,
+) -> String {
     if super::managed_by_acpmux_unit() {
         return std::future::pending().await;
     }
     let own_home = !super::uses_shared_home();
     let grace = grace().filter(|_| own_home);
-    let owner = owner_exit::follow();
     #[cfg(unix)]
     let retirable = grace.is_some() && !memory_store && super::prune::enabled();
     #[cfg(not(unix))]
