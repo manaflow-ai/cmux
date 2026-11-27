@@ -357,3 +357,97 @@ fn every_reason_spells_as_the_brief_names_it() {
         assert_eq!(serde_json::to_value(phase).unwrap(), json!(word));
     }
 }
+
+/// The header's live facts (`place`'s `at`, `move`, `start`, the machine as listed), as the app
+/// sends them, through `live::facts`.
+fn live_status(value: serde_json::Value) -> ComputerStatus {
+    let mut value = value;
+    value.as_object_mut().unwrap().entry("session").or_insert(json!("s1"));
+    let live: live::Live = serde_json::from_value(value).unwrap();
+    status(&live::facts(&live))
+}
+
+#[test]
+fn a_live_move_view_shows_moving_and_says_why_auto_moved() {
+    let moving = json!({
+        "at": "local",
+        "move": {"direction": "toCloud", "trigger": {"auto": "memory"}, "state": "moving",
+                 "startedMs": 100, "elapsedMs": 40, "canCancel": true}
+    });
+    let status = live_status(moving);
+    assert_eq!((status.phase, status.home), (Phase::Moving, Home::ThisMac));
+    assert_eq!(status.phase_since_ms, Some(100));
+    assert_eq!(
+        status.move_,
+        Some(Move { direction: Direction::ToCloud, cancellable: true, failure: None })
+    );
+    assert_eq!(
+        status.why,
+        Some(Why { at_ms: 100, reason: Reason::MacMemoryPressure, command: None })
+    );
+}
+
+#[test]
+fn a_failed_move_view_stays_where_it_was_and_a_live_one_shows_nothing() {
+    let failed = json!({
+        "at": "local",
+        "move": {"direction": "toCloud", "trigger": "person", "state": "failed",
+                 "startedMs": 100, "elapsedMs": 900, "reason": "network_dropped"}
+    });
+    let status = live_status(failed);
+    assert_eq!(status.phase, Phase::MoveFailed);
+    assert_eq!(status.phase_since_ms, Some(1000));
+    assert_eq!(status.move_.and_then(|moved| moved.failure), Some(MoveFailure::NetworkDropped));
+    assert_eq!(status.why.map(|why| why.reason), Some(Reason::PersonMoved));
+    let landed = json!({
+        "at": "cloud",
+        "move": {"direction": "toCloud", "trigger": {"auto": "sleep"}, "state": "live",
+                 "startedMs": 100, "elapsedMs": 900}
+    });
+    let status = live_status(landed);
+    assert_eq!((status.phase, status.home), (Phase::Running, Home::Cloud));
+    assert_eq!(status.why.map(|why| why.reason), Some(Reason::LidClosed));
+    // Auto bringing it back says no Why of its own.
+    let back = json!({
+        "at": "local",
+        "move": {"direction": "toLocal", "trigger": {"auto": "back"}, "state": "moving",
+                 "startedMs": 5}
+    });
+    let status = live_status(back);
+    assert_eq!(status.move_.map(|moved| moved.direction), Some(Direction::ToMac));
+    assert_eq!(status.why, None);
+}
+
+#[test]
+fn the_listed_machine_gives_the_shape_and_each_pause() {
+    let machine = |extra: serde_json::Value| {
+        let mut base = json!({"status": "paused", "size": {"cpu": 4, "memory_mb": 8192}});
+        base.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        live_status(json!({"at": "cloud", "machine": base}))
+    };
+    let idle = machine(json!({"pause_reason": "idle"}));
+    assert_eq!(idle.phase, Phase::Sleeping);
+    assert_eq!(idle.shape, Some(Shape { vcpu: 4.0, memory_gib: 8.0 }));
+    let capped = machine(json!({"paused_by": "spend_cap", "spend_cap_pause_at": 77}));
+    assert_eq!((capped.phase, capped.phase_since_ms), (Phase::PausedSpendCap, Some(77)));
+    assert_eq!(machine(json!({"pause_reason": "provider_stopped"})).phase, Phase::Paused);
+    assert_eq!(machine(json!({"status": "running"})).phase, Phase::Running);
+}
+
+#[test]
+fn a_live_start_and_a_slots_refusal_read_as_their_phases() {
+    let preparing =
+        live_status(json!({"start": {"cloud": "booting", "sinceMs": 3, "readiness": 40}}));
+    assert_eq!((preparing.phase, preparing.phase_since_ms), (Phase::Preparing, Some(3)));
+    let refused = live_status(json!({
+        "machine": {"status": "failed", "error": {"code": "cloud.quota.exceeded", "at": 12}}
+    }));
+    assert_eq!(refused.phase, Phase::StayingLocalSlotsFull);
+    assert_eq!(refused.why.map(|why| why.reason), Some(Reason::SlotsFull));
+}
+
+#[test]
+fn live_facts_need_a_session() {
+    assert!(serde_json::from_value::<live::Live>(json!({"session": ""})).is_err());
+    assert!(serde_json::from_value::<live::Live>(json!({"at": "local"})).is_err());
+}
