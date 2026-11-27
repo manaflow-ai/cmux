@@ -5364,3 +5364,17 @@ cheap job has said the head is not red.
 
 Rerunning the failed fast gates or cargo job (`gh run rerun ID --failed`) reruns the jobs it skipped.
 Tests: tests/test_ci_head_fail_fast.py CheapGateTests.
+
+## note-app-debug-tier
+
+Above the `awaiting_land` case in app-compile-fleet's `check` step in `.github/workflows/cmux-next.yml`.
+
+The job's read sends tier=1 (`fleet_compile_result.py --tier`). For a pull request head with no `ready-to-land` or
+`full-ci` label, the controller runs no app-debug check now and answers `awaiting_land` (cmuxterm-hq
+build-fleet/cmd/controller/cmux_next_tip_land_tier.go). The job ends neutral in seconds. Before, the read without tier=1
+made the controller submit the check, and the job held a cmux-linux runner through the whole compile: 12.7k
+runner-min a day over 11-23..11-27 (1,406 jobs a day, 9.0 min each). This is the same land tier the fleet Release
+compile's `phase=tip` probe took in #53465. That job now ends in about 4 s.
+A labeled head (and every later head of that pull request) still gets the check and waits for it. The verdict
+`awaiting_land` is no reason for the Mac Release compile (release-compile's `if`): the Release compile at land
+compiles the head. Undo: drop `--tier`, or set CMUX_CI_TIP_LAND_TIER=0 on the controller.
