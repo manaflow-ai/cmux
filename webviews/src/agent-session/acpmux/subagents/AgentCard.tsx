@@ -5,7 +5,7 @@
 // whole line click sending me to the subagent righ split"), no "Open chat" word beside it (Leo,
 // 2026-10-29: "Just have the thing be clickable, and then you can open it."). The caller reads its state live
 // (subsessions.ts) and adds a prompt or a reply below.
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -36,7 +36,7 @@ export type AgentCardProps = {
   /// It waits for a run slot: it has not started, whatever its state says.
   slot?: boolean;
   /// How long it has run, or ran, after its state.
-  time?: string;
+  time?: ReactNode;
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
   onOpen?: () => void;
@@ -91,7 +91,13 @@ export function AgentCard({
     : undefined;
   const quiet = state === "working" && !slot && !stateLabel;
   const stateText = state ? (quiet ? "" : stateWord) : undefined;
-  const join = (parts: readonly (string | false | undefined | 0)[]) => parts.filter(Boolean).join(" · ");
+  const join = (parts: readonly (ReactNode | false | undefined | 0)[]) =>
+    parts.filter(Boolean).map((part, index) => (
+      <Fragment key={index}>
+        {index > 0 && " · "}
+        {part}
+      </Fragment>
+    ));
   if (disclosure) {
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (
