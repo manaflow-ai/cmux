@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """A main push skips the seed build only when a seed with its inputs exists."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -268,6 +269,50 @@ class FarLane(unittest.TestCase):
                 self.assertEqual(commit({f"Sources/A{i}.swift": "a\n" for i in range(3)}), "near")
                 self.assertEqual(commit({f"Sources/B{i}.swift": "b\n" for i in range(3)}), "far")
                 self.assertEqual(commit({"Packages/Kit/K.swift": "public struct K {}\n"}), "rebuild")
+
+
+class DeadPools(unittest.TestCase):
+    """hosted#1015: a seed queued on a label RUNNER_POOLS marks dead waits forever; seeding is only cache warming."""
+    DEAD = "blacksmith-6vcpu-macos-15"
+    pools = ((DEAD, "Xcode15.app"), (LARGE, "Xcode.app"))
+
+    def marks(self, **since):
+        import datetime as dt
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        return json.dumps({"macos_15": "x", "_dead": {label: when or now for label, when in since.items()}})
+
+    def test_a_dead_pool_is_skipped_and_logged_and_the_others_build(self):
+        api = Api([], {})
+        build, reasons = seed_decide.decide(
+            "push", REPO, list(self.pools), api=api, ancestors=lambda: [], dead={self.DEAD},
+            fingerprint_of=lambda *_: "f", tier_of=lambda _: "near")
+        self.assertEqual(build, [LARGE], reasons)
+        self.assertTrue(any(r.startswith(f"{self.DEAD}: RUNNER_POOLS marks") for r in reasons), reasons)
+
+    def test_a_dead_label_skips_its_lanes_too_but_not_a_dispatch(self):
+        kwargs = dict(api=Api([], {}), ancestors=lambda: [], dead={self.DEAD},
+                      fingerprint_of=lambda *_: "f", tier_of=lambda _: "near")
+        build, _ = seed_decide.decide("push", REPO, [(f"{self.DEAD}@2", "X")], **kwargs)
+        self.assertEqual(build, [])
+        build, _ = seed_decide.decide("workflow_dispatch", REPO, [(self.DEAD, "X")], **kwargs)
+        self.assertEqual(build, [self.DEAD])
+
+    def test_no_dead_mark_changes_nothing(self):
+        build, _ = seed_decide.decide(
+            "push", REPO, list(self.pools), api=Api([], {}), ancestors=lambda: [],
+            fingerprint_of=lambda *_: "f", tier_of=lambda _: "near")
+        self.assertEqual(build, [self.DEAD, LARGE])
+
+    def test_dead_pools_reads_fresh_marks_only_and_never_fails(self):
+        self.assertEqual(seed_decide.dead_pools(self.marks(**{self.DEAD: None})), {self.DEAD})
+        self.assertEqual(seed_decide.dead_pools(self.marks(**{self.DEAD: "2020-01-01T00:00:00+00:00"})), set())
+        for raw in (None, "", "not json", "[]", '{"_dead": 3}', '{"_dead": {"a": "junk"}}'):
+            self.assertEqual(seed_decide.dead_pools(raw), set(), raw)
+
+    def test_the_workflow_passes_runner_pools(self):
+        text = (ROOT / ".github/workflows/seed-derived-data.yml").read_text()
+        self.assertIn('--runner-pools "${RUNNER_POOLS:-}"', text)
+        self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", text)
 
 
 class Wiring(unittest.TestCase):
