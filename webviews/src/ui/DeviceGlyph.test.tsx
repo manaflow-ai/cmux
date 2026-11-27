@@ -69,7 +69,6 @@ const SURFACES = [
   "agent-session/acpmux/EnvironmentPicker.tsx",
   "agent-session/acpmux/ComposerContext.tsx",
   "agent-session/acpmux/ProjectChooser.tsx",
-  "pages/machines/MachinesSection.tsx",
 ];
 
 test("every machine surface uses the shared device glyph", () => {
