@@ -80,6 +80,10 @@ jobs:
       # That was about 2.2k of the job's 4.4k runner-min. Past this wait the job cancels the queued step (a
       # step left queued keeps its place and builds for no reader), and the check reads "not judged" as before.
       QUEUE_WAIT_S: "1200"
+      # Submit the step and exit; the controller posts the verdict as a check run (cmux-ci run --report-check
+      # --detach, hq report_check.go), so no runner waits on the queue and compile. 2026-11-27 15-18Z: this job
+      # held a runner 3,478.9 (arm64) and 3,459.7 (x86_64) min, 16 per merged PR each. "0" waits as before.
+      DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}
     steps:
       - name: Look up a pass with the same inputs
         id: cache
@@ -108,10 +112,19 @@ jobs:
           # (run 45969778703 attempt 2). The client's default key is per run and attempt; the cache step above
           # is what skips a build whose inputs already passed.
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
+          detach=()
+          if [[ "$DETACH" != 0 ]]; then
+            detach=(--detach --report-check "nightly pr build / app compile $ARCH fleet (advisory)")
+          fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
-            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 \
+            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" "${detach[@]}" 2>&1 \
             | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ "$status" == 0 ]] && grep -q 'detached; check run' "$log"; then
+            # Submitted, not judged: the check run carries the verdict, so this is no pass to cache.
+            echo "::notice title=nightly app compile::submitted to the fleet; the check run \"nightly pr build / app compile $ARCH fleet (advisory)\" carries the verdict"
+            exit 0
+          fi
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           if [[ "$status" == 75 && -n "$step" ]] && grep -q 'is still queued after' "$log"; then
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
