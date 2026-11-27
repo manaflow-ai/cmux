@@ -40,20 +40,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Bisect: 504d95d0 passed LaunchTTIUITests, 38721c8c hangs at chat open (main thread busy
-          # 30 s, no chat_composer_ready). 61384a97 (5645d3ad's parent) passed; 5645d3ad..1387d6fb
-          # does not build on Xcode 26.6 without #59639, so `buildfix` legs apply its 2-line fix.
-          - leg: 5645d3ad+fix
-            ref: 5645d3adaa685e322e5139631468b17387e63f5e
-            buildfix: true
-          - leg: c180b906-parent+fix
-            ref: d877dc36e386926367cee9a6b01396686688396e
-            buildfix: true
-          - leg: c180b906+fix
-            ref: c180b906df7aa5ab787d98d2c8b7a294e945c633
-            buildfix: true
-          - leg: 1387d6fb
-            ref: 1387d6fbda5dc26c276250c5fc12d91d5e326485
+          # Chat-open hang fix check: c180b906 (#57970) hangs at chat open, its parent passes
+          # (run 45923179190). Base vs base with the probe-measure fix, one harness.
+          - leg: base-b45337bf
+            ref: b45337bfd392c4088adb74449d0dad560f342828
+            buildfix: false
+          - leg: base+probe-fix
+            ref: 18783557b5aef74349802960948c1dec1c507d71
             buildfix: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
