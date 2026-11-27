@@ -34,6 +34,8 @@ fn sample() -> Bound {
         cmux_config_real: "/Users/a/.config/cmux-next/cmux-next.json".into(),
         gh_config_dir: "/Users/a/.config/gh".into(),
         xdg_gh_config_dir: "/Users/a/.config/gh".into(),
+        acpmux_socket: "/Users/a/.acpmux/acpmux.sock".into(),
+        ssh_auth_socket: Some("/private/tmp/ssh-agent.sock".into()),
         folders: vec!["/Users/a/code/lib".into(), "/Users/a/code/app.git".into()],
         api_port: None,
     }
@@ -46,6 +48,9 @@ fn the_profile_gets_every_folder_and_its_params() {
     let profile = &args[1];
     assert!(profile.contains("(subpath (param \"DIR0\"))\n  (subpath (param \"DIR1\"))\n"));
     assert!(!profile.contains(";; @FOLDERS@\n"));
+    assert!(!profile.contains(";; @SOCKETS@\n"));
+    assert!(profile.contains("path-literal \"/Users/a/.acpmux/acpmux.sock\""));
+    assert!(profile.contains("path-literal \"/private/tmp/ssh-agent.sock\""));
     assert!(!profile.contains("(remote ip \"*:8443\")"));
     let params: Vec<&str> = args[2..].iter().map(String::as_str).collect();
     for want in [
@@ -134,6 +139,7 @@ fn a_worktree_gets_its_git_folders() {
     let wt = t.path().join("wt");
     std::fs::create_dir_all(wt.join("sub")).unwrap();
     std::fs::write(wt.join(".git"), format!("gitdir: {}\n", own.display())).unwrap();
+    std::fs::write(own.join("gitdir"), format!("{}\n", wt.join(".git").display())).unwrap();
     let dirs: Vec<PathBuf> = git_dirs(&wt.join("sub")).iter().map(|d| canonical(d)).collect();
     assert_eq!(dirs, vec![canonical(&own), canonical(&common)]);
     // A subfolder of a repository: its `.git`.
@@ -155,7 +161,10 @@ fn untrusted_worktree_metadata_cannot_add_an_arbitrary_write_root() {
     std::fs::create_dir_all(&own).unwrap();
     std::fs::write(own.join("commondir"), "/\n").unwrap();
     std::fs::write(folder.join(".git"), format!("gitdir: {}\n", own.display())).unwrap();
+    std::fs::write(own.join("gitdir"), format!("{}\n", folder.join(".git").display())).unwrap();
     assert_eq!(git_dirs(&folder), vec![canonical(&own)]);
+    std::fs::write(own.join("gitdir"), "/some/other/checkout/.git\n").unwrap();
+    assert!(git_dirs(&folder).is_empty());
 }
 
 #[test]
@@ -181,6 +190,8 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
         &cwd,
         &env
     ));
+    assert!(claude_sandbox_on(&s(&["--settings", "missing.json"]), &cwd, &env));
+    assert!(claude_sandbox_on(&s(&["--settings", "[1]"]), &cwd, &env));
     std::fs::write(cwd.join(".claude/settings.local.json"), on).unwrap();
     assert!(claude_sandbox_on(&[], &cwd, &env));
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();

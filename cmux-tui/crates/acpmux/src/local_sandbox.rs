@@ -87,6 +87,8 @@ pub(crate) struct Bound {
     pub(crate) cmux_config_real: PathBuf,
     pub(crate) gh_config_dir: PathBuf,
     pub(crate) xdg_gh_config_dir: PathBuf,
+    pub(crate) acpmux_socket: PathBuf,
+    pub(crate) ssh_auth_socket: Option<PathBuf>,
     /// The chat's other folders (`--add-dir`) and the git folders its folders commit into.
     pub(crate) folders: Vec<PathBuf>,
     /// Claude Code's own API port when it is not one the profile already opens.
@@ -123,6 +125,17 @@ impl Bound {
         let folders: String =
             (0..self.folders.len()).map(|i| format!("  (subpath (param \"DIR{i}\"))\n")).collect();
         profile = profile.replacen(";; @FOLDERS@\n", &folders, 1);
+        let mut sockets = format!(
+            "  (allow network-outbound (remote unix-socket (path-literal \"{}\")))\n",
+            seatbelt_escape(&self.acpmux_socket),
+        );
+        if let Some(path) = &self.ssh_auth_socket {
+            sockets.push_str(&format!(
+                "  (allow network-outbound (remote unix-socket (path-literal \"{}\")))\n",
+                seatbelt_escape(path),
+            ));
+        }
+        profile = profile.replacen(";; @SOCKETS@\n", &sockets, 1);
         if let Some(port) = self.api_port {
             profile.push_str(&format!("(allow network-outbound (remote ip \"*:{port}\"))\n"));
         }
@@ -151,6 +164,10 @@ impl Bound {
         }
         out
     }
+}
+
+fn seatbelt_escape(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// The `--add-dir` folders of a Claude Code command line.
@@ -195,6 +212,16 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
         return Vec::new();
     };
     if !gitdir.is_dir() {
+        return Vec::new();
+    }
+    let Ok(dot_git_real) = std::fs::canonicalize(dot_git) else { return Vec::new() };
+    let Ok(marker) = std::fs::read_to_string(gitdir.join("gitdir")) else {
+        return Vec::new();
+    };
+    let marker = PathBuf::from(marker.trim());
+    let marker = if marker.is_absolute() { marker } else { gitdir.join(marker) };
+    let Ok(marker) = std::fs::canonicalize(marker) else { return Vec::new() };
+    if marker != dot_git_real {
         return Vec::new();
     }
     let Some(common_root) = gitdir
@@ -256,7 +283,10 @@ pub(crate) fn claude_sandbox_on(
     if has_settings_flag {
         return match crate::claude_cloud_auth::flag_settings(args, cwd) {
             Ok(Some(settings)) => enabled(&Value::Object(settings)),
-            Ok(None) | Err(_) => false,
+            Ok(None) => false,
+            // If an explicit settings file cannot be read or parsed, Claude's
+            // effective nested-sandbox value is unknowable. Avoid nesting.
+            Err(_) => true,
         };
     }
 
@@ -424,6 +454,11 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .filter(|p| !p.is_empty())
         .map(|p| canonical(&absolute(&cwd, PathBuf::from(p).join("gh"))))
         .unwrap_or_else(|| agent_home.join(".config/gh"));
+    let acpmux_socket = canonical(&crate::config::socket_path());
+    let ssh_auth_socket = env
+        .get("SSH_AUTH_SOCK")
+        .filter(|path| !path.is_empty())
+        .map(|path| canonical(Path::new(path)));
     Some(Bound {
         cwd,
         home,
@@ -437,6 +472,8 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         cmux_config_real,
         gh_config_dir,
         xdg_gh_config_dir,
+        acpmux_socket,
+        ssh_auth_socket,
         folders,
         api_port: url.as_deref().and_then(extra_api_port),
     })
