@@ -267,6 +267,8 @@ mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
+pub mod identify_reply;
+pub use identify_reply::install_identify;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
@@ -349,17 +351,16 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
-pub use daemon_build::{
-    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
-};
-mod socket_path;
 #[cfg(test)]
-use socket_path::default_socket_path_in_runtime_dir;
+use crate::socket_path::default_socket_path_in_runtime_dir;
 #[cfg(unix)]
-pub(crate) use socket_path::unix_socket_path_fits;
-pub use socket_path::{
+pub(crate) use crate::socket_path::unix_socket_path_fits;
+pub use crate::socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
     try_default_socket_path_in_base_scoped, validate_session_name,
+};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
 };
 pub(crate) mod activity;
 mod browser_input;
@@ -770,11 +771,10 @@ pub fn api_revision_range() -> (u32, u32) {
 pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
     api_revision_wire::compat()
 }
-mod protocol_key;
 #[cfg(test)]
-use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
-pub use protocol_key::ProtocolKeyInput;
-pub(crate) use protocol_key::{
+use crate::protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
+pub use crate::protocol_key::ProtocolKeyInput;
+pub(crate) use crate::protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
