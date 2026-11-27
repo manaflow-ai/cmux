@@ -2862,6 +2862,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        // Writes schemas/settings/settings-schema.json and docs/mdm from CmuxNextSettings alone, so
+        // scripts/cmux-next/regenerate-settings-exports.sh needs no test bundle (any test target that
+        // fails to compile used to hold every settings export back). Not linked into the app.
+        .executableTarget(
+            name: "CmuxNextSettingsExport",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextSettings",
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextSettingsWindow",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
