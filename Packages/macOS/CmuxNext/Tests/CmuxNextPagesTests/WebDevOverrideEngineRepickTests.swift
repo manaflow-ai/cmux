@@ -154,6 +154,74 @@ struct WebDevOverrideEngineRepickTests {
         #expect(page.reloads == 1, "Chromium serves the loop: the page reloads in place")
     }
 
+    /// A background change (`"trigger": "background"`: a layer rebuilt after an app update) never
+    /// reloads a page in sight: it waits until the page is out of sight, then swaps it in place.
+    @Test(.timeLimit(.minutes(1))) func aBackgroundChangeWaitsOutAPageInSightThenSwapsIt() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.servesLivePages = true
+        let (view, page, window) = try await shownInChromium(hosting, scrollY: 0)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+        let deferred = WebSwapDeferred()
+        let sight = RepickSight()
+        deferred.inSight = { _ in sight.shown }
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(),
+                                                watcher: WebDevOverrideWatcher(), background: true, deferred: deferred)?.value
+
+        #expect(page.reloads == 0, "a background change reloaded a page in sight")
+        #expect(deferred.count == 1)
+
+        sight.shown = false
+        deferred.look()
+        for _ in 0..<200 where page.reloads == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(page.reloads == 1, "the page out of sight never took the change")
+        #expect(deferred.count == 0)
+    }
+
+    /// A background change with the page out of sight swaps it at once.
+    @Test(.timeLimit(.minutes(1))) func aBackgroundChangeSwapsAPageOutOfSightAtOnce() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.servesLivePages = true
+        let (view, page, window) = try await shownInChromium(hosting, scrollY: 0)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+        let deferred = WebSwapDeferred()
+        deferred.inSight = { _ in false }
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(),
+                                                watcher: WebDevOverrideWatcher(), background: true, deferred: deferred)?.value
+
+        #expect(page.reloads == 1)
+        #expect(deferred.count == 0)
+    }
+
+    /// An asked change (no trigger, or `"asked"`) swaps a page in sight at once.
+    @Test(.timeLimit(.minutes(1))) func anAskedChangeSwapsAPageInSightAtOnce() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.servesLivePages = true
+        let (view, page, window) = try await shownInChromium(hosting, scrollY: 0)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+        let deferred = WebSwapDeferred()
+        deferred.inSight = { _ in true }
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(),
+                                                watcher: WebDevOverrideWatcher(), deferred: deferred)?.value
+
+        #expect(page.reloads == 1)
+        #expect(deferred.count == 0)
+    }
+
     @Test func aPageThePersonKeepsInChromiumWithNoLoopIsLeftAlone() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -174,4 +242,10 @@ struct WebDevOverrideEngineRepickTests {
 @MainActor
 private final class RepickFocusViews {
     var views: [NSView?] = []
+}
+
+/// Whether the page counts as in sight now.
+@MainActor
+private final class RepickSight {
+    var shown = true
 }

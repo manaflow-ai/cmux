@@ -11968,6 +11968,19 @@ and leave no file. A write stream there also takes `permissions`, as the
 line op does. Without these fields every write is as above, and a client
 sends them only to a server that advertises the capability.
 
+A server that also advertises `fs-write-zstd-v1` takes `"encoding":"zstd"`
+the same way: the wire bytes are one zstd frame (RFC 8878) that must decode
+to exactly `decoded_size` bytes, with a window of at most 16 MiB (window log
+24); a larger window, more or fewer bytes, or bytes that are not one zstd
+frame are `params.invalid` and leave no file. `cmux link sync` stores a part
+that is already compressed (by its name or magic) or near random (a sample at
+7.6 bits a byte or more), else sends zstd at the level its link's measured
+rate allows (deflate on a server with only `fs-write-deflate-v1`), and keeps
+the compressed form only under 97% of the raw size. A part whose wire bytes
+reach 256 KiB goes over a write stream of its own; where the carrier takes no
+stream (no `ready`, or the line path's `params.invalid`) it and every later
+part go as lines.
+
 A server that also advertises `fs-write-nofollow-v1` takes `"no_follow":true`
 on an `fs.write` line (any mode, `append` included) or write stream: a
 symlink as any component of `path` below its root, the last included, is
