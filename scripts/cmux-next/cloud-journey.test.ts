@@ -16,12 +16,13 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
+import { preclaimPhasesText } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
@@ -334,6 +335,12 @@ describe("cloud journey", () => {
     expect(md).toContain("mode: preclaim");
     expect(md).not.toContain("user_secret");
     expect(md).not.toContain("install_secret");
+  });
+
+  test("the preclaim step names where its time went, phase by phase", () => {
+    expect(preclaimPhasesText(undefined)).toBe("");
+    expect(preclaimPhasesText({})).toBe("");
+    expect(preclaimPhasesText({ warm: 812, ready_wait: 6101, install: 2400 })).toBe("; phases: warm 812 ms, ready_wait 6101 ms, install 2400 ms");
   });
 
   test("cold preclaim claims use the post-bind login fallback before chat", () => {
@@ -717,6 +724,25 @@ describe("cloud journey: leaked machine sweep", () => {
   const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
   const ids = (rows: any[], at = now) => staleJourneyMachines(rows, at).map((m) => m.id);
 
+  test("a failed drill machine is taken once its run is FAILED_JOURNEY_MS old, not after LONG_JOURNEY_MS (run 45979891007 left six)", () => {
+    const t20 = tagAt(now - 20 * 60_000);
+    const t5 = tagAt(now - 5 * 60_000);
+    expect(FAILED_JOURNEY_MS).toBe(15 * 60_000);
+    expect(ids([
+      { id: "dead_long", name: `cloud journey auto ${t20} long`, status: "failed", last_active_at: now - 60_000 },
+      { id: "dead_move", name: `cloud journey auto ${t20} long move B`, status: "failed" },
+      { id: "young", name: `cloud journey auto ${t5} long`, status: "failed" },
+      { id: "live", name: `cloud journey auto ${t20} long`, status: "running" },
+      { id: "kept", name: `cloud journey ${t20}`, status: "failed" },
+      { id: "theirs", name: `fp-${t20}`, status: "failed" },
+    ])).toEqual(["dead_long", "dead_move"]);
+  });
+
+  test("machinesByState counts each state, most first", () => {
+    expect(machinesByState([{ status: "paused" }, { status: "failed" }, { status: "paused" }, {}])).toBe("paused 2, failed 1, ? 1");
+    expect(machinesByState([])).toBe("none");
+  });
+
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
     const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
     const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
@@ -1039,6 +1065,16 @@ describe("opRetryable", () => {
   });
 });
 
+describe("deleteRetryable", () => {
+  test("a delete retries an owner reset as well as a cut-off provider call (drill run 45979891007 leaked six)", () => {
+    expect(deleteRetryable({ ok: false, error: { code: "owner.unreachable", message: "Error: Durable Object storage operation exceeded timeout which caused object to be reset.", retryable: true } })).toBe(true);
+    expect(deleteRetryable({ ok: false, error: { code: "mutation.indeterminate", retryable: true } })).toBe(true);
+    expect(deleteRetryable({ ok: false, error: { code: "owner.unreachable", retryable: false } })).toBe(false);
+    expect(deleteRetryable({ ok: false, error: { code: "cloud.machine.not_found", retryable: false } })).toBe(false);
+    expect(deleteRetryable({ ok: true, value: {} })).toBe(false);
+  });
+});
+
 describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
   const unreachable = { status: 503, body: { _tag: "OwnerUnreachable", code: "owner.unreachable", message: "Error: Network connection lost.", retryable: true } };
   const timedOut = { status: 503, body: { ok: false, error: { code: "owner.unreachable", message: "CallTimedOut: team machines: get did not answer", retryable: true } } };
@@ -1354,6 +1390,75 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(await provenLeak(entry, "ghs_token", g.get)).toBeNull();
     expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
     expect(g.calls.filter((c) => c.url.startsWith("https://api.github.com/repos/manaflow-ai/cmux/")).every((c) => c.auth === "Bearer ghs_token")).toBe(true);
+  });
+
+  test("proof HTTP failures retain bounded, scrubbed diagnostics without retrying ordinary permission errors", async () => {
+    const token = "ghs_proof_secret";
+    let calls = 0;
+    const reason = await provenLeak(entry, token, async () => {
+      calls++;
+      return { status: 403, location: null, remaining: "7", text: token + " forbidden " + "x".repeat(400) };
+    });
+    expect(calls).toBe(1);
+    expect(reason).toContain("HTTP 403");
+    expect(reason).toContain("x-ratelimit-remaining=7");
+    expect(reason).toContain("[secret] forbidden");
+    expect(reason).not.toContain(token);
+    expect(Buffer.byteLength(JSON.parse(reason!.split("; body=")[1]))).toBe(200);
+  });
+
+  test("proof retries each GitHub API read once after its exhausted quota resets", async () => {
+    for (const suffix of ["/jobs/128746706182", "/runs/42485334511", "/jobs/128746706182/logs"]) {
+      for (const status of [403, 429]) {
+        const g = gh();
+        let calls = 0;
+        const sleeps: number[] = [];
+        const get = async (url: string, headers: Record<string, string>) => {
+          if (url.endsWith(suffix) && ++calls === 1) return {
+            status, location: null, remaining: "0", reset: "102", retryAfter: "3", text: "rate limit exceeded",
+          };
+          return g.get(url, headers);
+        };
+        expect(await provenLeak(entry, "ghs_token", get, {
+          now: () => 100_000, sleep: async (ms: number) => { sleeps.push(ms); },
+        })).toBeNull();
+        expect(calls).toBe(2);
+        expect(sleeps).toEqual([3000]);
+        expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
+      }
+    }
+  });
+
+  test("proof retries are bounded and require an explicit exhausted quota and usable reset", async () => {
+    for (const over of [
+      { remaining: "0", reset: "102", expectedCalls: 2, expectedSleeps: [2000] },
+      { remaining: "0", reset: "500", expectedCalls: 1, expectedSleeps: [] },
+      { remaining: "0", reset: undefined, expectedCalls: 1, expectedSleeps: [] },
+      { remaining: undefined, reset: "102", expectedCalls: 1, expectedSleeps: [] },
+      { remaining: "1", reset: "102", expectedCalls: 1, expectedSleeps: [] },
+    ]) {
+      let calls = 0;
+      const sleeps: number[] = [];
+      const reason = await provenLeak(entry, "ghs_token", async () => {
+        calls++;
+        return { status: 403, location: null, text: "quota exhausted", ...over };
+      }, { now: () => 100_000, sleep: async (ms: number) => { sleeps.push(ms); } });
+      expect(reason).toContain("HTTP 403");
+      expect(reason).toContain("quota exhausted");
+      expect(calls).toBe(over.expectedCalls);
+      expect(sleeps).toEqual(over.expectedSleeps);
+    }
+  });
+
+  test("a successful quota retry still rejects an untrusted job", async () => {
+    const g = gh({ job: { name: "wake-echo" } });
+    let calls = 0;
+    const reason = await provenLeak(entry, "ghs_token", async (url, headers) => {
+      if (++calls === 1) return { status: 429, location: null, remaining: "0", retryAfter: "1", text: "quota" };
+      return g.get(url, headers);
+    }, { now: () => 100_000, sleep: async () => {} });
+    expect(reason).toContain("is not deploy-staging");
+    expect(calls).toBe(2);
   });
 
   test("a log a contributor's code could have written proves nothing, whatever it prints", async () => {

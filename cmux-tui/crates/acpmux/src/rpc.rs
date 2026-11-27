@@ -782,6 +782,9 @@ pub mod method {
     /// per settled pull request, steering rate, time to the first useful result, by feature;
     /// the local unix socket only, like `MUX_STATS`.
     pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
+    /// Replays recorded session logs against RFD 0161's cache-prefix invariants with no model
+    /// call (`scorecard_replay.rs`); local only, like `MUX_SCORECARD`.
+    pub const MUX_SCORECARD_REPLAY: &str = "_acpmux/scorecard_replay";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
@@ -873,6 +876,9 @@ pub mod method {
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
+    /// bench only, `available: false` in every other build.
+    pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and
@@ -1113,6 +1119,10 @@ pub mod method {
     /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
     /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
     pub const MUX_HISTORY_OFFLOAD: &str = "_acpmux/history_offload";
+    /// One lifecycle pass now (`hub/session_lifecycle.rs`): `{dryRun?}` -> `{archived, offloaded,
+    /// bytesBefore, bytesAfter, bytesFreed, chats, skipped}`; or `{restore: ID}` -> `{sessionId,
+    /// unarchived, rehydrated}`, the chat back in the lists and its log on this disk.
+    pub const MUX_LIFECYCLE: &str = "_acpmux/lifecycle";
     /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
     /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
     pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";

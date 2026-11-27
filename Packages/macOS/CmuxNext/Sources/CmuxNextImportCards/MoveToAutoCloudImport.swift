@@ -77,6 +77,7 @@ public struct MoveToAutoCloudImport {
                                                      clock: ContinuousClock())
             let stderr = String(decoding: result.stderr, as: UTF8.self)
             return Ran(status: result.status, output: result.stdout,
+                       // main-actor-ok: splits a failed run's short stderr for its last line
                        reason: stderr.split(separator: "\n").last.map(String.init) ?? "exit \(result.status)")
         }, confirm: { await Self.showPreview($0) })
     }
@@ -113,6 +114,7 @@ public struct MoveToAutoCloudImport {
     private func moving(_ file: URL, progress: (@MainActor (Double) -> Void)?) async throws -> Int? {
         let planned = try await cli(["migrate", "plan", "laptop", "--out", file.path, "--preview", "--json"], Self.planTimeout)
         guard planned.status == 0 else { throw MoveToAutoCloudFailure.plan(planned.reason) }
+        // main-actor-ok: the planner's one preview reply, a few small fields
         let preview = try JSONDecoder().decode(Preview.self, from: planned.output)
         guard preview.moving > 0 else {
             Self.toast(MoveToAutoCloudStrings.nothing)

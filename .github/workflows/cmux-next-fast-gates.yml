@@ -153,8 +153,15 @@ jobs:
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q --detach "$SHA"
@@ -366,7 +373,7 @@ jobs:
         id: receipt-verify
         if: ${{ ((github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) || (github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 5  # OIDC 20 s + lookup 60 s + head-tree and base git reads 60 s each
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
@@ -487,11 +494,13 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
-            # The egress gate (scripts/ci/egress_new_sites.py) imports these three; without them every pull request's
-            # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
+            # The egress gate (scripts/ci/egress_new_sites.py) imports these, directly or through each other; without
+            # one, every pull request's fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424;
+            # guard_delta.py after #61088, run 45997666983).
             /tests/test_egress_gate.py
             /tests/test_outbound_hosts.py
             /tests/test_classic_cloud_routes.py
+            /tests/guard_delta.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
