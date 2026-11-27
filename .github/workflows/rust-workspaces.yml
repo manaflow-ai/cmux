@@ -43,26 +43,44 @@ on:
       - "cmux-next-ios/rust/**"
       - "cmux-tui/**"
       - "docs/assets/screenshot.png"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
       - "docs/posthog/chief-product-analytics.md"
-      - "examples/extensions/**"
+      - "examples/**"
       - "first-party-apps/**"
       - "mux/packages/brain/conformance/README.md"
       - "mux/packages/brain/conformance/chief-cases.json"
       - "plans/cmux-next/action-catalog.json"
       - "plans/cmux-next/action-surfaces.json"
+      - "plans/cmux-next/links.json"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "samples/apps/**"
       - "schemas/agent-cursor-visibility/vectors.json"
+      - "schemas/agent-pane-placement/vectors.json"
+      - "schemas/auto-archive-ledger/vectors.json"
       - "schemas/auto-session-holder/table.json"
       - "schemas/build-identity/vectors.json"
+      - "schemas/chief-home/vectors.json"
       - "schemas/chief-profile/chiefs-tool.json"
       - "schemas/chief-profile/tool.json"
       - "schemas/cloud-machine-power/table.json"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/dock-model/vectors.json"
+      - "schemas/empty-workspace-repair/vectors.json"
+      - "schemas/focus-chrome-rules/vectors.json"
+      - "schemas/focus-state-rules/vectors.json"
+      - "schemas/focus-ui-creation-hold/vectors.json"
+      - "schemas/focus-ui-guards/vectors.json"
       - "schemas/keybindings/ghostty-reserved-keys.json"
       - "schemas/keymap/key-styles.json"
       - "schemas/keymap/key-vectors.json"
+      - "schemas/layout-model/vectors.json"
       - "schemas/mobile-link-reconnect/table.json"
       - "schemas/ownership-mirror/vectors.json"
+      - "schemas/pane-close/vectors.json"
       - "schemas/pane-focus-neighbor/vectors.json"
       - "schemas/remote-tab/client.json"
       - "schemas/remote-tab/cookie-sync.json"
@@ -76,8 +94,22 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/**"
+      - "schemas/sidebar-archive-marks/vectors.json"
+      - "schemas/sidebar-chat-history/vectors.json"
+      - "schemas/sidebar-doc-listing/vectors.json"
+      - "schemas/sidebar-doc-target/vectors.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-hover-card-rules/vectors.json"
+      - "schemas/sidebar-item-info/vectors.json"
+      - "schemas/sidebar-item-order/vectors.json"
       - "schemas/sidebar-list-rules/vectors.json"
+      - "schemas/sidebar-pending-records/vectors.json"
+      - "schemas/sidebar-row-index/vectors.json"
       - "schemas/sidebar-row/table.json"
+      - "schemas/sidebar-sections/vectors.json"
+      - "schemas/sidebar-session-tree/vectors.json"
+      - "schemas/tab-group-rules/vectors.json"
+      - "schemas/tab-layout-rules/vectors.json"
       - "schemas/tab-strip-commands/vectors.json"
       - "schemas/terminal-corpus/**"
       - "schemas/terminal-size-claim/table.json"
@@ -85,9 +117,10 @@ on:
       - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "schemas/transcript-look/transcript-look.json"
-      - "scripts/ci/api_call_log/env.sh"
-      - "scripts/ci/init-submodule.sh"
-      - "scripts/ci/needs_verdict.py"
+      - "schemas/window-registry/vectors.json"
+      - "schemas/window-rules-swift-out/vectors.json"
+      - "schemas/workspace-auto-namer/vectors.json"
+      - "scripts/ci/**"
       - "scripts/cmux-next/build-app-ffi.sh"
       - "scripts/cmux-next/bundle-remote-browser-host.sh"
       - "scripts/cmux-next/cargo-locks.py"
@@ -104,10 +137,12 @@ on:
       - "tests/fixtures/iroh/relay-minter-request-v1.json"
       - "tests/test_needs_verdict.py"
       - "web/**"
-      - "webviews/src/agent-session/acpmux/**"
+      - "webviews/src/agent-session/**"
+      - "webviews/src/pages/shared/desktop.css"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "!**/*.md"
       - "cmux-next-ios/PROTOCOL.md"
+      - "docs/mdm/managed-preferences.md"
       - "docs/posthog/chief-product-analytics.md"
       - "mux/packages/brain/conformance/README.md"
       - "skills/cmux-customization/references/local-app-views.md"
@@ -175,6 +210,9 @@ on:
       - "cmux-tui/crates/acpmux/skills/cmux-rich-output/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-sudo/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/integrate-harness/SKILL.md"
+      - "cmux-tui/crates/cmux-agent-customize/tests/fixtures/home/.claude/skills/fixture-review/SKILL.md"
+      - "cmux-tui/crates/cmux-agent-customize/tests/fixtures/home/.codex/skills/fixture-deploy/SKILL.md"
+      - "cmux-tui/crates/cmux-agent-customize/tests/fixtures/home/.codex/skills/fixture-lint/SKILL.md"
       - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
       - "cmux-tui/crates/cmux-browser-host/js/guide.md"
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
@@ -185,6 +223,13 @@ on:
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "first-party-apps/skills/README.md"
       - "skills/cmux-extension-author/SKILL.md"
+      - "skills/cmux-extension-author/prompts/README.md"
+      - "skills/cmux-extension-author/prompts/add-animation.md"
+      - "skills/cmux-extension-author/prompts/clone-app-flow.md"
+      - "skills/cmux-extension-author/prompts/composer-slash-command.md"
+      - "skills/cmux-extension-author/prompts/new-tab-page.md"
+      - "skills/cmux-extension-author/prompts/palette-command.md"
+      - "skills/cmux-extension-author/prompts/sidebar-show.md"
       - "skills/cmux-extension-author/recipes/command.md"
       - "skills/cmux-extension-author/recipes/composer-command.md"
       - "skills/cmux-extension-author/recipes/composer-mention.md"
@@ -214,7 +259,9 @@ on:
 
 concurrency:
   # Every feat-cmux-next push gets its own run: the next one only diffs against its own parent.
-  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -235,7 +282,9 @@ jobs:
   # '0' turns it off.
   full-carry:
     name: full-ci base merge carry
-    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
+    # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     continue-on-error: true
@@ -270,7 +319,7 @@ jobs:
   # CI_RECEIPT_AUDIT_PERCENT (default 10) of them still run in full, and a red there names the receipt.
   receipt:
     name: local test receipt
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.body, 'CI-Receipt:'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.body, 'CI-Receipt:'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -308,7 +357,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       # The merge commit and its parents only: no blobs, one small file in the work tree.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -320,7 +369,7 @@ jobs:
             /.gitmodules
 
       - name: Check out the trusted receipt verifier
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .receipt-verifier
@@ -328,6 +377,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/ci_receipt.py
+            /scripts/ci/gh_http.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /.github/rust-workspaces.toml
@@ -360,13 +410,13 @@ jobs:
   # and base stayed red until #53860. Seconds, no cargo: rust-workspaces.py plan --reads-only.
   reads:
     name: workspaces reading a changed file
-    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.draft != true && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.draft != true && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       hit: ${{ steps.reads.outputs.hit }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -389,7 +439,7 @@ jobs:
     # when CI_LAND_FULL_PER_PR is off: next_autoland requires `rust workspaces / <root>` on a head that changes a
     # run workspace's Rust, so skipping it there held every Rust pull request. plan is affected-only, so a landing
     # head that changes no Cargo workspace still pays nothing past plan.
-    if: ${{ (needs.full-carry.outputs.tier != 'none' && (((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled() && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (needs.full-carry.outputs.tier != 'none' && (((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled() && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for the lock check's serial network pass and retries on a cold, busy runner (cmux#41586).
     timeout-minutes: 20
@@ -429,7 +479,7 @@ jobs:
 
       - name: Checkout
         if: ${{ github.event_name != 'pull_request' || !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -449,21 +499,47 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
           if [[ -n "${SPARSE//[[:space:]]/}" ]]; then
             git config core.sparseCheckout true
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml, cmux-tui-spec.yml), with the same
       # switches. A head it gives `none` (an idle or green-head base merge, a same patch, or a base merge onto a
@@ -487,15 +563,13 @@ jobs:
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
           CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
           tier=$(python3 -I scripts/ci/head_tier.py tier)
           echo "tier=$tier"
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
-
-      - name: Test the workspace check
-        run: python3 .github/scripts/test_rust_workspaces.py
 
       - name: Every Cargo workspace is listed
         run: python3 .github/scripts/rust-workspaces.py check
@@ -516,9 +590,40 @@ jobs:
             BASE_SHA=""
           fi
           if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; planning every workspace"
+            # A slow link once stalled this fetch and the fallback linted every crate,
+            # turning old debt in untouched crates into this PR's red. Retry first.
+            fetched=""
+            for attempt in 1 2 3; do
+              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              sleep $((attempt * 5))
+            done
+            [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; planning every workspace after 3 tries"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      # What a pull request's own diff (its merge commit against the base above) gives the two checks below to read.
+      # Measured 11-27 12:1xZ on 20 ready-to-land heads (lane/hm-artifact-card, circuit-host, org-arch-row11): plan
+      # took 63-67 s of the 2.1-2.7 min verdict, 23-32 s of it the lock check and 6-9 s the checker's own tests, on
+      # heads that changed no manifest and no checker file. A lock goes stale only through a manifest, a lock, a
+      # .cargo config or a toolchain pin, so a diff with none of them cannot fail it; the checker's tests only
+      # through the checker. Pushes, the post-merge batch, dispatches, a missing base or an unreadable diff run both.
+      - name: What this pull request changes
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          locks=true checker=true
+          if [[ "$EVENT_NAME" == pull_request && -n "$BASE_SHA" ]] && changed=$(git diff --name-only "$BASE_SHA" HEAD); then
+            grep -qE '(^|/)(Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$|(^|/)\.cargo/' <<<"$changed" || locks=false
+            grep -qxE '\.github/(scripts/(rust-workspaces|test_rust_workspaces)\.py|rust-workspaces\.toml)' <<<"$changed" || checker=false
+          fi
+          echo "locks=$locks checker=$checker"
+          { echo "locks=$locks"; echo "checker=$checker"; } >> "$GITHUB_OUTPUT"
+
+      - name: Test the workspace check
+        if: ${{ steps.diff.outputs.checker != 'false' }}
+        run: python3 .github/scripts/test_rust_workspaces.py
 
       # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
       # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
@@ -532,11 +637,11 @@ jobs:
       # --deadline: the whole check ends inside this job's timeout-minutes, with room for the setup and the plan
       # after it, so a slow resolve is reported as unchecked instead of the job being cut (cmux#41742 review F2).
       - name: Set up pinned Rust (lock check)
-        if: ${{ steps.tier.outputs.tier != 'none' }}
+        if: ${{ steps.tier.outputs.tier != 'none' && steps.diff.outputs.locks != 'false' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Every Cargo.lock matches its manifests
-        if: ${{ steps.tier.outputs.tier != 'none' }}
+        if: ${{ steps.tier.outputs.tier != 'none' && steps.diff.outputs.locks != 'false' }}
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
@@ -558,7 +663,7 @@ jobs:
           BASE_SHA: ${{ steps.base.outputs.sha }}
           TIER: ${{ steps.tier.outputs.tier }}
           # Into feat-cmux-next it runs only for a file a workspace reads (reads above): plan those alone.
-          OWN_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && '--reads-only' || '--own-only') || '' }}
+          OWN_ONLY: ${{ github.event_name == 'pull_request' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && (startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && '--reads-only' || '--own-only') || '' }}
         run: |
           if [[ "$TIER" == none ]]; then
             echo "jobs=[]" >> "$GITHUB_OUTPUT"
@@ -572,7 +677,8 @@ jobs:
 
   workspace:
     name: ${{ matrix.root }}
-    needs: plan
+    # reads: the if below admits a pull request whose diff a workspace reads (needs.reads.outputs.hit).
+    needs: [plan, reads]
     # !cancelled(): plan runs past a skipped receipt (every push and every PR without one), and GitHub's
     # implicit success() skipped this job there, so no planned workspace ran and summary read the skip
     # as a pass.
@@ -582,7 +688,7 @@ jobs:
     # when CI_LAND_FULL_PER_PR is off: next_autoland requires `rust workspaces / <root>` on a head that changes a
     # run workspace's Rust, so skipping it there held every Rust pull request. plan is affected-only, so a landing
     # head that changes no Cargo workspace still pays nothing past plan.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((inputs.only == '' || inputs.only == 'workspace') && (!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.jobs != '[]') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ ((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((inputs.only == '' || inputs.only == 'workspace') && (!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.jobs != '[]') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     strategy:
@@ -620,7 +726,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -685,7 +791,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next post-merge batch runs it. The head
     # handed to land runs it, as plan and workspace above do.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled()) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ ((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled()) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:

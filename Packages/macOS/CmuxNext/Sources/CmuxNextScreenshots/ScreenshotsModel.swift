@@ -1,3 +1,4 @@
+import CCmuxScreenshots
 public import CmuxNextFileGrid
 public import CmuxNextFiles
 public import Foundation
@@ -35,15 +36,17 @@ public final class ScreenshotsModel {
     @ObservationIgnored private let reader: ScreenshotFolderReader
     @ObservationIgnored private let watcher: any FolderWatching
     @ObservationIgnored private var scans: [String: Task<Void, Never>] = [:]
-    /// The folders each source's last read covered, by source id.
-    @ObservationIgnored private var foldersBySource: [String: [String]] = [:]
     /// One watch per folder path.
     @ObservationIgnored private var watches: [String: Task<Void, Never>] = [:]
-    /// Above this many changed names in one batch, the source is read again.
-    @ObservationIgnored private let rescanThreshold = 128
+    /// The sources' bookkeeping (cmux-screenshots `pane.rs`): which folders each read covered, which
+    /// failed, what to watch and what a watch event means.
+    @ObservationIgnored private let pane: RustHandle
 
     /// Whether the folders are read and watched (``startListing()``).
     public private(set) var isListing: Bool
+
+    /// Whether the page lists and every folder's last read failed (missing permission, or removed).
+    public private(set) var accessMissing = false
 
     /// Makes a model.
     ///
@@ -57,28 +60,24 @@ public final class ScreenshotsModel {
         self.reader = reader
         self.watcher = watcher
         isListing = listsAtOnce
+        pane = RustHandle(cmux_screenshots_pane_new(listsAtOnce)) { cmux_screenshots_pane_free($0) }
     }
 
     /// Reads and watches the folders from now on (the page is on screen).
     public func startListing() {
-        guard !isListing else { return }
+        guard cmux_screenshots_pane_start(pane.pointer) else { return }
         isListing = true
         for source in sources { scheduleRescan(source) }
-        syncWatches()
+        applyState()
     }
 
     /// Stops reading and watching and drops the listing until ``startListing()`` (access was taken back).
     public func pauseListing() {
         stop()
+        cmux_screenshots_pane_pause(pane.pointer)
         isListing = false
         listing = ScreenshotListing()
-        unreadableSourceIDs.removeAll()
-        foldersBySource = Dictionary(sources.map { ($0.id, [$0.folder.path]) }, uniquingKeysWith: { first, _ in first })
-    }
-
-    /// Whether the page lists and every folder's last read failed (missing permission, or removed).
-    public var accessMissing: Bool {
-        isListing && !sources.isEmpty && sources.allSatisfy { unreadableSourceIDs.contains($0.id) }
+        applyState()
     }
 
     /// The files the grid shows: the selected source's (or all), matching the search, newest first.
@@ -89,10 +88,8 @@ public final class ScreenshotsModel {
     /// Where a drop is saved: the selected source when it takes drops, else the first that does
     /// (the macOS screenshot folder).
     public var dropDestination: URL? {
-        if let selectedSourceID, let selected = sources.first(where: { $0.id == selectedSourceID }), selected.acceptsDrops {
-            return selected.folder
-        }
-        return sources.first(where: \.acceptsDrops)?.folder
+        let id = ScreenshotsFFI.take(ScreenshotsFFI.bytes(selectedSourceID ?? "") { cmux_screenshots_pane_drop_source(pane.pointer, $0, $1) })
+        return sources.first { $0.id == id }?.folder
     }
 
     /// The folder paths watched now (each source's folder and the subfolders it entered).
@@ -104,21 +101,20 @@ public final class ScreenshotsModel {
     /// - Parameter newSources: the folders, in menu order.
     public func setSources(_ newSources: [ScreenshotSource]) {
         guard newSources != sources else { return }
-        let old = Dictionary(sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let kept = Set(newSources.map(\.id))
-        for source in sources where !kept.contains(source.id) {
-            scans.removeValue(forKey: source.id)?.cancel()
-            foldersBySource.removeValue(forKey: source.id)
-            listing.removeSource(source.id)
-            unreadableSourceIDs.remove(source.id)
+        let json = ScreenshotsFFI.json(newSources.map {
+            // main-actor-ok: one small rule object per screenshot folder (a handful), parsed once per sources change
+            ["id": $0.id, "label": $0.label, "folder": $0.folder.path, "acceptsDrops": $0.acceptsDrops, "rule": (try? JSONSerialization.jsonObject(with: Data($0.rule.json.utf8))) ?? [:]] as [String: Any]
+        })
+        let plan = ScreenshotsFFI.object(ScreenshotsFFI.bytes(json) { cmux_screenshots_pane_set_sources(pane.pointer, $0, $1) })
+        for id in plan["removed"] as? [String] ?? [] {
+            scans.removeValue(forKey: id)?.cancel()
+            listing.removeSource(id)
         }
         sources = newSources
-        if let selectedSourceID, !kept.contains(selectedSourceID) { self.selectedSourceID = nil }
-        for source in newSources where old[source.id] != source {
-            foldersBySource[source.id] = [source.folder.path]
-            scheduleRescan(source)
-        }
-        syncWatches()
+        if let selectedSourceID, !newSources.contains(where: { $0.id == selectedSourceID }) { self.selectedSourceID = nil }
+        let read = Set(plan["read"] as? [String] ?? [])
+        for source in newSources where read.contains(source.id) { scheduleRescan(source) }
+        applyState()
     }
 
     /// Reads every folder again and returns when all are read.
@@ -153,50 +149,43 @@ public final class ScreenshotsModel {
     ///   - change: what CmuxNextFiles' watcher reported.
     ///   - folder: the watched folder.
     public func apply(_ change: FolderChange, in folder: URL) async {
-        guard isListing, let source = source(containing: folder.path) else { return }
-        guard case .items(let names) = change, names.count <= rescanThreshold else { return scheduleRescan(source) }
-        let known = Set(foldersBySource[source.id] ?? [])
-        let depth = Self.depth(of: folder.path, below: source.folder.path)
-        var relist = false
-        for name in Set(names) {
-            let url = folder.appendingPathComponent(name)
-            if known.contains(url.path) {
-                relist = true
-                continue
-            }
-            guard let entry = await reader.entry(at: url) else {
-                listing.remove(path: url.path)
-                continue
-            }
-            if ScreenshotFolderReader.enters(entry, depth: depth, rule: source.rule) {
-                relist = true
-            } else if let item = ScreenshotFolderReader.item(entry, in: source), Self.isListed(url.path, in: source) {
-                listing.upsert(item)
-            } else {
-                listing.remove(path: url.path)
+        let names: String? = if case .items(let items) = change { ScreenshotsFFI.json(items) } else { nil }
+        let plan = ScreenshotsFFI.object(ScreenshotsFFI.strings([folder.path, names ?? ""]) { text in
+            cmux_screenshots_pane_change(pane.pointer, text[0].bytes, text[0].count, names == nil ? nil : text[1].bytes, text[1].count)
+        })
+        if let id = plan["rescan"] as? String, let source = sources.first(where: { $0.id == id }) { return scheduleRescan(source) }
+        guard let id = plan["source"] as? String, let source = sources.first(where: { $0.id == id }) else { return }
+        var relist = plan["relist"] as? Bool ?? false
+        for path in plan["paths"] as? [String] ?? [] {
+            let entry = await reader.entry(at: URL(fileURLWithPath: path))
+            switch entryAction(source: id, folder: folder.path, path: path, entry: entry) {
+            case 1: relist = true
+            case 2:
+                if let entry, let item = ScreenshotFolderReader.item(entry, in: source) { listing.upsert(item) } else { listing.remove(path: path) }
+            default: listing.remove(path: path)
             }
         }
         if relist { scheduleRescan(source) }
     }
 
-    /// Whether `path` sits where `source`'s rule lists files (its depth and folder prefix).
-    static func isListed(_ path: String, in source: ScreenshotSource) -> Bool {
-        let root = source.folder.path
-        guard path.hasPrefix(root + "/") else { return false }
-        let parts = path.dropFirst(root.count + 1).split(separator: "/").map(String.init)
-        guard parts.count >= 1, parts.count - 1 <= source.rule.depth else { return false }
-        return parts.dropLast().enumerated().allSatisfy { source.rule.enters(entryKind: 2, hidden: false, name: $1, depth: $0) }
-    }
-
-    /// How many folder levels `path` is below `root` (0 for the root itself).
-    private static func depth(of path: String, below root: String) -> Int {
-        path == root ? 0 : path.dropFirst(root.count + 1).split(separator: "/").count
+    /// What a looked-at path does (0 remove, 1 read the source again, 2 list it).
+    private func entryAction(source id: String, folder: String, path: String, entry: FileEntry?) -> UInt32 {
+        ScreenshotsFFI.strings([id, folder, path, entry?.name ?? ""]) { parts in
+            var raw = CmuxScreenshotsEntry(kind: entry.map { ScreenshotsFFI.raw($0.kind) } ?? 0, hidden: entry?.isHidden ?? false,
+                                           name: parts[3].bytes, name_len: parts[3].count,
+                                           system_kind: ScreenshotsFFI.systemKind(ofFileNamed: entry?.name ?? ""),
+                                           modified: entry?.modified.timeIntervalSince1970 ?? 0)
+            return withUnsafePointer(to: &raw) {
+                cmux_screenshots_pane_entry_action(pane.pointer, parts[0].bytes, parts[0].count, parts[1].bytes, parts[1].count,
+                                                   parts[2].bytes, parts[2].count, entry == nil ? nil : $0)
+            }
+        }
     }
 
     /// The source whose folder holds `path` (the deepest one).
     private func source(containing path: String) -> ScreenshotSource? {
-        sources.filter { path == $0.folder.path || path.hasPrefix($0.folder.path + "/") }
-            .max { $0.folder.path.count < $1.folder.path.count }
+        let id = ScreenshotsFFI.take(ScreenshotsFFI.bytes(path) { cmux_screenshots_pane_source_containing(pane.pointer, $0, $1) })
+        return sources.first { $0.id == id }
     }
 
     private func scheduleRescan(_ source: ScreenshotSource) {
@@ -206,19 +195,26 @@ public final class ScreenshotsModel {
         // task-owner: `scans[source.id]`; a newer read of the source or stop() cancels it
         scans[source.id] = Task { [weak self] in
             let result = await reader.read(source)
-            guard !Task.isCancelled, let self, self.sources.contains(where: { $0.id == source.id }) else { return }
+            guard !Task.isCancelled, let self else { return }
+            let taken = ScreenshotsFFI.strings([source.id, ScreenshotsFFI.json(result.folders)]) { parts in
+                cmux_screenshots_pane_read_done(self.pane.pointer, parts[0].bytes, parts[0].count, result.readable, parts[1].bytes, parts[1].count)
+            }
+            guard taken else { return }
             self.listing.replace(source: source.id, with: result.items)
-            self.foldersBySource[source.id] = result.readable ? result.folders : [source.folder.path]
-            if result.readable { self.unreadableSourceIDs.remove(source.id) } else { self.unreadableSourceIDs.insert(source.id) }
-            self.syncWatches()
+            self.applyState()
             self.scans[source.id] = nil
         }
     }
 
-    /// Watches exactly the folders the sources' last reads covered.
-    private func syncWatches() {
-        guard isListing else { return }
-        let wanted = Set(sources.flatMap { foldersBySource[$0.id] ?? [$0.folder.path] })
+    /// Takes the pane's failed reads and watches exactly the folders it names.
+    private func applyState() {
+        let state = ScreenshotsFFI.object(cmux_screenshots_pane_state(pane.pointer))
+        let unreadable = Set(state["unreadable"] as? [String] ?? [])
+        if unreadable != unreadableSourceIDs { unreadableSourceIDs = unreadable }
+        let missing = state["accessMissing"] as? Bool ?? false
+        if missing != accessMissing { accessMissing = missing }
+        guard let watched = state["watched"] as? [String] else { return }
+        let wanted = Set(watched)
         for (path, task) in watches where !wanted.contains(path) {
             task.cancel()
             watches[path] = nil
