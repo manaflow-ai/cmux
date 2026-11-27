@@ -67,16 +67,21 @@ import Testing
 
     @Test func theLoadsOwnSeedDoesNotForgetIt() async {
         var search: RemoteTmuxFullHistorySearch? = nil
+        var stateAfterOwnSeed: RemoteTmuxFullHistorySearch.State?
         search = RemoteTmuxFullHistorySearch(
             reseed: {
                 // The connection hands the load's seed to the mirror before the load returns.
                 search?.historyWasReseeded()
+                stateAfterOwnSeed = search?.state
                 return .loaded(historyRows: 9, truncated: false)
             },
             rerunSearch: {}
         )
 
         #expect(await search?.load() == true)
+        // Still loading in between, so the button keeps its spinner and a second click
+        // cannot start a second load.
+        #expect(stateAfterOwnSeed == .loading)
         #expect(search?.state == .loaded(historyRows: 9, truncated: false))
     }
 
