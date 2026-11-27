@@ -70,8 +70,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// Cloud only): from its snapshot when it is built, otherwise from the image with its setup started
     /// on the machine. Not an option of the machine itself, so ``isDefault`` ignores it.
     public var environment: String?
-    /// The explicit infrastructure provider for a new machine; nil preserves the backend default.
-    public var provider: String?
     /// The ladder size a chat's folder needs (``CloudChatSize``, from the start's preflight): the create asks at least
     /// its vCPUs, memory and disk (``atLeast(cpu:memoryMb:diskMb:)``). Nil: the create's own default.
     public var chatSize: CloudChatSize?
@@ -116,7 +114,7 @@ public struct CloudMachineRequest: Equatable, Sendable {
         self.repo = repo
     }
 
-    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil && provider == nil }
+    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
 
     /// The idle pause a new machine is given, nil to leave the server's. A persistent machine is
     /// never idle-paused (0). The Mac pause/resume experiment (`labs.pauseAgentMachines`, opt-in)
@@ -130,15 +128,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an
     /// ``environment`` never does: that path would make the machine without it.
     public var takesPlainPath: Bool { isDefault && environment == nil }
-
-    /// Adds an explicit provider to the create payload while leaving the backend-generated
-    /// payload unchanged when no provider was selected.
-    public func argsWithProvider(_ args: JSONValue) -> JSONValue {
-        guard let provider else { return args }
-        var fields = args.objectValue ?? [:]
-        fields["provider"] = .string(provider)
-        return .object(fields)
-    }
 
     /// Where a named create in a Cloud environment (`cloud new-machine --name N --environment E`, which
     /// `cloud start-chat --environment` runs) stands against the machines this app knows.

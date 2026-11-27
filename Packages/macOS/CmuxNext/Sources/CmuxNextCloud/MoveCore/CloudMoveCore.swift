@@ -136,10 +136,9 @@ extension CloudMachineRequest {
     /// `environment`: the Cloud environment the chat picked (`env_…`), which boots the machine in it (`cloud.environment.boot`,
     /// never the person's generic spare); nil (the chip's Auto) keeps the plain create.
     public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?, size: CloudChatSize? = nil, diskMb: Int? = nil,
-                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil, environment: String? = nil, provider: String? = nil) {
+                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil, environment: String? = nil) {
         self.init()
         self.environment = environment
-        self.provider = provider
         autosize = pick?.autosize
         chatSize = size
         chatDiskMb = diskMb

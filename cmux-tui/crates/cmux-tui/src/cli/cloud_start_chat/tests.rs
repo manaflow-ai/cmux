@@ -66,7 +66,7 @@ fn the_model_is_taken_from_model_or_agent_and_checked() {
 fn explicit_provider_creates_before_starting_on_the_returned_machine() {
     for provider in ["gcp", "own-host", "freestyle"] {
         let asked = request(&["--provider", provider, "--name", "insurance", "--no-focus"]);
-        let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+        let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("")]);
         let outcome = run(&mut fake, &asked);
         assert!(matches!(outcome, Outcome::Done(_)), "{outcome:?}");
         assert_eq!(
@@ -133,7 +133,12 @@ fn explicit_provider_pending_start_gives_a_parseable_retry_on_its_created_machin
     assert_eq!(exit, 75);
     assert_eq!(error["details"]["creation_accepted"], true);
     let again = error["details"]["again"].as_str().expect("retry command");
-    let args = again.split_whitespace().skip(3).map(str::to_owned).collect::<Vec<_>>();
+    let args = again
+        .split_whitespace()
+        .skip(3)
+        .filter(|word| *word != "--json")
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let Parsed::Run(retry) = parse(&args, || Ok(String::new())).expect("valid retry") else {
         panic!("{again}")
     };
