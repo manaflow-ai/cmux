@@ -4195,3 +4195,33 @@ fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
+
+[step.phone-speed-icount]
+job = "linux"
+pr_scope = false
+timeout = 300
+title = "Phone terminal instruction budgets"
+about = "Callgrind counts production phone terminal echo, streaming and rotation at 100 and 10000 seeded terminal lines"
+needs = ["rust", "valgrind"]
+inputs = [
+  "scripts/bench/phone-speed/**",
+  "scripts/bench/benches/phone_speed.py",
+  "scripts/bench/tests/test_phone_speed.py",
+  "scripts/bench/tests/fixtures/phone-speed/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+]
+run = '''
+set -euo pipefail
+python3 scripts/bench/phone-speed/check_lock.py
+export CARGO_TARGET_DIR="$PWD/scripts/bench/phone-speed/target"
+if [ -d "$CI_TOOLS/valgrind-root/usr/include" ]; then
+  export VALGRIND_INCLUDE="$CI_TOOLS/valgrind-root/usr/include"
+fi
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+cargo +"$channel" test --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml
+cargo +"$channel" run --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml -- check
+python3 scripts/bench/tests/test_phone_speed.py
+'''
