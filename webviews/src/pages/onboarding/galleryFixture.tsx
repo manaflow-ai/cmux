@@ -37,6 +37,8 @@ export type OnboardingGalleryProps = {
   /** experiments.introWalk on: Make cmux Yours as the walk's four screens, opened on `makeScreen`. */
   introWalk?: boolean;
   makeScreen?: MakeItYoursScreen;
+  /** The walk's other settings as the host sends them (`MakeItYoursState.walk`), by dotted path. */
+  walkValues?: Record<string, string | number | boolean | null>;
   /** The host's sign-in state on the agents step (shared/signIn/galleryFixtures.ts READINESS): sent
    * as `signInReadiness` and `signInAccounts`, its sign-in started through the mock's op. */
   readiness?: ReadinessFixture;
@@ -55,6 +57,7 @@ export function OnboardingGallery({
   walk,
   introWalk,
   makeScreen,
+  walkValues,
   readiness,
   online,
 }: OnboardingGalleryProps) {
@@ -65,7 +68,7 @@ export function OnboardingGallery({
         : step === "computerUse"
           ? computerUseState(computerUse)
           : step === "makeItYours"
-            ? makeItYoursState(makeItYours, { introWalk })
+            ? makeItYoursState(makeItYours, { introWalk, walk: walkValues })
             : agentsState(agents);
     const state = readiness ? withReadiness(base, READINESS[readiness]) : base;
     return { provider: new MockOnboardingProvider(step, state), state };

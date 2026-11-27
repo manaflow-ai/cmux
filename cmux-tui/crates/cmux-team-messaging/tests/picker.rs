@@ -158,3 +158,87 @@ fn query_matches_threads_only_where_readable() {
     assert_eq!(ids, vec!["space-1/1"]);
     assert!(pick(&bridged("slack-x", Bridge::Slack), "", &cx).candidates.is_empty());
 }
+
+/// The duress number: a 1000-person, 1000-agent team with 200 project spaces of ~300 members and
+/// 5000 recent threads, a third of principals live. Run with `--release -- --ignored --nocapture`;
+/// the assertion is a loose ceiling.
+#[test]
+#[ignore = "measurement"]
+fn pick_at_team_scale() {
+    use std::time::Instant;
+    let mut principals = vec![person("viewer", Grants::all())];
+    let mut members: Vec<String> = Vec::new();
+    for i in 0..1000 {
+        let mut p = person(&format!("p{i}"), Grants::all());
+        p.display_name = format!("Person {i}");
+        let mut a = agent(&format!("a{i}"), &format!("p{i}"), Grants::all());
+        a.display_name = format!("Agent {i}");
+        members.push(p.id.clone());
+        members.push(a.id.clone());
+        principals.push(p);
+        principals.push(a);
+    }
+    let spaces: Vec<Space> = (0..200)
+        .map(|s| {
+            let m: Vec<&str> = members
+                .iter()
+                .skip(s * 7 % 1500)
+                .take(300)
+                .map(String::as_str)
+                .chain(["viewer"])
+                .collect();
+            Space {
+                id: format!("x{s}"),
+                kind: SpaceKind::Project,
+                title: format!("Project {s}"),
+                ..space(&m)
+            }
+        })
+        .collect();
+    let recent: Vec<Thread> = (0..5000u64)
+        .rev()
+        .map(|t| {
+            let mut th = thread(&format!("x{}/{t}", t % 200));
+            th.space_id = format!("x{}", t % 200);
+            th.subject = format!("Thread {t}");
+            th
+        })
+        .collect();
+    let here: Vec<Participant> = principals
+        .iter()
+        .step_by(3)
+        .map(|p| Participant {
+            principal_id: p.id.clone(),
+            kind: p.kind,
+            name: p.display_name.clone(),
+            status: Status::Active,
+            working: false,
+        })
+        .collect();
+    let t = team(Grants::all());
+    let cx = PickerContext {
+        team: &t,
+        spaces: &spaces,
+        principals: &principals,
+        recent: &recent,
+        here: &here,
+    };
+    let mut samples = Vec::new();
+    for q in ["", "p", "person 99", "@a12", "thread 4"] {
+        let mut per = Vec::new();
+        for _ in 0..5 {
+            let start = Instant::now();
+            let got = pick(&principals[0], q, &cx);
+            per.push(start.elapsed());
+            assert!(!got.candidates.is_empty(), "{q}");
+        }
+        per.sort();
+        println!("pick {q:?}: median {:?}", per[2]);
+        samples.extend(per);
+    }
+    samples.sort();
+    let p50 = samples[samples.len() / 2];
+    let p95 = samples[samples.len() * 95 / 100];
+    println!("pick p50 {p50:?} p95 {p95:?} over {} samples", samples.len());
+    assert!(p95.as_millis() < 5000);
+}

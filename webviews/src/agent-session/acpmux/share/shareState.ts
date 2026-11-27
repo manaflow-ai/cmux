@@ -6,7 +6,7 @@
 // and the link Copy link puts on the clipboard.
 import { postNative } from "../native";
 
-export type ShareRole = "view" | "talk";
+export type ShareRole = "view" | "talk" | "drive";
 export type GeneralAccess = "restricted" | "anyone";
 
 export interface ShareGuest {
@@ -30,9 +30,8 @@ export interface ChatShare {
   state: string;
   url: string | null;
   inviteUrl: string | null;
-  /** The role every link guest gets: `view` for a dialog's Anyone with the link; null for a link
-   * made elsewhere (Share with Guest…, whose guests may send held messages). */
-  role: ShareRole | null;
+  /** The role every link guest gets: `view` or `talk`; Drive is never a link role. */
+  role: Exclude<ShareRole, "drive"> | null;
   createdAt: number;
   expiresAt: number;
   usesLeft: number;
