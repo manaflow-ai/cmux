@@ -783,3 +783,6 @@ async fn listen_refuses_remote_callers_bad_addresses_and_bad_ids_before_the_hub(
     assert!(fake.listen_calls.lock().unwrap().is_empty());
     assert!(fake.browsed.lock().unwrap().is_empty());
 }
+
+#[path = "team_directory_tests.rs"]
+mod directory;

@@ -240,6 +240,7 @@ public final class PageInputReadiness {
     /// The state ``stateExpression`` read, as the readiness script's message; nil for anything else.
     static func parseState(_ json: String?) -> [String: Any]? {
         guard let data = json?.data(using: .utf8) else { return nil }
+        // main-actor-ok: the readiness state is a few short fields, read once per refresh.
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
