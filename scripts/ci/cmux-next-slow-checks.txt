@@ -33,6 +33,9 @@ python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 [conn-notices]
 scripts/cmux-next/check-connection-notices.sh "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
+[retry-prompts]
+python3 -I scripts/cmux-next/check-retry-prompts.py --root "$GITHUB_WORKSPACE"
+python3 -I scripts/cmux-next/tests/test_check_retry_prompts.py
 [checks-structure]
 python3 tests/test_cmux_next_checks_workflow.py
 [package-dependency-lists]
