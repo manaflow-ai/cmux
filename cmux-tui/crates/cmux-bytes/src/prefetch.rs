@@ -51,7 +51,9 @@ pub fn rank(
 ) -> Vec<Candidate> {
     let mut best: HashMap<&str, &Candidate> = HashMap::new();
     for c in cands {
-        if already_held.contains(&c.path) || !(c.likelihood >= min_likelihood) {
+        if already_held.contains(&c.path)
+            || c.likelihood.partial_cmp(&min_likelihood).is_none_or(|o| o.is_lt())
+        {
             continue;
         }
         let e = best.entry(c.path.as_str()).or_insert(c);
