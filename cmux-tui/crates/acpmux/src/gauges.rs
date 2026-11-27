@@ -238,6 +238,9 @@ pub struct PeerLists {
     bytes: AtomicU64,
     peak_lists: AtomicU64,
     peak_bytes: AtomicU64,
+    /// Whole lists a newer list of the same peer replaced before the hub applied them
+    /// (`hub/peer_list_slot.rs`), since the daemon started.
+    superseded: AtomicU64,
 }
 
 impl PeerLists {
@@ -256,8 +259,16 @@ impl PeerLists {
         let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
     }
 
+    /// A waiting list of `bytes` was replaced by a newer one of its peer: it is no longer
+    /// waiting, and is never applied.
+    pub fn superseded(&self, bytes: u64) {
+        self.taken(bytes);
+        self.superseded.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn status(&self) -> Value {
         json!({
+            "superseded": self.superseded.load(Ordering::Relaxed),
             "lists": self.lists.load(Ordering::Relaxed),
             "bytes": self.bytes.load(Ordering::Relaxed),
             "peakLists": self.peak_lists.load(Ordering::Relaxed),
