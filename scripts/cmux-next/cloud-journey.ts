@@ -563,6 +563,13 @@ export const ownerUnreachable = (body: any): boolean => {
   const e = body?.error && typeof body.error === "object" ? body.error : body;
   return e?.code === "owner.unreachable" && e?.retryable === true;
 };
+/**
+ * A machine delete sends the same key again on either retryable answer: a cut-off provider call, or an owner reset
+ * (owner.unreachable). Retrying only the first leaked all six machines of drill run 45979891007 (staging's team
+ * object overloaded and reset, 2026-11-27): each delete answered owner.unreachable once and gave up, and the drills'
+ * long names keep a leak for LONG_JOURNEY_MS before any sweep may delete it.
+ */
+export const deleteRetryable = (body: any): boolean => opRetryable(body) || ownerUnreachable(body);
 /** How long the resume matrix's send arm waits for cmux's own idle pause: the aggressive policy's 60 s window after
  * the turn ends, the VM's next activity report, and the pause itself. */
 const AUTO_PAUSE_WAIT_MS = 300_000;
@@ -633,7 +640,7 @@ export class Api {
   }
   /**
    * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
-   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
+   * (mutation.indeterminate, retryable) or its owner was reset (owner.unreachable), for up to `budgetMs`. op() gives up after three tries in about six
    * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
@@ -641,7 +648,7 @@ export class Api {
     await this.fresh();
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
-      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
+      if (deleteRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
@@ -4338,7 +4345,21 @@ export function autoMachineName(tag: string, long: boolean): string {
 }
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
+/**
+ * A failed machine is dead whatever its age: the platform never brings a failed machine back, so a run's own
+ * window is no reason to keep it. Its own run deletes it inside the failing step (a create_overdue answer, then up to
+ * DELETE_BUDGET_MS of delete), so a failed machine is the sweep's once its tag is this old. Waiting LONG_JOURNEY_MS
+ * instead grew the drill account about 11 machines per drill pair (run 45979891007 left six failed ones; census
+ * 10:29Z 2026-11-27: 130 machines, 37 failed) while each sweep deleted 0-1.
+ */
+export const FAILED_JOURNEY_MS = 15 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
+/** The account's machines counted by state, for the sweep's before and after (`running 12, paused 63, failed 37`). */
+export function machinesByState(rows: any[]): string {
+  const n = new Map<string, number>();
+  for (const r of rows) { const s = String(r?.status ?? "?"); n.set(s, (n.get(s) ?? 0) + 1); }
+  return [...n].sort((a, b) => b[1] - a[1]).map(([s, c]) => `${s} ${c}`).join(", ") || "none";
+}
 
 /**
  * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
@@ -4347,7 +4368,8 @@ export interface StaleMachine { id: string; name: string; status: string; create
  * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
  * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old (`longMs` for a
  * long run's `jr-<tag> long…`), with no activity
- * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
+ * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted. A failed one is picked once
+ * its tag is FAILED_JOURNEY_MS old, whatever its window or activity.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
@@ -4363,8 +4385,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
-    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
+    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
+    if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
     if (id) out.push({ id, name, status: String(r.status ?? "?"), created });
@@ -5660,7 +5682,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
           await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
         }
-        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines)${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+        // The account's count by state before and after, so a run's log shows whether the account is shrinking.
+        const after = await listAllMachines((params) => api.read("cloud.machine.list", params)).then((r) => `${r.length} machines: ${machinesByState(r)}`, (e) => `list failed: ${err(e)}`);
+        console.log(`sweep: before ${rows.length} machines: ${machinesByState(rows)}; after ${after}`);
+        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted; before ${rows.length} machines: ${machinesByState(rows)}; after ${after}${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
         J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
       } catch (e) {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
