@@ -124,7 +124,7 @@ final class CEFResizeFence {
 
 /// The app's send right on one fence, freed once by whichever comes first: every page reported (main actor) or the
 /// fence's deadline (off the main actor, ``CEFResizeFences/join(window:layer:timeoutMs:refreshMs:ask:)``).
-final class CEFFenceRight: @unchecked Sendable {
+nonisolated final class CEFFenceRight: @unchecked Sendable {
     private let lock = NSLock()
     private var name: mach_port_t
 
