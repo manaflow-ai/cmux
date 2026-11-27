@@ -102,8 +102,9 @@ pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<S
 /// command without starting it.
 ///
 /// A `codex app-server` started in a checkout still filling gets the PreToolUse hook that holds
-/// each of its tools until the checkout is whole (`codex_repo_gate.rs`), when it can run one: the
-/// command is built, and built again with the hook.
+/// each of its tools until the checkout is whole (`codex_repo_gate.rs`), and with harness magic's
+/// dedupe on, the hooks that refuse a repeated read-only command (`codex_dedupe.rs`), when it can
+/// run them: the command is built, and built again with the hooks.
 pub(crate) fn harness_command(
     name: &str,
     profile: &HarnessProfile,
@@ -111,27 +112,31 @@ pub(crate) fn harness_command(
     command_line: Option<(String, Vec<String>)>,
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
+    use crate::codex_repo_gate::Hooks;
     let (cmd, codex) =
-        build_harness_command(name, profile, cwd, command_line.clone(), session, false)?;
-    let gate = codex.is_some_and(|(program, args)| {
-        crate::codex_repo_gate::wanted(&program, &args, cwd, &explicit_env(cmd.as_std()))
-    });
-    if !gate {
+        build_harness_command(name, profile, cwd, command_line.clone(), session, Hooks::default())?;
+    let Some((program, args)) = codex else { return Ok(cmd) };
+    let env = explicit_env(cmd.as_std());
+    let hooks = Hooks {
+        gate: crate::codex_repo_gate::wanted(&program, &args, cwd, &env),
+        dedupe: crate::codex_dedupe::wanted(&program, &args, cwd, &env),
+    };
+    if hooks == Hooks::default() {
         return Ok(cmd);
     }
-    Ok(build_harness_command(name, profile, cwd, command_line, session, true)?.0)
+    Ok(build_harness_command(name, profile, cwd, command_line, session, hooks)?.0)
 }
 
-/// [`harness_command`], with the repository hook when `repo_gate` (a local `codex app-server`
-/// launch only). Without it, a local `codex app-server` launch's program and arguments come
-/// back too, for [`crate::codex_repo_gate::wanted`].
+/// [`harness_command`], with `hooks` (a local `codex app-server` launch only). Without any, a
+/// local `codex app-server` launch's program and arguments come back too, for
+/// [`crate::codex_repo_gate::wanted`] and [`crate::codex_dedupe::wanted`].
 fn build_harness_command(
     name: &str,
     profile: &HarnessProfile,
     cwd: &std::path::Path,
     command_line: Option<(String, Vec<String>)>,
     session: Option<(&str, &str)>,
-    repo_gate: bool,
+    hooks: crate::codex_repo_gate::Hooks,
 ) -> Result<(Command, Option<(String, Vec<String>)>)> {
     // A session's Claude Code (a planned command line) gets cmux's browser
     // and computer use tools and skills (agent_tools.rs); a remote chain's
@@ -363,8 +368,8 @@ fn build_harness_command(
     // A remote chain's sandboxed launch runs only what its plan checked: no hook.
     let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
     let (launch, codex) = match codex {
-        Some(_) if repo_gate => {
-            (crate::codex_repo_gate::gated_args(&launch).unwrap_or(launch), None)
+        Some(_) if hooks != crate::codex_repo_gate::Hooks::default() => {
+            (crate::codex_repo_gate::hooked_args(&launch, hooks).unwrap_or(launch), None)
         }
         codex => (launch, codex),
     };
