@@ -92,8 +92,8 @@ describe("make cmux yours", () => {
     // The look screen first, its six tiles each with a light and a dark face.
     const look = renderScreen(makeItYoursState("fresh", WALK), "look");
     expect(look.match(/name="look"/g)?.length).toBe(6);
-    expect(look.match(/data-face="light"/g)?.length).toBe(5);
-    expect(look.match(/data-face="dark"/g)?.length).toBe(5);
+    expect(look.match(/data-face="light"/g)?.length).toBe(6);
+    expect(look.match(/data-face="dark"/g)?.length).toBe(6);
     expect(look).not.toContain('name="density"');
     // Density is asked once, on Tune only.
     expect(render(makeItYoursState("fresh", WALK)).match(/name="density"/g)?.length).toBe(3);
@@ -131,11 +131,11 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh", WALK), "cards");
     const rows = render(makeItYoursState("fresh", WALK), "rows");
-    // Five looks, two ways to work, two places chats run, three chat feels, three permissions, five
+    // Six looks, two ways to work, two places chats run, three chat feels, three permissions, five
     // Computer Use modes, three noises, three densities (two more behind More), None and eleven
     // backgrounds, four materials.
     for (const html of [cards, rows])
-      expect(html.match(/type="radio"/g)?.length).toBe(5 + 2 + 2 + 3 + 3 + 5 + 3 + 3 + 12 + 4);
+      expect(html.match(/type="radio"/g)?.length).toBe(6 + 2 + 2 + 3 + 3 + 5 + 3 + 3 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
