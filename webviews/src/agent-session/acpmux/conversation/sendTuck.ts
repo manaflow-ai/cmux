@@ -269,8 +269,3 @@ function shownText(box: HTMLElement): string | undefined {
     chip.remove();
   return (copy.textContent ?? "").replace(/[^\S\n]+/g, " ").trim();
 }
-
-/// Ends a tuck still drawing (tests).
-export function endSendTuck(): void {
-  running?.();
-}
