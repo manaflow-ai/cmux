@@ -2626,6 +2626,12 @@ pub fn reset(snapshot: &Snapshot) {
         self.assertIn(f"{PKG}/Sources/CmuxNextKit/Unrelated.swift", changed)
         self.assertNotIn(f"{PKG}/Sources/CmuxNextKit/Unrelated.swift", context)
 
+        focus_source = f"{PKG}/Sources/CmuxNextKit/Focus.swift"
+        self.write(focus_source, "struct Focus {}\n")
+        self.commit("add a source for a non-context ratchet")
+        focus_base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertNotIn(focus_source, gate.ratchet_row_files(self.repo, head, focus_base))
+
         baseline_base = head
         baseline = self.repo / "scripts/cmux-next/classic-ids-baseline.tsv"
         baseline.write_text(baseline.read_text() +
@@ -2634,6 +2640,12 @@ pub fn reset(snapshot: &Snapshot) {
         head = self.git("rev-parse", "HEAD").stdout.strip()
         self.assertIn(f"{PKG}/Sources/CmuxNextKit/Old.swift",
                       gate.ratchet_row_files(self.repo, baseline_base, head))
+
+        focus_baseline = self.repo / "scripts/cmux-next/focus-routes-baseline.tsv"
+        focus_baseline.write_text(focus_baseline.read_text() + f"{focus_source}\t1\n")
+        self.commit("change a non-context ratchet and require its source as context")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertIn(focus_source, gate.ratchet_row_files(self.repo, focus_base, head))
 
     def test_classic_ids_baseline_takes_a_deleted_row(self):
         # A push that moves a Classic cache root and deletes its classic-ids row was refused as "no longer has ...:

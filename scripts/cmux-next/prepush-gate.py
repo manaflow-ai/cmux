@@ -781,16 +781,21 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     changed files alone decide which checks run and which formatter inputs are charged to the push."""
     # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
-        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_CONTEXT_BASELINES
+        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES
                                           for rev in (base, head)])
     except git_batch.GitError as error:
         raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
-    for name in RATCHET_CONTEXT_BASELINES:
-        keys, count = RATCHET_BASELINES[name]
+    for name, (keys, count) in RATCHET_BASELINES.items():
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
-        files.update(key[0] for key in rows[0].keys() | rows[1].keys())
+        # State roots and Classic ids treat a missing source file as a stale row, so every row is context on
+        # every sparse run. Other ratchets only need files whose baseline row changed; carrying every row for
+        # them recreates the routing and tree-size regression this split is meant to prevent.
+        row_keys = rows[0].keys() | rows[1].keys()
+        if name not in RATCHET_CONTEXT_BASELINES:
+            row_keys = {key for key in row_keys if rows[0].get(key) != rows[1].get(key)}
+        files.update(key[0] for key in row_keys)
     files = {p for p in files if p.startswith(CHANGED_SCOPES + ("Packages/macOS/", "scripts/cmux-next/"))}
     try:
         present = git_batch.cat_file(repo, [f"{rev}:{p}" for p in sorted(files) for rev in (base, head)])
