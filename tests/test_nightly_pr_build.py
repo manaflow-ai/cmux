@@ -168,9 +168,21 @@ class Workflow(unittest.TestCase):
         self.assertIn('--queue-timeout "$QUEUE_WAIT_S"', text)
         self.assertNotRegex(text, r"--queue-timeout [0-9]{4,}")
         self.assertIn('"$client" cancel "$step"', text)
-        timeout = re.search(r"(?ms)^  swift-fleet:\n.*?timeout-minutes: (\d+)", text)
+        timeout = re.search(r"(?ms)^  swift-fleet:\n.*?timeout-minutes: \$\{\{ .*? && (\d+) \|\| (\d+) \}\}", text)
         self.assertIsNotNone(timeout)
         self.assertLessEqual(int(timeout.group(1)), 90)
+        self.assertLessEqual(int(timeout.group(2)), 12)
+
+    def test_a_detaching_client_hands_the_verdict_to_a_check_run(self) -> None:
+        # Leo, 2026-11-27: "de facto, im asking for 99% fewer minutes of ci time, period." The stub waited out
+        # the whole fleet job (15.1 GitHub min per merged PR, 08-12Z 11-27); detached, it only submits.
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn('"$client" run --help 2>/dev/null | grep -q -- --detach', text)
+        self.assertIn('--report-check "$check" --detach', text)
+        self.assertIn('check="nightly app compile $ARCH (fleet)"', text)
+        # The old wait stays for a client without --detach, and the off switch stays.
+        self.assertIn('| tee "$log" || status=${PIPESTATUS[0]}', text)
+        self.assertIn("(vars.CI_NIGHTLY_PR_BUILD || '1') != '0'", text)
 
 
 if __name__ == "__main__":
