@@ -107,4 +107,27 @@ struct CloudPortChangeTests {
         ])
         #expect(CloudMachineWire.machinePausing(spare, team: "team_0123456789abcdef0123") == nil)
     }
+
+    /// RFD 0080 piece 4: an AutoSize frame's `data`, for the socket's team only; any other frame is none of it.
+    @Test func anAutosizeFrameHandsItsDataForTheSocketsTeamOnly() throws {
+        let data: [String: Any] = ["v": 1, "machine": "vm_01234567890123456789", "record": "rec_1", "team": "team_0123456789abcdef0123",
+                                   "creator": "u1", "kind": "grow", "reason": "memory", "line": "Grew to 4 vCPU", "at": 1]
+        let frame = try JSONSerialization.data(withJSONObject: [
+            "t": "ephemeral", "stream": "cloud:team_0123456789abcdef0123", "event": "cloud.machine.autosize", "data": data,
+        ])
+        let handed = try #require(CloudMachineWire.machineAutosize(frame, team: "team_0123456789abcdef0123"))
+        let read = try #require(JSONSerialization.jsonObject(with: handed) as? [String: Any])
+        #expect(read["record"] as? String == "rec_1")
+        #expect(read["line"] as? String == "Grew to 4 vCPU")
+        #expect(CloudMachineWire.machineAutosize(frame, team: "team_ffffffffffffffffffff") == nil)
+        #expect(CloudMachineWire.machineAutosize(frame, team: nil) == nil)
+        #expect(CloudMachineWire.machinePausing(frame, team: "team_0123456789abcdef0123") == nil)
+        #expect(CloudMachineWire.spareReady(frame, team: "team_0123456789abcdef0123") == nil)
+        #expect(CloudPortChange.parseWireFrame(frame) == nil)
+        let pausing = try JSONSerialization.data(withJSONObject: [
+            "t": "ephemeral", "event": "cloud.machine.pausing",
+            "data": ["machine": "vm_01234567890123456789", "team": "team_0123456789abcdef0123"],
+        ])
+        #expect(CloudMachineWire.machineAutosize(pausing, team: "team_0123456789abcdef0123") == nil)
+    }
 }

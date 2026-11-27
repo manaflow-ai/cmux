@@ -451,4 +451,50 @@ import Testing
         place.setPriority("sideways", of: "s")
         #expect(place.priorities.isEmpty)
     }
+
+    /// RFD 0080 piece 4: an AutoSize frame becomes its machine's rows (Rust's `cloud_autosize_rows`, faked here: it appends
+    /// the event's kind), found by the provider VM id or the record, shown only for a chat on Cloud, and a frame Rust does
+    /// not add (a newer wire version) changes nothing.
+    @Test func anAutosizeFrameBecomesItsMachinesRowsInTheHeader() throws {
+        nonisolated final class Rows: @unchecked Sendable {
+            private let lock = NSLock()
+            private var asks: [[String: Any]] = []
+            var seen: [[String: Any]] { lock.withLock { asks } }
+            func core(_ operation: String, _ request: Data) -> Data? {
+                guard operation == "cloud_autosize_rows",
+                      let ask = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
+                lock.withLock { asks.append(ask) }
+                let event = ask["event"] as? [String: Any] ?? [:]
+                var rows = ask["rows"] as? [[String: Any]] ?? []
+                guard event["v"] as? Int == 1 else { return try? JSONSerialization.data(withJSONObject: ["rows": rows, "added": false]) }
+                rows.append(["kind": event["kind"] as? String ?? "", "record": event["record"] as? String ?? ""])
+                return try? JSONSerialization.data(withJSONObject: ["rows": rows, "added": true])
+            }
+        }
+        let fake = Rows()
+        let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
+        let place = CloudPlaceFlows(defaults: defaults, core: { fake.core($0, $1) }, clock: { 1 })
+        func frame(_ machine: String, _ kind: String, v: Int = 1) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["v": v, "machine": machine, "record": "rec_1", "team": "t1",
+                                                        "creator": "u1", "kind": kind, "at": 1])
+        }
+        func autosize(onCloud: Bool, machine: String?) -> [[String: Any]]? {
+            place.placeJSON(session: "s", onCloud: onCloud, cloudName: "vm", machine: machine)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["autosize"] as? [[String: Any]]
+        }
+        #expect(autosize(onCloud: true, machine: "vm_a") == nil)
+        #expect(place.autosize(try frame("vm_a", "grow")))
+        #expect(fake.seen.last?["viewer"] as? String == "u1")
+        #expect(autosize(onCloud: true, machine: "vm_a")?.map { $0["kind"] as? String } == ["grow"])
+        #expect(autosize(onCloud: false, machine: "vm_a") == nil)
+        #expect(autosize(onCloud: true, machine: "vm_other") == nil)
+        // A shrink names the new VM; the record keeps the rows, found by the old id, the new one and the record.
+        #expect(place.autosize(try frame("vm_b", "shrink")))
+        for machine in ["vm_a", "vm_b", "rec_1"] {
+            #expect(autosize(onCloud: true, machine: machine)?.map { $0["kind"] as? String } == ["grow", "shrink"])
+        }
+        #expect(!place.autosize(try frame("vm_b", "hold", v: 2)))
+        #expect(autosize(onCloud: true, machine: "vm_b")?.count == 2)
+        #expect(!place.autosize(Data("not json".utf8)))
+    }
 }

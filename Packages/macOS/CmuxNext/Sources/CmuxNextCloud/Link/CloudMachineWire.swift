@@ -22,6 +22,9 @@ public final class CloudMachineWire {
     /// pause): the app parks its link now, so its heartbeat does not redial (and wake) the VM before a list shows the pause.
     /// It may repeat for one pause (each pause attempt sends it); handling it twice is harmless.
     public var onMachinePausing: @MainActor (String) -> Void = { _ in }
+    /// The `data` of a `cloud.machine.autosize` frame for this socket's team (AutoSize grew, shrank or held one of the
+    /// person's machines, RFD 0080 piece 4): the bytes as sent, for Rust's `cloud_autosize_rows` to read.
+    public var onMachineAutosize: @MainActor (Data) -> Void = { _ in }
     /// The teams the wire subscribes in for an active team (Rust's `wireTeams`): the active one first, then the
     /// install token's team when it is another, where the person's spares live (#36037). Nil: the active team alone.
     public var teams: (@MainActor (String?) async -> [String]?)?
@@ -122,6 +125,7 @@ public final class CloudMachineWire {
                 case "ephemeral":
                     if let machine = Self.spareReady(data, team: selectedTeam) { onSpareReady(machine) }
                     else if let machine = Self.machinePausing(data, team: selectedTeam) { onMachinePausing(machine) }
+                    else if let event = Self.machineAutosize(data, team: selectedTeam) { onMachineAutosize(event) }
                     else if let sink, let change = CloudPortChange.parseWireFrame(data) { sink(change) }
                 default:
                     break
@@ -199,6 +203,23 @@ public final class CloudMachineWire {
               let data = object["data"] as? [String: Any], data["team"] as? String == team,
               let machine = data["machine"] as? String, machine.hasPrefix("vm_") else { return nil }
         return machine
+    }
+
+    /// The `data` of a `cloud.machine.autosize` frame for `team`, the team this socket was opened in, as JSON bytes; nil for
+    /// any other frame. Its fields are Rust's to read (`autosize_row::Event`); only the team and a machine id are checked here.
+    nonisolated static func machineAutosize(_ frame: Data, team: String?) -> Data? {
+        guard let team, let object = (try? JSONSerialization.jsonObject(with: frame)) as? [String: Any],
+              object["t"] as? String == "ephemeral", object["event"] as? String == "cloud.machine.autosize",
+              let data = object["data"] as? [String: Any], data["team"] as? String == team,
+              let machine = data["machine"] as? String, !machine.isEmpty else { return nil }
+        return try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys])
+    }
+
+    /// Sets ``onMachineAutosize`` (for a lazily built wire) and returns the wire.
+    @discardableResult
+    public func onAutosize(_ handler: @escaping @MainActor (Data) -> Void) -> Self {
+        onMachineAutosize = handler
+        return self
     }
 
     /// Sets ``onMachinePausing`` (for a lazily built wire) and returns the wire.
