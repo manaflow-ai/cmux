@@ -193,6 +193,7 @@ jobs:
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
       carrier_sim: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim) }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
+      remote_web_wasm: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.remote_web_wasm || steps.gate.outputs.remote_web_wasm) }}
       router_changed: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.router_changed || steps.gate.outputs.router_changed) }}
       acpmux_own: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.acpmux-own.outputs.changed) }}
     steps:
@@ -1421,7 +1422,9 @@ jobs:
   remote-web-wasm:
     name: cmux remote web wasm
     needs: changes
-    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) }}
+    # Routed by the crate graph (scripts/ci/affected-jobs.json): it builds cmux-remote-web and what that reaches, so a
+    # change none of those inputs sees skips it; a failed router, a push and full-ci on a reaching change run it.
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
