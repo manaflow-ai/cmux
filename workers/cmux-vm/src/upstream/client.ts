@@ -32,6 +32,8 @@ export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
   /** HTTP status from the provider, or null when no response arrived. */
   readonly status: number | null;
+  /** A bounded, internal classification of a provider response. Never contains provider text. */
+  readonly kind?: "capacity_overloaded";
 }> {}
 
 /** The fields of the provider's VM record this service reads. Everything else is ignored. */
