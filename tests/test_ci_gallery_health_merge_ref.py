@@ -338,6 +338,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
             stubs = {
                 "scripts/ci/ensure-system-chrome.sh":
                     '#!/bin/sh\nprintf "CMUX_CHROME_HEADLESS_SHELL=%s\\n" "$TEST_BROWSER" >> "$GITHUB_ENV"\n',
+                "scripts/ci/pin-browser-test-font.sh": "#!/bin/sh\nexit 0\n",
                 "bin/git": '#!/bin/sh\nprintf "%s\\n" "$GITHUB_WORKSPACE"\n',
                 "bin/bun": '#!/bin/sh\nif [ "$1" = health.ts ]; then\n'
                     '  printf "%s\\n" "${CMUX_CHROME_HEADLESS_SHELL:-chrome}" >> "$TEST_LAUNCHES"\nfi\n',
@@ -616,6 +617,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         touched = {"all": False, "entries": ["a"], "reasons": {"a": [
             "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json"]}}
         for path in ("Resources/ghostty/themes/Token Dark", "webviews/bun.lock", "scripts/ci/test_reds.py",
+                     "scripts/ci/pin-browser-test-font.sh",
                      "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
         # An imported fixture renders only the entries that import it; an unreached webviews/src file and an
@@ -706,6 +708,7 @@ class GalleryHealthTime(unittest.TestCase):
                             re.MULTILINE)
         dynamic = re.compile(r"""(?:\bimport\s*\(\s*|import\.meta\.glob(?:<[^>]*>)?\(\s*)["'](\.\.?/[^"']+)["']""")
         missing: set[str] = set()
+        example_imports: set[str] = set()
         for source in tracked("webviews/src"):
             if not source.endswith((".ts", ".tsx")) or source.endswith((".test.ts", ".test.tsx")):
                 continue
@@ -720,8 +723,19 @@ class GalleryHealthTime(unittest.TestCase):
                 else:
                     files = [resolved]
                 missing.update(f"{source} -> {path}" for path in files if not in_sparse(path, patterns))
+                example_imports.update(path for path in files if path.startswith("examples/"))
         self.assertEqual(sorted(missing), [], "add these to the Checkout step's sparse-checkout")
         self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
+
+        # The advisory builds both sides of a PR with its own sparse list. The base gallery
+        # and first-user journey also bundle these imports in independent sparse checkouts.
+        for name, job in (("gallery-advisory.yml", "capture"), ("gallery-health.yml", "base-gallery"),
+                          ("first-user-journey-web.yml", "journey")):
+            with self.subTest(workflow=name, job=job):
+                workflow = yaml.safe_load((WORKFLOW.parent / name).read_text(encoding="utf-8"))
+                checkout = next(s for s in workflow["jobs"][job]["steps"] if s.get("uses", "").startswith("actions/checkout@"))
+                included = checkout["with"]["sparse-checkout"].splitlines()
+                self.assertEqual(sorted(p for p in example_imports if not in_sparse(p, included)), [])
 
     def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
         cap = step("Hold each shard within its time budget")
