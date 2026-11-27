@@ -12,8 +12,6 @@ import CmuxNextDesign
 /// landed, the picture goes. The panes' own commit motion does not run for this change: the slide is its motion.
 @MainActor
 final class SplitSnapshotOpen {
-    /// The slide's length: short enough that the live view is under it by the end (the held snap waits at most 8 ticks).
-    static let slide: CFTimeInterval = 0.12
     /// The picture goes by then whatever happens (a change that never shows).
     static let failsafe: TimeInterval = 1
 
@@ -33,9 +31,10 @@ final class SplitSnapshotOpen {
     /// Both happened: the picture goes.
     var done: Bool { liveShown && landed }
 
-    /// Adds `slide` to `layer` in a transaction of its own; when the compositor ran it, marks the slide landed and calls
-    /// `landed` (the owner drops the picture if the live change showed by then).
-    func run(_ slide: CAAnimation, on layer: CALayer?, landed: @escaping @MainActor (SplitSnapshotOpen) -> Void) {
+    /// Runs `slide` (it adds the animation) in a transaction of its own; when the compositor ran it, marks the slide
+    /// landed and calls `landed` (the owner drops the picture if the live change showed by then). A slide that adds no
+    /// animation (Reduce Motion, speed off) lands at this commit.
+    func run(_ slide: () -> Void, landed: @escaping @MainActor (SplitSnapshotOpen) -> Void) {
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { // main-proof: a transaction begun on the main thread completes there
@@ -44,7 +43,7 @@ final class SplitSnapshotOpen {
                 landed(self)
             }
         }
-        layer?.add(slide, forKey: "splitSnapshotOpen")
+        slide()
         CATransaction.commit()
     }
 }
@@ -103,19 +102,17 @@ extension ScreenContentView {
         picture.addSubview(line)
         clip.addSubview(picture)
         addSubview(clip, positioned: .above, relativeTo: nil)
-        // From the split pane's right edge to the fixed end: additive on x, so the model value is the end throughout.
-        // motion: allow the snapshot split open (default off) is the split's own measured transition, SplitSnapshotOpen.slide
-        let slide = CABasicAnimation(keyPath: "position.x")
-        slide.fromValue = giver.frame.width - picture.frame.minX
-        slide.toValue = 0
-        slide.isAdditive = true
-        slide.duration = SplitSnapshotOpen.slide
-        // motion: allow same slide as above
-        slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        slide.fillMode = .backwards
+        // From the split pane's right edge to the fixed end, on the panes' gate: the `fadeIn` length (`MotionScale.micro`,
+        // short enough that the live view is under it by the end; the held snap waits at most 8 ticks), scaled by the
+        // animation speed. Under Reduce Motion or with pane motion off the picture shows at its end at once (a11y-walk's
+        // motion count, check-motion.sh).
         let state = SplitSnapshotOpen(view: clip, end: end)
         snapshotOpen = state
-        state.run(slide, on: picture.layer) { [weak self] state in
+        state.run({
+            guard let layer = picture.layer else { return }
+            Motion.panes.set(layer, "position.x", to: layer.position.x, movementFade: .fadeIn,
+                             from: layer.position.x + giver.frame.width - picture.frame.minX)
+        }) { [weak self] state in
             guard let self, self.snapshotOpen === state, state.done else { return }
             self.dropSnapshotOpen()
         }
