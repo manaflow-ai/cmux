@@ -62,6 +62,8 @@ pub use connect::{
 mod handover;
 mod home_watch;
 #[cfg(unix)]
+pub(crate) mod hung_holder;
+#[cfg(unix)]
 pub(crate) mod listener_handover;
 #[cfg(unix)]
 pub(crate) mod listener_keeper;
@@ -364,6 +366,26 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
                     // The app launches `daemon run` directly, without `start_and_connect`.
                     // Its losing launch must report the winner's endpoint once it answers.
+                    // One waiter a home (`daemon/hung_holder.rs`): it replaces a hung holder;
+                    // more only pile up behind it. This one answers and exits 0.
+                    #[cfg(unix)]
+                    let _standing = match hung_holder::stand(&home()) {
+                        Ok(standing) => standing,
+                        Err(waiter) => {
+                            tracing::info!(
+                                "another daemon holds the lock and start {waiter} already waits \
+                                 for it; this start exits (exit 0) and leaves the wait to that one"
+                            );
+                            write_ready(
+                                fd,
+                                &serde_json::json!({
+                                    "ready": false, "lockHeld": true, "waiterStands": true,
+                                    "waiter": waiter,
+                                }),
+                            );
+                            return Ok(None);
+                        }
+                    };
                     tracing::info!("another daemon holds the lock; waiting for its socket or exit");
                     match handover::wait(&home(), &socket_path()).await {
                         Some(handover::Started::Acquired(lock)) => Ok(Some(lock)),
@@ -458,6 +480,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // start has not bound yet reads a live owner and waits for it (`connect_when_ready`), and the
     // previous owner's end is settled (a death counted) once.
     supervision::start(&home());
+    // Its progress for a waiter to read: a holder that stops beating and accepting is replaced.
+    #[cfg(unix)]
+    hung_holder::arm(&home());
     // The update watch's baseline (F9, `daemon/exe_swap.rs`), taken now: an update that lands
     // between ready and the later startup is then a change it sees, never its baseline.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -506,7 +531,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             );
             tokio::net::UnixListener::from_std(l)?
         }
-        _ => crate::server::bind_unix(&socket_path()).await?,
+        // A handed listener this start does not serve is closed before it binds: kept open, it
+        // answers the connect that looks for a live daemon at the socket.
+        other => {
+            drop(other);
+            let ours_or_gone = listener_handover::listener_is_ours_or_gone;
+            crate::server::bind_daemon_unix(&socket_path(), ours_or_gone).await?
+        }
     };
     #[cfg(not(unix))]
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -535,6 +566,25 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // before this boundary. Requests still wait for the hub and this launch's auth tokens.
     let _socket_cleanup = BoundSocketCleanup(bound_socket.clone());
     gauges.mark("socket ready");
+    #[cfg(unix)]
+    hung_holder::beat(hung_holder::Phase::Starting);
+    // Debug builds only: a holder whose socket is bound and never accepted, as the hung holder
+    // of 2026-11-27 (`daemon/hung_holder.rs`), for the replace tests.
+    #[cfg(debug_assertions)]
+    if let Some(mode) = std::env::var_os("ACPMUX_TEST_HANG_AFTER_BIND") {
+        tracing::warn!("test: holding the lock and the bound socket without accepting");
+        println!("acpmux-test-hung");
+        // `beat`: a slow start that still makes progress (it beats), never one to replace.
+        #[cfg(unix)]
+        if mode == "beat" {
+            loop {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                hung_holder::step("test: slow step");
+            }
+        }
+        let _ = mode;
+        std::future::pending::<()>().await;
+    }
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
@@ -625,9 +675,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
 
     let store = crate::store::open(&config.store, &home())?;
+    #[cfg(unix)]
+    hung_holder::step("store");
     crate::mcp_gateway::start(&home()).await; // before any session starts
     #[cfg(unix)]
+    hung_holder::step("mcp gateway");
+    #[cfg(unix)]
     crate::mcp_pool::start(&home()).await;
+    #[cfg(unix)]
+    hung_holder::step("mcp pool");
     let mut moved_listener = false;
     // The handed web listener, when it is bound where this start would bind (and the address
     // still passes the listener rule above); otherwise closed before the bind below.
@@ -778,8 +834,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
         });
     }
+    // Migrate legacy grants once per start, including grants without a route.
+    let (_, subscription_home) = crate::routes::places(&config);
+    drop(tokio::task::spawn_blocking(move || {
+        crate::subscription_store::migrate_legacy(&subscription_home);
+    }));
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    #[cfg(unix)]
+    hung_holder::step("hub");
     if let Some(v2) = v2.as_ref() {
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
@@ -851,6 +914,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         .then(|| ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()))
         .flatten();
     crate::server::machine_enroll::start_joined_at_start(&hub, carrier).await;
+    #[cfg(unix)]
+    hung_holder::step("joined machines");
     // A machine joined before the hub recorded capabilities states them with its own credential,
     // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
     crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);
@@ -935,12 +1000,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
     // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
     hub.start_auto_evacuate().await;
+    #[cfg(unix)]
+    hung_holder::step("auto evacuate");
     // A dead lane on a peer tells the session here that started it, once per death
     // (`hub/lane_death_watch.rs`); off with ACPMUX_LANE_DEATH_WATCH=0.
     hub.start_lane_death_watch();
     // Placed work yields when the owner comes back: only on a machine enrolled in AutoCloud
     // (off by default); off runs no timer (`hub/owner_return.rs`).
     hub.start_owner_return().await;
+    #[cfg(unix)]
+    hung_holder::step("owner return");
     // `dynamic` sessions yield the CPU only while the Mac is contended (`hub/cpu_pressure.rs`);
     // ACPMUX_CPU_PRESSURE=off keeps every one at normal class.
     hub.start_cpu_pressure();
