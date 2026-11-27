@@ -27,7 +27,9 @@ permissions: {}
 
 concurrency:
   # A batch run or bisect probe is keyed by its commit and job, so neither evicts the other's pending call.
-  group: cmux-next-fast-tier-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-fast-tier-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -111,7 +113,7 @@ jobs:
     needs: swift-results
     if: ${{ !cancelled() && (inputs.only == '' || inputs.only == 'swift') && needs.swift-results.result != 'skipped' }}
     # Only a registry or commit the public route cannot serve needs the private gateway.
-    runs-on: ${{ needs.swift-results.outputs.verdict == 'unavailable' && 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}
+    runs-on: ${{ needs.swift-results.outputs.verdict == 'unavailable' && 'mac-gateway' || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: 50
