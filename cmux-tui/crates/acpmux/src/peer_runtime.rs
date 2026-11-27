@@ -44,11 +44,15 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
-            wireguard: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            ssh_mux_override: std::sync::OnceLock::new(),
+            wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            wg_learner: std::sync::OnceLock::new(),
+            wg_learning: AtomicBool::new(false),
             tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
@@ -117,6 +121,8 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            host_key_refused: AtomicBool::new(false),
+            remote_listen: StdMutex::new(None),
             link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
@@ -169,7 +175,14 @@ impl Peer {
         transport: Arc<crate::wireguard::Transport>,
         address: std::net::SocketAddr,
     ) {
-        let _ = self.wireguard.set((transport, address));
+        *self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((transport, address));
+    }
+
+    pub(crate) fn wireguard_route(
+        &self,
+    ) -> Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)> {
+        self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// What the current (or last) link received (`ReceivedBytes`).
@@ -340,6 +353,42 @@ impl Peer {
         )
     }
 
+    /// The link is up and past its handshake: a request goes out on it.
+    fn takes_requests(&self) -> bool {
+        self.connected.load(Ordering::SeqCst) && !self.admitting.load(Ordering::SeqCst)
+    }
+
+    /// A link that is coming up or went down moments ago (a network blip, a path switch, the
+    /// peer's daemon restarting) is usually back within seconds: a request waits that out
+    /// (`LinkTimings::reconnect_wait`) instead of refusing the person at once. A link that has
+    /// been down longer, or whose attempt failed while it waited, refuses now as before
+    /// (`peer_unreachable`, retryable: the request was not sent).
+    pub(crate) async fn await_reconnect(&self) -> Result<(), RpcError> {
+        use cmux_tui_util::retry::{Attempt, Patience};
+        let wait = self.timings.reconnect_wait;
+        if wait.is_zero() || !self.link().coming_back(crate::store::now_ms()) {
+            return Err(self.unreachable_error());
+        }
+        let peer: &Self = self;
+        Patience::new(format!("{} to reconnect", self.name), wait)
+            .quiet()
+            .spaced(Duration::from_millis(50), Duration::from_millis(500))
+            .run_async(
+                || (),
+                move || async move {
+                    if peer.takes_requests() {
+                        Ok(())
+                    } else if peer.link().coming_back(crate::store::now_ms()) {
+                        Err(Attempt::Retry(()))
+                    } else {
+                        Err(Attempt::Fail(()))
+                    }
+                },
+            )
+            .await
+            .map_err(|()| self.unreachable_error())
+    }
+
     /// Receives every later settled connect attempt.
     pub fn settled(&self) -> tokio::sync::watch::Receiver<u64> {
         self.settled.subscribe()
@@ -429,10 +478,12 @@ impl Peer {
         ),
         String,
     > {
-        let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let (host, url_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let to = tunnel_target(url_port, *self.remote_listen.lock_or_recover());
+        let remote_port = to.port();
         let mut command = self.ssh_command();
         command
-            .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
+            .args(tunnel_argv_to(&host, to, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -471,9 +522,55 @@ impl Peer {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
         }
-        if ssh_errors::login_refused(reason) {
+        if ssh_errors::host_key_refused(reason) {
+            self.host_key_refused.store(true, Ordering::SeqCst);
+        } else if ssh_errors::login_refused(reason) {
             self.login_refused.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// The address the machine's daemon recorded at the last read, kept for the next tunnels.
+    pub(super) fn note_remote_listener(&self, recorded: Option<std::net::SocketAddr>) {
+        let mut kept = self.remote_listen.lock_or_recover();
+        if *kept != recorded {
+            tracing::info!(peer = %self.name, ?recorded, "the machine's daemon listener, as recorded");
+        }
+        *kept = recorded;
+    }
+
+    /// The forward to `tried` (a port on the machine) was refused: read the machine's
+    /// `listener.json` again, keep it, and return it when it names another port. A daemon that
+    /// found its port taken as it started serves on a free one, and only its record says which
+    /// (`listener_record.rs`). None when the URL names its own port, when the read fails, or when
+    /// the record is gone or names `tried` (the daemon is down).
+    pub(super) async fn reread_listener(&self, tried: u16) -> Option<std::net::SocketAddr> {
+        let (host, url_port) = self.ssh_parts()?;
+        if url_port != SSH_PEER_PORT || self.stop.load(Ordering::SeqCst) {
+            return None;
+        }
+        let mut command = self.ssh_command();
+        command
+            .args(read_listener_argv(&host, self.ssh_connect_secs()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let child = command.spawn().ok()?;
+        let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
+        let out = tokio::select! {
+            out = read => out.ok()?.ok()?,
+            _ = self.stop_signal.notified() => {
+                // Put the permit back for `run` and `serve`, which wait on it too.
+                self.stop_signal.notify_one();
+                return None;
+            }
+        };
+        if !out.status.success() && out.stdout.is_empty() {
+            return None;
+        }
+        let recorded = remote_listener_text(&out.stdout);
+        self.note_remote_listener(recorded);
+        recorded.filter(|addr| addr.port() != tried)
     }
 
     /// The dashboard token (configured, else the remote daemon's own) and
@@ -528,6 +625,7 @@ impl Peer {
             ));
         }
         let (config, peer) = split_remote_read(&out.stdout);
+        self.note_remote_listener(remote_read_listener(&out.stdout));
         let peer = self.peer_token.clone().or(peer);
         if let Some(t) = &self.token {
             return Ok((t.clone(), peer));
@@ -659,9 +757,11 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease. A boundary peer
+    /// is dialed and kept (`peer_demand.rs` `closes_idle`), so a parked one wakes.
     pub fn set_vm_boundary(&self, on: bool) {
         self.vm_boundary.store(on, Ordering::SeqCst);
+        self.demand_changed();
     }
 
     /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
@@ -716,7 +816,7 @@ impl Peer {
         self: &Arc<Self>,
         id: Value,
         params: Value,
-        slot: tokio::sync::OwnedSemaphorePermit,
+        slot: crate::github_broker::OwnerPermit,
         link: u64,
     ) {
         let me = self.clone();
@@ -744,7 +844,7 @@ impl Peer {
             let reply = tokio::select! {
                 reply = crate::github_broker::serve_owner(&me.name, params, app) => reply,
                 () = &mut revoked => {
-                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
+                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots, &Value::Null) else {
                         return;
                     };
                     Err(e)
@@ -1105,8 +1205,11 @@ impl Peer {
         // One of any link that is bound to its connection goes again on the next link when
         // this one switches paths under it (`resend_switched`).
         let retry = epoch.is_none() && dual::bound(m);
+        if epoch.is_none() && !self.takes_requests() {
+            self.await_reconnect().await?;
+        }
         let epoch = epoch.unwrap_or_else(|| self.link_epoch());
-        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
+        if !self.takes_requests() {
             return Err(self.unreachable_error());
         }
         self.send_request_with(m, params, Some(epoch), ListKey::None, retry).await
