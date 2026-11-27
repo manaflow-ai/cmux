@@ -1168,11 +1168,16 @@ jobs:
           # Only defer to a publisher queued on the current daemon-test runner.
           DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
           # How long a live owner holds its key before a feat-cmux-next push
-          # takes it over. A healthy owner publishes about 20 minutes after it
-          # starts; on 2026-10-28 owners hung for up to an hour in a Zig fetch
-          # while every later push of the key deferred to them, and the
-          # feat-cmux-next tree went 2 hours unpublished.
-          OWNER_LEASE_MINUTES: 25
+          # takes it over. On 2026-10-28 a healthy owner published about 20
+          # minutes after it started, and owners hung for up to an hour in a Zig
+          # fetch while every later push of the key deferred to them (the
+          # feat-cmux-next tree went 2 hours unpublished). On 2026-11-27 healthy
+          # owners took 34 to 50 minutes to publish (the darwin leg alone 25 to
+          # 29), so a 25-minute lease made nightly-next take over live owners
+          # and build the same tree twice (run 45946662826 over owner
+          # 45943324989, about 70 runner-minutes). 55 covers the slowest healthy
+          # owner and still cuts off an hour-long hang.
+          OWNER_LEASE_MINUTES: 55
         run: |
           set -euo pipefail
           takeover=true
@@ -5670,14 +5675,16 @@ jobs:
   # coalesce window (cmux#54889: 75 of 97 merge-to-channel minutes). point-machine-channel below
   # is the fallback after publish.
 
-  # The signed Linux release file of a nightly-next commit (cmux-tui/<sha>/release.json, and its tree's
-  # when this run published the tree). The NEXT NIGHTLY ships
-  # nightly-next commits, and cmux-linux-nightly-follow.sh (point-machine-channel, every feat-cmux-next
-  # push) re-signs linux-nightly.json for the NIGHTLY's commit only when that commit has a release.json.
-  # Only feat-cmux-next pushes signed one before, and a feat push's pending point is replaced by a newer
-  # one, so the NIGHTLY's commit had none: linux-nightly stayed on 0a6830e6 (2026-11-26 08:46Z) while
-  # the NIGHTLY moved to 956d6e60 (nightly-next run 45922207580 built and published it, and nothing
-  # signed it). --commit-only: no channel moves here; linux-nightly follows the NIGHTLY's appcast.
+  # The signed Linux release file of every commit this run built (cmux-tui/<sha>/release.json, and its
+  # tree's when this run published the tree), on a feat-cmux-next or nightly-next push. The NEXT NIGHTLY
+  # ships feat-cmux-next commits, and cmux-linux-nightly-follow.sh (point-machine-channel, every
+  # feat-cmux-next push) re-signs linux-nightly.json for the NIGHTLY's commit only when that commit has a
+  # release.json. point-machine-channel signed the feat ones, but a newer push's point replaces a pending
+  # one, so most built trees got no file, and mark-tree-commits found no tree file to alias for the commits
+  # that adopted them: the NIGHTLY of 2026-11-27 (c6ff1246, tree 96376a3c) had none, and linux-nightly
+  # stayed on 0a6830e6 from 2026-11-26 08:46Z. This job has no concurrency group, so no later push
+  # replaces it. --commit-only: no channel moves here; point-machine-channel moves linux-feat-cmux-next
+  # from this file (linux-release-sign.sh keeps a published one), linux-nightly follows the NIGHTLY's appcast.
   # The payload's channel is feat-cmux-next, as every per-commit file's: a file is written once and
   # verified for its signer's channel, so a nightly one would refuse a later feat commit of the same
   # tree (and its channel's copy of the kept bytes); the follow step re-signs it for nightly (repoint).
@@ -5687,9 +5694,9 @@ jobs:
     environment:
       name: artifacts
       deployment: true
-    name: sign the nightly-next commit's Linux release file
+    name: sign this commit's Linux release file
     needs: [publish, verify-publish, tree-preflight, publish-tree]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && needs.verify-publish.result == 'success' }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && (github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && needs.verify-publish.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
@@ -5758,7 +5765,8 @@ jobs:
     # tree-preflight and publish-tree: the run that publishes tree/<key>/ signs its release.json here (the
     # job that holds the signing key), so this follows the tree publication; a run that builds nothing
     # skips publish-tree at once.
-    needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree]
+    # sign-nightly-linux-release: its file first, so this job keeps it (no second package build).
+    needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree, sign-nightly-linux-release]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 115  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 for the Linux nightly channel
