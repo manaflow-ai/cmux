@@ -75,12 +75,12 @@ pub(crate) mod clone_boot;
 mod closed_rows;
 #[cfg(unix)]
 mod closed_tmp;
+pub(crate) mod cloud_offload;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
 mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
-pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -173,6 +173,8 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+// A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
+mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
