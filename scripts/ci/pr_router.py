@@ -241,6 +241,14 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"{head_tier.RERUN_REASON}: this base merge's previous head ran it green; only what was "
                          f"red there runs again ({FULL_CI} or the land runs it)")
             continue
+        if (name == IOS_VERDICT_CALLEE and head_tier.land_affected((tier, tier_reason)) and ios_verdict_on()
+                and ios_touched(files)):
+            # A landing head on the affected tier starts no full-tier job, so without this nothing iOS compiles
+            # before the merge and the base breaks for the iOS developer an hour later (IOS_VERDICT_CALLEE).
+            start.append(name)
+            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, iOS-affecting: the ios fast verdict alone (no table job) "
+                         f"compiles the changed iOS targets before the merge")
+            continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
             continue
@@ -274,6 +282,31 @@ def route(event: dict, callees: dict, files: list[str] | None,
         start.append(name)
         why[name] = "a changed file reaches it"
     return start, why
+
+
+# The callee whose ios fast verdict (pr-pipeline.yml ios-fast-runner, ios-fast) a landing head on the affected tier
+# (head_tier.land_affected) still starts when it touches iOS: its table jobs are full-tier-only, so the hourly full
+# tier rule started nothing there and `cmux/ios-fast` posted a carried success with no iOS build behind it. 11-23 to
+# 11-27: about 16 iOS base-red repair commits on feat-cmux-next, culprits (#59377, #50367, #53746, #56982, #56007)
+# merged with iOS skipped; one base red failed 27 PRs' `pr pipeline / ios` (#57448). Leo, 2026-11-27: "like idk if he
+# just kept getting bottled on random stuff that we can juts fix fundamentally in terms of decisions and/or just
+# setting up more capacity and stuff". vars.CI_IOS_FAST_VERDICT=0 turns the verdict, and this start, off.
+IOS_VERDICT_CALLEE = "pr-pipeline.yml"
+
+
+def ios_verdict_on() -> bool:
+    return os.environ.get("CI_IOS_FAST_VERDICT", "").strip() != "0"
+
+
+def ios_touched(files: list[str] | None) -> bool:
+    """Whether FILES reach anything iOS builds (ios_fast_verdict.affects); unknown or unreadable routes more."""
+    if files is None:
+        return True
+    try:
+        import ios_fast_verdict
+        return ios_fast_verdict.affects(files)
+    except Exception:  # noqa: BLE001 - unreadable routes more, never less
+        return True
 
 
 def land_update_head(event: dict, callees: dict) -> bool:
@@ -447,14 +480,9 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     carries `success` only where cmux/land-tier does (LAND, land_status), else waits for the land handoff."""
     if not head_tier.land_rule_applies(event):
         return "", ""
-    if os.environ.get("CI_IOS_FAST_VERDICT", "").strip() == "0":
+    if not ios_verdict_on():
         return "success", "iOS fast verdict is off (vars.CI_IOS_FAST_VERDICT=0): the ios job's kit tests still run"
-    try:
-        import ios_fast_verdict
-        touched = files is None or ios_fast_verdict.affects(files)
-    except Exception:  # noqa: BLE001 - unreadable routes more, never less
-        touched = True
-    if not touched:
+    if not ios_touched(files):
         return "success", "Touches nothing iOS builds (cmux-next-ios, the packages it links, the FFI's Rust crates)"
     if "pr-pipeline.yml" in start:
         return "pending", "iOS fast verdict runs on this head: the changed iOS targets, the app and its UI tests compile"
