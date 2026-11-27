@@ -3,7 +3,7 @@
 # tagged cmux-next DEV app at this checkout (--config bench: Release optimization, debug.* kept), then runs suite.py
 # against it: a real app, its real acpmux daemon, a scripted agent, one driver; each case faults a running turn and
 # judges recovery, the page's text and the turn's words. It kills only its own tagged app and that app's daemon:
-#   cmux-ci run --class light --display --script scripts/cmux-next/agent-conn-chaos/fleet.sh \
+#   cmux-ci run --class light --display --script scripts/measure/agent-conn-chaos.sh \
 #     --ref <sha> --artifact artifacts/agent-conn-chaos/result.json [--arg=--cases=daemon-sigkill,app-sigkill]
 # Fleet Macs only: it refuses cosmic-gray, air-blue, huge-blue and big-red by name, before building.
 # The log prints one AGENT-CONN-CHAOS line per case and the table between AGENT-CONN-CHAOS-TABLE-BEGIN and -END.
@@ -24,7 +24,7 @@ suite_args=()
 for arg in "$@"; do
   case "$arg" in
     --cases=*|--sleep=*) suite_args+=("$arg") ;;
-    *) echo "fleet.sh: unknown argument $arg" >&2; exit 2 ;;
+    *) echo "agent-conn-chaos.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 echo "AGENT-CONN-CHAOS-MACHINE sha=$(git rev-parse HEAD) host=$(hostname -s) model=$(sysctl -n hw.model) macos=$(sw_vers -productVersion)"

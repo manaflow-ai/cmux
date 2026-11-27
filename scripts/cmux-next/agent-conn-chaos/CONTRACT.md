@@ -48,7 +48,7 @@ The time from the fault's end to a connected chat with its turn live or done:
 
 ## Where it runs
 
-Fleet Macs through `cmux-ci` (`scripts/cmux-next/agent-conn-chaos/fleet.sh`). It never runs on cosmic-gray, air-blue,
+Fleet Macs through `cmux-ci` (`scripts/measure/agent-conn-chaos.sh`). It never runs on cosmic-gray, air-blue,
 huge-blue or big-red; both the entry script and suite.py refuse those names. It installs no
 launchd agent. The daemon it starts is the DEV build's own, under a scratch `ACPMUX_HOME`.
 
