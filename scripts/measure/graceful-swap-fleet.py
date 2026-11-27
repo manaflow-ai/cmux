@@ -78,8 +78,10 @@ EDITS = {
     "composer": ("webviews/src/agent-session/acpmux/ComposerFoot.tsx",
                  "{children}</InQuietRow.Provider>",
                  "{children}<span style={{marginLeft: 6}}>GSW</span></InQuietRow.Provider>"),
+    # Under the search field: Settings has no title since Lawrence 2026-11-23 ("remove settings header").
     "settings": ("webviews/src/pages/settings/components/SettingsApp.tsx",
-                 '{t("settingsPage.title")}</h2>', '{t("settingsPage.title")} GSW</h2>'),
+                 "<SearchField query={query} onQuery={setQuery} onSubmit={submit} />",
+                 "<SearchField query={query} onQuery={setQuery} onSubmit={submit} /><span>GSW</span>"),
 }
 DRAFTS = {"a": "half-typed in the focused chat, caret at the end",
           "b": "a draft for the unfocused chat, kept across the swap: line one\nand a second line",
@@ -487,6 +489,9 @@ class Scenario:
         path = self.tree / rel
         text = path.read_text()
         old, new = (plain, marked) if on else (marked, plain)
+        if plain not in text and marked not in text:
+            # The file moved on: a save that changes nothing films nothing, and must not read as a missed swap.
+            raise RuntimeError(f"{kind}: {rel} has neither edit anchor; update EDITS")
         if old not in text:
             return f"{kind} already {'on' if on else 'off'}"
         path.write_text(text.replace(old, new, 1))
