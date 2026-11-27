@@ -3,11 +3,20 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("markdown-reading-trigger.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const root = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let server: Awaited<ReturnType<typeof createServer>>;
@@ -23,10 +32,9 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
     });
     await server.listen();
     base = `http://127.0.0.1:${(server.httpServer!.address() as { port: number }).port}`;
-    browsers.set("chromium", await chromium.launch({ headless: true }));
-    browsers.set("webkit", await webkit.launch({ headless: true }));
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     await warmGalleryFrame(server, "pages.markdown", {
-      browser: browsers.get("chromium"),
+      browser: browsers.values().next().value,
       params: { variant: "readme" },
     });
   }, 120_000);
@@ -36,7 +44,7 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
     await server?.close();
   });
 
-  for (const engine of ["chromium", "webkit"])
+  for (const [engine] of engines)
     for (const theme of ["light", "dark"] as const)
       for (const width of [320, 1000])
         for (const reducedMotion of ["reduce", "no-preference"] as const)

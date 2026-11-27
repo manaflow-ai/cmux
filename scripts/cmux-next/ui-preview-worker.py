@@ -3,7 +3,7 @@
 before and after, and hands them to the agent that pushed, with no app build and no agent action.
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
-                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--follow]
+                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL] [--follow]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
     ui-preview-worker.py submit --to http://HOST:PORT [REQUEST.json|-]
@@ -14,6 +14,10 @@ long-poll; cmuxterm-hq tools/lane-gh-broker/parts/49-calls-ui-preview.py), so a 
 POST. The last seq taken is kept in DIR/follow-seq; a first start begins at the broker's newest, not its backlog.
 --no-swift makes a web-only worker (a Linux host with no display or Xcode): it warms and shoots the web side only,
 takes from the broker only requests with a web file, and names a request's Swift scenes as not shot here.
+--swift-peer URL (with --no-swift) hands those Swift scenes to a display Mac's `serve` instead: a POST to URL/shoot
+({"sha", "scenes", "branch"}) answers each scene's PNG, base64, and this worker posts the look as before. The Mac needs
+Xcode, a display and the tailnet, but no lane-gh broker: no broker client is a Mac, so a Mac `--follow` never got a
+request, and every Swift push was a miss.
 `publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
 broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
 `--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
@@ -60,6 +64,7 @@ send) and `push_to_post_s`. Exit 0 posted, 1 failed, 2 usage.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import fnmatch
 import hashlib
@@ -77,6 +82,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -137,6 +143,9 @@ FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
 BUILD_SECONDS = 15 * 60
 SHOOT_SECONDS = 180
+# A peer's /shoot: its fetch, checkout, incremental build and shoot of one side (a cold build answers past it, and that
+# look names the timeout; the next push finds the Mac's .build warm).
+PEER_SECONDS = 10 * 60
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
 # The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
@@ -549,11 +558,13 @@ class Worker:
         self.send_template = send
         self.publish_template = publish
         self.host = host or socket.gethostname().split(".")[0]
+        self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
         self.swift_lock = threading.Lock()  # the shell's tree and .build
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
+        self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
         self.newest: dict[str, tuple[float, str]] = {}  # branch -> (received, head) of its newest queued request
@@ -733,17 +744,20 @@ class Worker:
                 shots[shot["scene"]] = files[0]
         return shots
 
-    def swift_side(self, sha: str, scenes: list[str]) -> dict:
+    def swift_side(self, sha: str, scenes: list[str], branch: str | None = None) -> dict:
         """SHA's shell shots of SCENES, from the shot cache when this worker already took them, else checkout,
-        incremental build and shoot. {scene: path}."""
+        incremental build and shoot (here, or on the --swift-peer Mac). {scene: path}."""
         cache = self.state / "shots" / "swift" / sha
         have = {s: cache / f for s, f in (self._cached(cache)).items() if s in scenes}
         want = [s for s in scenes if s not in have]
         if want:
-            self.ensure_tree(self.swift_tree, SWIFT_SPARSE, sha)
-            self.build_shell()
             fresh = cache.with_name(f".{sha}.{os.getpid()}.{threading.get_ident()}")
-            shots = self.shoot_shell(want, fresh)
+            if self.swift_peer and not self.swift_on:
+                shots = self.peer_shoot(sha, want, fresh, branch)
+            else:
+                self.ensure_tree(self.swift_tree, SWIFT_SPARSE, sha)
+                self.build_shell()
+                shots = self.shoot_shell(want, fresh)
             merged = {**self._cached(cache), **shots}
             cache.mkdir(parents=True, exist_ok=True)
             for scene, name in shots.items():
@@ -752,6 +766,50 @@ class Worker:
             shutil.rmtree(fresh, ignore_errors=True)
             have.update({s: cache / shots[s] for s in want if s in shots})
         return have
+
+    def peer_shoot(self, sha: str, scenes: list[str], out: Path, branch: str | None = None) -> dict:
+        """The --swift-peer Mac's shell shots of SCENES at SHA, written into OUT; {scene: file} as shoot_shell."""
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir(parents=True)
+        body = json.dumps({"sha": sha, "scenes": scenes, "branch": branch}).encode()
+        request = urllib.request.Request(self.swift_peer.rstrip("/") + "/shoot", data=body,
+                                         headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=PEER_SECONDS) as answer:
+                doc = json.loads(answer.read())
+        except urllib.error.HTTPError as err:
+            raise LookError(f"the Swift peer {self.swift_peer} answered {err.code}: "
+                            f"{tail(err.read().decode(errors='replace'))}") from None
+        except (OSError, ValueError) as err:
+            raise LookError(f"the Swift peer {self.swift_peer} did not answer: {err}") from None
+        shots = {}
+        for scene, data in (doc.get("shots") or {}).items():
+            if scene in scenes and isinstance(data, str):
+                (out / f"{scene}.png").write_bytes(base64.b64decode(data))
+                shots[scene] = f"{scene}.png"
+        if not shots and doc.get("error"):
+            raise LookError(f"the Swift peer: {doc['error']}")
+        return shots
+
+    def peer_answer(self, ask) -> dict:
+        """What this display Mac answers a web worker's POST /shoot: SHA's shell shots of SCENES, base64."""
+        if not isinstance(ask, dict) or not SHA.match(str(ask.get("sha") or "")):
+            raise LookError("sha must be 40 hex")
+        scenes = ask.get("scenes")
+        if not isinstance(scenes, list) or not scenes or not set(scenes) <= set(ALL_SWIFT_SCENES):
+            raise LookError(f"scenes must be some of {', '.join(ALL_SWIFT_SCENES)}")
+        branch = ask.get("branch")
+        if branch is not None and not BRANCH.match(str(branch)):
+            raise LookError("branch is not a plain branch name")
+        if not self.swift_on:
+            raise LookError(f"this worker ({self.host}) shoots web scenes only")
+        self.ensure_clone()
+        self.fetch(ask["sha"], branches=(branch,))
+        with self.swift_lock:
+            shots = self.swift_side(ask["sha"], scenes)
+        return {"sha": ask["sha"], "shots": {s: base64.b64encode(Path(f).read_bytes()).decode()
+                                             for s, f in shots.items()}}
 
     @staticmethod
     def _cached(cache: Path) -> dict:
@@ -1003,7 +1061,7 @@ class Worker:
         errors = []
         if planned["needs_build"]:
             pass  # The web side still shows; the shell is not built over Swift it does not hold (said below).
-        elif planned["swift"] and not self.swift_on:
+        elif planned["swift"] and not self.swift_on and not self.swift_peer:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
         elif planned["swift"]:
@@ -1012,7 +1070,7 @@ class Worker:
                     with stages("swift_before"):
                         before = self.swift_side(base, planned["swift"])
                     with stages("swift_after"):
-                        after = self.swift_side(head, planned["swift"])
+                        after = self.swift_side(head, planned["swift"], req.get("branch"))
                 pairs += [("swift", s, before.get(s), after.get(s)) for s in planned["swift"]]
             except LookError as err:
                 errors.append(f"swift: {err}")
@@ -1273,6 +1331,14 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             return self.reply(404, {"error": "not found"})
 
         def do_POST(self):
+            if self.path == "/shoot":
+                try:
+                    size = int(self.headers.get("Content-Length") or 0)
+                    return self.reply(200, worker.peer_answer(json.loads(self.rfile.read(min(size, 1 << 16)))))
+                except ValueError as err:
+                    return self.reply(400, {"error": str(err)})
+                except LookError as err:
+                    return self.reply(422, {"error": str(err)[:500]})
             if self.path != "/request":
                 return self.reply(404, {"error": "not found"})
             try:
@@ -1297,13 +1363,24 @@ def tailnet_address() -> str | None:
 
 FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
 FOLLOW_RETRY_S = 10  # after a failed call
+# A request pushed longer than this before the worker started is the previous lease holder's (replayed): the lease's
+# ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
+# RESTART_S 5.
+TAKEOVER_S = 90
+# Where every worker's census copy is (answered_keys reads the predecessor's answers from it).
+CENSUS_REPO, CENSUS_REF, CENSUS_FOLDER = "manaflow-ai/cmuxterm-hq", "reconciler-state/now-census", "ui-preview"
 
 
-def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
+def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None, whole: bool = False):
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
+    REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
+    (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
+    receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
+    repo (ui_preview_requests) takes its few bytes in argv: lane-gh reads stdin only in the REPO form."""
+    body = json.dumps(args)
+    argv = ["lane-gh", "call", tool, repo, "-"] if repo else ["lane-gh", "call", tool, body]
     try:
-        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
-                              capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, input=body if repo else None, capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError) as err:
         raise LookError(f"lane-gh call {tool}: {err}") from None
     if done.returncode != 0:
@@ -1315,6 +1392,8 @@ def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None)
     if not isinstance(answer, dict) or answer.get("status") != 200:
         raise LookError(f"lane-gh call {tool}: not answered 200: {tail(json.dumps(answer))}")
     data = answer.get("data")
+    if whole:
+        return data  # a list answer too (a contents folder listing)
     return data if isinstance(data, dict) else {}
 
 
@@ -1352,14 +1431,74 @@ def drain(worker: "Worker", jobs: "queue.Queue", once: bool = False) -> None:
             return
 
 
+def replayed(worker: "Worker", req: dict) -> bool:
+    """Whether REQ was pushed while another worker held the role: more than TAKEOVER_S before this one started.
+
+    The role runs on two hosts under a lease (leo-workspace tools/role_lease.py) and DIR/follow-seq is each host's
+    own, so the host that takes the lease over resumes from the seq it held when it last led and the broker answers
+    every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
+    already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
+    also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
+    started was its predecessor's term; within TAKEOVER_S it may have been in flight when the predecessor stopped
+    (the lease's TTL plus its probe, role_lease's stop and restart), so it is taken. Whether a replayed request is
+    then skipped is answered_keys': only one a poster already answered."""
+    pushed = parse_ts(req.get("pushed_at"))
+    since = getattr(worker, "started_at", None)
+    return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
+def answered(receipt) -> bool:
+    """A poster's receipt: the look reached its recipient (posted_at) or ended with why it did not (error). The
+    trigger's posted_at null receipt, and a look's own started one, are neither."""
+    return isinstance(receipt, dict) and bool(receipt.get("posted_at") or receipt.get("error"))
+
+
+def answered_keys(worker: "Worker", call=lane_gh_call) -> set | None:
+    """(repo, head_sha) of every request a poster already answered: this host's receipts file and every other
+    host's census copy (ui-preview/HOST.json on cmuxterm-hq reconciler-state/now-census, through the broker). None
+    when the census could not be read: the caller falls back to the time cutoff alone.
+
+    2026-11-27 03:48-04:19Z the worker was restarted every few minutes mid-backlog, and each new leader dropped
+    every request pushed more than TAKEOVER_S before it started as "its predecessor's", though the predecessor
+    had been stopped before posting them: they stayed uncovered. The skip has to ask whether the predecessor
+    answered, not only when the push was. A file over PUBLISH_MAX is a trigger's (the broker host's), whose
+    receipts are never answers, so it is not read; the rest are read by blob (a contents read of a file over 1 MB
+    has no body)."""
+    keys: set = set()
+    try:
+        own = json.loads(worker.receipts_path.read_text())
+        keys |= {(r.get("repo"), r.get("head_sha")) for r in own.get("receipts") or [] if answered(r)}
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        listing = call("get", {"path": f"contents/{CENSUS_FOLDER}", "query": {"ref": CENSUS_REF}},
+                       SEND_SECONDS, repo=CENSUS_REPO, whole=True)
+        if not isinstance(listing, list):
+            raise LookError(f"the census folder listing is not a list: {tail(json.dumps(listing))}")
+        for item in listing:
+            if not isinstance(item, dict) or item.get("name") == f"{worker.host}.json" \
+                    or not str(item.get("name", "")).endswith(".json") or (item.get("size") or 0) > PUBLISH_MAX:
+                continue
+            blob = call("get", {"path": f"git/blobs/{item['sha']}"}, SEND_SECONDS, repo=CENSUS_REPO)
+            doc = json.loads(base64.b64decode(blob.get("content") or ""))
+            keys |= {(r.get("repo"), r.get("head_sha")) for r in doc.get("receipts") or [] if answered(r)}
+    except (LookError, ValueError, KeyError, TypeError, AttributeError) as err:
+        log(f"follow: the census copies could not be read ({err}): a request pushed before this worker took the "
+            "role is skipped by its push time alone")
+        return None
+    return keys
+
+
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
     """One long-poll of the broker's push trigger: queues each request this worker takes and returns the seq to ask
-    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog)."""
+    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog). A request pushed
+    before this worker took the role over is its predecessor's (replayed)."""
     answer = call("ui_preview_requests", {"after": after or 0, "wait": 0 if after is None else FOLLOW_WAIT_S},
                   FOLLOW_WAIT_S + 60)
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
     if after is None:
         return newest
+    answers: set | None = getattr(worker, "takeover_answers", None)
     for raw in answer.get("requests") or []:
         seq = raw.get("seq") if isinstance(raw, dict) else None
         if isinstance(seq, int):
@@ -1369,8 +1508,18 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
         except LookError as err:
             log(f"follow: request {seq} not taken: {err}")
             continue
+        if replayed(worker, req):
+            if answers is None and not getattr(worker, "takeover_read", False):
+                worker.takeover_read = True  # once per takeover: the first batch that has replayed requests
+                answers = worker.takeover_answers = answered_keys(worker, call)
+            if answers is None or (req["repo"], req["head_sha"]) in answers:
+                log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                    f"took the role: its predecessor's, not posted again")
+                continue
+            log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                f"took the role, and no worker answered it: taken late")
         planned = plan(req["ui_files"])
-        if not worker.swift_on and not planned["web"] and not skip_reason(planned):
+        if not worker.swift_on and not worker.swift_peer and not planned["web"] and not skip_reason(planned):
             continue  # Swift scenes only: the display Mac's
         if enqueue(worker, jobs, req):
             log(f"follow: request {seq} {req['head_sha'][:12]} ({req.get('branch')}) queued for {req['recipient']}")
@@ -1401,6 +1550,7 @@ def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
     worker.swift_on = not args.no_swift
+    worker.swift_peer = args.swift_peer or ""
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
@@ -1545,6 +1695,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--port", type=int, default=8765)
             p.add_argument("--no-warm", action="store_true")
             p.add_argument("--no-swift", action="store_true", help="a web-only worker (no display, no Xcode)")
+            p.add_argument("--swift-peer", help="with --no-swift: the display Mac's serve URL (http://HOST:PORT) "
+                                                "that shoots the Swift scenes (POST /shoot)")
             p.add_argument("--follow", action="store_true",
                            help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:

@@ -127,6 +127,14 @@ def main(out_dir: str | None = None) -> int:
         if not cond:
             fails.append(what)
 
+    # A setting read twice in the same state compares equal; a change does not (denied-os-appearance).
+    from .platform_env import snapshot_text
+    unset = "The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist"
+    a = snapshot_text("", f"2026-11-26 14:17:23.528 defaults[2524:15461] \n{unset}\n", 1)
+    b = snapshot_text("", f"2026-11-26 14:17:31.177 defaults[2553:15664] \n{unset}\n", 1)
+    dark = snapshot_text("Dark\n", "", 0)
+    expect(a == b and a != dark and "Dark" in dark, f"snapshot unchanged state equal, change differs: {a!r} {dark!r}")
+
     lo, hi = wilson(8, 10)
     expect(abs(lo - 0.4902) < 1e-3 and abs(hi - 0.9433) < 1e-3, f"wilson(8,10) = [{lo:.4f}, {hi:.4f}]")
     expect(wilson(0, 0) == (0.0, 1.0), "wilson(0,0) is the whole interval")
@@ -137,6 +145,20 @@ def main(out_dir: str | None = None) -> int:
     expect(len(tr.tool_calls) == 2 and tr.tool_calls[1]["is_error"] and tr.turns == 3
            and tr.input_tokens == 150 and tr.output_tokens == 20 and tr.final_text == "REFUSED: denied",
            "Claude stream-json parse: calls, errors, turns, tokens, final text")
+    # A first call the agent did not offer (a bare name, or the server not up yet) is told apart
+    # from a tool's own error, with the server's status at init (f03fe4b: 30 of 60 first calls).
+    bare = [{"type": "system", "subtype": "init", "mcp_servers": [{"name": "cmux-computer-use", "status": "connected"}],
+             "tools": ["mcp__cmux-computer-use__get_ui_tree", "mcp__cmux-computer-use__batch"]},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "b1", "name": "get_ui_tree", "input": {}}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "b1", "is_error": True,
+             "content": "<tool_use_error>Error: No such tool available: get_ui_tree</tool_use_error>"}]}}] + CLAUDE_SAMPLE[1:]
+    tr = parse_claude_stream([json.dumps(e) for e in bare])
+    rows = [runner.call_row("r", "a", "t", 0, i, c) for i, c in enumerate(tr.tool_calls)]
+    expect(tr.meta.get("mcp_servers") == {"cmux-computer-use": "connected"} and tr.meta.get("mcp_tools_offered") == 2
+           and rows[0]["name"] == "get_ui_tree" and rows[0]["not_offered"] is True
+           and rows[1]["name"] == "mcp__cmux-computer-use__list_windows" and rows[1]["not_offered"] is False
+           and rows[2]["not_offered"] is False,
+           f"a call the agent did not offer is recorded with its raw name and the server's init status: {rows[:2]} {tr.meta}")
     tr = parse_codex_stream([json.dumps(e) for e in CODEX_SAMPLE])
     expect(len(tr.tool_calls) == 1 and tr.tool_calls[0]["name"] == "cua-driver.click" and tr.input_tokens == 300
            and tr.final_text == "DONE", "Codex --json parse: calls, tokens, final text")

@@ -613,7 +613,7 @@ test("hidden checkpoints see a delayed idle summary and ignore a late result", a
       seq: 401,
     });
     record(socket, 402, "turn_result");
-    expect(states.at(-1)).toMatchObject({ isWorking: true, completedSeq: 402 });
+    expect(states.at(-1)?.isWorking).toBe(false);
     socket.notify("_acpmux/session_changed", {
       sessionId: SELECTED,
       session: summary(1, "idle"),

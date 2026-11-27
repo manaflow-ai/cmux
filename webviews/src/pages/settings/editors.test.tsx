@@ -214,7 +214,9 @@ describe("editors", () => {
           // The try-on bar reads whether something is tried on when the page opens.
           op !== "cmux.settings.customize.run" &&
           // So does its Customization Library card, its list.
-          op !== "cmux.settings.customize.library",
+          op !== "cmux.settings.customize.library" &&
+          // Undo reads the durable settings history around each step (a read, no write).
+          op !== "cmux.settings.history",
       );
     expect(order).toEqual([
       "cmux.settings.preview",

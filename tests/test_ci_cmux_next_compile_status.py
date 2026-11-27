@@ -23,6 +23,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 # CMUX_NEXT_WORKFLOW: run the checks against another copy (the detector against an older workflow).
 WORKFLOW = Path(os.environ.get("CMUX_NEXT_WORKFLOW") or ROOT / ".github" / "workflows" / "cmux-next.yml")
 SHA = "a" * 40
@@ -94,7 +96,7 @@ NO_VERDICT_LINE = re.compile(r"cmux-next/compile is not a pass for \S+ \((?!fail
 
 
 def job() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compile-status"]
+    return yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["compile-status"]
 
 
 def step_script() -> str:
@@ -216,10 +218,10 @@ class StatusMapping(unittest.TestCase):
 
     def test_the_superseded_gate_is_a_repo_variable_defaulting_on(self):
         for name in ("compile-status", "release-compile-fast"):
-            job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][name]
+            job = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"][name]
             env = next(step["env"] for step in job["steps"] if "run" in step and "SUPERSEDED_GATE" in step.get("env", {}))
             self.assertEqual(env["SUPERSEDED_GATE"], "${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}")
-        admission = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast-admission"]
+        admission = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-fast-admission"]
         self.assertIn("needs.release-compile-fast.outputs.verdict != 'superseded'", admission["if"])
 
     def test_a_controller_mark_hands_nothing_off_that_this_job_would_not(self):
@@ -415,7 +417,7 @@ class StatusMapping(unittest.TestCase):
     def test_every_cmux_next_compile_post_waits_out_a_rate_limit(self):
         """The detector of this class: every step that posts cmux-next/compile uses the one post(), which reads the
         answer, names it, and waits out a GitHub rate limit; no bare curl to the statuses API sits beside it."""
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        workflow = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         posters = {name: step["run"] for name, j in workflow.items() for step in j.get("steps", [])
                    if '"cmux-next/compile"' in step.get("run", "")}
         self.assertEqual(sorted(posters), ["compile-status", "compile-status-handoff"])
@@ -516,11 +518,13 @@ class Placement(unittest.TestCase):
                        "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
-        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce"])
+        # A PR head's compile-status waits for the Linux cargo tier and skips on a red one (#58899, note-cheap-gate).
+        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce", "fast-tier-cargo"])
+        self.assertIn("needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped'", job()["if"])
         self.assertEqual(job()["outputs"]["handoff"], "${{ steps.wait.outputs.handoff }}")
         # The fallback's own conditions: release-compile runs for a push (when release-compile-fast has no verdict)
         # and for a full-ci or mac_release same-repository pull request.
-        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]["if"]
+        release = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile"]["if"]
         for needle in ("github.event_name != 'pull_request'", "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'", "needs.push-head-preflight.outputs.current == 'true'"):
             self.assertIn(needle, release)
@@ -550,7 +554,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
         if reply is None or reply.get("state") == "running":
             env = {**env, "WAIT_SECONDS": "5", "READ_GAP": "1"}  # no terminal answer until the deadline: keep it short
         env = {**GAPS, **env}
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp, "bin")
@@ -603,7 +607,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
             with self.subTest(env=env):
                 code, verdict, reads = self.run_step(self.reply("superseded"), WAIT_SECONDS="400", **env)
                 self.assertEqual((code, verdict, len(reads)), (0, "unavailable", 1))
-        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]["if"]
+        release = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile"]["if"]
         self.assertIn("needs.release-compile-fast.outputs.verdict == 'unavailable'", release)
 
     def test_a_gateway_runner_submits_its_own_check_and_never_reads_the_result(self):
@@ -621,7 +625,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
     def test_the_wait_fits_the_job(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast"]
+        job = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-fast"]
         run = next(step["run"] for step in job["steps"] if step.get("id") == "compile")
         self.assertIn("WAIT_SECONDS:-1200", run)
         self.assertLessEqual(1200 + 120, job["timeout-minutes"] * 60 - 300)
@@ -635,7 +639,7 @@ def base_red_excuse():
 
 
 def handoff_job() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compile-status-handoff"]
+    return yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["compile-status-handoff"]
 
 
 class ResultsServer(http.server.ThreadingHTTPServer):
@@ -775,7 +779,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertRegex(output.strip(), r"^handoff=HTTP 000 for [3-9] s$")
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         self.server.reads.clear()
         started = time.monotonic()
@@ -784,7 +788,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
 
     def test_the_fast_checks_route_hands_the_push_to_the_mac(self):
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        step = next(step for step in yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1")
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
