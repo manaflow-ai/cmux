@@ -60,6 +60,7 @@
 //! with the `PAIRMATRIX_*` env (N, SEED_BASE, CONDITIONS, LOADS, PATHS, LONG_MINUTES). Prints
 //! `PAIRCELL {json}` lines, `PAIRCELL-NA` for an impossible cell, and `PAIRAUX` diagnostics.
 
+use std::collections::HashMap;
 use std::io::Read as _;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -70,6 +71,7 @@ use bytes::Bytes;
 use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::pairing::LinkAuth;
 use cmux_mobile_host::services::{Peer, serve};
+use cmux_mobile_link::chat_open::{self, ChatOpenRequests, ChatRpc, open_chat};
 use cmux_mobile_link::dial::{self, SessionEvents, wireguard};
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::testing::{
@@ -534,24 +536,9 @@ impl Chat {
         self.sender.send(Bytes::from(request.to_string())).await.map_err(|e| format!("send {method}: {e:?}"))
     }
 
-    async fn answer(&mut self, id: &str, deadline: Instant) -> Result<(Instant, Value), String> {
-        loop {
-            match tokio::time::timeout_at(deadline, self.replies.recv()).await {
-                Err(_) => return Err(format!("no reply to {id} in time")),
-                Ok(None) => return Err(format!("channel closed before the reply to {id}")),
-                Ok(Some((at, reply))) if reply["id"] == id => {
-                    if let Some(error) = reply.get("error") {
-                        return Err(format!("{id}: {error}"));
-                    }
-                    return Ok((at, reply));
-                }
-                Ok(Some(_)) => {}
-            }
-        }
-    }
-
-    /// Opens the chat on `connected`'s link: `initialize` and `_acpmux/watch` pipelined, then
-    /// the attach (`after`: a re-attach). The attach reply's arrival.
+    /// Opens the chat on `connected`'s link (`cmux_mobile_link::chat_open`): `initialize` and
+    /// `_acpmux/watch` pipelined, then the attach, or all three at once with the flag on
+    /// (`after`: a re-attach). The attach reply's arrival.
     async fn open(
         connected: &Connected,
         session: &str,
@@ -576,19 +563,7 @@ impl Chat {
         let (sender, receiver) = channel.split();
         let (replies_tx, replies) = mpsc::unbounded_channel();
         let reader = tokio::spawn(read_chat(receiver, replies_tx, Arc::clone(seen), session.to_owned()));
-        let mut chat = Self { sender, replies, reader };
-        chat.post(
-            "init",
-            "initialize",
-            json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
-                   "clientCapabilities": {}, "_meta": {"acpmux": {"chunkDeltas": true}}}),
-        )
-        .await?;
-        chat.post("watch", "_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
-        chat.answer("init", deadline).await?;
-        mark("chat_init_answered");
-        chat.answer("watch", deadline).await?;
-        mark("chat_watch_answered");
+        let chat = Self { sender, replies, reader };
         let mut params = json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": ["transcript"],
                                 "eventStream": true});
         match after {
@@ -598,14 +573,66 @@ impl Chat {
             }
             Some(after) => params["afterSeq"] = json!(after),
         }
-        chat.post("attach", "_acpmux/attach", params).await?;
-        let (at, reply) = chat.answer("attach", deadline).await?;
-        mark("chat_attach_answered");
+        // `initialize` and the watch, then the attach once both are answered (the app), or
+        // all three in one flight with `CMUX_PIPELINED_CHAT_OPEN=1` (cmux_mobile_link::chat_open).
+        let requests = ChatOpenRequests {
+            initialize: json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                               "clientCapabilities": {}, "_meta": {"acpmux": {"chunkDeltas": true}}}),
+            watch: json!({"enabled": true, "limit": WATCH_LIMIT}),
+            attach: params,
+        };
+        let mut rpc =
+            ChatRpcOver { chat, deadline, stash: HashMap::new(), arrived: HashMap::new(), timeline };
+        let opened = open_chat(&mut rpc, &requests, chat_open::pipelined_from_env()).await?;
+        let at = rpc.arrived.get(opened.attach_id).copied().unwrap_or_else(Instant::now);
+        let ChatRpcOver { chat, .. } = rpc;
+        let reply = opened.attach;
         let rows = reply["result"]["events"].as_array().map(Vec::len).unwrap_or_default();
         if after.is_none() && rows == 0 {
             return Err("attach page had no rows".into());
         }
         Ok((chat, at))
+    }
+}
+
+/// [`ChatRpc`] over a [`Chat`]: replies kept by id whatever order they come in, each one's
+/// arrival kept, and the open's legs marked (`chat_init_answered`, `chat_watch_answered`,
+/// `chat_attach_answered`, by the first reply of each request).
+struct ChatRpcOver<'t> {
+    chat: Chat,
+    deadline: Instant,
+    stash: HashMap<String, (Instant, Value)>,
+    arrived: HashMap<String, Instant>,
+    timeline: Option<&'t Timeline>,
+}
+
+impl ChatRpc for ChatRpcOver<'_> {
+    async fn post(&mut self, id: &str, method: &str, params: Value) -> Result<(), String> {
+        self.chat.post(id, method, params).await
+    }
+
+    async fn answer(&mut self, id: &str) -> Result<Value, String> {
+        let (at, reply) = match self.stash.remove(id) {
+            Some(kept) => kept,
+            None => loop {
+                match tokio::time::timeout_at(self.deadline, self.chat.replies.recv()).await {
+                    Err(_) => return Err(format!("no reply to {id} in time")),
+                    Ok(None) => return Err(format!("channel closed before the reply to {id}")),
+                    Ok(Some((at, reply))) if reply["id"] == id => break (at, reply),
+                    Ok(Some((at, reply))) => {
+                        if let Some(other) = reply["id"].as_str() {
+                            self.stash.insert(other.to_owned(), (at, reply));
+                        }
+                    }
+                }
+            },
+        };
+        self.arrived.insert(id.to_owned(), at);
+        if let Some(timeline) = self.timeline {
+            let leg = id.split('.').next().unwrap_or(id);
+            timeline.mark(&format!("chat_{leg}_answered"));
+        }
+        Ok(reply)
     }
 }
 
@@ -743,8 +770,13 @@ impl Rig {
             Some(timeline) => DialOptions { timeline: timeline.clone(), ..self.options.clone() },
             None => self.options.clone(),
         };
-        let dial =
-            dial::connect(&self.phone, &self.mac_id, TransportKind::WireGuard, &options, LinkConfig::default());
+        let dial = dial::connect(
+            &self.phone,
+            &self.mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        );
         match tokio::time::timeout_at(deadline, dial).await {
             Err(_) => Err("dial timed out".into()),
             Ok(Err(error)) => Err(format!("dial: {error:?}")),
@@ -1205,4 +1237,58 @@ async fn pair_matrix_ios_mac() {
             }
         }
     }
+}
+
+/// [`ChatRpc`] straight over a WebSocket to the bench's fake acpmux. Replies are kept by id,
+/// and their arrival order is recorded.
+struct WsRpc {
+    socket: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    stash: HashMap<String, Value>,
+    order: Vec<String>,
+}
+
+impl ChatRpc for WsRpc {
+    async fn post(&mut self, id: &str, method: &str, params: Value) -> Result<(), String> {
+        let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        self.socket.send(Message::Text(request.to_string().into())).await.map_err(|e| format!("{e}"))
+    }
+
+    async fn answer(&mut self, id: &str) -> Result<Value, String> {
+        if let Some(reply) = self.stash.remove(id) {
+            return Ok(reply);
+        }
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(10), self.socket.next())
+                .await
+                .map_err(|_| format!("no reply to {id}"))?
+                .ok_or("closed")?
+                .map_err(|e| format!("{e}"))?;
+            let Message::Text(text) = frame else { continue };
+            let reply: Value = serde_json::from_str(&text).map_err(|e| format!("{e}"))?;
+            let Some(got) = reply["id"].as_str().map(str::to_owned) else { continue };
+            self.order.push(got.clone());
+            if got == id {
+                return Ok(reply);
+            }
+            self.stash.insert(got, reply);
+        }
+    }
+}
+
+/// The pipelined open against the bench's fake acpmux: the attach sent before `initialize` is
+/// answered is answered after it, in request order, with the chat's page.
+#[tokio::test]
+async fn pipelined_open_against_fake_acpmux_answers_in_order() {
+    let acpmux = FakeAcpmux::start(2, 3, 3).await;
+    let (socket, _) = tokio_tungstenite::connect_async(acpmux.url.as_str()).await.expect("connect");
+    let mut rpc = WsRpc { socket, stash: HashMap::new(), order: Vec::new() };
+    let requests = ChatOpenRequests {
+        initialize: json!({"protocolVersion": 1}),
+        watch: json!({"enabled": true, "limit": WATCH_LIMIT}),
+        attach: json!({"sessionId": acpmux.session_id(0), "limit": PAGE_SIZE, "kinds": ["transcript"]}),
+    };
+    let opened = open_chat(&mut rpc, &requests, true).await.expect("open");
+    assert_eq!(rpc.order, ["init", "watch", "attach"], "answered in request order");
+    let rows = opened.attach["result"]["events"].as_array().map(Vec::len).unwrap_or_default();
+    assert!(rows > 0, "attach page: {}", opened.attach);
 }
