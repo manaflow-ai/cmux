@@ -314,7 +314,7 @@ export type PaneBodyDeps = NewTabShown &
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
-    onCloudMachinePicked: (machine: CloudMachine | undefined) => void;
+    onCloudMachinePicked: (machine: CloudMachine | undefined, peer?: string | null) => void;
     cloudOfferable: boolean;
     cloudFolderGrant: ReturnType<typeof cloudFolderGrants>;
     handshaken: boolean;
@@ -1042,6 +1042,7 @@ export function drawPaneBody({
                                   snapshot.catalog.find((entry) => entry.id === agent)?.family,
                                   agent,
                                   machine ? machine.model : model,
+                                  machine !== undefined,
                                 );
                               })(),
                             },
@@ -1120,6 +1121,7 @@ export function drawPaneBody({
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
                   {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
+                  {...(newTab.startsRemote ? { startsRemote: true } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
@@ -1158,6 +1160,7 @@ export function drawPaneBody({
                       cwd: newTab.cwd,
                       chatCwd: startFolder,
                       requestFolder,
+                      peerCloudRegistry: (peer) => directClient.current?.cloudPeerRegistry(peer),
                       startsHere: () => !directClient.current?.startsOnSend,
                       // After the screen's own early hold (NewTabScreen `holdsSend`): only holds and says why.
                       holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine", false),
