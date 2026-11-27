@@ -98,6 +98,45 @@ struct OmnibarNarrowFitTests {
         #expect(problems(bar).isEmpty)
     }
 
+    /// A window resize steps the bar's width at every frame. Measuring the chip's label and the badges (the label's text
+    /// width, each badge's `fittingSize`) cost about 0.7 ms a step per browser pane (2026-11-27 sample of a corner drag),
+    /// and only a width that crosses a fold needs it: a sweep that keeps the fold measures nothing, and one step across
+    /// the label's fold measures once, and folds it.
+    @Test func aResizeMeasuresTheBadgesOnlyWhenItCrossesAFold() {
+        let (bar, window, width) = bar(width: 840)
+        defer { window.closeAfterTest() }
+        var measures = 0
+        bar.benchProbe = { if $0 == "badges.measure" { measures += 1 } }
+        let sweep = Array(stride(from: 838 as CGFloat, through: 600, by: -7))
+        for step in sweep {
+            width.constant = step
+            window.contentView!.layoutSubtreeIfNeeded()
+        }
+        #expect(abs(bar.frame.width - 600) <= 0.5, "SETUP: the sweep did not reach 600 pt: \(bar.frame.width)")
+        #expect(!bar.chip.collapsesLabel && !bar.starButton.isHiddenOrHasHiddenAncestor, "SETUP: the sweep folded the label or the star")
+        #expect(measures == 0, "\(sweep.count) resize steps that cross no fold measured the badges \(measures) times")
+        // One step to where the label no longer fits beside the star and a short text.
+        width.constant = OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading + OmnibarNarrowFit.minimumTextWidth
+            + OmnibarStyle.fieldTrailingGap + bar.starButton.fittingSize.width + OmnibarStyle.badgesTrailingInset + 4
+        window.contentView!.layoutSubtreeIfNeeded()
+        #expect(bar.chip.collapsesLabel, "the step across the label's fold did not fold it")
+        #expect(measures == 1, "the step across the label's fold measured the badges \(measures) times")
+        #expect(problems(bar).isEmpty, "after the fold: \(problems(bar))")
+    }
+
+    /// The focus mode badge's words change while it shows ("Esc again to exit" after the first Escape), and the badges'
+    /// width with them: that measures them again (a resize that keeps the fold no longer does).
+    @Test func newFocusModeBadgeWordsMeasureTheBadgesAgain() {
+        let (bar, window, _) = bar(width: 840)
+        defer { window.closeAfterTest() }
+        bar.setFocusModeBadge(armed: false)
+        var measures = 0
+        bar.benchProbe = { if $0 == "badges.measure" { measures += 1 } }
+        bar.setFocusModeBadge(armed: true)
+        #expect(bar.focusModeBadgeText != nil, "SETUP: the focus mode badge does not show")
+        #expect(measures == 1, "the badge's new words measured the badges \(measures) times")
+    }
+
     @Test func theFitRuleFoldsTheLabelBeforeTheBadges() {
         func fit(_ width: CGFloat) -> OmnibarNarrowFit {
             OmnibarNarrowFit.resolve(barWidth: width, chipLeading: 2, chipIcon: 24, chipLabeled: 90, textLeading: 5,

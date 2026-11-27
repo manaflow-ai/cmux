@@ -318,7 +318,7 @@ public final class AddressBarView: NSView {
     /// The focus mode badge's text (tests, diagnostics).
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
-    func updateBadgeSpace() {
+    func updateBadgeSpace() { benchProbe?("badges.measure") // the chip's label and each badge measured (tests count it)
         let wanted = !machineBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         // A narrow bar folds the chip's label, then hides the badges, before the text runs under them (OmnibarNarrowFit).
         let shown = badges.arrangedSubviews.filter { !$0.isHidden }
