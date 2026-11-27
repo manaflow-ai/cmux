@@ -14,10 +14,7 @@ extension WindowController {
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
             WindowControlsAvoiders.refresh(in: self?.window)
         }
-        // The Home page rides the sidebar's slide inside the main pane card with no layout of its
-        // own (a hide sizes it once at the start): every move of the card, its last frame
-        // included, has its header re-read the traffic lights (no change, no work).
-        root.onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
+        root.refreshesAvoidersOnMainPaneMove()
         // The host pressure indicator, then extensions' status items (cmux.status/1), join the top row after the band and badge (cmuxterm-hq#2995).
         let topRowChanged = { [weak self] in
             self?.root.needsLayout = true
@@ -74,5 +71,14 @@ extension WindowController {
                 (services.pages.existingView(key)?.content as? PageWebView)?.windowDidChangeChrome()
             }
         }
+    }
+}
+
+extension WindowRootView {
+    /// The Home page rides the sidebar's slide inside the main pane card with no layout of its own (a hide sizes it once
+    /// at the start): every move of the card, its last frame included, has its header re-read the traffic lights (no
+    /// change, no work). Asked inside the window's frame change or layout pass, the re-check waits for its end.
+    func refreshesAvoidersOnMainPaneMove() {
+        onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
     }
 }
