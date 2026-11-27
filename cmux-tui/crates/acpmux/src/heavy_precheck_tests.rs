@@ -170,3 +170,45 @@ fn the_warning_serializes_camel_case_for_the_chat_row() {
     assert_eq!(v["needsDisk"], 100 * GB);
     assert_eq!(v["needsMemory"], 16 * GB);
 }
+
+#[test]
+fn a_known_heavy_project_floors_the_run_vm_at_its_published_memory() {
+    assert_eq!(memory_floor("fetch --nohooks chromium", None), Some((Project::Chromium, 16 * GB)));
+    assert_eq!(memory_floor("./x.py build", None), Some((Project::Rustc, 8 * GB)));
+    // The largest of several wins.
+    assert_eq!(
+        memory_floor("./x.py build && autoninja -C out/Default chrome", None),
+        Some((Project::Chromium, 16 * GB))
+    );
+    // LLVM publishes only disk; a big build has no published minimum; the rest is not heavy.
+    assert_eq!(memory_floor("cmake -S llvm -B build", None), None);
+    assert_eq!(memory_floor("cargo build", None), None);
+    assert_eq!(memory_floor("ls -la", None), None);
+}
+
+#[test]
+fn the_three_button_warning_is_a_notice_row_that_says_what_happens() {
+    let w = precheck("fetch --nohooks chromium", &default_vm(), &nowhere()).expect("warns");
+    let row = notice(&w, true);
+    assert!(row.starts_with("[autosize] Chromium needs 100 GB of disk"), "{row}");
+    assert!(row.ends_with("Running it here; this machine grows as it works."), "{row}");
+    assert!(!row.contains('?'), "a notice, not a question: {row}");
+    assert!(notice(&w, false).ends_with("Running it here as it is."));
+}
+
+#[test]
+fn only_known_heavy_commands_read_the_machine() {
+    assert!(is_known_heavy("fetch chromium", None));
+    assert!(is_known_heavy("cd src && cargo build --release", None));
+    assert!(!is_known_heavy("cargo test", None));
+    assert!(!is_known_heavy("git status", None));
+}
+
+#[test]
+fn meminfo_reads_total_and_available_in_bytes() {
+    let text =
+        "MemTotal:        4028264 kB\nMemFree:          123 kB\nMemAvailable:    3000000 kB\n";
+    assert_eq!(parse_meminfo(text), (Some(4028264 * 1024), Some(3000000 * 1024)));
+    assert_eq!(parse_meminfo("MemTotal: 10 kB\n"), (Some(10 * 1024), None));
+    assert_eq!(parse_meminfo(""), (None, None));
+}
