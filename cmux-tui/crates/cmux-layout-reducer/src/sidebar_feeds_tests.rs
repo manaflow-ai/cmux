@@ -692,6 +692,39 @@ fn chief_roles_and_titles() {
 }
 
 #[test]
+fn parsing_boundaries_preserve_safe_fallbacks() {
+    for name in ["", "optchat", "optchat-sub", "optchat-x", "1", "optchat-x-", "optchat-x-1-2-3"] {
+        assert_eq!(chief_role(name), ChiefRole::Other, "{name}");
+    }
+    assert_eq!(chief_role("optchat-sub-"), ChiefRole::Subagent);
+    assert_eq!(chief_role("optchat-家-1"), ChiefRole::Turn);
+    for url in
+        ["", "/", "https:", "https://host/owner/repo/pull", "https://host/owner/repo/issues/1"]
+    {
+        assert_eq!(repository(url), "", "{url}");
+    }
+    assert_eq!(repository("https://host/所有者/仓库/pull/1"), "所有者/仓库");
+    for (title, expected) in [
+        ("", None),
+        (" · ", Some("·")),
+        ("a · 标题", Some("a · 标题")),
+        ("é · 标题", Some("é · 标题")),
+        ("a１２ · 标题", Some("标题")),
+        ("a1 · ", None),
+    ] {
+        assert_eq!(chief_task_title(title).as_deref(), expected, "{title}");
+    }
+    assert_eq!(next_after(Some("gone"), &[]), None);
+    let singleton = strings(&["only"]);
+    assert_eq!(next_after(Some("only"), &singleton).as_deref(), Some("only"));
+    let ids = strings(&["first", "last"]);
+    assert_eq!(next_after(Some("gone"), &ids).as_deref(), Some("first"));
+    let wrapped = next_after(Some("last"), &ids);
+    assert_eq!(wrapped.as_deref(), Some("first"));
+    assert_eq!(next_after(wrapped.as_deref(), &ids).as_deref(), Some("last"));
+}
+
+#[test]
 fn history_specs_and_titles() {
     let earlier = earlier_spec(&set(&["b", "a"]), &strings(&["c", "a"]), 0, false);
     assert_eq!(earlier.window, EARLIER_WINDOW);

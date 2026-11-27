@@ -369,11 +369,10 @@ pub fn running(lanes: &[Lane], marks: &Marks, now: f64) -> Vec<String> {
 
 /// `next(after:in:)`: the id after `previous`, wrapping; the first when `previous` is gone.
 pub fn next_after(previous: Option<&str>, ids: &[String]) -> Option<String> {
-    let first = ids.first()?;
-    let Some(index) = previous.and_then(|p| ids.iter().position(|id| id == p)) else {
-        return Some(first.clone());
-    };
-    Some(ids[(index + 1) % ids.len()].clone())
+    previous
+        .and_then(|previous| ids.iter().skip_while(|id| id.as_str() != previous).nth(1))
+        .or_else(|| ids.first())
+        .cloned()
 }
 
 // MARK: - Lane status (a sidebar row)
@@ -891,10 +890,9 @@ pub struct Badge {
 /// `SidebarPullRequestItem.repository(of:)`: `owner/repo` of a pull request page, else empty.
 pub fn repository(url: &str) -> String {
     let parts: Vec<&str> = url.split('/').filter(|p| !p.is_empty()).collect();
-    if parts.len() >= 6 && parts[0] == "https:" && parts[4] == "pull" {
-        format!("{}/{}", parts[2], parts[3])
-    } else {
-        String::new()
+    match parts.as_slice() {
+        ["https:", _, owner, repo, "pull", _, ..] => format!("{owner}/{repo}"),
+        _ => String::new(),
     }
 }
 
@@ -1274,18 +1272,17 @@ fn swift_int(text: &str) -> Option<i64> {
 /// `ChiefSessionRole(name:)`: `optchat-<home>-<n>[-<m>]` is a turn, `optchat-sub-…` a subagent.
 pub fn chief_role(name: &str) -> ChiefRole {
     let parts: Vec<&str> = name.split('-').collect();
-    if parts.first() != Some(&"optchat") || parts.len() < 3 {
-        return ChiefRole::Other;
-    }
-    if parts[1] == "sub" {
-        return ChiefRole::Subagent;
-    }
-    let numbers = &parts[2..];
-    if parts[1] != "compact" && numbers.len() <= 2 && numbers.iter().all(|n| swift_int(n).is_some())
-    {
-        ChiefRole::Turn
-    } else {
-        ChiefRole::Other
+    match parts.as_slice() {
+        ["optchat", "sub", _, ..] => ChiefRole::Subagent,
+        ["optchat", kind, numbers @ ..]
+            if *kind != "compact"
+                && !numbers.is_empty()
+                && numbers.len() <= 2
+                && numbers.iter().all(|n| swift_int(n).is_some()) =>
+        {
+            ChiefRole::Turn
+        }
+        _ => ChiefRole::Other,
     }
 }
 
@@ -1307,12 +1304,12 @@ pub fn subagent_number(name: &str) -> Option<i64> {
 /// `String.chiefTaskTitle`: the title less a leading `a<digits> · ` id; none when empty.
 pub fn chief_task_title(title: &str) -> Option<String> {
     let mut rest = title.trim_start_matches(char::is_whitespace);
-    if let Some(dot) = rest.find(" · ")
-        && rest.starts_with('a')
-        && rest[..dot].chars().count() > 1
-        && rest[1..dot].chars().all(char::is_numeric)
+    if let Some((prefix, title)) = rest.split_once(" · ")
+        && let Some(number) = prefix.strip_prefix('a')
+        && !number.is_empty()
+        && number.chars().all(char::is_numeric)
     {
-        rest = &rest[dot + " · ".len()..];
+        rest = title;
     }
     let trimmed = rest.trim_matches(is_blank);
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
