@@ -59,9 +59,17 @@ main_exe="$app/Contents/MacOS/$(plutil -extract CFBundleExecutable raw -o - "$pl
 bounded() { perl -e 'alarm shift; exec @ARGV or die "exec: $!\n"' 30 "$@"; }
 status=0
 for name in cmux acpmux optchat-chief; do
-  bin="$(find "$app/Contents" -type f -perm -u+x -name "$name" 2>/dev/null | grep -vxF "$main_exe" | head -1)"
+  # A bundled CLI may be a symlink (bin/acpmux -> cmux), so links count too; one whose target is the app's own
+  # executable is skipped like that executable.
+  bin=""
+  while IFS= read -r cand; do
+    # -x and -ef follow the link: the target must run and must not be the app's own executable.
+    [[ -x "$cand" && ! "$cand" -ef "$main_exe" ]] || continue
+    bin="$cand"; break
+  done < <(find "$app/Contents" \( -type f -o -type l \) -name "$name" 2>/dev/null)
   if [[ -z "$bin" ]]; then echo "NCR $name: not in the bundle"; continue; fi
-  echo "NCR $name path ${bin#"$app/"}"
+  if [[ -L "$bin" ]]; then echo "NCR $name path ${bin#"$app/"} -> $(readlink "$bin")"
+  else echo "NCR $name path ${bin#"$app/"}"; fi
   ver="$(HOME="$work" bounded "$bin" --version 2>&1)"; rc=$?
   ver="$(head -3 <<<"$ver" | tr '\n' ' ')"
   if [[ "$rc" -eq 142 ]]; then echo "NCR $name --version: no answer in 30 s"; status=1
