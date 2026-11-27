@@ -87,6 +87,7 @@ enum ChatNativeRowActions {
             actions.moreMenu = {
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in UIPasteboard.general.string = turn.answerMarkdown },
+                    // retry-prompt-ok: re-runs the turn (spends tokens); the person chooses
                     UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.retry(turn) },
                 ]
                 // Retry with another model (`RetryModelChoice`), read when the menu opens.

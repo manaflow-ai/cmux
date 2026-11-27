@@ -14,8 +14,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode, OutMessage,
-    Receipt, Sender, SessionRow, Target,
+    Ack, AckState, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode,
+    OutMessage, Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
@@ -66,6 +66,7 @@ fn quick() -> RelayOptions {
         refused_retry: Duration::from_millis(300),
         max_in_flight: 4,
         on_reconnect: None,
+        capacity_every: None,
     }
 }
 
@@ -104,6 +105,8 @@ struct State {
     receipts: HashMap<String, Receipt>,
     /// Every message posted, as the hub got it.
     sent: Vec<OutMessage>,
+    /// Every capacity report, and when it came on tokio's clock.
+    capacities: Vec<(Capacity, tokio::time::Instant)>,
 }
 
 impl State {
@@ -130,6 +133,8 @@ struct FakeHub {
     long: bool,
     /// The row TTL a heartbeat reply names (90 s, the hub's old TTL, when unset).
     ttl_seconds: Option<u64>,
+    /// Capacity reports are refused (an older hub with no such route).
+    refusing_capacity: bool,
 }
 
 impl FakeHub {
@@ -308,6 +313,16 @@ impl MeshHub for FakeHub {
             receipts.get(id).cloned().ok_or_else(|| HubError::refused("no such message"))
         })
     }
+
+    fn capacity<'a>(&'a self, report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.with(|s| s.capacities.push((report.clone(), tokio::time::Instant::now())));
+            if self.refusing_capacity {
+                return Err(HubError { status: Some(404), ..HubError::refused("404") });
+            }
+            Ok(())
+        })
+    }
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -431,6 +446,30 @@ async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("{prompt_id} never reached {session}");
+}
+
+/// A relayed message's first lease did not wait for this machine: the relay marks it `resend` for
+/// its prompt id alone, and before that mark counted as waited, so every relayed FYI woke its
+/// idle chat (`prompt_provenance::resend_waited`). A lease after the first did wait and still
+/// wakes it.
+#[tokio::test]
+async fn only_a_relayed_message_leased_again_waited() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-first", "dep-land", Kind::Prompt));
+    fake.until("the first ack", |s| !s.acked("msg-first").is_empty()).await;
+    let first = delivered_provenance(&mut local, &session, "msg-first").await;
+    assert!(first.get(acpmux::prompt_provenance::WAITED).is_none(), "{first}");
+    let mut again = message("msg-again", "dep-land", Kind::Prompt);
+    again.attempt = 2;
+    fake.lease(again);
+    fake.until("the second ack", |s| !s.acked("msg-again").is_empty()).await;
+    let again = delivered_provenance(&mut local, &session, "msg-again").await;
+    assert_eq!(again[acpmux::prompt_provenance::WAITED], true, "{again}");
+    relay.stop().await;
 }
 
 /// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
@@ -1370,6 +1409,66 @@ async fn the_heartbeat_comes_every_third_of_the_hubs_ttl() {
             );
         }
     }
+}
+
+/// A joined machine reports its free capacity to its team's placement (RFD 0004 step 3): every
+/// `capacity_every`, with this daemon's live sessions and no fleet token; a refusal is asked again only after ten
+/// minutes and never stops the relay's heartbeat; a relay that is not a joined one reports none.
+#[tokio::test(start_paused = true)]
+async fn a_joined_relay_reports_its_capacity_and_any_other_reports_none() {
+    let hub = hub();
+    let fake = Arc::new(FakeHub::default());
+    let options = RelayOptions { capacity_every: Some(Duration::from_secs(40)), ..quick() };
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until_within(Duration::from_secs(200), "three capacity reports", |s| {
+        s.capacities.len() >= 3
+    })
+    .await;
+    relay.stop().await;
+    let reports = fake.with(|s| s.capacities.clone());
+    for gap in reports[..3].windows(2).map(|w| w[1].1 - w[0].1) {
+        assert!(
+            gap >= Duration::from_secs(40) && gap < Duration::from_secs(41),
+            "reports {gap:?} apart"
+        );
+    }
+    let report = serde_json::to_value(&reports[0].0).unwrap();
+    assert_eq!(report["region"], "joined");
+    assert_eq!(report["state"], "ready");
+    assert_eq!(report["sessions_running"], hub.live_session_count() as u64);
+    assert!(report.get("machine_token").is_none());
+    assert!(!report["host_id"].as_str().unwrap().is_empty());
+    let limits = &report["capabilities"];
+    assert!(limits["maxVcpu"].as_f64().unwrap() >= 1.0, "{limits}");
+    assert!(["linux", "macos"].contains(&limits["os"].as_str().unwrap()), "{limits}");
+    assert!(report["free_vcpu"].as_f64().unwrap() <= limits["maxVcpu"].as_f64().unwrap());
+    let after = fake.with(|s| s.capacities.len());
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert_eq!(fake.with(|s| s.capacities.len()), after, "a stopped relay reports nothing");
+
+    // Refused: asked again after ten minutes, not every 40 s; the heartbeat goes on.
+    let hub = self::hub();
+    let fake = Arc::new(FakeHub { refusing_capacity: true, ..FakeHub::default() });
+    let options = RelayOptions { capacity_every: Some(Duration::from_secs(40)), ..quick() };
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until_within(Duration::from_secs(1300), "two refused reports", |s| {
+        s.capacities.len() >= 2
+    })
+    .await;
+    let (gap, beats) = fake.with(|s| (s.capacities[1].1 - s.capacities[0].1, s.heartbeats.len()));
+    assert!(gap >= Duration::from_secs(600), "refused reports {gap:?} apart");
+    assert!(beats > 100, "the heartbeat went on: {beats}");
+    assert!(!relay.is_finished());
+    relay.stop().await;
+
+    // Not joined: no report.
+    let hub = self::hub();
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.until_within(Duration::from_secs(10), "a heartbeat", |s| !s.heartbeats.is_empty()).await;
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    relay.stop().await;
+    assert!(fake.with(|s| s.capacities.is_empty()));
 }
 
 /// A session's send through the hub names that session as its sender, whatever `fromAgent` the
