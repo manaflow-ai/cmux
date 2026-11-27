@@ -246,16 +246,7 @@ pub fn plan_since(
 ) -> Result<Planned, Fallback> {
     let repo = Repo::open(folder)?;
     let ids = [&previous.head, &previous.index, &previous.work];
-    let found = repo.commits_of(ids.iter().map(|id| id.as_str()));
-    for (id, found) in ids.into_iter().zip(found) {
-        let hex = (4..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit());
-        if !hex || found.as_deref() != Some(id.as_str()) {
-            return Err(Fallback::new(
-                FallbackCode::NoPrevious,
-                format!("the previous seed's commit {id} is not in this repository"),
-            ));
-        }
-    }
+    repo.check_seed_commits(&ids, "previous")?;
     build(&repo, out_bundle, &Since::Previous(previous), Vec::new())
 }
 
@@ -273,16 +264,7 @@ pub fn plan_recorded(
     let mut repo = Repo::open(folder)?;
     let mut ids = vec![&recorded.head, &recorded.index, &recorded.work];
     ids.extend(recorded.stash.as_ref());
-    let found = repo.commits_of(ids.iter().map(|id| id.as_str()));
-    for (id, found) in ids.into_iter().zip(found) {
-        let hex = (4..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit());
-        if !hex || found.as_deref() != Some(id.as_str()) {
-            return Err(Fallback::new(
-                FallbackCode::NoPrevious,
-                format!("the recorded seed's commit {id} is not in this repository"),
-            ));
-        }
-    }
+    repo.check_seed_commits(&ids, "recorded")?;
     // The bases of the recorded HEAD, not of whatever this Mac checked out since.
     repo.head = recorded.head.clone();
     let bases = repo.bases();
@@ -462,6 +444,7 @@ impl Repo {
         };
         let config = Config::read(&top);
         let github = remote_repo(&top, &remote, config.url(&remote))?;
+        let sparse_checkout = config.sparse_checkout(&top);
         Ok(Self {
             top,
             head,
@@ -470,7 +453,7 @@ impl Repo {
             upstream: tracked.map(|(_, upstream)| upstream),
             github,
             paths,
-            sparse_checkout: config.sparse_checkout(),
+            sparse_checkout,
             refs: std::cell::OnceCell::new(),
         })
     }
@@ -496,6 +479,23 @@ impl Repo {
         })
     }
 
+    /// Check only the valid prefix so the first bad or missing id keeps its original fallback.
+    fn check_seed_commits(&self, ids: &[&String], seed: &str) -> Result<(), Fallback> {
+        let names = ids.iter().map(|id| id.as_str()).take_while(|id| {
+            (4..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
+        let mut found = self.commits_of(names).into_iter();
+        for id in ids {
+            if found.next().flatten().as_deref() != Some(id.as_str()) {
+                return Err(Fallback::new(
+                    FallbackCode::NoPrevious,
+                    format!("the {seed} seed's commit {id} is not in this repository"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// The commit each of `names` names, None for one that names none: one
     /// `cat-file --batch-check` for what `rev-parse --verify` answered one name at a time.
     fn commits_of<'a>(&self, names: impl Iterator<Item = &'a str>) -> Vec<Option<String>> {
@@ -505,6 +505,9 @@ impl Repo {
             input.push_str(name);
             input.push_str("^{commit}\n");
             asked += 1;
+        }
+        if input.is_empty() {
+            return Vec::new();
         }
         let answer = git::output_fed(
             git::at(&self.top).args(["cat-file", "--batch-check=%(objectname)"]),
@@ -644,22 +647,20 @@ impl Config {
     }
 
     /// `core.sparseCheckout` as `config --bool` reads it; a value that is no boolean is off.
-    fn sparse_checkout(&self) -> bool {
-        self.last("core.sparsecheckout").is_some_and(git_bool)
-    }
-}
-
-/// A config value as git reads a boolean: no value, `true`, `yes`, `on` or a number other than
-/// 0 (with an optional `k`, `m` or `g`) is true; anything else is false or no boolean.
-fn git_bool(value: Option<&str>) -> bool {
-    let Some(value) = value else { return true };
-    let lower = value.to_ascii_lowercase();
-    match lower.as_str() {
-        "true" | "yes" | "on" => true,
-        "false" | "no" | "off" | "" => false,
-        number => {
-            let digits = number.strip_suffix(['k', 'm', 'g']).unwrap_or(number);
-            digits.parse::<i64>().is_ok_and(|number| number != 0)
+    fn sparse_checkout(&self, top: &Path) -> bool {
+        match self.last("core.sparsecheckout") {
+            None => false,
+            Some(None) => true,
+            Some(Some(value)) => match value.to_ascii_lowercase().as_str() {
+                "true" | "yes" | "on" => true,
+                "false" | "no" | "off" | "" => false,
+                // Git owns the numeric syntax and its bounds.
+                _ => {
+                    git::optional(git::at(top).args(["config", "--bool", "core.sparseCheckout"]))
+                        .as_deref()
+                        == Some("true")
+                }
+            },
         }
     }
 }

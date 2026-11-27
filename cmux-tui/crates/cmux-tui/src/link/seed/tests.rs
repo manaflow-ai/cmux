@@ -405,7 +405,7 @@ fn sparse_patterns_are_sent() {
 
 /// What the plan reads in one git each (one rev-parse, one config, one cat-file, the listings it
 /// already makes) comes out as the separate calls read it: the stash and bases from the refs, a
-/// URL that only names GitHub once rewritten, `core.sparseCheckout` spelled `yes`, and the
+/// URL that only names GitHub once rewritten, `core.sparseCheckout` spelled `0x10`, and the
 /// `.gitattributes` files untracked first, as one `ls-files --cached --others` listed them.
 #[test]
 fn what_the_plan_reads_together_comes_out_as_read_apart() {
@@ -421,7 +421,7 @@ fn what_the_plan_reads_together_comes_out_as_read_apart() {
     let stash = git(&f.work, &["rev-parse", "refs/stash"]);
     git(&f.work, &["remote", "set-url", "origin", "gh:acme/widget"]);
     git(&f.work, &["config", "url.https://github.com/.insteadOf", "gh:"]);
-    git(&f.work, &["config", "core.sparseCheckout", "yes"]);
+    git(&f.work, &["config", "core.sparseCheckout", "0x10"]);
     let info = PathBuf::from(git(&f.work, &["rev-parse", "--git-path", "info"]));
     write(&f.work.join(info).join("sparse-checkout"), "/*\n");
 
