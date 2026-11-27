@@ -80,13 +80,7 @@ extension WindowManager {
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines)
-            // Spaces off: a workspace this window was just sent to (a banner click, Go to Tab) shows here before its pin lands.
-            // The profile filter would drop it and the repair would send the window back, so the click showed nothing (Nightly
-            // 4598798383801, probe notify-banner-click); `landedPins` selects it once the pin shows it, or drops it when the window moved on.
-            if !spacesOn, let shown = state.workspaceID, pinSelections[shown]?.window == window.id, !visible.contains(shown), members().contains(shown) {
-                visible.append(shown)
-            }
+            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines, keeping: !spacesOn ? state.workspaceID.flatMap { pinSelections[$0]?.window == window.id ? $0 : nil } : nil)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room (asked only when the room shows nothing).
             if visible.isEmpty, !claims.pending.values.contains(window.id),
