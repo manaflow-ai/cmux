@@ -62,6 +62,12 @@
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
           "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/cache-restore/"]
+        },
+        "remote-web-wasm": {
+          "name": "cmux remote web wasm",
+          "compile_only": true,
+          "crates": ["cmux-tui/crates/cmux-remote-web"],
+          "inputs": ["scripts/ci/apt-ensure.sh"]
         }
       }
     },
@@ -114,6 +120,7 @@
           "inputs": [
             "scripts/ci/job_input_fingerprint.py",
             "scripts/ci/job_reuse.py",
+            "scripts/ci/github_fetch_auth.py",
             "ghostty-next", "workers/cmux-vm/cli/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
             "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",

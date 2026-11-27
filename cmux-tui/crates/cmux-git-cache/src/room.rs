@@ -39,13 +39,41 @@ pub fn space(path: &Path) -> Option<(u64, u64)> {
 
 /// Whether `avail` of `total` is still above the floor.
 pub fn above_floor(avail: u64, total: u64) -> bool {
-    total == 0 || avail > floor_bytes(total)
+    room_after(avail, total, 0)
+}
+
+/// Whether writing `need` more bytes still leaves `avail` of `total` above the floor. A fill
+/// checked only against the free space it starts with ran a 63 GiB lane VM from 31 GiB to
+/// 16 GiB free with one 15.5 GiB mirror of manaflow-ai/cmux (fs-agent-lane-24 and -14,
+/// 2026-11-26), and the mirror then sat under the floor for good: every refresh refused.
+pub fn room_after(avail: u64, total: u64, need: u64) -> bool {
+    total == 0 || avail.saturating_sub(need) > floor_bytes(total)
 }
 
 /// Whether the cache may write more under `path` now. An unreadable filesystem counts as room:
 /// the bound never stops a cache it cannot measure (the write itself still fails on a full disk).
 pub fn has_room(path: &Path) -> bool {
     space(path).is_none_or(|(avail, total)| above_floor(avail, total))
+}
+
+/// `has_room` for a write of `need` bytes: it must end above the floor, not just start there.
+pub fn has_room_for(path: &Path, need: u64) -> bool {
+    space(path).is_none_or(|(avail, total)| room_after(avail, total, need))
+}
+
+/// The line a write of `need` bytes the floor refused logs.
+pub fn why_not_for(path: &Path, need: u64) -> String {
+    match space(path) {
+        Some((avail, total)) => format!(
+            "{} MiB more would leave {} MiB of {} MiB free, under the cache's {} MiB floor \
+             ({FREE_FLOOR_PERCENT}% of the disk, at most {FREE_FLOOR_MAX_GIB} GiB)",
+            need >> 20,
+            avail.saturating_sub(need) >> 20,
+            total >> 20,
+            floor_bytes(total) >> 20
+        ),
+        None => "disk space unreadable".to_owned(),
+    }
 }
 
 /// The line a write the floor stopped logs.
@@ -103,6 +131,17 @@ mod tests {
         assert!(above_floor(17 * gib, 257 * gib));
         assert!(!above_floor(16 * gib, 257 * gib));
         assert_eq!(floor_bytes(20 * gib), 5 * gib, "Cloud's 20 GiB disk keeps its 5 GiB floor");
+    }
+
+    #[test]
+    fn a_write_must_end_above_the_floor() {
+        let gib = 1u64 << 30;
+        // fs-agent-lane-24: 63 GiB disk (floor 15.75 GiB), 31 GiB free, a 15.5 GiB cmux mirror.
+        assert!(above_floor(31 * gib, 63 * gib), "the old check let the fill start");
+        assert!(!room_after(31 * gib, 63 * gib, 31 * gib / 2), "it would end under the floor");
+        assert!(room_after(40 * gib, 63 * gib, 15 * gib));
+        assert!(!room_after(gib, 63 * gib, 2 * gib), "more than is free never wraps around");
+        assert!(room_after(0, 0, u64::MAX), "an unmeasured filesystem is never refused");
     }
 
     #[test]
