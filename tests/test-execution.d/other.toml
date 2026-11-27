@@ -55,6 +55,15 @@ path = "tests/test_base_autofix_pushed_exports.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_base_coalesce_direct_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_coalesce_record_dir.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_coalesce_record_dir.py"
+
+[[test]]
 path = "tests/test_base_merge_warning.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_base_merge_warning.py"
@@ -86,6 +95,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_build_metrics.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_bun_options_join.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_bun_options_join.py"
 
 [[test]]
 path = "tests/test_cancel_superseded_pr_runs.py"
@@ -515,6 +529,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_mac_tiers.py"
 
 [[test]]
+path = "tests/test_machine_channel_cargo_seed_due.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_machine_join_e2e_workflow.py"
 lane = "linux-guard"
 
@@ -667,6 +685,11 @@ lane = "linux-guard"
 path = "tests/test_payload_advisories.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_payload_advisories.py"
+
+[[test]]
+path = "tests/test_perf_10x_idle_args.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_perf_10x_idle_args.py"
 
 [[test]]
 path = "tests/test_pinned_files_mirror.py"
@@ -848,6 +871,10 @@ path = "tests/test_risk_tier.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rivals_restart.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_run_checks_concurrently.py"
 lane = "linux-guard"
 serial = true
@@ -1011,6 +1038,10 @@ path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_submit_fleet_test.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_submodule_forward_only.py"
 lane = "linux-guard"
 
@@ -1136,6 +1167,16 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 [[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_warm_verdict_worker.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_warm_verdict_worker.py"
+
+[[test]]
+path = "tests/test_webviews_no_duplicate_import_names.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_webviews_no_duplicate_import_names.py"
 
 [[test]]
 path = "tests/test_webviews_test_history.py"

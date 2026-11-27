@@ -6,6 +6,10 @@ path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_acpmux_tests_full_ci_own_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_actionlint_covers_every_workflow.py"
 lane = "linux-guard"
 
@@ -181,6 +185,10 @@ path = "tests/test_ci_cmux_tui_tree_targets.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_compile_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_compile_test_plan.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_compile_test_plan.py"
@@ -308,6 +316,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_gallery_health_merge_ref.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_gateway_jobs_on_linux.py"
 lane = "linux-guard"
 
 [[test]]
@@ -645,6 +657,10 @@ path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_suite.py"
 lane = "linux-guard"
 
@@ -656,6 +672,11 @@ reason = "A regression test for package-test-lane.sh suite's skip reporting, run
 [[test]]
 path = "tests/test_ci_package_result_reuse.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_page_strings_step.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_page_strings_step.py"
 
 [[test]]
 path = "tests/test_ci_paid_queue_pin.py"
@@ -717,6 +738,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_ran_line.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_receipt.py"
 lane = "linux-guard"
 
 [[test]]
@@ -950,6 +975,10 @@ path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_workspaces_land_head.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 
@@ -964,6 +993,10 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that 
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_self_edit_sweep.py"
 lane = "linux-guard"
 
 [[test]]
@@ -984,6 +1017,11 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_ci_setup_bun_cache_layout.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_setup_bun_cache_layout.py yourself after changing the workflow steps it reads."
+
+[[test]]
+path = "tests/test_ci_shard1_background.py"
+lane = "manual"
+reason = "Pins scripts/ci/shard1_background.sh, which overlaps react-apps-check shard 1's independent checks (ci-web.yml); run python3 tests/test_ci_shard1_background.py yourself after changing it (about 8 s, no build)."
 
 [[test]]
 path = "tests/test_ci_shed_superseded_runs.py"
@@ -1122,6 +1160,10 @@ path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tui_spec_sims_post_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_tui_tree_checkout_retry.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_tui_tree_checkout_retry.py"
@@ -1200,6 +1242,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_start_lint.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-guards.yml workflow-start-lint runs on every pull request that touches .github/; its end-to-end cases need actionlint (ACTIONLINT=PATH). Run python3 tests/test_ci_workflow_start_lint.py after changing the lint (seconds, no build)."
 
 [[test]]
 path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
