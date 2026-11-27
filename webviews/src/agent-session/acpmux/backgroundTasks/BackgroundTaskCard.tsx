@@ -93,7 +93,7 @@ export function BackgroundTaskCard({
   toolCallId?: string;
   processId?: string;
   state: string;
-  time?: string;
+  time?: ReactNode;
   /// The surface's own Stop (it keeps its column there); none once it ended.
   stop?: ReactNode;
   defaultOpen?: boolean;

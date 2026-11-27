@@ -5,10 +5,12 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { StateMark } from "./StateMark";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
+import { useSessionBoundary } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
   workflowSignals,
+  WORKFLOW_SIGNAL_MS,
   type WorkflowDetailRequest,
   type WorkflowCapacitySignal,
 } from "./foldWorkflows";
@@ -35,7 +37,21 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
 }) {
   const t = useT();
   const ticking = workflows.some((workflow) => workflow.state === "running");
-  const now = useNow(ticking);
+  const boundaries = useMemo(
+    () =>
+      [
+        ...workflows.flatMap((workflow) =>
+          workflow.agents.flatMap((agent) =>
+            agent.state === "running" && agent.lastProgressAt !== undefined
+              ? [agent.lastProgressAt + WORKFLOW_SIGNAL_MS]
+              : [],
+          ),
+        ),
+        ...(daemonCapacity?.errors.flatMap((error) => [error.at, error.at + WORKFLOW_SIGNAL_MS + 1]) ?? []),
+      ].sort((a, b) => a - b),
+    [workflows, daemonCapacity],
+  );
+  const now = useSessionBoundary(boundaries);
   const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
   return (
     <>
@@ -50,7 +66,7 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
           workflow={workflow}
           actions={actionsFor?.(workflow)}
           idle={signals.idle}
-          now={now}
+          liveElapsed
         />
       ))}
     </>
@@ -87,11 +103,13 @@ export function WorkflowSummaryRow({
   actions = {},
   idle,
   now,
+  liveElapsed = false,
 }: {
   workflow?: WorkflowSummary;
   actions?: WorkflowActions;
   idle?: ReadonlySet<string>;
   now?: number;
+  liveElapsed?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -159,7 +177,14 @@ export function WorkflowSummaryRow({
         )}
         <span className="acpmux-summary-meta">
           {total > 0 && `${completed}/${total}`}
-          {elapsedMs !== undefined && ` · ${formatDuration(elapsedMs)}`}
+          {elapsedMs !== undefined ? (
+            ` · ${formatDuration(elapsedMs)}`
+          ) : liveElapsed && workflow.state === "running" && workflow.startedAt !== undefined ? (
+            <>
+              {" "}
+              · <Elapsed since={workflow.startedAt} />
+            </>
+          ) : null}
           {workflow.tokens !== undefined &&
             ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>
