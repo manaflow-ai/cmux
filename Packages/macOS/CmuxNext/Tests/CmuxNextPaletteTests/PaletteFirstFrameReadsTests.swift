@@ -34,9 +34,13 @@ struct PaletteFirstFrameReadsTests {
         return registry
     }
 
-    private static func palette(_ registry: ActionRegistry) -> PaletteController {
+    /// `pins`: the user's pinned actions, as cmux.json gives them (`PaletteSources.rankSettings`): each open reads them
+    /// into the searcher again, so a pin written there directly is gone by the first frame.
+    private static func palette(_ registry: ActionRegistry, pins: [ActionID] = []) -> PaletteController {
         _ = NSApplication.shared
-        let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
+        var sources = PaletteSources()
+        sources.rankSettings = { PaletteRankSettings(pins: pins.map(\.rawValue)) }
+        let palette = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
         palette.prepare(step: 0)
         palette.prepare(step: 1)
         return palette
@@ -89,15 +93,15 @@ struct PaletteFirstFrameReadsTests {
     @Test func firstFrameHasThePinnedAndRecentActions() throws {
         let reads = Reads()
         let registry = Self.registry(reads)
-        let palette = Self.palette(registry)
-        defer { palette.closeForTest() }
         let roots = RegistryPaletteProvider.rootIntentIDs
         let others = registry.descriptors.map(\.id).filter { !roots.contains($0) && $0 != "commandPalette" }
         let full = RegistryPaletteProvider(registry: registry).makeItems()
         let listed = Set(full.compactMap(\.actionID))
         let candidates = others.filter { listed.contains($0) }
         let pinned = try #require(candidates.first), recent = try #require(candidates.dropFirst().first)
-        palette.model.searcher.rankSettings.withLock { $0.pins = [pinned.rawValue] }
+        let palette = Self.palette(registry, pins: [pinned])
+        defer { palette.closeForTest() }
+        palette.configureScopes() // what each open does first: the pins into the searcher
         palette.model.recordUse("action:\(recent.rawValue)")
         let provider = try #require(palette.commandsPage().providers.first as? RegistryPaletteProvider)
         let first = try #require(provider.firstFrameItems)
@@ -190,9 +194,8 @@ struct PaletteFirstFrameReadsTests {
         action.paletteState = { setting.on }
         action.paletteStateIsSetting = true
         registry.register(action)
-        let palette = Self.palette(registry)
+        let palette = Self.palette(registry, pins: [id])
         defer { palette.closeForTest() }
-        palette.model.searcher.rankSettings.withLock { $0.pins = [id.rawValue] }
         palette.show(.commands)
         let shown = try #require(palette.model.current?.providerItems["registry"]?.first { $0.actionID == id },
                                  "the pinned toggle is not on the first frame")
