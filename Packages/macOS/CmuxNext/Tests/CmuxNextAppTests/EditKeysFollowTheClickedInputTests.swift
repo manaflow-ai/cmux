@@ -69,6 +69,25 @@ import Testing
         #expect(!consumed, "the router took Cmd-V; AppKit never gave it to the message box")
     }
 
+    /// Diagnostic only (side branch, never merged): what the window, the focus model and the router see around the box's
+    /// first-responder change.
+    @Test func diagnoseTheMessageBoxFacts() throws {
+        let (services, controller, window, box) = try Self.harness()
+        defer { for controller in services.windows.controllers { controller.window?.close() }; AppHarnessWindows.closeThoseThisTestOpened() }
+        let router = services.keyRouter
+        func dump(_ label: String) {
+            let s = controller.focus.state
+            print("DIAG \(label): resolved=\(s.resolved) pane=\(String(describing: s.pane)) target=\(s.target) overlays=\(s.overlays) panes=\(s.topology.panes.map(\.id)) ws=\(String(describing: s.topology.workspace)) terminal=\(s.context.terminal) windowKey=\(s.windowKey)")
+            print("DIAG \(label): recent=\(controller.focus.recent.suffix(10))")
+            print("DIAG \(label): firstResponder=\(String(describing: window.firstResponder.map { type(of: $0) })) content=\(controller.content != nil) contentPanes=\(controller.content.map { Array($0.panes.keys) } ?? []) topPage=\(String(describing: controller.shownTopPage)) boxHidden=\(box.isHiddenOrHasHiddenAncestor) boxInWindow=\(box.window === window) shell=\(controller.window === window) isKey=\(window.isKeyWindow) visible=\(window.isVisible)")
+            print("DIAG \(label): typingOutside=\(router.typingOutsideFocusedTerminal(window, controller: controller)) currentStateResolved=\(controller.focus.currentState().resolved)")
+        }
+        dump("before")
+        let moved = window.makeFirstResponder(box)
+        print("DIAG moved=\(moved) classify=\(FocusResponderClassifier.classify(box, in: controller))")
+        dump("after")
+    }
+
     /// The Chief chat as a Chromium page: its page window over the cmux window has the keys while the
     /// model still names the terminal. A key in that window is the page's, never the terminal's.
     @Test func aPageWindowOverTheShellKeepsCmdVFromTheNamedTerminal() throws {
