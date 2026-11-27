@@ -17,6 +17,9 @@ public nonisolated enum ImportSourceKind: String, Codable, Sendable, CaseIterabl
     case cmuxClassic
     /// Conductor's workspaces (`~/conductor/workspaces`), adopted in place.
     case conductor
+    /// This Mac's git checkouts, each moved to its own AutoCloud machine (`cmux migrate`, RFD 0173).
+    /// Offered only while `cloud.autoCloud` is on.
+    case autoCloud
 }
 
 /// What a scan found for one source, from folder listings and file
@@ -45,7 +48,7 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
         }
     }
 
-    /// `browser.<id>`, `agents.claudeCode`, `agents.codex`, `terminal.ghostty`, `terminal.iterm2`, `cmux.classic`, `agents.conductor`.
+    /// `browser.<id>`, `agents.claudeCode`, `agents.codex`, `terminal.ghostty`, `terminal.iterm2`, `cmux.classic`, `agents.conductor`, `cloud.moveThisMac`.
     public var id: String
     public var kind: ImportSourceKind
     /// The browser, for `.browser`.
@@ -92,7 +95,7 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
             // keeps the card dismissed and only a new one brings it back (ImportSuggestionState.hides).
             let held = profiles.flatMap { profile in profile.kinds.map { "\(profile.directoryName)=\($0.rawValue)" } }.sorted()
             return ([id, access.rawValue] + held).joined(separator: "|")
-        case .claudeCode, .codex, .ghostty, .cmuxClassic, .conductor:
+        case .claudeCode, .codex, .ghostty, .cmuxClassic, .conductor, .autoCloud:
             return [id, access.rawValue].joined(separator: "|")
         }
     }
