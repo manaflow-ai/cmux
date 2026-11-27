@@ -266,6 +266,45 @@ class ReadFailureTest(unittest.TestCase):
                     self.assertNotIn("secret", stdout.getvalue() + stderr.getvalue())
                     self.assertEqual(error.fp.tell(), 0)
 
+    def test_a_rate_limited_token_falls_back_to_the_pool_tokens(self) -> None:
+        refused = urllib.error.HTTPError("https://api.github.com/repos/manaflow-ai/cmux/issues/7/comments", 403,
+                                         "rate limited", {}, None)
+        seen = []
+
+        def gate_now(repo, pr, sha, token, bots):
+            seen.append(token)
+            if token == "job":
+                raise refused
+            return "success", "web-flows proof at this head"
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {"REPO": "manaflow-ai/cmux", "PR": "7", "SHA": HEAD, "GH_TOKEN": "job",
+                                          "TOKENS": "job pool1 pool2"}), \
+                mock.patch.object(u, "gate_now", side_effect=gate_now), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(u.main(["gate"]), 0)
+        self.assertEqual(seen, ["job", "pool1"])
+        self.assertEqual(stdout.getvalue(), "success\tweb-flows proof at this head\n")
+
+    def test_every_token_refused_is_still_an_error_never_a_pass(self) -> None:
+        refused = urllib.error.HTTPError("https://api.github.com/repos/manaflow-ai/cmux/pulls/7", 403, "x", {}, None)
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {"REPO": "manaflow-ai/cmux", "PR": "7", "SHA": HEAD, "GH_TOKEN": "job",
+                                          "TOKENS": "job pool1 pool2"}), \
+                mock.patch.object(u, "gate_now", side_effect=refused) as gate_now, \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(u.main(["gate"]), 0)
+        self.assertEqual(gate_now.call_count, 3)
+        self.assertTrue(stdout.getvalue().startswith("error\tUI proof not read (HTTPError 403)"))
+
+    def test_a_not_found_is_not_retried_with_other_tokens(self) -> None:
+        missing = urllib.error.HTTPError("https://api.github.com/repos/manaflow-ai/cmux/pulls/7", 404, "x", {}, None)
+        with mock.patch.dict(os.environ, {"REPO": "manaflow-ai/cmux", "PR": "7", "SHA": HEAD, "GH_TOKEN": "job",
+                                          "TOKENS": "pool1"}), \
+                mock.patch.object(u, "gate_now", side_effect=missing) as gate_now, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            u.main(["gate"])
+        self.assertEqual(gate_now.call_count, 1)
+
     def test_unknown_endpoint_and_unexpected_headers_are_omitted(self) -> None:
         error = urllib.error.HTTPError("https://example.com/secret?token=secret", 403, "secret",
                                        {"X-GitHub-Request-Id": "secret\nline", "Retry-After": "secret"}, None)

@@ -56,6 +56,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -385,6 +386,41 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     return verdict(need, body, records, ui, pr)
 
 
+def read_tokens() -> list[str]:
+    """GH_TOKEN first, then the job's pool TOKENS, each once: the status post already falls back across them."""
+    first = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    out: list[str] = []
+    for t in [first, *os.environ.get("TOKENS", "").split()]:
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def gate_read(repo: str, pr: str, sha: str, tokens: list[str], bots: list[str]) -> tuple[str, str]:
+    """gate_now with the next token when one is refused or rate-limited (403/429/5xx); unread stays an error.
+
+    Why: on 2026-11-27 the job's own token was rate-limited (403) and every visual PR read 'UI proof not read'
+    while CI_POOL_TOKEN_1/2 could still read; the same job's status post had fallen back to them and succeeded."""
+    last: Exception | None = None
+    for token in tokens:
+        try:
+            return gate_now(repo, pr, sha, token, bots)
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code not in (403, 429) and e.code < 500:
+                break
+        except (OSError, TimeoutError) as e:  # URLError is an OSError: a network blip, try the next token
+            last = e
+        except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
+            last = e
+            break
+        if len(tokens) > 1:
+            print(f"{STATUS_CONTEXT}: read refused with one token ({type(last).__name__}"
+                  f"{' ' + str(last.code) if isinstance(last, urllib.error.HTTPError) else ''}); trying the next",
+                  file=sys.stderr)
+    return "error", f"UI proof not read ({proof_record.read_error(last)}): see job log"
+
+
 def rerun_gate(repo: str, sha: str) -> str:
     """Rerun the PR's ui proof status job at SHA (gh, the brokered CLI on a fleet host) so it reads a new record."""
     def gh(*args):
@@ -475,15 +511,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+        tokens = read_tokens()
         bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
-        if not (repo and pr and sha and token):
+        if not (repo and pr and sha and tokens):
             print("error\tUI proof not read: REPO, PR, SHA and GH_TOKEN are needed")
             return 0
-        try:
-            state, desc = gate_now(repo, pr, sha, token, bots)
-        except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
-            state, desc = "error", f"UI proof not read ({proof_record.read_error(e)}): see job log"
+        state, desc = gate_read(repo, pr, sha, tokens, bots)
         print(f"{state}\t{desc}")
         return 0
     if args.cmd == "record":
