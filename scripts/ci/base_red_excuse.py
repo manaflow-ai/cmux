@@ -7558,6 +7558,45 @@ class JobRateLimited(Refused):
     """A failed CI job reported only its own GitHub API quota refusal."""
 
 
+RISK_EVIDENCE_JOB = "risk evidence"
+RISK_EVIDENCE_STEP = "Grade the pull request"
+RISK_EVIDENCE_QUOTA = "risk-evidence.rate-limited "
+
+
+def risk_evidence_quota(view: "FailedView | Unplaced") -> str | None:
+    """The grader's single provider refusal in its failed grade step, never a successful grade."""
+    if view is UNPLACED or view.job.get("name") != RISK_EVIDENCE_JOB:
+        return None
+    failed = [step.get("name") for step in view.job.get("steps", [])  # step-name: classify
+              if step.get("conclusion") == "failure"]
+    if failed != [RISK_EVIDENCE_STEP] or not view.sections:
+        return None
+    if any(view.steps[k].get("name") != RISK_EVIDENCE_STEP for k, _, _ in view.sections):
+        return None
+    lines = test_reds.lines_of(view.text())
+    markers = [line[len(RISK_EVIDENCE_QUOTA):] for line in lines if line.startswith(RISK_EVIDENCE_QUOTA)]
+    if len(markers) != 1 or any(line.startswith("##[error]") and not
+                               line.startswith("##[error]Process completed with exit code") for line in lines):
+        return None
+    if signature(view)[1] or crash_signals(view):
+        return None
+    try:
+        marker = json.loads(markers[0])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(marker, dict) or marker.get("graded") is not False:
+        return None
+    if type(marker.get("status")) is not int or marker["status"] not in (403, 429):
+        return None
+    if type(marker.get("reset")) is not int or not 0 < marker["reset"] < 253402300800:
+        return None
+    endpoint = marker.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint or any(ord(c) < 32 for c in endpoint):
+        return None
+    reset = datetime.fromtimestamp(marker["reset"], timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    return f"job {view.job.get('id')}; HTTP {marker['status']}; endpoint {endpoint}; rerun after {reset}"
+
+
 def github_quota_only(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
     and no test failed, else None."""
@@ -9628,6 +9667,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         except Refused:
             pass
     view = failed_view(job, head_log, step_names=names, base=False)
+    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota(view)) is not None:
+        raise JobRateLimited(f"'{name}' was not graded ({said})")
     early = signature(view)
     if any(str(step.get("name") or "") in ROLLUP_STEPS for step in job.get("steps") or []):  # step-name: classify
         # The rollup's own list, for a check run that carries no annotation of it (rolled_up_reds).
@@ -10239,7 +10280,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
         quota = ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
-                 if base_run is None or base_job.get("conclusion") != "failure" else None)
+                 if name != RISK_EVIDENCE_JOB and (base_run is None or base_job.get("conclusion") != "failure") else None)
         if quota is not None:
             raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:

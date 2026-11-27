@@ -1,7 +1,7 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../experiments/experiment";
 
-/// How the jump pair looks (VirtualTranscript.tsx `JumpToLatest` and `JumpUp`, jumpPair.css,
+/// How the jump pair looks (VirtualTranscript.tsx `JumpToLatest`, jumpPair.css,
 /// design/transcript-overlays.md "The jump pair"). Leo, 2026-11-12, on the fisheye disc: "I feel
 /// like this jump to top button is a little bit strange-looking, no? Like, did we redesign that
 /// [stuff] yet?" Compare the arms in the gallery's `agent-pane.jump-pair-look` (view Compare arms),
