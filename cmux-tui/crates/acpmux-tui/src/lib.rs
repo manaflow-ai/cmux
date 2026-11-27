@@ -22,6 +22,7 @@
 use cmux_json::JsonSet as _;
 
 pub mod actions;
+mod agent_names;
 mod answering;
 mod capacity_wait;
 pub mod chat_find;
@@ -29,6 +30,7 @@ mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+mod failure_copy;
 pub mod new_line;
 mod reconnect_wait;
 mod run;
@@ -36,6 +38,7 @@ mod scheduler;
 mod start_wait;
 mod state;
 mod terminal;
+mod turn_fold;
 mod usage_reset;
 pub use run::run;
 
@@ -57,9 +60,12 @@ pub mod editor;
 mod keys;
 pub mod links;
 pub mod menu;
+mod modes;
 mod mouse;
 pub mod notify;
+mod paste_link;
 mod picker;
+mod picks_hold;
 pub mod render;
 pub use menu::{Menu, MenuAction};
 #[cfg(all(test, unix))]
@@ -810,7 +816,7 @@ impl App {
         }
         let Some(id) = self.selected_id() else { return };
         let Some(t) = self.transcripts.get(&id) else { return };
-        let Some(Item::Permission { id: pid, options, .. }) = t.pending_permission() else {
+        let Some(Item::Permission { id: pid, options, .. }) = live_permission(t) else {
             self.status = "no pending permission".into();
             return;
         };
@@ -847,6 +853,13 @@ fn session_route_id(session: &Value) -> Option<String> {
 /// A session or transcript status with a turn still open: running, or waiting on a permission.
 fn turn_open_status(status: &str) -> bool {
     matches!(status, "running" | "waiting")
+}
+
+/// The transcript's undecided permission or question, only while its turn is open (cmux#41497
+/// `liveAsk`): an ask left behind when the turn ended, failed or was cancelled is no longer real,
+/// so no card offers Allow for it and y/n answer nothing. A status not yet known keeps it.
+pub(crate) fn live_permission(t: &Transcript) -> Option<&Item> {
+    (t.status.is_empty() || turn_open_status(&t.status)).then(|| t.pending_permission()).flatten()
 }
 
 #[cfg(test)]
@@ -1169,12 +1182,15 @@ pub(crate) mod interaction_tests {
         app.sessions = vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})];
         app.selected = 0;
         let mut transcript = Transcript::default();
-        transcript.available_commands = vec!["compact".into()];
+        transcript.available_commands = vec!["compact".into(), "review".into()];
+        transcript.command_descriptions.insert("compact".into(), "Summarize the chat".into());
         app.transcripts.insert("test-session".into(), transcript);
         app.open_palette();
-        assert!(
-            matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="agent:/compact"))
-        );
+        // Each / row says what its command does when the harness says (#50541).
+        let Overlay::Picker(ref p) = app.overlay else { panic!("palette") };
+        let note = |v: &str| p.rows.iter().find(|r| r.value == v).map(|r| r.note.clone());
+        assert_eq!(note("agent:/compact").as_deref(), Some("Summarize the chat"));
+        assert_eq!(note("agent:/review").as_deref(), Some("provided by the selected harness"));
         app.overlay = Overlay::None;
         app.apply_pick(PickTarget::Action, "agent:/compact".into(), String::new());
         let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
@@ -1200,5 +1216,33 @@ pub(crate) mod interaction_tests {
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert!(!blocks[1]["data"].as_str().unwrap().is_empty());
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod live_permission_tests {
+    use super::*;
+
+    fn asking(status: &str) -> Transcript {
+        let mut t = Transcript::default();
+        t.items.push(Item::Permission {
+            id: "p1".into(),
+            title: "Run rm -rf build".into(),
+            options: vec![("a".into(), "Allow".into(), "allow_once".into())],
+            decided: None,
+            question: None,
+        });
+        t.status = status.into();
+        t
+    }
+
+    /// cmux#41497: an ask is drawn only while acpmux reports the chat running or waiting.
+    #[test]
+    fn an_ask_left_by_an_ended_turn_is_not_offered() {
+        assert!(live_permission(&asking("waiting")).is_some());
+        assert!(live_permission(&asking("running")).is_some());
+        assert!(live_permission(&asking("")).is_some());
+        assert!(live_permission(&asking("idle")).is_none());
+        assert!(live_permission(&asking("error")).is_none());
     }
 }

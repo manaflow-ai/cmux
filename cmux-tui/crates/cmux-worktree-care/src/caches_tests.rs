@@ -5,7 +5,7 @@ use crate::store::care_tests::scratch;
 const DAY_MS: u64 = 24 * HOUR_MS;
 
 fn families(home: &Path) -> Vec<Family> {
-    default_families(home)
+    default_families(home).into_iter().filter(|f| f.source == Source::Fixed).collect()
 }
 
 fn no_uses() -> Result<Vec<Process>, String> {
@@ -17,14 +17,26 @@ fn not_open(_: &Path) -> Result<Option<u32>, String> {
 }
 
 fn options<'a>(
-    home: &Path,
+    home: &'a Path,
     pressure: Pressure,
     now_ms: u64,
     apply: bool,
     uses: &'a Uses,
     open: &'a Open,
 ) -> Options<'a> {
-    Options { families: families(home), pressure, now_ms, apply, uses, open, measure: true }
+    Options {
+        families: families(home),
+        pressure,
+        now_ms,
+        apply,
+        uses,
+        open,
+        measure: true,
+        home,
+        never: &crate::never_delete::NONE,
+        store: None,
+        off: &[],
+    }
 }
 
 fn derived(home: &Path, name: &str) -> PathBuf {
@@ -140,7 +152,7 @@ fn a_held_folder_stays() {
     age(&idle, 10);
     let now = crate::inventory::now_ms();
     let held = idle.clone();
-    let uses = move || Ok(vec![Process { pid: 1, cwd: held.join("Build") }]);
+    let uses = move || Ok(vec![Process { pid: 1, cwd: held.join("Build"), session_id: None }]);
     let report = run(&options(&home, Pressure::Normal, now, true, &uses, &not_open));
     assert!(idle.exists());
     assert!(report.items[0].verdict.reason.contains("in use"));
@@ -193,4 +205,27 @@ fn absent_roots_report_nothing() {
     ));
     assert!(report.items.is_empty());
     let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn protected_descendants_keep_their_parent_even_after_scan() {
+    for pattern in ["~/Library/Developer/Xcode/DerivedData/Old/keep.txt", "keep.*", "**/keep.txt"] {
+        let home = scratch("caches-descendant-preserve");
+        let parent = derived(&home, "Old");
+        let sibling = derived(&home, "Disposable");
+        age(&parent, 10);
+        age(&sibling, 10);
+        let never = crate::never_delete::NeverDelete::from_globs([pattern.to_string()]);
+        let mut opts =
+            options(&home, Pressure::Normal, crate::inventory::now_ms(), true, &no_uses, &not_open);
+        opts.never = &never;
+        let mut report = scan(&opts);
+        std::fs::write(parent.join("keep.txt"), "preserve this").unwrap();
+        age(&parent, 10);
+        for index in 0..report.items.len() {
+            apply(&opts, &mut report, index);
+        }
+        assert_eq!(std::fs::read_to_string(parent.join("keep.txt")).unwrap(), "preserve this");
+        assert!(!sibling.exists());
+    }
 }

@@ -15609,6 +15609,7 @@ func (value *HomeInboxOptions) UnmarshalJSON(data []byte) error {
 // IdentifyRequest is the exact identify wire payload.
 type IdentifyRequest struct {
 	MachineMetadata *bool `json:"machine_metadata,omitempty"`
+	RestoreProgress *bool `json:"restore_progress,omitempty"`
 	Revisions       *bool `json:"revisions,omitempty"`
 }
 
@@ -15618,6 +15619,7 @@ func (value *IdentifyRequest) UnmarshalJSON(data []byte) error {
 	}
 	var fields struct {
 		MachineMetadata optionalNonNullJSON[bool] `json:"machine_metadata"`
+		RestoreProgress optionalNonNullJSON[bool] `json:"restore_progress"`
 		Revisions       optionalNonNullJSON[bool] `json:"revisions"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -15630,6 +15632,12 @@ func (value *IdentifyRequest) UnmarshalJSON(data []byte) error {
 	}
 	if fields.MachineMetadata.set {
 		decoded.MachineMetadata = &fields.MachineMetadata.value
+	}
+	if fields.RestoreProgress.null {
+		return fmt.Errorf("decode IdentifyRequest: non-nullable field restore_progress is null")
+	}
+	if fields.RestoreProgress.set {
+		decoded.RestoreProgress = &fields.RestoreProgress.value
 	}
 	if fields.Revisions.null {
 		return fmt.Errorf("decode IdentifyRequest: non-nullable field revisions is null")
@@ -28822,7 +28830,8 @@ type SendKeyResult = EmptyResult
 
 // ServerStatsRequest is the exact server-stats wire payload.
 type ServerStatsRequest struct {
-	Include Presence[[]string] `json:"-"`
+	Include         Presence[[]string] `json:"-"`
+	RestoreProgress *bool              `json:"restore_progress,omitempty"`
 }
 
 func (value ServerStatsRequest) MarshalJSON() ([]byte, error) {
@@ -28855,7 +28864,8 @@ func (value *ServerStatsRequest) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ServerStatsRequest: expected object")
 	}
 	var fields struct {
-		Include Presence[[]string] `json:"include"`
+		Include         Presence[[]string]        `json:"include"`
+		RestoreProgress optionalNonNullJSON[bool] `json:"restore_progress"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ServerStatsRequest: %w", err)
@@ -28863,12 +28873,19 @@ func (value *ServerStatsRequest) UnmarshalJSON(data []byte) error {
 	type wire ServerStatsRequest
 	var decoded wire
 	decoded.Include = fields.Include
+	if fields.RestoreProgress.null {
+		return fmt.Errorf("decode ServerStatsRequest: non-nullable field restore_progress is null")
+	}
+	if fields.RestoreProgress.set {
+		decoded.RestoreProgress = &fields.RestoreProgress.value
+	}
 	*value = ServerStatsRequest(decoded)
 	return nil
 }
 
 type ServerStatsOptions struct {
-	Include Presence[[]string] `json:"-"`
+	Include         Presence[[]string] `json:"-"`
+	RestoreProgress *bool              `json:"restore_progress,omitempty"`
 }
 
 func (value ServerStatsOptions) MarshalJSON() ([]byte, error) {
@@ -28901,7 +28918,8 @@ func (value *ServerStatsOptions) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ServerStatsOptions: expected object")
 	}
 	var fields struct {
-		Include Presence[[]string] `json:"include"`
+		Include         Presence[[]string]        `json:"include"`
+		RestoreProgress optionalNonNullJSON[bool] `json:"restore_progress"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ServerStatsOptions: %w", err)
@@ -28909,6 +28927,12 @@ func (value *ServerStatsOptions) UnmarshalJSON(data []byte) error {
 	type wire ServerStatsOptions
 	var decoded wire
 	decoded.Include = fields.Include
+	if fields.RestoreProgress.null {
+		return fmt.Errorf("decode ServerStatsOptions: non-nullable field restore_progress is null")
+	}
+	if fields.RestoreProgress.set {
+		decoded.RestoreProgress = &fields.RestoreProgress.value
+	}
 	*value = ServerStatsOptions(decoded)
 	return nil
 }
