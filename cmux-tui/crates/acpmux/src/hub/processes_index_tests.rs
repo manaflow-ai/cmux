@@ -66,3 +66,24 @@ fn a_description_round_trips_and_is_left_out_when_absent() {
         json!("Wait for the PR checks to finish")
     );
 }
+
+/// A running daemon task (`bg_registry.rs`) stays out of the harness's live set through an index
+/// rebuild (a shrink, a checkpoint restore), so it never keeps its chat awake, and a row the table
+/// dropped (it had ended) is never put back.
+#[test]
+fn a_rebuilt_index_keeps_daemon_tasks_out_of_the_harness_live_set() {
+    let mut table = ProcessTable::default();
+    table.upsert(process("session/shell", "tool-shell"));
+    let mut daemon = process("session/bg-1", "tool-bg");
+    daemon.daemon_task = true;
+    table.upsert(daemon);
+    table.reindex();
+    assert_eq!(table.running.len(), 1, "only the harness's shell");
+    assert_eq!(table.daemon_live(), vec![("session/bg-1".to_owned(), "task".to_owned())]);
+    table.dropped.ids.push(key("session/bg-old"));
+    table.dropped.count = 1;
+    let mut gone = process("session/bg-old", "tool-old");
+    gone.state = ProcessState::Lost;
+    assert!(table.daemon_upsert(gone).is_none(), "a dropped row stays ended");
+    assert!(table.find_id("session/bg-old").is_none());
+}
