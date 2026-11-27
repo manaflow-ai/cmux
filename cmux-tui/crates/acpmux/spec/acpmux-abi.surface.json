@@ -27034,6 +27034,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/navigator": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/pick": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/read": {
       "/*untyped*": {
         "ty": "json",
@@ -27041,6 +27053,12 @@
       }
     },
     "request:_acpmux/team/send": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/session_info": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -38311,6 +38329,18 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/navigator": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/pick": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/read": {
       "/data/*untyped*": {
         "ty": "json",
@@ -38318,6 +38348,12 @@
       }
     },
     "response:_acpmux/team/send": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/session_info": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
