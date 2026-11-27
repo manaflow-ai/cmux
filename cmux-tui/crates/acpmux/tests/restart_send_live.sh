@@ -15,7 +15,7 @@ CFG
 env -u ACPMUX_SESSION_ID -u ACPMUX_CALLER_TOKEN "$BIN" daemon run > "$H/daemon.log" 2>&1 &
 echo "daemon pid $!"
 for i in $(seq 50); do "$BIN" daemon status >/dev/null 2>&1 && break; sleep 0.2; done
-"$BIN" new hold-lane --cwd "$H" > "$H/new.out" 2>&1 || { echo "new failed"; cat "$H/new.out" "$H/daemon.log"; exit 1; }
+"$BIN" new hold-lane -d --cwd "$H" > "$H/new.out" 2>&1 || { echo "new failed"; cat "$H/new.out" "$H/daemon.log"; exit 1; }
 ok=0; bad=0
 for i in $(seq "$N"); do
   msg="hold-live-$i-$RANDOM"
