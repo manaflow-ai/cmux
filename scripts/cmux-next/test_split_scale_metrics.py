@@ -262,6 +262,19 @@ class SummaryTests(unittest.TestCase):
         head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
         self.assertIsNone(head["settled_ms"])
 
+    def test_a_timed_out_round_is_reported_apart_not_ranked_worst(self):
+        good = {"settled_ms": 50, "first_frame_ms": 8, "frame_p95_ms": 8, "blank_frames": 0, "retargets": 0}
+        slow = ssm.summarize([good, good])
+        out = ssm.summarize([{"error": "strip: debug.new_tab: timed out", "timed_out": True, "retried": True}] * 2)
+        self.assertEqual((out["failed_rounds"], out["timed_out_rounds"], out["retried_rounds"]), (0, 2, 2))
+        self.assertFalse(ssm.verdict(out, 8.33)["complete"])
+        head = ssm.headline({"s1-empty-w1": {"close_down": slow}, "s9-chat-w10": {"close_down": out}}, {})
+        self.assertEqual(head["cell"], "s1-empty-w1")
+        self.assertEqual(head["timed_out_cells"], ["s9-chat-w10 close_down"])
+        real = ssm.summarize([{"error": "the key made no pane"}])
+        head = ssm.headline({"a": {"close_down": slow}, "b": {"close_down": real}}, {})
+        self.assertIsNone(head["settled_ms"])
+
     def test_an_unsettled_round_is_the_worst_at_least_the_strip(self):
         # The 01fc64af3 nightly: s9-browser-w1 divider_drag was still painting when its 900 ms strip ended, and the
         # headline published settled None, so the goal check had no score at all.
@@ -310,6 +323,31 @@ class SummaryTests(unittest.TestCase):
         lines = ssm.table(report).splitlines()
         self.assertLess(len(lines), 25)
         self.assertTrue(all(len(line) < 130 for line in lines))
+
+
+class RowTableTests(unittest.TestCase):
+    def report(self):
+        def s(first, blank=0, failed=0):
+            return {"first_frame_ms": first, "blank_frames": blank, "settled_ms": 90.0, "failed_rounds": failed}
+        return {"cells": {"s1-empty-w1": {"split_right": s(9.0), "close_right": s(20.5)},
+                          "s4-browser-w1": {"split_down": s(12.0, blank=2), "divider_drag": s(None)}}}
+
+    def test_worst_row_first_and_flags(self):
+        rows = ssm.row_table(self.report())
+        self.assertEqual([(r["transition"], r["flag"]) for r in rows],
+                         [("divider_drag", "unmeasured"), ("split_down", "blank"), ("close_right", "slow"), ("split_right", "")])
+        self.assertFalse(ssm.row_table_ok(rows))
+
+    def test_ok_only_when_every_row_is_under_budget_and_not_blank(self):
+        rows = ssm.row_table({"cells": {"s1-empty-w1": {"split_right": {"first_frame_ms": 15.9, "blank_frames": 0}}}})
+        self.assertTrue(ssm.row_table_ok(rows))
+        self.assertFalse(ssm.row_table_ok([]))
+        self.assertIn("split table: ok", ssm.row_table_markdown(rows))
+
+    def test_markdown_marks_flagged_rows(self):
+        text = ssm.row_table_markdown(ssm.row_table(self.report()))
+        self.assertIn("over", text.splitlines()[0])
+        self.assertIn("| s4-browser-w1 | split_down | 12 | 2 | 90 | **blank** |", text)
 
 
 if __name__ == "__main__":

@@ -372,6 +372,8 @@ impl MeshDriver {
             };
             self.send_packet(&packet, now);
         }
+        let pacer = &self.pacer;
+        self.stack.set_pacer_held(|local, remote| pacer.held(local, remote));
     }
 
     /// Encrypt one packet for the peer that routes its destination and send
