@@ -8,8 +8,13 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") the check turns red
-for one thing: a takeback no `Takes back #N:` line owns (below). A high pull request with no verdict, or
+Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") an unowned takeback
+(`Takes back #N:` is absent) is the only pull-request verdict that turns the check red. A structured GitHub
+API 403/429 quota refusal is also red, but it is explicitly ungraded: `risk_tier.py` emits one
+`risk-evidence.rate-limited {"endpoint":...,"status":403|429,"reset":...,"graded":false}` marker and
+returns nonzero. `scripts/ci/base_red_excuse.py` recognizes that marker only in the `risk evidence` job's
+`Grade the pull request` step from `.github/workflows/risk-tier.yml` (`pull_request_target`); it reports a
+rerun-after boundary and never excuses a marker mixed with a takeback, test, or other error. A high pull request with no verdict, or
 with a BLOCK, gets a warning in the job summary and the check stays green. The lander refuses a BLOCK
 at the exact head. Into `feat-cmux-next` no review otherwise gates a merge (Leo, 2026-11-12); a high pull
 request still posts its SHIP receipt before it merges (below).

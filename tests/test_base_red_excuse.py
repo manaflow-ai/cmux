@@ -8448,6 +8448,64 @@ class GitHubQuotaJobRed(unittest.TestCase):
                          "run 10; job 12345; no attempt before " + re.search(r"no attempt before (\d{2}:\d{2}Z)", live_error).group(1))
 
 
+class RiskEvidenceQuotaMarker(unittest.TestCase):
+    """The risk classifier's structured marker is trusted only in its exact pull_request_target failed step."""
+
+    MARKER = ('risk-evidence.rate-limited {"endpoint":"repos/o/r/pulls/7/files?per_page=100",'
+              '"graded":false,"reset":1800000000,"status":403}')
+    JOB = "risk evidence"
+    STEP = "Grade the pull request"
+
+    def case(self, *lines, workflow_path=".github/workflows/risk-tier.yml@refs/heads/main", event="pull_request_target",
+             steps=None, step_name=None):
+        step_name = step_name or self.STEP
+        job = {"id": 123, "run_id": 10, "name": self.JOB, "status": "completed", "conclusion": "failure",
+               "steps": framed_steps(steps or [(step_name, "failure", 3, 6)])}
+        text = framed_log([(step_name, 3, "##[group]Run python3 scripts/ci/risk_tier.py pr"),
+                           *[(step_name, 4, line) for line in lines]], job_name=self.JOB)
+        run_reads = {("run-record", 10): {"path": workflow_path, "event": event}}
+        return excuse.risk_evidence_quota_only(
+            REPO, job, text, object(), run_reads, step_names=excuse.STEP_NAMES_UNKNOWN)
+
+    def test_marker_is_a_retryable_quota_refusal(self):
+        said = self.case(self.MARKER, "::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
+        self.assertIn("HTTP 403", said)
+        self.assertIn("rerun after", said)
+
+    def test_nonquota_error_without_marker_is_not_excused(self):
+        self.assertIsNone(self.case("gh api exited 1", "##[error]Process completed with exit code 1."))
+
+    def test_marker_mixed_with_takeback_stays_a_real_red(self):
+        self.assertIsNone(self.case(self.MARKER, "::warning::Takes back #57000: stale base"))
+
+    def test_marker_from_another_workflow_or_step_is_not_trusted(self):
+        self.assertIsNone(self.case(self.MARKER, workflow_path=".github/workflows/risk-tier.yml@refs/heads/feat-cmux-next"))
+        self.assertIsNone(self.case(self.MARKER, workflow_path=".github/workflows/other.yml@refs/heads/main"))
+        self.assertIsNone(self.case(self.MARKER, event="push"))
+
+    def test_bare_main_workflow_path_is_trusted_but_wrong_step_is_not(self):
+        self.assertIsNotNone(self.case(self.MARKER, workflow_path=".github/workflows/risk-tier.yml"))
+        self.assertIsNone(self.case(self.MARKER, step_name="A different step"))
+
+    def test_duplicate_grade_steps_and_unstructured_error_are_not_trusted(self):
+        self.assertIsNone(self.case(self.MARKER, steps=[(self.STEP, "failure", 3, 5),
+                                                        (self.STEP, "failure", 5, 7)]))
+        self.assertIsNone(self.case(self.MARKER, "provider said no"))
+
+    def test_runner_warning_form_is_trusted_and_takeback_is_not(self):
+        self.assertIsNotNone(self.case(self.MARKER,
+                                       "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
+        self.assertIsNone(self.case(self.MARKER, "Takes back #57000: stale base"))
+
+    def test_two_quota_attempts_and_the_workflow_fallback_warning_are_trusted(self):
+        marker429 = self.MARKER.replace('"status":403', '"status":429')
+        self.assertIsNotNone(self.case(self.MARKER,
+                                       "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN",
+                                       marker429,
+                                       "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
+        self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
+
+
 class RetargetedGitHub(FakeGitHub):
     """cmux#44908 at e19e1487: opened into feat-cmux-next, retargeted to main at 01:05Z. Its 'defaults guard' job 1
     ran at 00:40Z in pull_request_target run 10 under the old base and failed; main has no run of its workflow with a
@@ -13361,6 +13419,7 @@ RAW_LOG_READERS = {
     "summary_no_verdict": "a gate: only refuses",
     "generated_no_verdict": "a gate: only refuses",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
+    "risk_evidence_quota_only": "a gate: parses the risk classifier's trusted structured quota marker; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
     "gallery_crash_verdict": "compares gallery health artifacts, per state, never log lines",
@@ -13460,6 +13519,7 @@ ROLE_PASSERS = {("next_batch", "failed_jobs"): "hands its run's role to expand_j
                 ("next_batch", "expand_job"): "hands its job's role to failed_view"}
 ROLES = {
     ("base_red_excuse", "read_head"): (False,),  # the head's red job
+    ("base_red_excuse", "risk_evidence_quota_only"): (False,),  # the risk evidence head's red job
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
     ("base_red_excuse", "compile_base_evidence"): (True,),  # a red base job compile_errors_verdict compares

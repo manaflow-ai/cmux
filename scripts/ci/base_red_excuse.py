@@ -70,6 +70,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 import re
 import shlex
@@ -7500,6 +7501,18 @@ RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 # error line beside it, or a failing test, keeps the comparison.
 GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
 
+# risk-tier.yml is a pull_request_target job from main. Its classifier runs from the PR base and emits this marker
+# only after a structured GitHub 403/429 quota response. Text that merely mentions a rate limit is deliberately not
+# enough for this job: a real takeback warning or any other failure must remain a red verdict.
+RISK_EVIDENCE_JOB = "risk evidence"
+RISK_EVIDENCE_STEP = "Grade the pull request"
+RISK_EVIDENCE_MARKER = re.compile(r"^risk-evidence\.rate-limited (?P<body>\{.*\})$")
+RISK_EVIDENCE_ENDPOINT = re.compile(
+    r"^repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/"
+    r"(?:pulls|compare|issues|commits|contents|collaborators)(?:/[A-Za-z0-9_.~%/@-]+)?"
+    r"(?:\?[A-Za-z0-9_.~%=&/-]+)?$")
+RISK_EVIDENCE_WORKFLOW = re.compile(r"^\.github/workflows/risk-tier\.yml(?:@refs/heads/main)?$")
+
 # The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
 # not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
 TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
@@ -7558,6 +7571,97 @@ def tree_handoff_quota_only(job: dict, log: str) -> str | None:
     if len(errors) != 1 or not (match := TREE_HANDOFF_QUOTA.fullmatch(errors[0].rstrip())):
         return None
     return (f"run {match.group('run')}; job {job.get('id')}; no attempt before {match.group('retry')}")
+
+
+def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: dict, *, step_names) -> str | None:
+    """The one trusted risk-evidence quota marker, placed in the classifier's failed step."""
+    if str(job.get("name") or "") != RISK_EVIDENCE_JOB:
+        return None
+    workflow_info = run_reads.get(("run-record", job.get("run_id")))
+    if not isinstance(workflow_info, dict):
+        try:
+            workflow_info = rest_run(repo, int(job["run_id"]), github, run_reads)
+        except (KeyError, TypeError, ValueError, Refused):
+            return None
+    if (RISK_EVIDENCE_WORKFLOW.fullmatch(str(workflow_info.get("path") or "")) is None
+            or workflow_info.get("event") != "pull_request_target"):
+        return None
+    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    if all(isinstance(step.get("number"), int) for step in steps):
+        steps.sort(key=lambda step: step["number"])
+    if sum(str(step.get("name") or "") == RISK_EVIDENCE_STEP  # step-name: display
+           for step in steps) != 1:
+        return None
+    failed = [str(step.get("name") or "")  # step-name: display
+              for step in steps if step.get("conclusion") == "failure"]
+    if failed != [RISK_EVIDENCE_STEP]:
+        return None
+    view = failed_view(job, log, step_names=step_names, base=False)
+    if view is UNPLACED:
+        return None
+    target = next((index for index, step in enumerate(view.steps)
+                   if str(step.get("name") or "") == RISK_EVIDENCE_STEP), None)  # step-name: display
+    if target is None:
+        return None
+    markers: list[dict] = []
+    marker_lines: list[int] = []
+    all_lines: list[str] = []
+    for raw, index in view.lines():
+        for text in lines_of(raw):
+            line_number = len(all_lines)
+            all_lines.append(text)
+            match = RISK_EVIDENCE_MARKER.fullmatch(text)
+            if match is None:
+                continue
+            if index != target:
+                return None
+            try:
+                marker = json.loads(match.group("body"))
+            except (TypeError, ValueError):
+                return None
+            if isinstance(marker, dict):
+                markers.append(marker)
+                marker_lines.append(line_number)
+    echoed = test_reds.echoed(all_lines)
+    if (not markers or any(line_number in echoed for line_number in marker_lines)
+            or any("takes back" in line.lower() or "takeback" in line.lower() for line in all_lines)):
+        return None
+    allowed = re.compile(
+        r"^(?:"
+        r"## Risk tier: ungraded|"
+        r"GitHub's API budget refused `[^`]+` with HTTP (?:403|429); the reset boundary is in the machine-readable marker below\.|"
+        r"That is not a verdict on this pull request\. The next push, edit or label regrades it, or rerun this job\.|"
+        r"Policy: docs/ci/risk-tiers\.md|"
+        r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
+        r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
+        r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
+        r"##\[group\]Run .*scripts/ci/risk_tier\.py pr|##\[endgroup\]|"
+        r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"
+        r")$")
+    if any(line and RISK_EVIDENCE_MARKER.fullmatch(line) is None and allowed.fullmatch(line) is None
+           for line in all_lines):
+        return None
+    if test_reds.failed_in(view_text(view)):
+        return None
+    def valid(marker: dict) -> bool:
+        try:
+            reset = float(marker.get("reset"))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return (set(marker) == {"endpoint", "status", "reset", "graded"} and marker.get("graded") is False
+                and isinstance(marker.get("status"), int) and not isinstance(marker.get("status"), bool)
+                and marker["status"] in (403, 429) and isinstance(marker.get("endpoint"), str)
+                and RISK_EVIDENCE_ENDPOINT.fullmatch(marker["endpoint"]) is not None
+                and isinstance(marker.get("reset"), (int, float)) and not isinstance(marker.get("reset"), bool)
+                and math.isfinite(reset) and reset >= 0)
+    if not all(valid(marker) for marker in markers):
+        return None
+    marker = max(markers, key=lambda found: float(found["reset"]))
+    try:
+        when = datetime.fromtimestamp(float(marker["reset"]), timezone.utc).strftime("%H:%MZ")
+    except (OverflowError, OSError, ValueError):
+        return None
+    return f"risk evidence API quota at {marker['endpoint']} (HTTP {marker['status']}); rerun after {when}"
 
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
@@ -9561,6 +9665,11 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
+    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota_only(repo, job, head_log, github, run_reads,
+                                                                       step_names=names)) is not None:
+        raise JobRateLimited(f"'{name}' reported only its structured API quota refusal ({said})")
+    if name == RISK_EVIDENCE_JOB:
+        raise Refused(f"'{name}' lacks its trusted structured quota marker; a real risk-evidence failure stays red")
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
@@ -10194,8 +10303,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 base_workflow, base_name = caller, caller_name
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
-        quota = ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
-                 if base_run is None or base_job.get("conclusion") != "failure" else None)
+        # risk evidence has its own structured marker and exact-step trust boundary above. Its old text-only quota
+        # path would excuse a real takeback or a spoofed log line, so generic quota matching never applies to it.
+        quota = (None if name == RISK_EVIDENCE_JOB else
+                 ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
+                  if base_run is None or base_job.get("conclusion") != "failure" else None))
         if quota is not None:
             raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
