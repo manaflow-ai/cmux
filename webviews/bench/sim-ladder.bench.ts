@@ -889,10 +889,13 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
     const context = browser.contexts()[0]!;
     // The fidelity mode lists the sessions as a fleet Mac's rows (long titles, previews, peers, PRs; mockFixture.ts
-    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows.
+    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows. Each page holds
+    // the list's first page (sessionPages.ts SESSION_PAGE) and reads the rest only when asked, as the app's pages do
+    // against acpmux (`cmuxAcpmuxMockPaged`): a mock that answered the whole list held SESSIONS rows in every chat.
     await context.addInitScript(
       ([size, shape]) => {
         (globalThis as any).cmuxAcpmuxMockListSize = size;
+        (globalThis as any).cmuxAcpmuxMockPaged = true;
         if (shape) (globalThis as any).cmuxAcpmuxMockListShape = shape;
       },
       [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
