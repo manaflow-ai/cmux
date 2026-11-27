@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45954186557",
+  "recorded_at": "2026-11-27T06:51:18Z",
+  "reason": "image inputs changed in f2e566e9da9b7a2cfead24fdf44e8fcdd52477aa..acbb7e76e280010917f889d3d655946e6097898e; cmux-tui stays f7b548a59a63 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "f7b548a59a63a0a8dad488e5d38d00e0fd3aa65e",
+  "fixes": [
+    {
+      "sha": "acbb7e76e280010917f889d3d655946e6097898e",
+      "mergedAt": "2026-11-27T06:47:55Z",
+      "subject": "graduate: read the additions summary from cmux-platform, not cmux-api (#60916)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T06:51:18Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
