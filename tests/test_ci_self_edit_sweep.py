@@ -36,7 +36,6 @@ GATED = {
     "cloud-chief-start.yml": ["check"],
     "cloud-chief-turn-proof.yml": ["proof"],
     "runnable-link.yml": ["measure"],
-    "rfd0135-gates.yml": ["gates"],
     "vm-hassle.yml": ["hassle"],
     "zero-to-going.yml": ["measure"],
     "executor-journey.yml": ["journey"],

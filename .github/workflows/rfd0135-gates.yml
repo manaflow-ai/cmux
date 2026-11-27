@@ -49,16 +49,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
-  # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
-  self-edit:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-    uses: ./.github/workflows/self-edit-sweep.yml
-    with:
-      workflow: .github/workflows/rfd0135-gates.yml
-    permissions:
-      contents: read
-
   unit:
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
@@ -75,8 +65,7 @@ jobs:
         run: python3 tests/test_rfd0135_gates.py
 
   gates:
-    needs: self-edit
-    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.RUNNER_POOLS && fromJSON(vars.RUNNER_POOLS).linux_8 || 'cmux-linux' }}
     # A pull request runs one short lid (60 s) and no matrix; the nightly, 10 lids of 30 min at once and the matrix.
     timeout-minutes: 300
