@@ -109,7 +109,7 @@ async fn a_held_chat_stays_in_memory() {
 }
 
 #[tokio::test]
-async fn eviction_is_off_by_default_and_spares_an_attached_chat() {
+async fn eviction_set_off_evicts_nothing_and_spares_an_attached_chat() {
     let hub = hub_with(2);
     hub.evicted.set_after(None);
     assert_eq!(hub.evict_idle_chats(), 0);
@@ -353,4 +353,44 @@ async fn a_chat_evicted_for_the_cap_and_touched_comes_back_whole() {
     let (samples, p50, p99) = hub.evicted.rehydrate_quantiles();
     assert_eq!(samples, 1, "its rehydrate was timed");
     assert!(p50 > 0 && p99 >= p50);
+}
+
+/// Unset, eviction runs at its default period; 0 turns it off; a number sets the period.
+#[test]
+fn eviction_is_on_by_default_and_0_turns_it_off() {
+    assert_eq!(evict::evict_idle_secs(None), evict::DEFAULT_EVICT_IDLE_SECS);
+    assert_eq!(evict::DEFAULT_EVICT_IDLE_SECS, 600);
+    assert_eq!(evict::evict_idle_secs(Some("0")), 0);
+    assert_eq!(evict::evict_idle_secs(Some(" 30 ")), 30);
+    assert_eq!(evict::evict_idle_secs(Some("soon")), evict::DEFAULT_EVICT_IDLE_SECS);
+    assert_eq!(evict::evict_idle_secs(Some("")), evict::DEFAULT_EVICT_IDLE_SECS);
+}
+
+/// A chat in a turn, with an agent awake, or used within the period never leaves memory; the
+/// rest leave and come back whole.
+#[tokio::test]
+async fn a_chat_in_a_turn_awake_or_recent_stays() {
+    let hub = hub_with(3);
+    let s0 = hub.session_get("s0").unwrap();
+    s0.harness_turn.store(true, Ordering::SeqCst);
+    drop(s0);
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    assert_eq!(hub.kept_for_test("s0"), Some("harness turn"));
+    // A ready chat: its agent up, not hibernated.
+    let mut ready = meta("r0", "ready-0", 50);
+    ready.status = SessionStatus::Ready;
+    hub.store.save(&ready).unwrap();
+    drop(hub.insert_test_session(ready));
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    assert_eq!(hub.kept_for_test("r0"), Some("awake"), "a ready chat has an agent");
+    hub.evicted.set_after(Some(std::time::Duration::from_secs(600)));
+    hub.touch(&hub.session_get("s2").unwrap());
+    assert_eq!(hub.kept_for_test("s2"), Some("recently active"));
+    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    assert_eq!(hub.evict_idle_chats(), 2, "s1 and s2 leave");
+    assert!(in_map(&hub, "s0") && in_map(&hub, "r0"));
+    assert!(!in_map(&hub, "s1") && !in_map(&hub, "s2"));
+    let back = hub.session_get("s2").expect("rehydrated");
+    assert_eq!(back.meta().name, "chat-2", "it comes back whole");
 }

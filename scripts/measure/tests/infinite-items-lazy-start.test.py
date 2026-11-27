@@ -26,7 +26,7 @@ def args(**over):
     return types.SimpleNamespace(**base)
 
 
-class LazyStartArm(unittest.TestCase):
+class Arm(unittest.TestCase):
     def env_of(self, caller, **over):
         bench = load()
         with patch.dict(os.environ, caller, clear=False):
@@ -36,6 +36,8 @@ class LazyStartArm(unittest.TestCase):
             finally:
                 shutil.rmtree(run.root, ignore_errors=True)
 
+
+class LazyStartArm(Arm):
     def test_on_sets_the_switch(self):
         self.assertEqual(self.env_of({}, lazy_start="on").get("CMUX_TUI_LAZY_START"), "1")
 
@@ -52,6 +54,16 @@ class LazyStartArm(unittest.TestCase):
                 patch("sys.stdout"), self.assertRaises(SystemExit):
             bench.main()
         self.assertIn('choices=("off", "on"), default="on"', BENCH.read_text())
+
+
+class EvictArm(Arm):
+    def test_evict_is_fast_forwarded_by_default_and_0_is_off(self):
+        self.assertIn('"--evict-idle-secs", type=int, default=5', BENCH.read_text())
+        self.assertEqual(self.env_of({}, evict_idle_secs=5).get("ACPMUX_EVICT_IDLE_SECS"), "5")
+        self.assertEqual(self.env_of({"ACPMUX_EVICT_IDLE_SECS": "30"}, evict_idle_secs=0).get("ACPMUX_EVICT_IDLE_SECS"), "0")
+
+    def test_none_leaves_the_binarys_default_not_the_callers(self):
+        self.assertNotIn("ACPMUX_EVICT_IDLE_SECS", self.env_of({"ACPMUX_EVICT_IDLE_SECS": "30"}))
 
 
 if __name__ == "__main__":

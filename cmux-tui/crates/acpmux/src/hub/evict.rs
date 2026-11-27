@@ -13,12 +13,27 @@
 //!
 //! A chat leaves only when the map's entry is the one handle anybody holds (checked under the map
 //! lock after the list order lets go of its own), so no request that already holds it can change
-//! a copy nobody sees again. Off unless `ACPMUX_EVICT_IDLE_SECS` is set (0: off).
+//! a copy nobody sees again. On by default: a chat idle [`DEFAULT_EVICT_IDLE_SECS`] leaves;
+//! `ACPMUX_EVICT_IDLE_SECS` sets another period, 0 turns it off (Leo 2026-10-21: "Fix it in small
+//! PRs, defaulting to aggressive savings."). At n=1,000 it took the whole app from 0.362 to 0.230
+//! MB a chat (acpmux 233.5 to 190.3 MB).
 
 use super::*;
 
-/// The env var that turns eviction on: seconds of no use after which an idle chat leaves memory.
+/// The env var that sets eviction's period: seconds of no use after which an idle chat leaves
+/// memory (0: off; unset or unreadable: [`DEFAULT_EVICT_IDLE_SECS`]).
 pub(crate) const EVICT_IDLE_ENV: &str = "ACPMUX_EVICT_IDLE_SECS";
+
+/// How long a chat stays in memory idle when `ACPMUX_EVICT_IDLE_SECS` is unset: ten minutes, five
+/// times the agent's own idle period (`ACPMUX_IDLE_CHILD_SECS`, 2 min), so a chat put down and
+/// picked up again within a few minutes never reads back from disk.
+pub(crate) const DEFAULT_EVICT_IDLE_SECS: u64 = 600;
+
+/// Eviction's period in seconds from `ACPMUX_EVICT_IDLE_SECS`'s value: 0 is off, unset or not a
+/// number is the default.
+pub(crate) fn evict_idle_secs(value: Option<&str>) -> u64 {
+    value.and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(DEFAULT_EVICT_IDLE_SECS)
+}
 
 /// The env var that caps the chats in memory: past it the reaper evicts the least recently used
 /// chats that may leave, however recently they were used (0 or unset: no cap).
@@ -190,10 +205,16 @@ pub(crate) struct Tier {
 
 impl Default for Tier {
     fn default() -> Self {
-        let secs = std::env::var(EVICT_IDLE_ENV).ok().and_then(|v| v.trim().parse::<u64>().ok());
+        // A unit test's hub starts with eviction off and turns it on itself (`set_after`): a test
+        // that moves the hub clock past ten minutes would otherwise see its chats leave.
+        let secs = if cfg!(test) {
+            0
+        } else {
+            evict_idle_secs(std::env::var(EVICT_IDLE_ENV).ok().as_deref())
+        };
         Self {
             rows: Default::default(),
-            after_ns: AtomicU64::new(secs.unwrap_or(0).saturating_mul(1_000_000_000)),
+            after_ns: AtomicU64::new(secs.saturating_mul(1_000_000_000)),
             evictions: AtomicU64::new(0),
             rehydrations: AtomicU64::new(0),
             cap: std::sync::atomic::AtomicUsize::new(
