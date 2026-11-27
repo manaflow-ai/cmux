@@ -90,10 +90,9 @@ extension SettingsHarnesses: AgentSignInSource {
     }
 
     /// acpmux lists a configured Claude route the Chief answers through (optchat-chief `host::default_harness`:
-    /// `claude-cr` whenever acpmux has it; `claude-sr2` when it can run and no usable `claude` is listed).
+    /// `claude-cr` whenever acpmux has it; `claude-sr2` is only an explicit choice, never the default).
     public var chiefUsesRoute: Bool {
-        rows.contains { $0.id == "claude-cr" } || rows.contains { $0.id == "claude-sr2" && $0.problem == nil }
-            && !rows.contains { $0.id == FirstRunSetup.chiefAgentID && $0.problem == nil }
+        rows.contains { $0.id == "claude-cr" }
     }
 
     public func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage? {

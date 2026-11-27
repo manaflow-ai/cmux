@@ -205,6 +205,9 @@ mod routes;
 mod run_elsewhere;
 mod secrets;
 mod send_check;
+mod send_hop;
+#[cfg(test)]
+mod send_hop_tests;
 mod session_auth;
 mod session_files;
 #[cfg(test)]
