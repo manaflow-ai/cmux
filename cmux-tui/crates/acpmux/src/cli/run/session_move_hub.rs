@@ -489,7 +489,7 @@ mod tests {
     fn args(interrupt: bool, after_turn: bool, dry_run: bool) -> MoveArgs {
         MoveArgs {
             sessions: vec![],
-            host: "gcp-agent-lane-19".into(),
+            host: "vm-b".into(),
             all_idle: false,
             interrupt,
             after_turn,
