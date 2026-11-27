@@ -403,7 +403,7 @@ fn hub_code(code: &str) -> bool {
 }
 
 /// Only this part of a ticket callback's error may reach the journal. Other ticket sources
-/// can return arbitrary strings, including credentials. Keep HTTP status and known hub codes.
+/// can return arbitrary strings, including credentials. Keep HTTP status and a code of the hub's shape (`hub_code`).
 #[cfg(feature = "hub-carrier")]
 pub(crate) fn ticket_failure_reason(reason: &str) -> &str {
     match reason {
@@ -420,11 +420,7 @@ pub(crate) fn ticket_failure_reason(reason: &str) -> &str {
     if let Some(rest) = reason.strip_prefix(PREFIX) {
         let (status, code) = rest.split_once(' ').unwrap_or((rest, ""));
         if matches!(status.as_bytes(), [b'1'..=b'5', b'0'..=b'9', b'0'..=b'9']) {
-            return if KNOWN_CODES.contains(&code) {
-                reason
-            } else {
-                &reason[..PREFIX.len() + status.len()]
-            };
+            return if hub_code(code) { reason } else { &reason[..PREFIX.len() + status.len()] };
         }
     }
     "ticket source failed"
