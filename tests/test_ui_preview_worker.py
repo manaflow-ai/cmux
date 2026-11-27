@@ -208,6 +208,65 @@ class LookTests(unittest.TestCase):
             self.assertIn("shoots web scenes only", receipt["error"])
 
 
+class SwiftPeerTests(unittest.TestCase):
+    """serve --no-swift --swift-peer URL: a web worker on a broker VM hands its Swift scenes to a display Mac's serve
+    (POST /shoot), so the Mac needs no broker and a Swift push is not a miss."""
+
+    def serve_mac(self, tmp: Path):
+        mac = FakeWorker(tmp / "mac")
+        server = w.http.server.ThreadingHTTPServer(("127.0.0.1", 0), w.make_handler(mac, w.queue.Queue()))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return mac, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_a_web_worker_posts_a_swift_look_its_peer_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mac, url = self.serve_mac(Path(tmp))
+            web = FakeWorker(Path(tmp) / "web")
+            web.swift_on, web.swift_peer = False, url
+            receipt = web.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(mac.shot, [BASE, HEAD])
+            [scene] = receipt["scenes"]
+            self.assertEqual(scene["scene"], "tabs")
+            self.assertTrue(scene["changed"])
+            # The web worker caches the peer's shots by commit like its own: a second look asks the Mac nothing.
+            mac.shot.clear()
+            web.look(request())
+            self.assertEqual(mac.shot, [])
+
+    def test_a_web_worker_with_a_peer_takes_swift_only_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on, worker.swift_peer = False, "http://127.0.0.1:9"
+            jobs = w.queue.Queue()
+            answer = {"seq": 42, "requests": [dict(request(), seq=42)]}
+            self.assertEqual(w.follow_once(worker, jobs, 41, lambda tool, args, timeout: answer), 42)
+            self.assertFalse(jobs.empty())
+
+    def test_a_peer_that_does_not_answer_is_named_in_the_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = FakeWorker(Path(tmp))
+            web.swift_on, web.swift_peer = False, "http://127.0.0.1:9"
+            receipt = web.look(request())
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIn("the Swift peer http://127.0.0.1:9 did not answer", receipt["error"])
+
+    def test_the_mac_refuses_a_bad_ask_and_a_web_only_mac_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mac = FakeWorker(Path(tmp))
+            for ask, why in (({"sha": "x", "scenes": ["tabs"]}, "40 hex"),
+                             ({"sha": HEAD, "scenes": ["../etc"]}, "scenes must be"),
+                             ({"sha": HEAD, "scenes": ["tabs"], "branch": "a b"}, "plain branch")):
+                with self.assertRaisesRegex(w.LookError, why):
+                    mac.peer_answer(ask)
+            mac.swift_on = False
+            with self.assertRaisesRegex(w.LookError, "web scenes only"):
+                mac.peer_answer({"sha": HEAD, "scenes": ["tabs"]})
+            self.assertEqual(mac.shot, [])
+
+
 class FollowTests(unittest.TestCase):
     """serve --follow: the broker's push trigger (lane-gh call ui_preview_requests) feeds the jobs queue."""
 
