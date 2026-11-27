@@ -182,6 +182,7 @@ fn session_cfg(display: String, opts: &Opts) -> Res<SessionCfg> {
             .transpose()?,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     })
 }
 
