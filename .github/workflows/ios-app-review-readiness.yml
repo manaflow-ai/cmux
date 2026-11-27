@@ -97,7 +97,7 @@ jobs:
     permissions:
       actions: write # dispatch and read ios-review-gate.yml
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # mints the bot App token: ephemeral, by literal
     # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
     # macOS queue), and a followed successor waits behind the run holding the
     # gate's group first, so up to about 4; past this the push run is red with
