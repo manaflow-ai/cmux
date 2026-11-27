@@ -10,7 +10,8 @@
 # per core (`full`) and 80% of the cores (`eighty`), and none (`idle`). Arms:
 #   background  PRIO_DARWIN_BG (`taskpolicy -b`), where the old default left every tool for good
 #   dynamic     the agent tier's nice (+11) with normal I/O: where the dynamic class runs a turn the
-#               person waits on at any load, and every turn once the controller reads the host clear
+#               person waits on before its first token, thought, or completed tool result, and every
+#               turn once the controller reads the host clear
 # Each load also runs probe.c, the controller's own reading, so the report says whether `dynamic`
 # would demote there (`pressured_share`) or promote (`clear_share`).
 # Fleet Macs only, never an interactive machine:
