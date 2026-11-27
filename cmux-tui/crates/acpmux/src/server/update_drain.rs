@@ -156,6 +156,12 @@ pub(crate) async fn prepare_owned(
     hub: &crate::hub::Hub,
     owner: Option<&str>,
 ) -> Result<Drain, RpcError> {
+    // Hosts may already run turns before this daemon attaches and counts their permits.
+    // Startup marks completion only after adoption/recovery and settling unadopted hosts.
+    // Do not fence that recovery behind a drain that mistakes it for an idle daemon.
+    if !hub.startup_complete() {
+        return Err(deferred());
+    }
     let until = tokio::time::Instant::now() + WITHIN;
     let mut guard = hub.update_admission.drain_owned(WITHIN, owner).await?;
     guard.2 = Some(crate::vault::egress::drain_until(until).await.ok_or_else(deferred)?);
@@ -199,6 +205,18 @@ pub(super) async fn hold_steered_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn update_defers_before_startup_can_recover_existing_host_turns() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        hub.begin_startup(false);
+        assert!(prepare(&hub).await.is_err());
+        assert!(hub.update_admission.admit().is_ok(), "recovery stays admissible");
+        hub.close_owned_tasks().await;
+    }
 
     #[tokio::test(start_paused = true)]
     async fn carried_turn_and_queued_work_survive_a_failed_drain() {

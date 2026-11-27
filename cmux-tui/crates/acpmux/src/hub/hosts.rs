@@ -715,6 +715,9 @@ impl Hub {
         off: &OffLatch,
         hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
+        // Register before attaching: the host may already be mid-turn. Recovery must use
+        // this same permit, never wait behind a fence after opening its live connection.
+        let update_permit = self.update_admission.wait_admit().await;
         let incarnation = record.incarnation.clone();
         // A host whose agent was still starting when the last daemon stopped: the chat never
         // learned its conversation (no agent session id), so every prompt to it would answer
@@ -919,7 +922,7 @@ impl Hub {
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
         let changes = session.status_changes.load(Ordering::SeqCst);
-        self.recover_work(session, &child, &incarnation, work).await;
+        self.recover_work(session, &child, &incarnation, work, update_permit).await;
         // The status after recovery, not before it: set before, `ready` was logged and shown
         // between `host_adopted` and a turn the host still runs (an idle chat that was working).
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
@@ -966,10 +969,8 @@ impl Hub {
         child: &Arc<ChildAgent>,
         incarnation: &str,
         mut work: OpenWork,
+        update_permit: crate::server::update_drain::SendPermit,
     ) {
-        // A hosted turn survives its CLI. Protect recovery and transfer the lease to its
-        // answer task before allowing an updater to see this daemon as drained.
-        let update_permit = self.update_admission.wait_admit().await;
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
         self.recover_processes(session, work.processes.take());
