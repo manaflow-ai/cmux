@@ -245,7 +245,7 @@ test("a handshake refused as message.too_large is told apart from every other re
 // connect) was a bare "Reconnecting…" forever: no reason, no Details, no Retry. The loop below is the
 // pane's own (App.tsx): each connect clears `failingSince`, so only the trouble clock, which a
 // connection lost within CONNECTION_STABLE_MS does not end, can bound it.
-// Leo, 2026-11-27: "retry on its own and never send messages like this. just remove it": this app's
+// cmux#60478 (a brief forwarded as Leo's, unverified: "retry on its own ... just remove it"): this app's
 // own agent service is never said, however long it stays away; only a chat's other machine is.
 test("a chat that never stays open stays quiet past the bound", () => {
   const timedOut = { code: "native.timed_out" };

@@ -162,7 +162,7 @@ import {
   reconnectRefusalStarts,
   RETRY_FIRST_MS,
 } from "../hostRetry";
-import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { heldStartStop, pageClientLink, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
@@ -1380,6 +1380,8 @@ export function paneSnapshotEffect({
           chrome.clientLost();
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
+          // A send made until the next client connects waits for it (sendWhenReady.ts `pageClientLink`).
+          pageClientLink.lost();
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
@@ -2908,6 +2910,8 @@ export function paneSnapshotEffect({
         return sendPrompt(params);
       };
       notifyDraftActionsChanged();
+      // The sends made while no client was connected go now, on this one (sendWhenReady.ts).
+      pageClientLink.back();
       harnessSwitch.setHandlers({
         restore: (text, attachments) => {
           // A failed New Tab start never surrendered this draft. Restoring it into the future
@@ -3140,6 +3144,8 @@ export function paneSnapshotEffect({
     setSavedPromptsTransport(undefined);
     setStashTransport(undefined);
     delete window.cmuxAcpmuxActions;
+    // No client comes for this pane now: a send that waited for one goes back to its composer.
+    pageClientLink.ended();
     notifyDraftActionsChanged();
   };
 }

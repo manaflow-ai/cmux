@@ -10836,7 +10836,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         retrying={retryQueued}
         // Retry only where asking now is the person's step: a chat too large to open (after updating
         // cmux), or a machine they brought back. This app's own agent service is asked again by the
-        // pane itself, forever, so its line has no Retry (Leo, 2026-11-27: "retry on its own ... just
+        // pane itself, forever, so its line has no Retry (cmux#60478, a brief forwarded as Leo's, unverified: "retry on its own ... just
         // remove it").
         onRetry={
           hostRefusedTooLarge(hostFailure) || peerLinkFailure(hostFailure) ? () => retryHost.current?.() : undefined

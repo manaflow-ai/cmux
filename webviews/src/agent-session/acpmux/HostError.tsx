@@ -117,7 +117,7 @@ export function HostUnavailableLine({
               // false), and App.tsx passes `onRetry` only for a chat too large to open ("Update cmux to open
               // this chat, then Retry") or a chat's machine the person brings back. This app's own agent
               // service has no Retry: the pane asks again itself, forever, and starts a stopped one itself
-              // (paneSnapshot.ts `startOnAsk`; Leo, 2026-11-27: "retry on its own ... just remove it").
+              // (paneSnapshot.ts `startOnAsk`; cmux#60478, a brief forwarded as Leo's, unverified).
               <button type="button" title={retryLabel} aria-label={retryLabel} onClick={onRetry} disabled={retrying}>
                 <Icon name="action.retry" size={12} />
                 <span className="cv-fit-label">{retryLabel}</span>
