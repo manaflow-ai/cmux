@@ -36,19 +36,20 @@ fn queued_notice(hub: &Arc<Hub>, s: &Arc<Session>, i: usize) {
         "title": format!("Background command finished: job {i} (exit 0)")});
     let mut provenance = crate::prompt_provenance::notice(&notice, &s.id);
     provenance.set("bgTaskId", json!(format!("bg-{i}")));
-    hub.append(
-        s,
-        "mux",
-        "queued",
+    let body = crate::prompt_provenance::notice_text(&notice, "");
+    let record = crate::prompt_provenance::marked(
         json!({
             "promptId": format!("bg-done-bg-{i}"),
             "turnId": format!("t-restored-{i}"),
-            "text": format!("[notice from acpmux] Background command finished: job {i} (exit 0)"),
+            "prompt": text(&body),
+            "text": body,
             "client": "acpmux",
-            "agent": "acpmux",
-            "provenance": provenance,
+            "fromAgent": "acpmux",
+            "class": "result",
         }),
+        Some(&provenance),
     );
+    hub.append(s, "mux", "queued", record);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -65,7 +66,13 @@ async fn a_restored_queue_of_notices_beside_background_subagents_answers_and_dra
         queued_notice(&hub, &s, i);
     }
     hub.restore_queue(&s);
-    assert_eq!(s.queue().len(), RESTORED, "the restored queue");
+    let restored = s.queue();
+    assert_eq!(restored.len(), RESTORED, "the restored queue");
+    assert!(restored.iter().all(|row| {
+        row.run.agent.as_deref() == Some("acpmux")
+            && crate::prompt_provenance::is_notice(row.run.provenance.as_ref())
+    }));
+    assert!(s.subagents.lock().unwrap().running_count() > 0);
     hub.resume_restored(std::slice::from_ref(&s));
 
     // A new delivery is answered within seconds: accepted, or queued.

@@ -50,14 +50,16 @@ pub const MAX_CARDS: usize = 8;
 /// window closed reports [`PreviewHub::window_closed`].
 pub trait PreviewSource: Send + Sync {
     /// Streams exactly `windows` from now on (an empty list stops them all).
-    fn stream(&self, windows: &[String], long_side: u32, fps: u32);
+    /// Every callback for these streams must carry `generation`; callbacks
+    /// from an earlier generation are stale after a handoff or restart.
+    fn stream(&self, windows: &[String], long_side: u32, fps: u32, generation: u64);
 }
 
 /// No streams (headless, a platform without previews, tests).
 pub struct NoPreview;
 
 impl PreviewSource for NoPreview {
-    fn stream(&self, _windows: &[String], _long_side: u32, _fps: u32) {}
+    fn stream(&self, _windows: &[String], _long_side: u32, _fps: u32, _generation: u64) {}
 }
 
 /// One watcher's sink: false once it can take no more (its peer left).
@@ -86,6 +88,8 @@ struct State {
     watchers: Vec<(u64, Watcher)>,
     next_watcher: u64,
     streaming: Vec<String>,
+    stream_generation: u64,
+    streaming_generation: u64,
     tick: u64,
 }
 
@@ -100,7 +104,7 @@ pub struct PreviewHub {
 #[derive(Default)]
 struct Out {
     lines: Vec<Value>,
-    stream: Option<Vec<String>>,
+    stream: Option<(Vec<String>, u64)>,
 }
 
 impl PreviewHub {
@@ -115,14 +119,20 @@ impl PreviewHub {
             f(&mut state, &mut out);
             let wanted = wanted_windows(&state);
             if wanted != state.streaming {
+                // A change in the set also invalidates callbacks from the
+                // stream that is being stopped (including an unwatch).
+                state.stream_generation = state.stream_generation.wrapping_add(1);
+            }
+            if wanted != state.streaming || state.stream_generation != state.streaming_generation {
                 state.streaming = wanted.clone();
-                out.stream = Some(wanted);
+                state.streaming_generation = state.stream_generation;
+                out.stream = Some((wanted, state.streaming_generation));
             }
             let watchers: Vec<Watcher> = state.watchers.iter().map(|(_, w)| w.clone()).collect();
             (out.lines, out.stream, watchers)
         };
-        if let Some(windows) = stream {
-            self.source.stream(&windows, LONG_SIDE, FPS);
+        if let Some((windows, generation)) = stream {
+            self.source.stream(&windows, LONG_SIDE, FPS, generation);
         }
         if lines.is_empty() {
             return;
@@ -145,6 +155,7 @@ impl PreviewHub {
             }
             state.enabled = enabled;
             if !enabled {
+                state.stream_generation = state.stream_generation.wrapping_add(1);
                 let mut sessions: Vec<String> = state.cards.keys().cloned().collect();
                 sessions.sort();
                 for session in sessions {
@@ -251,6 +262,9 @@ impl PreviewHub {
             card.window = Some(window.to_string());
             card.rect = Some(rect);
             card.touched = tick;
+            // Restarting even for the same window fences frames already in
+            // flight when one Computer Use session hands it to another.
+            state.stream_generation = state.stream_generation.wrapping_add(1);
         });
     }
 
@@ -277,6 +291,17 @@ impl PreviewHub {
 
     /// A new frame of `window` (JPEG): the running cards that show it.
     pub fn frame(&self, window: &str, jpeg: &[u8]) {
+        let generation = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stream_generation;
+        self.frame_for_generation(window, generation, jpeg);
+    }
+
+    /// A frame from a particular source generation. Frames arriving after a
+    /// handoff are ignored when their source has already been replaced.
+    pub fn frame_for_generation(&self, window: &str, generation: u64, jpeg: &[u8]) {
         if jpeg.is_empty() {
             return;
         }
@@ -286,6 +311,9 @@ impl PreviewHub {
         ));
         self.change(|state, out| {
             if !state.enabled {
+                return;
+            }
+            if generation != state.streaming_generation {
                 return;
             }
             let mut sessions: Vec<String> = state
@@ -310,7 +338,21 @@ impl PreviewHub {
 
     /// `window` closed (its stream ended): its cards go.
     pub fn window_closed(&self, window: &str) {
+        let generation = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stream_generation;
+        self.window_closed_for_generation(window, generation);
+    }
+
+    /// A stream closure from a particular source generation. A late closure
+    /// from a replaced stream must not clear the new session's card.
+    pub fn window_closed_for_generation(&self, window: &str, generation: u64) {
         self.change(|state, out| {
+            if generation != state.streaming_generation {
+                return;
+            }
             let mut sessions: Vec<String> = state
                 .cards
                 .iter()

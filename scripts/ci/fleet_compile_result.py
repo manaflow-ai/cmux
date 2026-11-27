@@ -28,10 +28,11 @@ With --phase app-debug it reads the pull request app compile's own check instead
 `--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
 when that job is queued or when this read names the pull request, and it never stands for the land Release.
 With --phase test-compile --packages A,B it reads the pull request's test-target compile of those packages
-(`swift build --build-tests`, configuration "test-compile"); the read submits it.
+(`swift build --build-tests`, configuration "test-compile"); the read submits it. With --phase rd-host-macos
+it reads cmux-rd-host's macOS fmt, clippy and tests (configuration "rd-host-macos"); the read submits it.
 
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|scheme-debug|test-compile
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|rd-host-macos|scheme-debug|test-compile
                           [--packages A,B]] [--job-out F] [--wait 1500] [--no-record 600]
 """
 import argparse
@@ -57,7 +58,10 @@ CONFIGURATION = "release-onone"
 # The phases a read can name, and the configuration each one's record carries.
 # scheme-debug: the whole Debug cmux DEV app (the cmux app scheme's product) built by the fleet's app recipe for a
 # feat-cmux-next push or same-repository pull request head; its job_id names the zipped app (`cmux-ci artifact`).
-PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug"}
+# rd-host-macos: cmux-rd-host's macOS fmt, clippy and tests (cmux-tui-rust-check.sh rd-host on a fleet Mac) for a
+# feat-cmux-next push or same-repository pull request head; the read submits it (fleet-rd-host-macos.yml).
+PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug",
+          "rd-host-macos": "rd-host-macos"}
 
 
 def judge(record, sha, repo, configuration=CONFIGURATION):

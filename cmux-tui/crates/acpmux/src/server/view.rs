@@ -277,6 +277,24 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     Ok(json!({}))
 }
 
+/// `_acpmux/follow {target}` (RFD 0141 phase 3): the caller's author (or the owner) follows the
+/// person `target` live in a chat here, or stops (`null`). Its rooms hear it as the record's
+/// `following` (`hub/presence.rs`). A peer daemon's link follows nobody.
+pub(super) fn follow(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let target = match params.get("target") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(id)) if !id.is_empty() => Some(id.as_str()),
+        Some(_) => return Err(RpcError::invalid_params("target must be a presence id or null")),
+    };
+    let author = crate::author::author(params)?;
+    if a_link(conn) {
+        return Err(crate::hub::presence::peer_unsupported());
+    }
+    let who = Who::of(author.as_ref());
+    hub.presence.follow(&conn.id, &who.id, target)?;
+    Ok(json!({"following": target}))
+}
+
 /// `_acpmux/rooms {chats?, workspaces?}` (RFD 0141 phase 2): the rooms this connection shows
 /// now, replacing the set it named before (`hub/presence.rs`). Each chat must be attached here,
 /// as for `_acpmux/typing`: a room shows who has the chat open, which only its attached

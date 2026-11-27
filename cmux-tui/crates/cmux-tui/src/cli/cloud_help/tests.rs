@@ -454,7 +454,11 @@ fn short_verbs_answer_their_own_help() {
     }
     assert!(verb_help("rm", false).unwrap().contains("[--yes]"));
     let exec = verb_help("exec", false).unwrap();
-    assert!(exec.starts_with("usage: cmux vm exec [NAME|ID] -- COMMAND..."), "{exec}");
+    assert!(
+        exec.starts_with("usage: cmux vm exec [NAME|ID] [--stdin|--no-stdin] -- COMMAND..."),
+        "{exec}"
+    );
+    assert!(exec.contains("cat f | cmux vm exec dev -- sh -c 'cat > f'"), "{exec}");
     let rename = verb_help("rename", false).unwrap();
     assert!(rename.starts_with("usage: cmux vm rename [NAME|ID] NEW_NAME"), "{rename}");
     assert!(verb_help("shutdown", false).unwrap().contains("`shutdown` is `pause`"));
