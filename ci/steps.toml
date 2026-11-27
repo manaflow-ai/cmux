@@ -466,7 +466,7 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 '''
 
 # Checks whose pull request runs each had a job of their own (labels-sync.yml's validate job, cmux-next-shim-cpp.yml, cmux-next-chromium-currency.yml,
-# swift-checks.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
+# swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
 # Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
@@ -606,7 +606,7 @@ exit "$rc"
 '''
 
 # acpmux's wire contract is cmux-tui/crates/acpmux/spec/acpmux-protocol.json; the app's Swift side
-# names acpmux methods and param keys by hand. swift-checks.yml keeps its post-merge batch run.
+# names acpmux methods and param keys by hand. swift-acpmux-protocol.yml keeps its post-merge batch run.
 [step.swift-acpmux-protocol]
 job = "linux"
 timeout = 300

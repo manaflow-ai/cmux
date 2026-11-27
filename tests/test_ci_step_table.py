@@ -1271,7 +1271,7 @@ class PipelineTest(unittest.TestCase):
         # These keep their push, dispatch or post-merge runs; a pull request runs them as steps of the table.
         moved = {"labels-sync.yml": "labels-manifest",
                  "cmux-next-shim-cpp.yml": "shim-cpp", "cmux-next-chromium-currency.yml": "chromium-currency",
-                 "swift-checks.yml": "swift-acpmux-protocol",
+                 "swift-acpmux-protocol.yml": "swift-acpmux-protocol",
                  "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",

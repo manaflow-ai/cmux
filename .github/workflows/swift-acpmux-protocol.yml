@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
 concurrency:
   # Keep protocol batches, ratchet runs and bisect probes isolated while cancelling superseded work.
-  group: swift-checks-${{ inputs.check || 'acpmux' }}-${{ github.event.pull_request.number || github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:'))) && format('-edit-{0}', github.run_id) || '' }}
+  group: swift-acpmux-protocol-${{ inputs.check || 'acpmux' }}-${{ github.event.pull_request.number || github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:'))) && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:

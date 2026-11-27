@@ -42,7 +42,7 @@ REGISTERED = frozenset({
     "presence.yml", "reload-build.yml", "repair-nightly-appcast-content-types.yml",
     "resume-nightly-notarization.yml", "screen-stream-eval.yml", "sdk-publish-crates.yml", "sdk-publish-go.yml",
     "sdk-publish-java.yml", "sdk-publish-npm.yml", "sdk-publish-python.yml", "stable-next-rollback.yml",
-    "swift-checks.yml", "test-feed-reply-providers.yml", "tui-publish-npm.yml", "tui-publish-pypi.yml",
+    "swift-acpmux-protocol.yml", "test-feed-reply-providers.yml", "tui-publish-npm.yml", "tui-publish-pypi.yml",
 })
 
 UNREGISTERED = frozenset({
