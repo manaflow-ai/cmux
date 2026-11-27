@@ -401,7 +401,7 @@ extension NativeNewTabHostingView: InternalPageFocusing {
 }
 
 extension NewTabPage {
-    /// A New Tab page opened from Cloud chat `chat` (``CloudChatFocus/pick(terminal:browser:text:run:keep:)``): true once
+    /// A New Tab page opened from Cloud chat `chat` (``CloudChatFocus/pick(terminal:browser:text:run:keep:picked:)``): true once
     /// the pick opened on the chat's machine, in its folder there, and the page closed; false to pick as before. A Mac
     /// Screen pairing link is never typed anywhere: the page's own refusal says so.
     static func opensOnCloud(_ request: AgentPaneOpenTab, chat: AgentTabKey, services: AppServices, close: @MainActor () -> Void) -> Bool {

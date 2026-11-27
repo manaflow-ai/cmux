@@ -84,7 +84,7 @@ public nonisolated enum CloudChatFocus: Equatable, Sendable {
     /// it; a Browser pick with no address opens the desktop (it takes none, so an address opens here). Only what was typed
     /// in the page's field (`picked`) and replaces the page (not `keep`): its setup actions (a harness's Sign In, Install,
     /// Log In, which act on this Mac's harness) and an agent pick are this Mac's.
-    public static func pick(terminal: Bool, browser: Bool, text: String, run: Bool, keep: Bool, picked: Bool = true) -> Pick? {
+    public static func pick(terminal: Bool, browser: Bool, text: String, run: Bool, keep: Bool, picked: Bool) -> Pick? {
         guard picked, !keep else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if terminal {
