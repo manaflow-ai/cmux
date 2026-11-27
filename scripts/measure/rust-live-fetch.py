@@ -12,6 +12,7 @@ new binary into a staged copy of the previous one under each transfer variant:
   rsync_whole_zlib  rsync -z --whole-file, zlib: no delta
   zstd1             zstd -T0 -1 on the host, piped, zstd -d here: no rsync, no delta
   zstd3             the same at zstd's default level 3
+  gzip1             pigz -1 (gzip -1 without it) on the host, gzip -d here: a stock Mac has gzip, not zstd
 
 Both ends run here (rsync's ssh replaced by a local exec), so the CPU of strip, delta and compression
 is real and the network is not: each variant reports its local seconds and the bytes it put on the
@@ -52,7 +53,7 @@ def load(name: str, path: Path):
 live = load("rust_live", ROOT / "scripts/cmux-next/rust-live.py")
 EDIT = ROOT / live.EDIT_FILE
 ANCHOR = live.EDIT_ANCHOR
-VARIANTS = ["rsync_zlib", "rsync_zstd", "rsync_whole_zlib", "zstd1", "zstd3"]
+VARIANTS = ["rsync_zlib", "rsync_zstd", "rsync_whole_zlib", "zstd1", "zstd3", "gzip1"]
 
 
 def log(msg: str) -> None:
@@ -93,10 +94,13 @@ def transfer(variant: str, source: Path, staged: Path, rsh: Path) -> tuple[float
         r = subprocess.run([*argv, f"host:{source}", str(staged)], capture_output=True, text=True, check=True)
         wire = int(re.search(r"Total bytes received: ([\d,]+)", r.stdout).group(1).replace(",", ""))
     else:
-        level = variant.removeprefix("zstd")
         tmp = staged.with_name(staged.name + ".in")
-        # The wire is the pipe between the two zstds; wc counts it on the way.
-        script = (f"zstd -q -T0 -{level} -c {source} | tee >(wc -c > {tmp}.n) | zstd -q -d -o {tmp} -f"
+        if variant == "gzip1":
+            pack, unpack = ("pigz -1 -c" if shutil.which("pigz") else "gzip -1 -c"), "gzip -dc"
+        else:
+            pack, unpack = f"zstd -q -T0 -{variant.removeprefix('zstd')} -c", "zstd -q -dc"
+        # The wire is the pipe between the two ends; wc counts it on the way.
+        script = (f"set -o pipefail; {pack} {source} | tee >(wc -c > {tmp}.n) | {unpack} > {tmp}"
                   f" && mv -f {tmp} {staged}")
         subprocess.run(["bash", "-c", script], check=True)
         time.sleep(0.05)
@@ -117,7 +121,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     names = a.variants.split(",")
     rates = [float(x) for x in a.mbps.split(",")]
-    for tool in ("rsync", "zstd", "objcopy"):
+    for tool in ("rsync", "zstd", "pigz", "gzip", "objcopy"):
         log(f"FETCH-ENV {tool}={shutil.which(tool)}")
     log("FETCH-ENV " + subprocess.run(["rsync", "--version"], capture_output=True, text=True).stdout.splitlines()[0])
     scratch = Path(tempfile.mkdtemp(prefix="rust-live-fetch-", dir=os.environ.get("CMUX_FETCH_SCRATCH")))
