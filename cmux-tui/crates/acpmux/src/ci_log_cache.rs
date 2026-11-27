@@ -53,7 +53,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
         Some("1" | "true" | "on" | "yes") => return true,
         _ => {}
     }
-    doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(Value::as_bool)
+    doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(|v| v.as_bool())
         == Some(true)
 }
 
@@ -142,8 +142,6 @@ fn asks_for_log(rest: &str) -> bool {
     rest[..end].split_whitespace().any(|w| w == "--log" || w == "--log-failed")
 }
 
-/// What one `gh run view` call asks for, when it is one the cache can answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
 /// Whose log an [`Ask`] reads: a job (one attempt's already) wins over its run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LogOf {
@@ -151,6 +149,8 @@ pub(crate) enum LogOf {
     Job(u64),
 }
 
+/// What one `gh run view` call asks for, when it is one the cache can answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Ask {
     pub repo: String,
     pub of: LogOf,
