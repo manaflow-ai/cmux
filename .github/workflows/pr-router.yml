@@ -64,6 +64,9 @@ jobs:
       land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The steps those jobs run only (pr_router.py nightly_gate_table): a landing head of the affected tier runs just
+      # the steps the nightly also runs that its change routes. Empty: every routed step.
+      only: ${{ steps.route.outputs.only }}
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
@@ -86,7 +89,7 @@ jobs:
           # A same-repo pull request's runner reads the git mirror, which serves whole blobs in about 10 s; a blob
           # filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to 81 s a head,
           # note-559). A fork, or any other event, keeps blob:none.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json
@@ -126,6 +129,9 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # A landing head of the affected tier runs the step table's nightly-mirroring steps its change routes
+          # (pr_router.py NIGHTLY_GATE_JOBS); 0 turns that off.
+          CI_NIGHTLY_GATE_ON_LAND: ${{ vars.CI_NIGHTLY_GATE_ON_LAND || '1' }}
           # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
           # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
           CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
@@ -510,6 +516,7 @@ jobs:
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
+      only: ${{ needs.route.outputs.only || '' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
@@ -521,11 +528,13 @@ jobs:
       id-token: write
 
   # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
-  # error when the verdict never ran (no Mac, the pipeline cancelled). A plan that builds nothing is success.
+  # error when the verdict never ran (no Mac, the pipeline cancelled, or skipped though the route started it: red
+  # fast gates). A plan that builds nothing is success. A pipeline the route never started leaves `pending` to the
+  # land handoff's run; one it started always gets a post, so its pending is never orphaned (cmux#57010).
   ios-fast-status:
     name: ios fast verdict status
     needs: [route, pipeline]
-    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && needs.pipeline.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && (needs.pipeline.result != 'skipped' || contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml')) && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -538,7 +547,7 @@ jobs:
         with:
           fetch-depth: 1
           # Same as the route job's checkout: a same-repo head reads the runner's git mirror with whole blobs.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
             scripts/ci/proof_record.py
@@ -554,6 +563,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIPELINE: ${{ needs.pipeline.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
@@ -564,14 +574,16 @@ jobs:
           # when it posts a record, so a head proved after the pipeline still turns green.
           NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
         run: |
-          if [ "$RUN" = false ]; then
+          if [ "$PIPELINE" = skipped ]; then
+            state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
+          elif [ "$RUN" = false ]; then
             state=success; desc="The plan builds nothing on this head"
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
           elif [ "$VERDICT" = failure ]; then
             state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
           else
-            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
           fi
           if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
             IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
@@ -598,9 +610,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The merge commit and the base tip: the gate reads the paths the head adds (new visible UI); an added
-          # Swift file's text comes with `git show` (the blob filter fetches it alone).
+          # Swift file's text comes with `git show`; same-repo PRs borrow whole blobs from the runner mirror.
           fetch-depth: 2
-          filter: blob:none
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py

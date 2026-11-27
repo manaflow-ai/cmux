@@ -461,6 +461,24 @@ class WiringTest(unittest.TestCase):
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 
+    def test_the_table_suites_reach_every_input_of_their_job(self) -> None:
+        # A suite that runs `ci/run run --job J` must start for any path a step of J reads, or a merge that
+        # changes only that path never runs the step after the merge.
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import ci_steps  # noqa: PLC0415
+
+        steps = ci_steps.load().steps.values()
+        for key, job in (("pr-pipeline-mac", "mac"), ("pr-pipeline-ios", "ios")):
+            with self.subTest(suite=key):
+                suite = self.suites[key]
+                self.assertEqual(set(suite.jobs), {job})
+                want = set(ci_steps.PIPELINE_PATHS) | {f".github/workflows/{suite.workflow}"}
+                want |= {p for s in steps if s.job == job for p in s.inputs}
+                self.assertLessEqual(want, set(suite.paths), sorted(want - set(suite.paths)))
+                text = (WORKFLOW.parent / suite.workflow).read_text()
+                self.assertIn(f"ci/run run --job {job}", text)
+                self.assertIn("inputs.base", text)
+
     def test_each_callee_takes_sha_and_only_and_gates_its_jobs(self) -> None:
         for key, suite in self.suites.items():
             callee = yaml.safe_load((WORKFLOW.parent / suite.workflow).read_text())
@@ -806,6 +824,93 @@ class JudgeOriginUnreadableTest(unittest.TestCase):
         code, sent = self.judge(pmb.MAX_PROBE_RETRIES)
         self.assertEqual((code, sent), (1, []))
 
+    def test_an_unreadable_origin_with_a_verdict_judges_again_without_rendering(self) -> None:
+        # Probe run 45955682014 (gallery-health at 72157adeb82, 11-27) had its verdict, could not read its origin,
+        # and its retry 45961171063 rendered all 21 legs again. Its retry now reuses run 70's verdict.
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="f" * 40, suite="web", job="web / Web tests (2/4)", only="web-tests", probe_sha="f" * 40,
+                         good="a" * 40, bad="b" * 40, origin="60", tries="0", pieces="", dry_run=False,
+                         summary=None, github_output=None)
+        sent: list = []
+
+        def gh_api(path, *a, **k):
+            raise RuntimeError(f"gh api {path}: API rate limit exceeded (HTTP 403)")
+
+        jobs = [{"name": "web / Web tests (2/4)", "status": "completed", "conclusion": "failure"}]
+        with mock.patch.object(pmb, "run_jobs", return_value=jobs), mock.patch.object(pmb, "gh_api", gh_api), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[]):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        self.assertEqual([(p.sha, p.tries, p.reuse, p.inputs()["reuse"]) for p in sent], [("f" * 40, 1, "70", "70")])
+
+
+class ReuseVerdictTest(unittest.TestCase):
+    """A probe of a commit whose same probe already gave a verdict reads that verdict instead of running the suite."""
+    job = "web / Web tests (2/4)"
+
+    def plan(self, earlier: list[dict], **over):
+        fields = dict(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", sha="0" * 40,
+                      suite="web", job=self.job, only="web-tests", probe_sha="e" * 40, good="a" * 40, pieces="",
+                      confirm="", reuse="", summary=None)
+        fields.update(over)
+        out: dict = {}
+        runs = [{"id": 100 + n, "status": r.get("status", "completed"), "display_title": f"{pmb.PROBE} web web-tests at {'e' * 40}"}
+                for n, r in enumerate(earlier)]
+        jobs = {100 + n: [{"name": self.job, "status": "completed", "conclusion": r["conclusion"]}] for n, r in enumerate(earlier)}
+        with mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "run_jobs", lambda repo, rid: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)):
+            self.assertEqual(pmb.cmd_plan(Namespace(github_output=None, **fields)), 0)
+        return out
+
+    def test_a_known_verdict_is_reused_and_no_suite_runs(self) -> None:
+        out = self.plan([{"conclusion": "failure"}])
+        self.assertEqual((out["suites"].strip(), out["reuse"]), ("", "100"))
+
+    def test_no_earlier_verdict_runs_the_suite(self) -> None:
+        for earlier in ([], [{"conclusion": "cancelled"}], [{"conclusion": "failure", "status": "in_progress"}]):
+            out = self.plan(earlier)
+            self.assertEqual((out["suites"], out["reuse"]), (" web ", ""), earlier)
+
+    def test_a_confirm_run_renders_again(self) -> None:
+        out = self.plan([{"conclusion": "failure"}], confirm="red-1")
+        self.assertEqual((out["suites"], out["reuse"]), (" web ", ""))
+
+    def test_the_dispatch_named_run_wins(self) -> None:
+        out = self.plan([], reuse="77")
+        self.assertEqual((out["suites"].strip(), out["reuse"]), ("", "77"))
+
+    def test_unreadable_earlier_runs_run_the_suite(self) -> None:
+        out: dict = {}
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", sha="0" * 40,
+                         suite="web", job=self.job, only="web-tests", probe_sha="e" * 40, good="a" * 40, pieces="",
+                         confirm="", reuse="", summary=None, github_output=None)
+        with mock.patch.object(pmb, "list_runs", side_effect=RuntimeError("rate limited")), mock.patch("sys.stderr"), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)):
+            pmb.cmd_plan(args)
+        self.assertEqual(out["suites"], " web ")
+
+    def test_the_judge_reads_the_reused_runs_jobs(self) -> None:
+        read: list[int] = []
+
+        def run_jobs(repo, rid, api=None):
+            read.append(int(rid))
+            return [{"name": self.job, "status": "completed", "conclusion": "failure"}] if int(rid) == 100 else []
+
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="e" * 40, suite="web", job=self.job, only="web-tests", probe_sha="e" * 40, good="a" * 40,
+                         bad="i" * 40, origin="60", tries="0", pieces="", confirm="", reuse="100", dry_run=True,
+                         summary=None, github_output=None)
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", run_jobs), mock.patch.object(pmb, "gh_api", lambda *a, **k: {"id": 60}), \
+                mock.patch.object(pmb, "list_runs", return_value=[]), mock.patch.object(pmb, "probe_refusal", return_value=""), \
+                mock.patch.object(pmb, "suite_verdicts", lambda js, suites: {j["name"]: ("web", j["conclusion"]) for j in js}), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[c * 40 for c in "abcdefghi"]):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        self.assertEqual(read[0], 100)
+        self.assertNotIn(70, read)
+
 
 class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
     def test_the_origin_check_walks_back_only_to_the_probe_jobs_green(self) -> None:
@@ -833,6 +938,33 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
             pmb.cmd_judge(args)
         self.assertNotIn(40, read)
         self.assertNotIn(30, read)
+
+
+    def test_a_stuck_reds_later_probe_is_not_refused_for_its_own_chain_steps(self) -> None:
+        # Probe run 45971486391 (11-27 09:10Z): batch 45965089670 dispatched web / Web tests (1/4) at 27712e0b, a
+        # stuck red's culprit step past earlier chains' probes; its judge read those judged steps as finished bisects
+        # (no chain_start), so stuck_reds dropped the job and the probe was refused as "not a new red".
+        job = "web / Web tests (2/4)"
+        batch = lambda rid, sha, at: {"id": rid, "status": "completed", "head_sha": sha * 40, "display_title": f"{pmb.BATCH} at {sha * 40}",
+                                      "created_at": at, "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "feat-cmux-next"}
+        step = lambda rid, sha, at: {"id": rid, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}", "created_at": at}
+        judge = {"name": "judge", "status": "completed", "conclusion": "success"}
+        red, green = {"name": job, "status": "completed", "conclusion": "failure"}, {"name": job, "status": "completed", "conclusion": "success"}
+        runs = [step(56, "2", "2026-11-27T08:50:00Z"), step(55, "2", "2026-11-27T08:40:00Z"), step(54, "2", "2026-11-27T08:30:00Z"),
+                step(53, "2", "2026-11-27T08:20:00Z"), batch(50, "5", "2026-11-27T08:00:00Z"), batch(30, "1", "2026-11-27T07:00:00Z")]
+        jobs = {60: [red, judge], 50: [red, judge], 30: [green, judge], 70: [red], **{r: [red, judge] for r in (53, 54, 55, 56)}}
+        commits = [c * 40 for c in "23456"]
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="4" * 40, suite="web", job=job, only="web-tests", probe_sha="4" * 40, good="3" * 40, bad="5" * 40,
+                         origin="60", tries="0", pieces="", dry_run=True, summary=None, github_output=None)
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid, api=None: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "gh_api", return_value=batch(60, "6", "2026-11-27T09:00:00Z")), \
+                mock.patch.object(pmb, "first_parent_range", lambda good, head: commits[commits.index(good) + 1:] if good in commits else commits), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), mock.patch("sys.stderr"):
+            code = pmb.cmd_judge(args)
+        self.assertEqual(code, 0)  # refused is 1; here the culprit step goes on to its confirm runs
 
 
 class KnownVerdictTest(unittest.TestCase):
@@ -972,6 +1104,14 @@ class SkippedProbeTest(unittest.TestCase):
         self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "cancelled")}, probe), "")
         self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "success")}, probe), "skipped")
 
+    def test_a_matrix_leg_skipped_behind_a_lost_plan_is_no_verdict(self) -> None:
+        # Probe run 45969411338: plan lost its runner (failure), the leg is listed by its bare name as skipped.
+        probe = pmb.Probe("gallery-health", "gallery-health / health (0)", "health", "c6", "g", "c6", "1")
+        lost = {"gallery-health / plan": ("gallery-health", "failure"), "gallery-health / health": ("gallery-health", "skipped")}
+        self.assertEqual(pmb.probe_conclusion(lost, probe), "")
+        ran = {"gallery-health / plan": ("gallery-health", "success"), "gallery-health / health (0)": ("gallery-health", "failure")}
+        self.assertEqual(pmb.probe_conclusion(ran, probe), "failure")
+
 
 class FirstUnknownProbeTest(unittest.TestCase):
     """A stuck red's bisect starts again about hourly: its first probe skips the commits earlier bisects probed."""
@@ -1038,3 +1178,77 @@ class ListRunsLookbackTest(unittest.TestCase):
         calls: list = []
         self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 250, calls))), 100)
         self.assertEqual(len(calls), 1)
+
+
+class SameRedTest(unittest.TestCase):
+    """A probe is red only when it reproduces the origin's red (its failing step), and a new red's matrix legs are one
+    bisect (gallery-health run 45942875725: 22 legs red on gallery:build, probes failing on composer layout flakes)."""
+
+    job = "gallery-health / health (3)"
+
+    def probe(self, step: str = "Build gallery") -> "pmb.Probe":
+        return pmb.Probe("gallery-health", self.job, "health", "e" * 40, "c" * 40, "d" * 40, "60", step=step)
+
+    def failed(self, *steps: str, job: str = "gallery-health / health (3)") -> list:
+        return [{"name": job, "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": n, "conclusion": "failure"} for n in steps] + [{"name": "Set up job", "conclusion": "success"}]}]
+
+    def conclusion(self, probe, jobs) -> str:
+        verdicts = {j["name"]: ("gallery-health", j["conclusion"]) for j in jobs}
+        return pmb.probe_conclusion(verdicts, probe, pmb.failing_steps(jobs))
+
+    def test_failure_on_the_origins_step_is_red(self) -> None:
+        self.assertEqual(self.conclusion(self.probe(), self.failed("Build gallery")), "failure")
+        # Legs merge: another leg of the same job failing the origin's step counts.
+        jobs = self.failed("Judge the red states against the base") + self.failed("Build gallery", job="gallery-health / health (4)")
+        verdicts = {j["name"]: ("gallery-health", j["conclusion"]) for j in jobs}
+        p = self.probe()
+        p.job = "gallery-health / health (9)"
+        self.assertEqual(pmb.probe_conclusion(verdicts, p, pmb.failing_steps(jobs)), "failure")
+
+    def test_failure_on_another_step_is_good_for_this_red(self) -> None:
+        self.assertEqual(self.conclusion(self.probe(), self.failed("Judge the red states against the base")), "success")
+
+    def test_no_origin_step_or_no_failed_step_keeps_the_old_verdict(self) -> None:
+        self.assertEqual(self.conclusion(self.probe(""), self.failed("Judge the red states against the base")), "failure")
+        self.assertEqual(self.conclusion(self.probe(), self.failed()), "failure")  # lost runner: no step to compare
+        self.assertEqual(pmb.probe_conclusion({self.job: ("gallery-health", "failure")}, self.probe()), "failure")
+
+    def test_the_step_travels_with_the_probe(self) -> None:
+        p = self.probe("Build gallery|Other")
+        self.assertEqual(p.inputs()["step"], "Build gallery|Other")
+        self.assertNotIn("step", self.probe("").inputs())
+        mid = pmb.Probe(p.suite, p.job, p.only, "c" * 40, "a" * 40, "e" * 40, p.origin, step=p.step)
+        nxt = pmb.next_step(mid, "failure", ["a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40])
+        self.assertEqual((nxt[0], nxt[1].step), ("probe", p.step))
+        self.assertTrue(all(c.step == p.step for c in pmb.confirm_probes(p, "d" * 40, "c" * 40)))
+
+    def test_confirm_round_reads_a_different_red_as_a_pass(self) -> None:
+        p = self.probe()
+        p.confirm = "red-1"
+        title = lambda other: pmb.probe_title(other)
+        others = pmb.confirm_probes(p, p.bad, p.good)
+        runs = [{"id": 80 + n, "status": "completed", "display_title": title(o)} for n, o in enumerate(others) if o.confirm != "red-1"]
+        steps = {80 + n: {self.job: frozenset({"Build gallery" if o.confirm.startswith("red") else "Judge the red states against the base"})}
+                 for n, o in enumerate(others)}
+        jobs_of = lambda rid: ({self.job: ("gallery-health", "failure")}, True)
+        got, _ = pmb.judge_confirm(p, "failure", 90, runs, jobs_of, lambda rid: steps[rid])
+        # Green runs fail on another step: they read as passes, so the round holds. Without steps they read as failures.
+        self.assertEqual(got, "culprit")
+        self.assertEqual(pmb.judge_confirm(p, "failure", 90, runs, jobs_of)[0], "flake")
+
+    def test_matrix_legs_of_a_new_red_are_one_bisect(self) -> None:
+        suites = {"gallery-health": pmb.Suite("gallery-health", "g.yml", ["x/**"], {"health": "health"}),
+                  "web": pmb.Suite("web", "w.yml", ["web/**"], {"check": "check"})}
+        legs = {f"gallery-health / health ({n})": ("gallery-health", "failure") for n in range(22)}
+        verdicts = {**legs, "web / check": ("web", "failure")}
+        runs = [run(1, "c" * 40, "2026-11-21T08:00:00Z")]
+        older = {1: {**{k: ("gallery-health", "success") for k in legs}, "web / check": ("web", "success")}}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], suites)
+        self.assertEqual([f[0] for f in found], ["gallery-health / health (0)", "web / check"])
+        self.assertEqual(len(pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])[0]), 2)
+
+    def test_the_workflow_passes_the_step_input(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertIn('--step "$STEP"', text)
+        self.assertIn("STEP: ${{ inputs.step }}", text)
