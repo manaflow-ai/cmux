@@ -67,7 +67,7 @@ import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
-import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveToolOutput, sameButRows, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
 import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
@@ -1418,6 +1418,15 @@ export function paneSnapshotEffect({
           // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
           if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
             liveSummary.set(drawn.summary!, next.summary!);
+            liveCallLine.follow(received, next);
+            return;
+          }
+          // Nothing the pane draws moved: the same rows, and every other value the same or only the
+          // streamed record kind the client emitted for (liveToolOutput.ts `sameButRows`). Before,
+          // each such record redrew the whole pane: 35 a replay window under load (bench
+          // replay-under-load RENDERS=1, `redraw:none` and `redraw:connection`; goal renderer-main-busy).
+          if (received && !pendingPaneDraw.pending && next.rows === received.rows && sameButRows(received, next)) {
+            if (acpmuxPerf.enabled) acpmuxPerf.render("record:no-change");
             liveCallLine.follow(received, next);
             return;
           }

@@ -7610,7 +7610,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     heldList.current = snapshot.sessionId ? { sessionId: snapshot.sessionId, sessions: snapshot.sessions } : undefined;
   // Computer use and browser use in the `/` and `$` menus (toolMentions.ts), beside the skills.
   const toolCommands = useMemo(() => toolSlashCommands(t), [t]);
-  const composerSnapshot = useMemo(() => {
+  // The composer's commands, merged once per change to what they read: a record that moves only
+  // the rows keeps them (before, every snapshot merged the catalog again, mergedCommands 96 ms a
+  // replay window under load, goal renderer-main-busy).
+  const sideOffered = sideChatRefusal(snapshot, sidePlace) === undefined;
+  const hasSummary = snapshot.summary !== undefined && snapshot.summary !== null;
+  const composerCommands = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
       "model",
@@ -7622,7 +7627,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "customize",
       "help",
     ]);
-    if (snapshot.summary) {
+    if (hasSummary) {
       enabledCmuxActions.add("status");
       enabledCmuxActions.add("mcp");
     }
@@ -7631,17 +7636,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
-    if (sideChatRefusal(snapshot, sidePlace) === undefined) enabledCmuxActions.add("side");
+    if (sideOffered) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
+    return withToolCommands(
+      withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+      toolCommands,
+    );
+  }, [
+    snapshot.commands,
+    hasSummary,
+    snapshot.sessionId,
+    quick,
+    forkable,
+    forkSeq,
+    sideOffered,
+    continueAvailable,
+    isSideSession,
+    extensionCommands,
+    toolCommands,
+  ]);
+  const composerSnapshot = useMemo(() => {
     const withCommands = {
       ...snapshot,
       ...(listShown !== snapshot.sessions && { sessions: listShown }),
-      commands: withToolCommands(
-        withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
-        toolCommands,
-      ),
+      commands: composerCommands,
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7673,21 +7693,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     projectDraft,
     cloudStartFolderShown,
     cloudStartPickShown,
-    continueAvailable,
-    forkable,
-    forkSeq,
-    isSideSession,
+    composerCommands,
     shownStarting,
     shownQueue,
     heldRows,
-    sidePlace,
     quick,
     keptStopping,
     cloudPicked,
     cloudModePick,
-    extensionCommands,
     listShown,
-    toolCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
