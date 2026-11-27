@@ -120,7 +120,13 @@ private struct LatencyRun {
             let frame = session.frameSize
             session.movePointer(to: CGPoint(x: pad.x * frame.width, y: pad.y * frame.height))
         }
-        send = input == "key" ? { session.tap(VNCKeysym(character: "a")) } : { session.click() }
+        // if/else, not a ternary: a ternary types each closure as a plain `() -> Void` first, which
+        // Swift 6 will not convert to the property's `@MainActor` (Sendable) type.
+        if input == "key" {
+            send = { session.tap(VNCKeysym(character: "a")) }
+        } else {
+            send = { session.click() }
+        }
         stats = {
             let before = await session.stream?.videoStats()
             return { seconds in
@@ -150,9 +156,13 @@ private struct LatencyRun {
         engine = { "cmux.rd/1 (cmux-next-ios MacScreenRdView, BrowserVideoDecoder/AVSampleBufferDisplayLayer) in the iOS Simulator" }
         let pad = Box()
         aim = { pad.point = $0 }
-        send = input == "key" ? { model.debugPress("KeyA", key: "a", text: "a") } : {
-            model.touch("down", at: pad.point)
-            model.touch("up", at: pad.point)
+        if input == "key" {
+            send = { model.debugPress("KeyA", key: "a", text: "a") }
+        } else {
+            send = {
+                model.touch("down", at: pad.point)
+                model.touch("up", at: pad.point)
+            }
         }
         stats = {
             let frames = model.meter.frames
