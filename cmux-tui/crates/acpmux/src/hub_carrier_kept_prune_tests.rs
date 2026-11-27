@@ -24,8 +24,13 @@ impl Tickets for NoConnect {
     }
 }
 
-/// A circuit that stays open and never answers.
-struct Quiet;
+/// A circuit that never answers and ends its `receive` when closed, as a real link does (the
+/// circuit's reader holds the circuit until then).
+#[derive(Default)]
+struct Quiet {
+    closed: tokio::sync::Notify,
+    done: std::sync::atomic::AtomicBool,
+}
 
 #[async_trait]
 impl FrameLink for Quiet {
@@ -39,9 +44,15 @@ impl FrameLink for Quiet {
         Ok(())
     }
     async fn receive(&self) -> Result<Option<Bytes>, cmux_remote::link::LinkError> {
-        std::future::pending().await
+        let closed = self.closed.notified();
+        if !self.done.load(std::sync::atomic::Ordering::SeqCst) {
+            closed.await;
+        }
+        Ok(None)
     }
     async fn close(&self) -> Result<(), cmux_remote::link::LinkError> {
+        self.done.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closed.notify_waiters();
         Ok(())
     }
 }
@@ -56,7 +67,7 @@ async fn keep(
     idle: Duration,
 ) -> Arc<mux::Mux> {
     let (circuit, _said) = mux::start_dialer(
-        Box::new(Quiet),
+        Box::new(Quiet::default()),
         carrier.stats.clone(),
         Arc::downgrade(&carrier.alive),
         every,
