@@ -22,6 +22,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import "./backgroundTaskCard.css";
 import { WithFacts } from "../chips/FactsHoverCard";
+import { Tooltip } from "../../../ui/Tooltip";
 
 /// The command and its latest output as the chat's Shell block, with `foot` (the surface's own last
 /// line) under it. Reads only while `open`; with `readOutput` false (a host that cannot read it) it
@@ -130,15 +131,16 @@ export function BackgroundTaskCard({
           )}
         </WithFacts>
         {onOpenTerminal && (
-          <button
-            type="button"
-            className="acpmux-bg-card__terminal"
-            aria-label={t("shell.openInTerminal")}
-            title={t("shell.openInTerminal")}
-            onClick={onOpenTerminal}
-          >
-            <Icon name="view.tab.trailing" size={14} />
-          </button>
+          <Tooltip label={t("shell.openInTerminal")}>
+            <button
+              type="button"
+              className="acpmux-bg-card__terminal"
+              aria-label={t("shell.openInTerminal")}
+              onClick={onOpenTerminal}
+            >
+              <Icon name="view.tab.trailing" size={14} />
+            </button>
+          </Tooltip>
         )}
         {time !== undefined && <span className="acpmux-bg-card__time">{time}</span>}
         {stop}
