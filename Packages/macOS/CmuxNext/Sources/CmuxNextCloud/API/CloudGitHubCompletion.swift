@@ -321,11 +321,6 @@ extension CloudOwnerAPIClient {
         case noAnswer
     }
 
-    /// `integration.complete` on `/v1/ops` as the person, in ``teamID``'s team, under the console's own key.
-    public func gitHubComplete(_ completion: CloudGitHubCompletion) async -> GitHubCompletion {
-        await gitHubCompleteWithReason(completion).answer
-    }
-
     /// ``gitHubComplete(_:)`` and, for a refusal, the API's own words (``refusalReason(body:)``).
     public func gitHubCompleteWithReason(_ completion: CloudGitHubCompletion) async -> (answer: GitHubCompletion, reason: String?) {
         let reply = await gitHubCompleteWithAccount(completion)

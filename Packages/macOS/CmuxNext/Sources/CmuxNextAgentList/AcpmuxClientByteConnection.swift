@@ -135,24 +135,6 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         }
     }
 
-    /// Transfers a v2 fallback's socket to the existing v1 line consumer.
-    /// Bytes not consumed by v2 are delivered first and the socket remains open.
-    public func handBackToLines(onLine: @escaping @Sendable (Data) -> Void,
-                                onClose: @escaping @Sendable () -> Void) {
-        queue.async { [self] in
-            guard !closed, let connection else { return }
-            let prefix = input
-            input.removeAll()
-            closed = true
-            client.setSendHandler(nil)
-            _ = client.disconnected()
-            self.connection = nil
-            self.onChange = nil
-            self.onClose = nil
-            connection.handBackToLines(prefix: prefix, onLine: onLine, onClose: onClose)
-        }
-    }
-
     private func receive(_ bytes: Data) {
         guard !closed else { return }
         reads += 1

@@ -72,9 +72,6 @@ public nonisolated final class RemoteRdInput {
         return seq
     }
 
-    /// Largest service event, in bytes (`CMUX_RD_INPUT_MAX_SERVICE`).
-    public static let maxServiceBytes = Int(CMUX_RD_INPUT_MAX_SERVICE)
-
     /// Queues one service-defined event (rd change C2, tag 0x80): opaque
     /// bytes the session's service interprets (one rb/1 input event as
     /// JSON), and returns its sequence number. `mustDeliver` repeats it until

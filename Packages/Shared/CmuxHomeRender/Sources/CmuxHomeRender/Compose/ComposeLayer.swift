@@ -204,7 +204,4 @@ final class ComposeLayer {
         }
         Animate.caret(caret, begin: begin, sent: sent, gray: palette.caretAfterSend.cgColor)
     }
-
-    /// Hosts that draw their own caret (or show none while unfocused) hide this one.
-    var showsCaret = true { didSet { caret.isHidden = !showsCaret } }
 }

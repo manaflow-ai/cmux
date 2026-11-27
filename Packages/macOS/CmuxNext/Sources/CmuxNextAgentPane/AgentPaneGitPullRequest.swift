@@ -203,12 +203,6 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
 }
 
 extension AgentPaneGitPullRequest {
-    /// No `gh` in the user's usual install folders.
-    nonisolated static var noGitHubCLIMessage: String {
-        String(localized: "agentPane.error.gitNoGitHubCLI", defaultValue: "Install the GitHub CLI (gh) to open a pull request.",
-               bundle: .localizedModule)
-    }
-
     /// `gh` is installed but has no GitHub login.
     nonisolated static var gitHubSignedOutMessage: String {
         String(localized: "agentPane.error.gitGitHubSignedOut",
@@ -218,13 +212,6 @@ extension AgentPaneGitPullRequest {
     /// The repository has no branch checked out.
     nonisolated static var detachedMessage: String {
         String(localized: "agentPane.error.gitDetached", defaultValue: "Check out a branch to open a pull request.", bundle: .localizedModule)
-    }
-
-    /// The branch has no upstream, or commits its upstream lacks. Kept for the
-    /// Changes page's existing wording; Create PR now invokes the Rust push.
-    nonisolated static var pushFirstMessage: String {
-        String(localized: "agentPane.error.gitPushFirst",
-               defaultValue: "Push this branch first; the pull request opens from what's on the remote.", bundle: .localizedModule)
     }
 
     /// The Create PR caller did not provide the session-host push wire.
@@ -250,12 +237,6 @@ extension AgentPaneGitPullRequest {
     nonisolated static var sessionRepositoryMessage: String {
         // retry-prompt-ok: opening a pull request is a side effect the person started
         "The pull request folder is not this chat's repository. Refresh the chat and try again."
-    }
-
-    /// The branch is behind its upstream (pushed from elsewhere).
-    nonisolated static var pullFirstMessage: String {
-        String(localized: "agentPane.error.gitPullFirst",
-               defaultValue: "This branch is behind its remote. Pull first, then open the pull request.", bundle: .localizedModule)
     }
 
     /// `git.pullRequest` arrived without a real click or key press in the pane.
