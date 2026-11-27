@@ -1395,6 +1395,7 @@ jobs:
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Download the head bundles without OIDC
+        id: web-bundle-github
         continue-on-error: true
         if: ${{ steps.receipt.outputs.hit != 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport == 'github' }}
         timeout-minutes: 3
@@ -1974,6 +1975,7 @@ jobs:
           BUNDLES: ${{ steps.bundles.outcome }}
           WEB_BUNDLE_KEY: ${{ steps.web-bundle-key.outcome }}
           WEB_BUNDLE_CACHE: ${{ steps.web-bundle-cache.outcome }}
+          WEB_BUNDLE_GITHUB: ${{ steps.web-bundle-github.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
@@ -2012,7 +2014,7 @@ jobs:
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
           fi
-          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ]; then
+          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ] || [ "$WEB_BUNDLE_GITHUB" = failure ]; then
             echo "::warning::The web bundles' cached build was not looked up; Build the web bundles built them."
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then

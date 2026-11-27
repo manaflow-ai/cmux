@@ -46,6 +46,15 @@ sys.path.insert(0, str(REPO_ROOT / "cmux-next-ios" / "FlowSuite"))
 import proof_record  # noqa: E402
 import select_flows  # noqa: E402
 
+# The loop runs from the PR's checkout, so a head older than a fix to the loop runs the old loop. Merging the base
+# into the head (merge_base_first) brings the fix, but only onto disk; the old code is still the one running and
+# posting. cmux#57582's head predated #62103, so its proof named a fleet host and public-body-guard refused it.
+# TOOL holds the loop's files as this process loaded them; when the merge changes one, main() re-executes the merged
+# loop, which then verifies and posts.
+TOOL = (HERE / "ios_verify.py", HERE / "proof_record.py", Path(select_flows.__file__).resolve())
+TOOL_LOADED = {f: f.read_bytes() for f in TOOL}
+REEXEC_HEAD = "CMUX_IOS_VERIFY_MERGED_HEAD"
+
 SUITE = "ios-flows"
 SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
 ARTIFACT = "artifacts/ios-sim/evidence.zip"
@@ -344,6 +353,18 @@ def summary_md(record: dict) -> str:
     return "\n".join(lines)
 
 
+def tool_changed() -> bool:
+    """Whether the loop's files on disk differ from the ones this process loaded."""
+    return any(not f.exists() or f.read_bytes() != TOOL_LOADED[f] for f in TOOL)
+
+
+def reexec(head: str, argv: list[str]) -> None:
+    """Run the merged loop in place of this one, at HEAD (already merged and pushed), so the merged code posts."""
+    print(f"ios verify: merging the base changed the loop; running the merged loop at {head[:10]}", file=sys.stderr)
+    os.execve(sys.executable, [sys.executable, "-I", str(HERE / "ios_verify.py"), *argv],
+              {**os.environ, REEXEC_HEAD: head})
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], epilog=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -363,11 +384,15 @@ def main(argv: list[str] | None = None) -> int:
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
-    if a.no_merge_base or a.plan:
+    if os.environ.get(REEXEC_HEAD):
+        head, merged = os.environ[REEXEC_HEAD], True
+    elif a.no_merge_base or a.plan:
         git("fetch", "-q", "origin", view["baseRefName"], check=False)
         head = view["headRefOid"]
     else:
         head, merged = merge_base_first(view)
+        if merged and tool_changed():
+            reexec(head, sys.argv[1:] if argv is None else argv)
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
