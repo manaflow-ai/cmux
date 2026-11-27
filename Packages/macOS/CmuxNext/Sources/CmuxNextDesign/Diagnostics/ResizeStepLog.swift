@@ -24,8 +24,28 @@ import os
 enum ResizeStepLog {
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "live-resize")
 
-    /// Someone streams the log's debug messages.
-    static var isStreaming: Bool { logger.isEnabled(type: .debug) }
+    /// Someone streams the log's debug messages (tests force it: ``streamingOverride``).
+    static var isStreaming: Bool { streamingOverride ?? logger.isEnabled(type: .debug) }
+
+    /// Tests only: forces ``isStreaming``.
+    static var streamingOverride: Bool?
+
+    /// `CMUX_NEXT_STEP_LOG=lean` (a bench knob): only the lines the bench's tools read for a step's time, its turn, its
+    /// input and its fence (``leanPhases``), not each pane's and page window's part. A recorded drag pays less of the
+    /// log's own cost: 69 to 80 lines a window step, 1.3 to 1.7 ms of it (`log_us`, 2026-11-27).
+    nonisolated static let lean = ProcessInfo.processInfo.environment["CMUX_NEXT_STEP_LOG"] == "lean"
+
+    /// Tests only: forces ``lean``.
+    static var leanOverride: Bool?
+
+    /// The phases a lean log keeps.
+    static let leanPhases: Set<String> = [
+        "turn", "event", "input_age", "input_wait", "tick", "step_precommit", "step_commit", "set_frame", "step_cut",
+        "fence_open", "fence_released", "fence_page", "gesture", "cef_pump", "cef_pump_end",
+    ]
+
+    /// Whether the log writes `phase`'s lines: every phase, or a lean log's own (``lean``).
+    static func keeps(_ phase: String) -> Bool { true }
 
     /// The step being timed: from its start until its run-loop turn has committed (``committed(_:)``).
     struct Step {
@@ -174,6 +194,8 @@ enum ResizeStepLog {
     static func reset() {
         step = nil
         pendingInput = nil
+        streamingOverride = nil
+        leanOverride = nil
         removeObservers()
     }
 }
