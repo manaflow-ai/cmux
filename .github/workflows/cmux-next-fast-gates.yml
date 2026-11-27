@@ -45,6 +45,16 @@ on:
   # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
   # that finds none dispatches this workflow as before.
   workflow_call:
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: App key for posting the fast-gates status
+        required: false
+      CI_POOL_TOKEN_1:
+        description: Optional CI pool token for posting the fast-gates status
+        required: false
+      CI_POOL_TOKEN_2:
+        description: Optional CI pool token for posting the fast-gates status
+        required: false
   workflow_dispatch:
     inputs:
       pr:
@@ -326,6 +336,11 @@ jobs:
           for file in ci_receipt.py deadline_http.py cmux_next_fast_gates.py; do
             git show "$BASE:scripts/ci/$file" > "$verifier/$file"
           done
+          # gh_http.py (the verifier's retried GitHub read) is copied when the base has it; a base from before it
+          # has a verifier that does not import it.
+          if git cat-file -e "$BASE:scripts/ci/gh_http.py" 2>/dev/null; then
+            git show "$BASE:scripts/ci/gh_http.py" > "$verifier/gh_http.py"
+          fi
           DISCOVER_ARGS=()
           # The base's verifier decides: one from before discover existed has no --pr.
           if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
