@@ -23,6 +23,8 @@
     "sidebar.cards.tips": false,
     "tabs.hideLoneChatTab": true,
     "agentPane.display.presentation": "transcript",
+    // Tool calls draw as quiet text rows with no icons, as in the reference app's Code tab.
+    "agentPane.display.transcriptTokens": {"toolCards": "minimal"},
     "agentPane.display.transcriptView": "normal",
     "agentPane.display.font.size": 14,
     "agentPane.display.width": 800,
