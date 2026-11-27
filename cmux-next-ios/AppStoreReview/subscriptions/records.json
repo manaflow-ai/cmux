@@ -1,5 +1,5 @@
 {
-  "about": "Subscription records asc_subscription_records.py brings up to what App Review needs. Never prices, availability, submissions or deletions.",
+  "about": "Subscription records asc_subscription_records.py brings up to what App Review needs. Never prices, availability or submissions; the only deletion is an asset whose upload never completed, which it replaces.",
   "subscriptions": [
     {
       "productId": "com.cmux.app.next_plus.monthly",
