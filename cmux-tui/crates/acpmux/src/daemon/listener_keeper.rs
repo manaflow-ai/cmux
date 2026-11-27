@@ -371,7 +371,11 @@ mod tests {
         });
         drop(daemon);
         let _queued = UnixStream::connect(&path).unwrap();
-        let successor = take_held(&home).unix.expect("the successor inherits the Unix listener");
+        // Use the same startup merge as daemon::run, including the case with no direct handover.
+        let successor = listener_handover::Received::default()
+            .with_held(take_held(&home))
+            .unix
+            .expect("the successor inherits the Unix listener");
         assert!(keeper.join().unwrap());
         successor.set_nonblocking(true).unwrap();
         assert!(successor.accept().is_ok(), "the queued client reaches the new daemon");

@@ -1840,7 +1840,10 @@ mod prompt_tests {
             .await
             .unwrap_err()
         } else {
-            collect_reply(client, id, "ask: durable permission", opts, &prompt).await.unwrap_err()
+            match collect_reply(client, id, "ask: durable permission", opts, &prompt).await {
+                Err(error) => error,
+                Ok(_) => panic!("denied permission must fail the waiting send"),
+            }
         };
         assert_eq!(
             error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),

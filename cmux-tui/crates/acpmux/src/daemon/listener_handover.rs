@@ -74,6 +74,18 @@ pub(crate) struct Received {
     pub conns: Option<UnixStream>,
 }
 
+impl Received {
+    /// Fill listeners absent from a direct handover with those held across a supervisor restart.
+    pub(crate) fn with_held(self, held: Self) -> Self {
+        Self {
+            unix: self.unix.or(held.unix),
+            ws: self.ws.or(held.ws),
+            egress: self.egress.or(held.egress),
+            conns: self.conns,
+        }
+    }
+}
+
 /// Keep copies of the listeners this daemon serves, to hand to a successor.
 pub(crate) fn offer(unix: BorrowedFd<'_>, ws: Option<BorrowedFd<'_>>) {
     let copy = |fd: BorrowedFd<'_>| fd.try_clone_to_owned();

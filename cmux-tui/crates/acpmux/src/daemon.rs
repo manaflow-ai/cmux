@@ -485,16 +485,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(unix)]
     {
         if handed.unix.is_none() || handed.ws.is_none() || handed.egress.is_none() {
-            let held = listener_keeper::take_held(&home());
-            if handed.unix.is_none() {
-                handed.unix = held.unix;
-            }
-            if handed.ws.is_none() {
-                handed.ws = held.ws;
-            }
-            if handed.egress.is_none() {
-                handed.egress = held.egress;
-            }
+            handed = handed.with_held(listener_keeper::take_held(&home()));
         }
         if let Some(egress) = handed.egress.take() {
             crate::vault::egress::serve_handed(egress);
