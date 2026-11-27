@@ -12,8 +12,9 @@ import Testing
 ///
 /// Every custom NSAccessibilityElement in cmux's image (CmuxNext and the MessagesLab packages,
 /// all linked into this bundle) that implements an action must implement `isAccessibilityEnabled()`
-/// too. Views are out of scope for the class walk: AppKit answers their enabled state through
-/// `isAccessibilityEnabled()` (``pressableViewAnswersAXEnabled`` pins it).
+/// too. Views are out of scope for this element-only class walk: they can use AppKit's stored
+/// accessibility enabled state instead of an override (``pressableViewHonorsExplicitEnabledState``).
+/// Having a press action alone does not make an NSView enabled.
 @MainActor @Suite
 struct AccessibilityEnabledRuntimeTests {
     /// The NSAccessibility methods that give an element an action a client can perform.
@@ -88,22 +89,23 @@ struct AccessibilityEnabledRuntimeTests {
         #expect(!Self.isCustomElement(NSView.self))
     }
 
-    /// The premise that keeps views out of the walk: AppKit answers the enabled-state selector for
-    /// an NSView that takes a press, so only NSAccessibilityElement subclasses need the override.
-    /// Check the selector rather than `accessibilityAttributeNames()`: macOS 27 no longer lists
-    /// AXEnabled there for these fixtures even though the semantic enabled-state response works.
-    @Test func pressableViewAnswersAXEnabled() {
+    /// A custom view can supply its enabled state with AppKit's setter. A button role and press
+    /// action alone do not imply true, and a disabled view must continue to answer false.
+    @Test func pressableViewHonorsExplicitEnabledState() {
         let view = PressableViewFixture(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.button)
         view.setAccessibilityLabel("Fixture")
+        view.setAccessibilityEnabled(true)
         #expect(view.isAccessibilityEnabled())
+        view.setAccessibilityEnabled(false)
+        #expect(!view.isAccessibilityEnabled())
         let element = PressWithEnabledFixture()
         element.setAccessibilityRole(.button)
         #expect(element.isAccessibilityEnabled())
     }
 
-    /// A class whose AppKit ancestor is NSAccessibilityElement (not a view, which answers AXEnabled).
+    /// A class whose AppKit ancestor is NSAccessibilityElement (the class walk's scope).
     static func isCustomElement(_ cls: AnyClass) -> Bool {
         var next: AnyClass? = class_getSuperclass(cls)
         while let current = next {
@@ -137,7 +139,6 @@ struct AccessibilityEnabledRuntimeTests {
         }
         return selectors
     }
-
 }
 
 private nonisolated class PressWithoutEnabledFixture: NSAccessibilityElement {
