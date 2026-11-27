@@ -98,6 +98,8 @@ impl Drop for StderrTail {
         }
     }
 }
+#[path = "relay_dial_standby.rs"]
+mod dial_standby;
 #[path = "relay_registration_loop.rs"]
 mod registration_loop;
 #[path = "relay_registration_state.rs"]
@@ -1210,8 +1212,30 @@ impl LinkGroup for RelayLinkGroup {
             let mut control = match stored_control.take() {
                 Some(control) => control,
                 None => {
-                    connect_provider_control(&self.endpoint, &self.credentials, limit, &self.tls)
-                        .await?
+                    // A standby socket a dial before left open skips the TCP connect and the
+                    // upgrade (`relay_dial_standby.rs`; off by default).
+                    let standby = dial_standby::dial_standby_wanted();
+                    let taken = if standby {
+                        dial_standby::take(&self.endpoint, limit).await
+                    } else {
+                        None
+                    };
+                    let control = match taken {
+                        Some(control) => control,
+                        None => {
+                            connect_provider_control(
+                                &self.endpoint,
+                                &self.credentials,
+                                limit,
+                                &self.tls,
+                            )
+                            .await?
+                        }
+                    };
+                    if standby {
+                        dial_standby::prime(&self.endpoint, &self.credentials, limit, &self.tls);
+                    }
+                    control
                 }
             };
             if self.early_connect(request.generation) {
