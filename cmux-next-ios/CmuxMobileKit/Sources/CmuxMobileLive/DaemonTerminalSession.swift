@@ -1095,6 +1095,93 @@ public final class DaemonTerminalSession: TerminalSession {
         return live
     }
 
+    // MARK: Fenced reattach (attach-identity-v1)
+
+    /// The daemon takes `expected_generation` and `expected_terminal_id` on
+    /// `attach-surface` and refuses an attach whose boot or terminal changed,
+    /// before any stream or size lease.
+    static let attachIdentityCapability = "attach-identity-v1"
+
+    /// The Mac daemon as its last `identify` described it.
+    struct KnownDaemon: Equatable {
+        let capabilities: Set<String>
+        let generation: String
+    }
+
+    /// This session's daemon, from the last attach's `identify`.
+    private var knownDaemon: KnownDaemon?
+    /// A fence was refused for something other than identity (a lane that
+    /// refuses the fields): reattaches ask first for the rest of the session.
+    private var fencedAttachOff = false
+    /// The last fenced attach was refused: the next one asks first.
+    private var fenceSkipOnce = false
+
+    /// One fenced reattach: the size it claims, and the identity it names.
+    struct FencedAttach {
+        let size: (columns: Int, rows: Int)?
+        let generation: String
+        let terminalID: String
+    }
+
+    struct FencedAttachRefused: Error {
+        let reason: String
+    }
+
+    /// A reattach that can go in the setup's write: the terminal has a public
+    /// id, the daemon fences, and nothing about this attach needs the replies
+    /// of the setup (a hybrid resume, a size the Mac overruled).
+    private func fencedAttach() -> FencedAttach? {
+        guard !fencedAttachOff, !fenceSkipOnce, everAttached || attachRetries > 0,
+              let terminalID, terminalID.hasPrefix("term_"),
+              let known = knownDaemon, known.capabilities.contains(Self.attachIdentityCapability),
+              !(hybridWanted && hybridResume != nil), overruled == nil else { return nil }
+        let size = claimsSize && known.capabilities.contains("attach-initial-size") ? (lastSize ?? pendingSize) : nil
+        return FencedAttach(size: size, generation: known.generation, terminalID: terminalID)
+    }
+
+    /// The fenced `attach-surface`: what the attach after `identify` would
+    /// send (size, history, a byte resume), plus the identity it expects.
+    private func fencedAttachParams(_ fenced: FencedAttach) -> sending [String: Any] {
+        var params: [String: Any] = ["surface": surface, "expected_generation": fenced.generation,
+                                     "expected_terminal_id": fenced.terminalID]
+        if let size = fenced.size {
+            params["cols"] = size.columns
+            params["rows"] = size.rows
+        }
+        if tailReplay {
+            if windowReplay, let start = historyWindowStart {
+                params["replay_history_rows"] = Self.historyWindowRows
+                params["replay_history_start"] = start
+            } else if let rows = historyAllowance {
+                params["replay_history_rows"] = rows
+            }
+        }
+        if !hybridWanted, let position = streamPosition,
+           let known = knownDaemon, known.capabilities.contains(Self.terminalResumeCapability) {
+            params["resume_offset"] = position.offset
+            params["resume_generation"] = position.generation
+            if known.capabilities.contains(Self.terminalResumeBoundedCapability) {
+                params["resume_max_bytes"] = max(Self.minResumeBytes, lastReplayBytes ?? 0)
+            }
+        }
+        return params
+    }
+
+    /// A refusal about the boot or the terminal (ask where it is, then attach),
+    /// not about a field.
+    nonisolated static func fenceRefusalIsIdentity(_ reason: String) -> Bool {
+        reason.contains("attachment_generation_mismatch") || reason.contains("attachment_terminal_mismatch")
+            || reason.contains("unknown surface")
+    }
+
+    /// The daemon an `identify` reply describes (nil: no boot generation).
+    nonisolated static func knownDaemon(_ identify: Data) -> KnownDaemon? {
+        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let generation = data["generation"] as? String, !generation.isEmpty else { return nil }
+        return KnownDaemon(capabilities: Set(capabilities(identify)), generation: generation)
+    }
+
     /// `attach-surface` for this surface at `size`, with the history the
     /// next replay holds: the window far above the screen, or the newest
     /// ``historyAllowance`` rows (nil: all of them).
@@ -1255,7 +1342,15 @@ public final class DaemonTerminalSession: TerminalSession {
             // verify/transport-verify-20261019.md). A history fetch does not:
             // the attach it replaces is still live on the same daemon, so the
             // surface number is current (one round trip less per fetch).
-            if let terminalID, !replacement, everAttached || attachRetries > 0 {
+            // A daemon that fences attaches (`attach-identity-v1`) needs no
+            // question either: the attach names the boot and the terminal it
+            // expects and goes in the setup's write, and the daemon refuses it,
+            // before any stream, if either changed (then this asks, below).
+            // Three round trips become one (Leo, 2026-11-17: "the gosh darn
+            // loading of everything needs to be FASTER").
+            let fenced = replacement ? nil : fencedAttach()
+            fenceSkipOnce = false
+            if fenced == nil, let terminalID, !replacement, everAttached || attachRetries > 0 {
                 let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
                 guard self.client === client else { return }
                 switch Self.resolved(reply) {
@@ -1357,8 +1452,12 @@ public final class DaemonTerminalSession: TerminalSession {
             } else if let quickSize {
                 batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize)))
             }
+            // Fenced reattaches name the boot and terminal identity in the same
+            // setup write. They are mutually exclusive with the requests above.
+            if let fenced { batch.append((cmd: "attach-surface", params: fencedAttachParams(fenced))) }
             let setup = await client.requests(batch)
             let identify = setup.dropFirst().first.flatMap { try? $0.get() }
+            knownDaemon = identify.flatMap(Self.knownDaemon)
             // The pipelined attach's reply. A link that failed under it is a
             // failed attach (the retry below); a refusal falls back to the
             // attach in series, with what identify listed.
@@ -1370,6 +1469,15 @@ public final class DaemonTerminalSession: TerminalSession {
             }
             let quickReply = quickSize == nil ? nil
                 : setup.dropFirst(2).first.flatMap { try? $0.get() }.flatMap { Self.error(in: $0) == nil ? $0 : nil }
+            var fencedReply: Data?
+            if let fenced {
+                let slot = setup.dropFirst(2 + (pipelinedSize == nil && quickSize == nil ? 0 : 1)).first
+                if let slot {
+                    let reply = try slot.get()
+                    if let error = Self.error(in: reply) { throw FencedAttachRefused(reason: error) }
+                    fencedReply = reply
+                }
+            }
             // What a refused quick attach sent first is not the replay.
             if quickSize != nil, quickReply == nil { heldEvents = [] }
             // Hidden: attach without a size, so the attach claims none.
@@ -1486,7 +1594,15 @@ public final class DaemonTerminalSession: TerminalSession {
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if let pipelined = pipelinedReply {
+            if let fencedReply, let fenced {
+                // Attached in the setup's write, at the size it claimed (if any).
+                reply = fencedReply
+                if let size = fenced.size {
+                    lastSize = size
+                    attachedWithSize = size
+                    lastClaimAt = .now
+                }
+            } else if let pipelined = pipelinedReply {
                 // The Mac took the attach with the phone's grid. A daemon that
                 // does not list attach-initial-size ignored the grid: the
                 // resize after the attach claims it, as an attach in series does.
@@ -1619,6 +1735,21 @@ public final class DaemonTerminalSession: TerminalSession {
             openInputLane(for: client)
             armLiveness()
             scheduleHistoryPrefetch()
+        } catch let refused as FencedAttachRefused {
+            // The Mac restarted (another boot), the terminal moved to another
+            // surface, or the lane refused a field: nothing streamed. Attach
+            // again at once, asking where the terminal is first; a refusal
+            // that is not about identity turns the fence off for this session.
+            heldEvents = nil
+            log.notice("surface \(self.surface, privacy: .public): fenced attach refused (\(refused.reason, privacy: .public)): resolving first")
+            fenceSkipOnce = true
+            if !Self.fenceRefusalIsIdentity(refused.reason) { fencedAttachOff = true }
+            if let client = self.client { self.client = nil; Task { await client.close() } }
+            eventTask?.cancel()
+            eventTask = nil
+            inbox?.close()
+            inbox = nil
+            Task { [weak self] in await self?.attach() }
         } catch {
             heldEvents = nil
             lastError = Self.diagnostic(error)

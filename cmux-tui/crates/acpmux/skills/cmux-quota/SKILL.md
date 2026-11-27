@@ -1,6 +1,6 @@
 ---
 name: cmux-quota
-description: "Wait without wasting quota or the machine: wait for CI, a pull request or a workflow run with one shared waiter instead of a polling loop, handle a GitHub rate limit by its reset, give every wait a deadline, and clean up only what you made (your own processes, regenerable caches, your own worktrees). Use when you would wait for CI or checks, poll GitHub, retry after a rate limit, run a long wait, free disk space, or stop processes."
+description: "Use before waiting on CI or a PR, polling GitHub, retrying a rate limit, freeing disk or stopping processes: one shared waiter, deadlines, clean up only what you made."
 ---
 
 # Waiting and cleaning up without waste
