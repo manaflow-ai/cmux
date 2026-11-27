@@ -25,11 +25,12 @@ import CmuxMobileLinkFFI
     }
 
     /// The attach result for turns `turns`, newest first as the Mac sends a first screenful. It
-    /// reaches the log's end (`pageThrough`), as every catch-up page from the relay says.
-    static func page(turns: Range<Int>, hasMore: Bool) -> String {
+    /// reaches the log's end (`pageThrough`) on current Macs; older Macs omit that field.
+    static func page(turns: Range<Int>, hasMore: Bool, current: Bool = true) -> String {
         let records = turns.flatMap(Chat.turnRecords).joined(separator: ",")
         let last = turns.upperBound * 5
-        return #"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(hasMore),"lastSeq":\#(last),"pageThrough":\#(last),"events":[\#(records)]}"#
+        let through = current ? #", "pageThrough":\#(last)"# : ""
+        return #"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(hasMore),"lastSeq":\#(last)\#(through),"events":[\#(records)]}"#
     }
 
     /// A Mac over turns `0..<total`: an attach after a seq reads to the end, `_acpmux/events`
@@ -61,6 +62,34 @@ import CmuxMobileLinkFFI
                 return [Reattach.reply(id, "{}")]
             }
         }
+    }
+
+    @Test(arguments: ["", #", "nextCursor":null"#, #", "nextCursor":"next-page""#])
+    func firstChatListRespectsCursor(cursor: String) async {
+        let hub = AcpmuxHub()
+        // Seed through a follow, independently of first-page cursor parsing.
+        await hub.applyCatchUp(chatList: Self.json(#"{"follow":true,"sessions":[\#(Self.row("old", name: "Old"))]}"#), pages: [])
+        var loaded = 0
+        hub.onWatchEvent = { if case .sessionsLoaded = $0 { loaded += 1 } }
+        let list = Self.json(#"{"sessions":[\#(Self.row("s1", name: "New"))]\#(cursor)}"#)
+        await hub.applyCatchUp(chatList: list, pages: [])
+        // A complete list drops stale rows; a first page keeps them until the rest arrives.
+        let expected: Set<String> = cursor.contains("next-page") ? ["old", "s1"] : ["s1"]
+        #expect(Set(hub.sessions.keys) == expected)
+        #expect(loaded == 1)
+        await hub.applyCatchUp(chatList: list, pages: [])
+        #expect(loaded == 1)
+    }
+
+    @Test(arguments: ["true", "42", "[]", "{}"])
+    func malformedChatListCursorPreservesRows(cursor: String) async {
+        let hub = AcpmuxHub()
+        await hub.applyCatchUp(chatList: Self.json(#"{"follow":true,"sessions":[\#(Self.row("old", name: "Old"))]}"#), pages: [])
+        var loaded = 0
+        hub.onWatchEvent = { if case .sessionsLoaded = $0 { loaded += 1 } }
+        await hub.applyCatchUp(chatList: Self.json(#"{"sessions":[\#(Self.row("s1", name: "New"))],"nextCursor":\#(cursor)}"#), pages: [])
+        #expect(Set(hub.sessions.keys) == ["old"])
+        #expect(loaded == 0)
     }
 
     @Test func chatListFollowIsApplied() async {
@@ -104,7 +133,8 @@ import CmuxMobileLinkFFI
         #expect(store.gapBeforeTurnID == nil)
     }
 
-    @Test func pagePastKeptRecordsFillsTheGap() async throws {
+    @Test(arguments: [true, false])
+    func pagePastKeptRecordsFillsTheGap(current: Bool) async throws {
         // The chat holds turns 0..39 from an open; the link drops and the Mac runs to turn 59.
         let first = try await Self.mac(total: 40).openChannel(service: "acpmux", args: [:])
         let hub = AcpmuxHub()
@@ -113,8 +143,16 @@ import CmuxMobileLinkFFI
         await Chat.waitUntil { store.turns.count == 40 }
         await hub.bind(nil)
         // The wake's page: the newest screenful (55..59), records 201..275 not in it.
-        let applied = await hub.applyCatchUp(chatList: nil, pages: [("s1", Self.json(Self.page(turns: 55..<60, hasMore: true)))])
-        #expect(applied == ["s1"])
+        let applied = await hub.applyCatchUp(chatList: nil, pages: [("s1", Self.json(Self.page(turns: 55..<60, hasMore: true, current: current)))])
+        if current {
+            #expect(applied == ["s1"])
+        } else {
+            // Without pageThrough, the hub must probe forward to distinguish old paging
+            // from a newest-first reply. Offline, it keeps its records until reconnect.
+            #expect(applied.isEmpty)
+            #expect(store.turns.map(\.id) == (0..<40).map { "t\($0)" })
+            #expect(hub.catchUpChats().first?.lastSeq == 200)
+        }
         await hub.bind(try await Self.mac(total: 60).openChannel(service: "acpmux", args: [:]))
         await Chat.waitUntil { store.turns.count == 60 && store.gapBeforeTurnID == nil }
         #expect(store.turns.map(\.id) == (0..<60).map { "t\($0)" })
