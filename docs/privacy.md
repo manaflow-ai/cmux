@@ -299,6 +299,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `en.wikipedia.org` | opens | a search engine, when you search with it |
 | `notion.so` | opens | a site the address bar suggests before it is in your history |
 | `twitch.tv` | opens | a site the address bar suggests before it is in your history |
+| `api.slack.com` | opens | Slack's app page with the configuration token, opened from Settings when you connect Slack |
 
 ### Names the app never contacts
 
@@ -394,6 +395,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `netlify.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 | `portal.azure.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 | `sentry.io` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `console.cmux.dev` | identifier | the cmux console GitHub sends a person back to after installing the cmux GitHub App; the app catches that return before the page loads and finishes the install itself |
+| `console-staging.cmux.dev` | identifier | the staging cmux console GitHub sends a person back to after installing the cmux GitHub App; caught before the page loads |
 
 ### Samples and placeholders
 
@@ -431,6 +434,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
 | `projection.io` | not-a-host | an error code of projected folders |
+| `share.io` | not-a-host | an error code of a shared folder's listing |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `red.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
 | `green.sh` | not-a-host | a script file name in a Cloud journey repro capsule |

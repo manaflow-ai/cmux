@@ -9,9 +9,11 @@ on:
     branches: [feat-cmux-next]
     paths:
       - App/**
+      - cmux-next-ios/scripts/testflight-build.sh
       - cmux.xcodeproj/**
       # Why: note-523
       - THIRD_PARTY_LICENSES.md
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/codesign-retry.sh
@@ -370,6 +372,8 @@ on:
     paths:
       # Why: note-416
       - .github/workflows/nightly.yml
+      - cmux-next-ios/scripts/testflight-build.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/ci/*nightly*
       - scripts/ci/publish-release-assets.py
       - scripts/ci/finalize-release.py

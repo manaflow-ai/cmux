@@ -28,6 +28,8 @@ on:
       - scripts/cmux-next/degenerate-lab/**
       - .github/workflows/cmux-next-degenerate-lab.yml
       - webviews/bench/degenerate-chat-frames.bench.ts
+      # Prose alone starts no run (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
   workflow_dispatch:
     inputs:
       preset:

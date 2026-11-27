@@ -18,6 +18,19 @@ import unittest
 
 import yaml
 
+
+# #58306 wraps a router-gated job's whole `if` as `(old) && (pull_request needs the router's success)`
+# (tests/test_ci_path_route_skips_on_failure.py); the prefix this test reads is the old condition inside it.
+ROUTE_GATE = (") && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || "
+              "needs.fast-check-route.result == 'skipped') }}")
+
+
+def without_route_gate(condition: str) -> str:
+    if condition.startswith("${{ (") and condition.endswith(ROUTE_GATE):
+        return "${{ " + condition[len("${{ ("):-len(ROUTE_GATE)] + " }}"
+    return condition
+
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

@@ -70,7 +70,16 @@ def host_npm_target() -> str:
 
 def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+    # `cmux autocloud --help` is part of the package contract (RFD 0139, #55901): answer it
+    # the way the real binary does, so a fixture passes the validator's autocloud check.
+    path.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = autocloud ]; then\n'
+        "  printf '%s\\n' 'An agent chat on any machine, in the terminal (RFD 0139)' 'Commands:' '  login'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\\n' '{output}'\n"
+    )
     path.chmod(0o755)
 
 

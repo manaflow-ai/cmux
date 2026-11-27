@@ -32,6 +32,7 @@ on:
     paths:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "tests/test_ci_billing_lane.py"
       - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
@@ -101,6 +102,7 @@ on:
     paths:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "tests/test_ci_billing_lane.py"
       - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
