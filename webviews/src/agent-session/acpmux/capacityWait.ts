@@ -6,7 +6,6 @@
 // list "Paused for capacity, resumes ~22:41". Never red: red is a turn nothing will continue.
 import { createContext } from "react";
 import type { Translate } from "./i18n";
-import { intl } from "../../ui/intl";
 
 export type CapacityWaitState = {
   reason: "capacity" | "rate_limit";
