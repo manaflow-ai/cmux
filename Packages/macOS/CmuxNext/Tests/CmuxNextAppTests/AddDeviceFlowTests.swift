@@ -208,7 +208,13 @@ import Testing
     }
 
     @Test func theSetupLinesInstallCmuxAndShowAPairingCode() {
-        #expect(AddDevicePlatform.macOrLinux.setupLine?.hasPrefix("curl -fsSL https://cmux.com/tui/install-static.sh | sh") == true)
+        let pin = AddDevicePlatform.installStaticSHA256
+        #expect(pin.count == 64 && pin.allSatisfy { $0.isHexDigit && !$0.isUppercase })
+        #expect(AddDevicePlatform.macOrLinux.setupLine == "(d=\"$(mktemp -d)\" && curl -fsSL https://cmux.com/tui/install-static/\(pin).sh"
+            + " -o \"$d/install.sh\" && echo \"\(pin)  $d/install.sh\" | $(command -v sha256sum || echo shasum -a 256) -c"
+            + " && sh \"$d/install.sh\"; s=$?; rm -rf \"$d\"; exit \"$s\") && ~/.cmux/bin/cmux server pair",
+                "the line runs only the script whose sha256 it pins, never curl | sh")
+        #expect(AddDevicePlatform.macOrLinux.setupLine?.contains("| sh") == false)
         #expect(AddDevicePlatform.macOrLinux.setupLine?.hasSuffix("cmux server pair") == true)
         #expect(AddDevicePlatform.windows.setupLine?.contains("install-static.ps1") == true)
         #expect(AddDevicePlatform.phone.setupLine == nil)
@@ -230,6 +236,24 @@ import Testing
         #expect(listing.available.first?.mine == true)
         #expect(listing.available.map(\.fromSSHConfig) == [false, true])
         #expect(listing.invites.map(\.id) == ["tk_1"])
+    }
+
+    /// The CLI's newer fields (`pools`, a parked peer's `parked`) are not read here, and a listing
+    /// that carries them still parses.
+    @Test func aListingWithPoolsAndAParkedPeerParses() throws {
+        let json = """
+        {"network":{"kind":"tailscale","up":true},
+         "devices":[{"id":"peer:old-box","name":"old-box","kind":"computer","roles":["runs-agents"],"state":"offline",
+                     "via":[{"store":"peer","name":"old-box"}],"parked":true,
+                     "detail":"Not reachable for over a day; tried again hourly."}],
+         "available":[{"name":"studio","address":"studio.ts.net","os":"macOS","mine":true}],
+         "pools":[{"stem":"ci-linux-pool","count":3}],
+         "invites":[]}
+        """
+        let listing = try DeviceListing.parse(Data(json.utf8))
+        #expect(listing.devices.map(\.state) == ["offline"])
+        #expect(listing.devices.first?.detail == "Not reachable for over a day; tried again hourly.")
+        #expect(listing.available.map(\.name) == ["studio"])
     }
 
     // MARK: - Settings > Devices
@@ -279,6 +303,23 @@ import Testing
         let page = try #require(try JSONSerialization.jsonObject(with: directory.pageData(phones: [])) as? [String: Any])
         #expect(page["remove_confirm_title"] as? String == "Remove for Good")
         #expect((page["rows"] as? [[String: Any]])?.count == 2)
+    }
+
+    @Test func peerChangesShareOneSpacedReadAndEndOnTheLastState() async throws {
+        let cli = FakeCLI()
+        let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) })
+        directory.peerReadEvery = .milliseconds(300)
+        let lists = { cli.calls.filter { $0 == ["device", "list", "--json"] }.count }
+        for _ in 0..<20 { directory.refreshForPeerChange() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(lists() == 1, "a burst of peer changes starts one read")
+        for _ in 0..<20 { directory.refreshForPeerChange() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(lists() == 1, "changes inside the window wait for the trailing read")
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(lists() == 2, "the trailing read runs once the window ends")
+        await directory.refresh()
+        #expect(lists() == 3, "a person's own refresh reads at once")
     }
 
     @Test func removeGoesThroughOnePathAndReadsAgain() async {

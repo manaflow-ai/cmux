@@ -16,6 +16,14 @@ public nonisolated struct CEFStartReport: Equatable, Sendable {
     public var initializeDuration: Duration?
     /// Seconds since process start when `CefInitialize` returned.
     public var readyAfterLaunch: Double?
+    /// The launch-time switches this process actually passed Chromium, of those a setting decides
+    /// (`CEFFramePacing.switches`), sorted. Empty before CEF loads.
+    ///
+    /// A reader (the typing bench's A/B) needs what the process launched with, not what the store
+    /// holds now: Chromium parses its command line once, so a key set afterwards changes the stored
+    /// value and nothing else. Without this an arm labels itself by its intent and can measure the
+    /// other arm's path — what cmux#45709 shipped.
+    public var launchSwitches: [String] = []
 }
 
 extension CEFStartReport {

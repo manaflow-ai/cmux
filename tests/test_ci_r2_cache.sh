@@ -43,9 +43,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if os.path.exists(control):
                         os.unlink(control)
                         self.send_response(code); self.end_headers(); return
+            # A dropped connection, before or after the bucket kept the upload: curl reports HTTP 000.
+            drop = None
+            if "/objects/" in target:
+                for marker in ("drop-archive", "keep-then-drop-archive"):
+                    control = os.path.join(store, marker)
+                    if os.path.exists(control):
+                        os.unlink(control)
+                        drop = marker
+                        break
+            if drop == "drop-archive":
+                self.close_connection = True; return
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "wb") as out: out.write(body)
             metadata[target] = self.headers.get("x-amz-meta-generation", "0")
+            if drop:
+                self.close_connection = True; return
             self.send_response(200); self.end_headers()
     def serve(self, with_body):
         if not os.path.isfile(self.target()):
@@ -119,6 +132,18 @@ grep -q '^cache-matched-key=family-tool-one$' <<<"$out" || fail "a prefix match 
 diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "prefix-restored contents differ"
 echo "PASS: a prefix restores the newest key without claiming an exact hit"
 
+# Workflows pass a home-relative path (`path: ~/.bun/install/cache`) that no
+# shell expanded: the save must read, and the restore write, the real directory.
+mkdir -p "$WORK/home/.cache/tool"
+echo tilde > "$WORK/home/.cache/tool/t.txt"
+HOME="$WORK/home" output_of save "~/.cache/tool" tilde-tool-one >/dev/null
+ls "$NS/objects/" | grep -q '^tilde-tool-one\.tar\.' || fail "a ~/ path must save its directory, log: $(cat "$WORK/log")"
+rm -rf "$WORK/home/.cache/tool"
+out="$(cd "$WORK" && HOME="$WORK/home" output_of restore "~/.cache/tool" tilde-tool-one)"
+grep -q '^cache-hit=true$' <<<"$out" || fail "a ~/ path must restore, got: $out"
+[[ -f "$WORK/home/.cache/tool/t.txt" && ! -e "$WORK/~" ]] || fail "a ~/ restore must land under HOME, not ./~"
+echo "PASS: a ~/ path saves and restores the home directory"
+
 # Extra tar padding must be consumed so a successful extraction cannot send
 # SIGPIPE to the decompressor under pipefail (notably with macOS bsdtar).
 if command -v zstd >/dev/null 2>&1; then
@@ -170,6 +195,19 @@ touch "$WORK/store/race-pointer"
 output_of save "$WORK/src" race-one >/dev/null
 [[ "$(cat "$NS/latest/race-")" == "race-one" ]] || fail "a conditional write conflict must retry"
 echo "PASS: conditional pointer conflicts retry"
+
+# A dropped archive upload (HTTP 000) is sent again, and one the bucket kept before the drop
+# reads back as saved: job 140187794318's 1483 MB save got 000 and published nothing.
+touch "$WORK/store/drop-archive"
+output_of save "$WORK/src" dropped-once >/dev/null
+grep -q 'attempt 1 got HTTP 000; retrying' "$WORK/log" || fail "a dropped upload must be retried: $(cat "$WORK/log")"
+grep -q 'r2-cache: saved dropped-once' "$WORK/log" || fail "a retried upload must publish: $(cat "$WORK/log")"
+[[ "$(cat "$NS/latest/dropped-")" == "dropped-once" ]] || fail "a retried upload must write its pointers"
+touch "$WORK/store/keep-then-drop-archive"
+output_of save "$WORK/src" kept-dropped >/dev/null
+grep -q 'r2-cache: saved kept-dropped' "$WORK/log" || fail "an upload kept before the drop must publish: $(cat "$WORK/log")"
+[[ "$(cat "$NS/latest/kept-")" == "kept-dropped" ]] || fail "an upload kept before the drop must write its pointers"
+echo "PASS: a dropped archive upload is retried and published"
 
 echo "other-thing" > "$NS/latest/family-tool-"
 rm -rf "$WORK/dst"
@@ -266,7 +304,28 @@ kill "$LAN_PID" 2>/dev/null || true; wait "$LAN_PID" 2>/dev/null || true
 rm -rf "$lan_dir"; unset CMUX_LAN_CACHE_SOCKET
 echo "PASS: archives come from the LAN cache host first and fall back to the bucket"
 
+CI_CACHE_R2_SAVE_HEADROOM_KIB=$((1 << 40)) output_of save "$WORK/src" no-room-one >/dev/null \
+  || fail "a save without disk room must not fail the job"
+ls "$NS/objects/" | grep -q '^no-room-one' && fail "a save without disk room must upload nothing"
+grep -q '::warning::r2-cache: no-room-one not saved' "$WORK/log" || fail "a save without disk room must warn, log: $(cat "$WORK/log")"
+ls "$NS/latest/" | grep -q '^no-room-' && fail "a skipped save must publish no pointer"
+echo "PASS: a save whose disk lacks room for its archive warns and uploads nothing"
+
 unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"
 echo "PASS: a save without credentials warns and uploads nothing"
+
+# A required save (the base's test log pull requests compare against) that writes nothing fails its
+# step: from #57363 to #57975 that save had no credentials, went green, and starved every pull request.
+CACHE_REQUIRED=true output_of save "$WORK/src" family-tool-five >/dev/null && fail "a required save without credentials must fail"
+grep -q '::error::r2-cache: AWS_SECRET_ACCESS_KEY is not set' "$WORK/log" || fail "a required save must say what it lacked, log: $(cat "$WORK/log")"
+echo "PASS: a required save without credentials fails"
+export AWS_SECRET_ACCESS_KEY="test-secret"
+CACHE_REQUIRED=true output_of save "$WORK/missing-dir" family-tool-six >/dev/null && fail "a required save of no directory must fail"
+CACHE_REQUIRED=true output_of save "$WORK/src" required-one >/dev/null || fail "a required save that wrote must pass, log: $(cat "$WORK/log")"
+[[ "$(cat "$NS/latest/required-")" == "required-one" ]] || fail "a required save must publish its pointers"
+touch "$WORK/store/fail-pointer"
+CACHE_REQUIRED=true output_of save "$WORK/src" required-two >/dev/null && fail "a required save whose pointer failed must fail: a prefix reader cannot find it"
+rm -f "$WORK/store/fail-pointer"
+echo "PASS: a required save fails when it saved nothing a reader finds, and passes when it did"

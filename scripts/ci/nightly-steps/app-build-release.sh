@@ -131,14 +131,25 @@ source scripts/ci/nightly-steps/app-host-build-root.sh
 # build: one missing or recorded in another tree drops the artifact state and resolves again
 # (spm_artifact_preflight.py). The project's local packages are read from cmux.xcodeproj, since the seeded tree
 # has no workspace-state.json to name them.
-(
+# A dead or half-dead github.com egress proxy on the mini: probed first, and a resolve that failed on it runs once
+# more, direct; the build below inherits the route (github-egress-direct.sh).
+# shellcheck source=scripts/ci/github-egress-direct.sh
+source scripts/ci/github-egress-direct.sh
+github_egress_probe >&2
+spm_preflight_log="$(mktemp "${RUNNER_TEMP:-/tmp}/spm-preflight.XXXXXX")"
+spm_artifact_preflight() (
   cd "$build_root"
   python3 scripts/ci/spm_artifact_preflight.py .spm-cache --xcodeproj cmux.xcodeproj \
     --resolved cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved -- \
     xcodebuild -resolvePackageDependencies -scheme cmux \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache"
-) >&2
+)
+if ! spm_artifact_preflight 2>&1 | tee "$spm_preflight_log" >&2; then
+  github_egress_retry_direct "$spm_preflight_log" >&2 || { rm -f "$spm_preflight_log"; exit 1; }
+  spm_artifact_preflight >&2
+fi
+rm -f "$spm_preflight_log"
 run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()
@@ -152,7 +163,7 @@ run_release_build() (
     --derived-data "$derived_data" --configuration Release --archs "$archs" \
     --log "$RUNNER_TEMP/helper-prebuild.log" -- \
   ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
+    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
     -destination 'generic/platform=macOS' \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache" \

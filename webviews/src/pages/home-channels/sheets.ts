@@ -256,7 +256,7 @@ export class HomeSheets {
       backends: () => (host ? host.backends() : none()),
       harnessIds: () => (host ? host.harnessIds() : none()),
       addBackend: (backend) => (host ? host.addBackend(backend) : none()),
-      checkBackend: (id) => (host ? host.checkBackend(id) : none()),
+      checkBackend: (id, chief) => (host ? host.checkBackend(id, chief) : none()),
     };
     this.editorService = { grants, service };
     return service;

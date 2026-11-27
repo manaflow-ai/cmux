@@ -68,13 +68,13 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// GitHub only when that helps (``gitHubHelps``).
     public var tooLarge: String {
         if let pastPlan {
-            let words = String(localized: "cloud.seedRefused.pastPlan", defaultValue: "This folder is %1$@, more than the largest machine your plan gives (%2$@) has room for. Choose a smaller folder.", table: "Cloud", bundle: .module)
+            let words = String(localized: "cloud.seedRefused.pastPlan", defaultValue: "This folder is %1$@, more than the largest machine your plan gives (%2$@) has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
             let disk = ByteCountFormatter.string(fromByteCount: CloudChatSize.largestDiskBytes(planMax: pastPlan), countStyle: .file)
             return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), disk)
         }
         let words = gitHubHelps
-            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module)
-            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .module)
+            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .localizedModule)
+            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
         return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 

@@ -19,8 +19,8 @@ fn screen_sharing_is_found_by_the_words_people_type() {
         assert!(action.keywords.contains(&"vnc"), "{id} lacks \"vnc\"");
     }
     assert!(palette::DAILY.contains(&"macScreen.open"));
-    // Built-in aliases: these whole queries rank Screen Sharing first, above the Chief row whose
-    // title starts with "Share Screen".
+    // Built-in aliases: these whole queries rank Screen Sharing first, above any row whose title
+    // starts with "Share Screen".
     let aliases = palette::ALIASES
         .iter()
         .find(|(id, _)| *id == "macScreen.open")
@@ -41,4 +41,60 @@ fn this_macs_sharing_session_sits_with_share_this_mac() {
     ] {
         assert_eq!(find(id).expect(id).category, "remote", "{id}");
     }
+}
+
+/// `cmux tab new-mac-screen --device NAME [--scope view|full] [--autoconnect]`: an agent's or the CLI's open of the
+/// person's own device starts viewing at once, View Only unless it asks for Full Control (Leo,
+/// 2026-11-17: "why should it get held only be aperson's click? i dont like that").
+#[test]
+fn screen_sharing_takes_an_optional_view_or_full_scope() {
+    let open = find("macScreen.open").expect("Screen Sharing");
+    let names: Vec<_> = open.arguments.iter().map(|a| a.name).collect();
+    assert_eq!(names, ["device", "scope", "autoconnect"]);
+    let scope = open.arguments.iter().find(|a| a.name == "scope").expect("scope");
+    assert!(!scope.required, "a missing scope asks for View Only");
+    let cmux_action_catalog::model::ArgKind::Enumeration(cases) = scope.kind else {
+        panic!("scope is an enumeration, not {:?}", scope.kind);
+    };
+    let values: Vec<_> = cases.iter().map(|c| c.value).collect();
+    assert_eq!(values, ["view", "full"]);
+}
+
+/// One row ends this Mac's session: Stop Sharing This Mac, on whichever host holds it (#44179).
+/// cmux Remote: End Screen Sharing Session was the same stop for cmux Remote's worker. Turn Off
+/// Sharing This Mac stays: it turns the Share This Mac switch off, which is not the same thing.
+#[test]
+fn one_row_ends_this_macs_session() {
+    assert!(find("remote.stopScreenSession").is_none(), "the worker's duplicate stop row");
+    let stop = find("macScreen.stopSharing").expect("Stop Sharing This Mac");
+    for word in ["end session", "session", "cmux remote"] {
+        assert!(stop.keywords.contains(&word), "Stop Sharing This Mac lacks {word:?}");
+    }
+    assert!(find("macScreen.stopSharingThisMac").is_some(), "Turn Off Sharing This Mac stays");
+}
+
+/// Screen Sharing and Stop Sharing This Mac have default shortcuts, on keys no other action takes.
+#[test]
+fn screen_sharing_has_default_shortcuts() {
+    use cmux_action_catalog::model::{CMD, KEYBOARD, OPT, SHIFT};
+    for (id, modifiers) in
+        [("macScreen.open", SHIFT | CMD), ("macScreen.stopSharing", OPT | SHIFT | CMD)]
+    {
+        let action = find(id).expect(id);
+        let shortcut = action.default_shortcut.as_ref().expect(id);
+        assert_eq!((shortcut.key, shortcut.modifiers), ("s", modifiers), "{id}");
+        let others: Vec<_> = cmux_action_catalog::actions()
+            .filter(|other| other.id != id)
+            .filter(|other| {
+                other
+                    .default_shortcut
+                    .as_ref()
+                    .is_some_and(|s| s.key == "s" && s.modifiers == modifiers)
+            })
+            .map(|other| other.id)
+            .collect();
+        assert!(others.is_empty(), "{id}'s shortcut is also {others:?}'s");
+    }
+    let stop = find("macScreen.stopSharing").expect("macScreen.stopSharing");
+    assert!(stop.surfaces & KEYBOARD != 0, "Stop Sharing This Mac is not on the keyboard surface");
 }

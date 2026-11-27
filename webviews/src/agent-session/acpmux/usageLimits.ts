@@ -1,5 +1,6 @@
 import type { Translate } from "./i18n";
 import type { AcpmuxUsageLimits } from "./model";
+import { intl } from "../../ui/intl";
 
 type LimitWindow = AcpmuxUsageLimits["windows"][number];
 
@@ -59,7 +60,7 @@ function windowName(id: string, t: Translate): string {
 }
 
 /// The reset time with its date and time zone: a weekly window can reset days from now.
-function resetTime(seconds: number, locale?: string): string {
+export function resetTime(seconds: number, locale?: string): string {
   const options: Intl.DateTimeFormatOptions = {
     month: "short",
     day: "numeric",
@@ -68,15 +69,15 @@ function resetTime(seconds: number, locale?: string): string {
     timeZoneName: "short",
   };
   try {
-    return new Intl.DateTimeFormat(locale, options).format(seconds * 1000);
+    return intl.DateTimeFormat(locale, options).format(seconds * 1000);
   } catch {
-    return new Intl.DateTimeFormat(undefined, options).format(seconds * 1000);
+    return intl.DateTimeFormat(undefined, options).format(seconds * 1000);
   }
 }
 
 function percent(value: number, locale?: string): string {
   try {
-    return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
+    return intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
   } catch {
     return String(Math.round(value * 10) / 10);
   }
@@ -142,9 +143,9 @@ export function planResetLabel(
   const at = limit.resetsAt * 1000;
   const format = (options: Intl.DateTimeFormatOptions) => {
     try {
-      return new Intl.DateTimeFormat(locale, options).format(at);
+      return intl.DateTimeFormat(locale, options).format(at);
     } catch {
-      return new Intl.DateTimeFormat(undefined, options).format(at);
+      return intl.DateTimeFormat(undefined, options).format(at);
     }
   };
   const time = format({ hour: "numeric", minute: "2-digit" });
@@ -183,7 +184,7 @@ export function planCreditsLabel(
   let count = credits.balance;
   if (Number.isFinite(value)) {
     try {
-      count = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+      count = intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
     } catch {
       count = String(value);
     }
@@ -217,4 +218,36 @@ export function planLimitRows(
   const credits = planCreditsLabel(limits.credits, t, locale);
   if (credits) rows.push({ id: "credits", name: t("planUsage.credits"), value: credits });
   return rows;
+}
+
+// The even-pace mark on each plan usage bar (Leo, 2026-11-23, usage per account: "Settings shows
+// each signed-in account's limits with even-pace marks"): where the bar would stand if the window
+// were spent evenly, so a share used ahead of the clock reads at a glance.
+
+/// A window's length in seconds: what the harness reported, else Claude's own by its id (5 hours,
+/// a week). Unset for a window of unknown length.
+function planWindowSeconds(limit: LimitWindow): number | undefined {
+  if (limit.windowMins !== undefined && limit.windowMins > 0) return limit.windowMins * 60;
+  if (limit.id === "session") return 300 * 60;
+  if (limit.id === "weekly" || limit.id.startsWith("weekly_")) return 10080 * 60;
+  return undefined;
+}
+
+/// The share of the window already elapsed at `nowMs` (0..1): the even-pace position. Unset with no
+/// reset time or no known length, so no mark is drawn that may be wrong.
+export function planEvenPace(limit: LimitWindow, nowMs: number = Date.now()): number | undefined {
+  if (limit.resetsAt === undefined) return undefined;
+  const length = planWindowSeconds(limit);
+  if (length === undefined || !Number.isFinite(nowMs)) return undefined;
+  const elapsed = (length - (limit.resetsAt - nowMs / 1000)) / length;
+  return Math.min(1, Math.max(0, elapsed));
+}
+
+/// How far past even pace (in percentage points) a window may run before its bar takes the warning
+/// color: a few points of slack so a window right on pace does not flicker.
+export const PLAN_PACE_MARGIN = 5;
+
+/// Whether the window is used ahead of even pace (past the margin). False with no pace.
+export function planAheadOfPace(limit: LimitWindow, pace: number | undefined): boolean {
+  return pace !== undefined && limit.usedPercent > pace * 100 + PLAN_PACE_MARGIN;
 }

@@ -1,0 +1,176 @@
+{
+ "_doc": "ci-oops class e (panic): never swallowed, whatever else matches; stays red as today, no actor. Owner: helper 1e (lane ci-self-heal). Generated from the real workflow files of cmux main and feat-cmux-next and cmuxterm-hq; fixtures: fixtures/panic_cases.json; guard: test_panic_wins.py. Regexes are re.search, case-insensitive (oops_core.py).",
+ "rules": [
+  {
+   "id": "panic.release_path",
+   "class": "panic",
+   "workflow": "^(?:Release\\ macOS\\ app|Nightly\\ macOS\\ build|Nightly\\ signing|Continue\\ nightly\\ notarization|Resume\\ nightly\\ notarization|Repair\\ nightly\\ appcast\\ Content\\-Type|Nightly\\ tag\\ permission\\ probe|nightly\\-next\\ train|nightly\\-next\\ tick|nightly\\-next\\ verdict|nightly\\-next\\ canary|nightly\\-next\\ feed\\ watch|nightly\\-next\\ launch\\ smoke|nightly\\-next\\ rollback|nightly\\-next\\ rollback\\ drill|nightly\\-next\\ supersede|cmux\\ NEXT\\ Stable|cmux\\ NEXT\\ Stable\\ rollback|cmux\\ NEXT\\ DEV\\ daily|cmux\\ NEXT\\ DEV\\ daily\\ dispatcher|cmux\\ NEXT\\ DEV\\ kick|cmux\\ NEXT\\ helper\\ \\(dev\\)\\ signing|Signing\\ keychain\\ \\(macOS\\)|rcodesign\\ parity\\ proof|Update\\ Homebrew\\ Cask|release\\ rails|iOS\\ App\\ Store\\ \\(production\\)|iOS\\ TestFlight\\ \\(cmux\\.app\\)|iOS\\ TestFlight\\ \\(cmux\\ CLASSIC\\)|iOS\\ TestFlight\\ \\(CMUX\\ INTERNAL\\)|cmux\\-next\\ iPhone\\ INTERNAL\\ builder|cmux\\-next\\ iPhone\\ INTERNAL\\ builder\\ trigger|cmux\\-tui\\ release\\ binaries|cmux\\-tui\\ release\\ cut|cmux\\-tui\\ registry\\ delivery|cmux\\-tui\\ nightly|cmux\\-tui\\ Team\\-signed\\ tree|cmux\\-tui\\ publish\\ npm|cmux\\-tui\\ publish\\ pypi|coderouter\\ release|coderouter\\ publish\\ npm|coderouter\\ publish\\ pypi|coderouter\\ verify\\ release|cmux\\-relay\\ release|sdk\\ release\\ cut|sdk\\ publish\\ java|sdk\\ preflight\\ crates|sdk\\ preflight\\ npm|sdk\\ preflight\\ python|sdk\\ validate\\ go|app\\ FFI\\ release|cmux\\-rd\\ release|cmux\\-browser\\-host\\ release|cmux\\ NEXT\\ CEF\\ publish|cmux\\-next\\ web\\ bundle\\ publish|cmux\\ NEXT\\ remote\\ browser\\ host\\ publish|cmux\\ NEXT\\ Cua\\ Driver\\ SDK\\ publish|Dogfood\\ artifact\\ publish|Cloud\\ VM\\ image\\ promote|Cloud\\ VM\\ image\\ auto\\-promote|fleet\\ nightly\\ promotion\\ admission|nightly\\-next\\ on\\ Linux|nightly\\-next\\ legacy\\ identity|nightly\\-next\\ canary\\ streak|nightly\\ dogfood|Publish\\ cmux\\-code)$|(?:^|/)(?:release|nightly|nightly\\-sign|auto\\-resume\\-nightly\\-notarization|resume\\-nightly\\-notarization|repair\\-nightly\\-appcast\\-content\\-types|nightly\\-tag\\-permission\\-probe|nightly\\-next\\-train|nightly\\-next\\-tick|nightly\\-next\\-verdict|nightly\\-next\\-canary|nightly\\-next\\-feed\\-watch|nightly\\-next\\-launch\\-smoke|nightly\\-next\\-rollback|nightly\\-next\\-rollback\\-drill|nightly\\-next\\-supersede|stable\\-next|stable\\-next\\-rollback|cmux\\-next\\-dev\\-daily|cmux\\-next\\-dev\\-daily\\-dispatch|cmux\\-next\\-dev\\-kick|cmux\\-next\\-cua\\-helper\\-dev\\-sign|signing\\-keychain\\-macos|rcodesign\\-parity\\-proof|update\\-homebrew|release\\-rails|ios\\-app\\-store|ios\\-appstore\\-upload|ios\\-appstore\\-upload|ios\\-testflight|ios\\-internal\\-nightly|ios\\-internal\\-nightly\\-trigger|cmux\\-tui\\-release|cmux\\-tui\\-release\\-cut|cmux\\-tui\\-release\\-delivery|cmux\\-tui\\-nightly|cmux\\-tui\\-team\\-signed|tui\\-publish\\-npm|tui\\-publish\\-pypi|coderouter\\-release|coderouter\\-publish\\-npm|coderouter\\-publish\\-pypi|coderouter\\-verify\\-release|relay\\-publish\\-npm|sdk\\-release\\-cut|sdk\\-publish\\-java|sdk\\-publish\\-crates|sdk\\-publish\\-npm|sdk\\-publish\\-python|sdk\\-publish\\-go|app\\-ffi\\-release|cmux\\-rd\\-release|cmux\\-browser\\-host\\-release|cmux\\-next\\-cef\\-publish|cmux\\-next\\-web\\-bundle\\-publish|cmux\\-next\\-remote\\-browser\\-host\\-publish|cmux\\-next\\-cua\\-driver\\-sdk\\-publish|dogfood\\-artifact\\-publish|cloud\\-vm\\-image\\-promote|cloud\\-vm\\-image\\-auto\\-promote|fleet\\-nightly\\-promotion\\-admission|nightly\\-next\\-linux|nightly\\-next\\-legacy|nightly\\-next\\-canary\\-streak|next\\-dogfood|publish\\-cmux\\-code)\\.ya?ml$",
+   "why": "ship path (nightly, dev, stable, promote, release, notarize, appcast, store upload, published artifacts): a red here ships nothing or ships wrong; stays red, as today"
+  },
+  {
+   "id": "panic.migration.workflow",
+   "class": "panic",
+   "workflow": "^(?:backend\\-migrations|Cloud\\ VM\\ DB\\ migration|Classic\\ migration\\ staging\\ proof)$|(?:^|/)(?:backend\\-migrations|cloud\\-vm\\-migrate|classic\\-migration\\-staging)\\.ya?ml$",
+   "why": "database migration workflow: append-only, numbering and production-parity rules are judgement calls, never auto-fixed or soft-failed"
+  },
+  {
+   "id": "panic.migration.job",
+   "class": "panic",
+   "job": "(?i)^(?:head-migrations|backend migrations applied|.*\\bmigrat(?:e|ion|ions)\\b.*)$",
+   "why": "a migration job in any workflow"
+  },
+  {
+   "id": "panic.migration.log",
+   "class": "panic",
+   "any": [
+    "::error::migrations are append-only",
+    "must be above the base's highest \\(\\d+\\); renumber",
+    "::error::contract migration",
+    "backend/db/migrations may contain only",
+    "unexpected file name in backend/db/migrations",
+    "(?i)\\bmigrations?\\b.{0,80}\\b(?:drift|out of order|mismatch|differ|not applied|failed to apply|checksum)",
+    "(?i)\\b(?:drizzle|prisma|sqlx|goose|atlas)\\b.{0,40}\\bmigrat\\w*.{0,60}\\b(?:fail|error)"
+   ],
+   "why": "migration guard or apply failure, wherever it runs"
+  },
+  {
+   "id": "panic.signing",
+   "class": "panic",
+   "any": [
+    "errSecInternalComponent",
+    "The specified item could not be found in the keychain",
+    "(?i)\\bno (?:valid )?(?:signing )?identit(?:y|ies) (?:found|matching)",
+    "(?i)codesign(?:_\\w+)?\\b.{0,120}\\b(?:failed|error|invalid)",
+    "(?i)\\bcode object is not signed at all",
+    "(?i)a sealed resource is missing or invalid",
+    "(?i)invalid signature \\(code or signature have been modified\\)",
+    "(?i)\\brcodesign\\b.{0,80}\\berror\\b",
+    "(?i)\\bnotarytool\\b.{0,120}\\b(?:Invalid|Rejected|error)",
+    "\\\"status\\\": \\\"(?:Invalid|Rejected)\\\"",
+    "(?i)\\bstaple(?:r)?\\b.{0,80}\\b(?:failed|error)",
+    "(?i)The staple and validate action failed",
+    "(?i)\\bspctl\\b.{0,80}\\brejected\\b",
+    "(?i)requires a provisioning profile|No profiles for '|provisioning profile .{0,80}(?:expired|doesn't include|does not include)",
+    "(?i)(?:EdDSA|ed25519|Sparkle).{0,80}signature.{0,40}(?:fail|invalid|mismatch)",
+    "(?i)\\bsign_update\\b.{0,80}\\b(?:fail|error)",
+    "(?i)signing secrets? (?:are|is) read outside a protected environment"
+   ],
+   "why": "code signing, notarization, stapling, provisioning or update-feed signature: never retried blind or soft-failed"
+  },
+  {
+   "id": "panic.signing.job",
+   "class": "panic",
+   "job": "(?i)\\b(?:sign(?:ing|ed)?(?! in\\b)|notari[sz]\\w*|staple\\w*|appcast|sparkle|provision(?:ing)? profile|keychain)\\b",
+   "why": "a signing/notarize/appcast job in any workflow"
+  },
+  {
+   "id": "panic.security.workflow",
+   "class": "panic",
+   "workflow": "^(?:Platform\\ production\\ secrets|Production\\ INTERNAL_TOKEN|Staging\\ INTERNAL_TOKEN|cmux\\ VM\\ secrets\\ seal\\ to\\ cmux\\-platform|PR\\ media\\ privacy)$|(?:^|/)(?:platform\\-prod\\-secrets|internal\\-token\\-prod|internal\\-token\\-staging|cmux\\-vm\\-secrets\\-seal|pr\\-media\\-privacy)\\.ya?ml$",
+   "why": "production secrets, tokens, media privacy"
+  },
+  {
+   "id": "panic.security.job",
+   "class": "panic",
+   "job": "(?i)\\b(?:security|secrets?|codeql|gitleaks|trufflehog|semgrep|cargo[- ]deny|cargo[- ]audit|osv|vulnerab\\w*|payload advisories|cla[- ]policy|privacy|sandbox[- ]weaken\\w*|signing runner variables)\\b",
+   "why": "a security scan or policy job in any workflow"
+  },
+  {
+   "id": "panic.security.log",
+   "class": "panic",
+   "any": [
+    "(?<!\\bno )(?<!(?<!\\d)0 )\\bleaks? found\\b|(?<!\\bno )(?<!(?<!\\d)0 )\\bsecrets? (?:detected|found|leaked)\\b",
+    "-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----",
+    "\\bRUSTSEC-\\d{4}-\\d{4}\\b",
+    "\\bGHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}\\b",
+    "(?i)\\b(?:critical|high) severity vulnerabilit",
+    "(?i)sandbox-weakening switch"
+   ],
+   "why": "secret leak, known vulnerability, sandbox weakening"
+  },
+  {
+   "id": "panic.data_loss",
+   "class": "panic",
+   "any": [
+    "(?:✘|✗|\\bfail\\w*|\\berror\\b|\\bpanic\\b|\\bFAIL\\b).{0,200}\\bdata[- ]loss\\b|\\bdata[- ]loss\\b.{0,200}(?:\\bfail\\w*|\\bdetected\\b|\\boccurred\\b)",
+    "(?i)\\bwould (?:drop|delete|truncate|overwrite) (?:\\d+ )?(?:rows?|tables?|columns?|data|records?)",
+    "(?i)\\bdestructive (?:migration|change|operation)\\b",
+    "database disk image is malformed|SQLITE_CORRUPT|SQLITE_NOTADB",
+    "(?:✘|✗|\\bfail\\w*|\\berror\\b|\\bpanic\\b).{0,200}\\bcorrupt(?:ed|ion)\\b.{0,40}\\b(?:database|journal|state|ledger|store)\\b",
+    "test-integrity: \\d+ finding\\(s\\); restore coverage or remove the weakening"
+   ],
+   "why": "lost or corrupted data, or a deleted/weakened test (the integrity guard stays on)"
+  },
+  {
+   "id": "panic.data_loss.job",
+   "class": "panic",
+   "job": "(?i)^(?:deleted-or-weakened-tests|test-integrity|submodule forward-only|workflow-guard-submodule-forward-only)$",
+   "why": "integrity guards: a red is the guard doing its job"
+  },
+  {
+   "id": "panic.base_broken.workflow",
+   "class": "panic",
+   "workflow": "^(?:Main\\ compile\\ probe)$|(?:^|/)(?:main\\-compile\\-probe)\\.ya?ml$",
+   "none": [
+    "\\(signal: 9, SIGKILL",
+    "SIGKILL: kill",
+    "No space left on device",
+    "The runner has received a shutdown signal",
+    "The operation was canceled",
+    "lost communication with the server"
+   ],
+   "why": "probes whose whole purpose is 'does the base compile'"
+  },
+  {
+   "id": "panic.base_broken.push",
+   "class": "panic",
+   "repo": "^manaflow-ai/(?:cmux|cmuxterm-hq)$",
+   "head_ref": "^(?:refs/heads/)?(?:main|feat-cmux-next)$",
+   "any": [
+    "\\S+\\.swift:\\d+:\\d+: error: ",
+    "\\berror\\[E\\d{4}\\]: ",
+    "error: could not compile `",
+    "\\*\\* (?:BUILD|ARCHIVE) FAILED \\*\\*",
+    "\\berror TS\\d{4}:",
+    "##\\[error\\]\\S+\\.(?:swift|rs|tsx?|m|mm|c|cc|cpp|h):\\d+(?::\\d+)?: ",
+    "error: emit-module command failed",
+    "Compiling \\S+ failed|: error: compile command failed"
+   ],
+   "none": [
+    "\\(signal: 9, SIGKILL",
+    "SIGKILL: kill",
+    "No space left on device",
+    "The runner has received a shutdown signal",
+    "The operation was canceled",
+    "lost communication with the server"
+   ],
+   "why": "base does not compile: a compile error on a run of main or feat-cmux-next itself (a PR run's head_ref is its own branch)"
+  },
+  {
+   "id": "panic.base_broken.same_red",
+   "class": "panic",
+   "when": [
+    "base_red"
+   ],
+   "any": [
+    "\\S+\\.swift:\\d+:\\d+: error: ",
+    "\\berror\\[E\\d{4}\\]: ",
+    "error: could not compile `",
+    "\\*\\* (?:BUILD|ARCHIVE) FAILED \\*\\*",
+    "\\berror TS\\d{4}:",
+    "##\\[error\\]\\S+\\.(?:swift|rs|tsx?|m|mm|c|cc|cpp|h):\\d+(?::\\d+)?: ",
+    "error: emit-module command failed",
+    "Compiling \\S+ failed|: error: compile command failed"
+   ],
+   "none": [
+    "\\(signal: 9, SIGKILL",
+    "SIGKILL: kill",
+    "No space left on device",
+    "The runner has received a shutdown signal",
+    "The operation was canceled",
+    "lost communication with the server"
+   ],
+   "why": "base does not compile: the same compile red is on the base's latest run (ctx.base_red, from scripts/ci/base_red_excuse.py or base_red_watch current.json)"
+  }
+ ]
+}

@@ -49,6 +49,8 @@ impl Fixture {
                 ..Output::default()
             },
         );
+        // launchd has no com.cmux.server loaded here.
+        runner.answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
         Self {
             home,
             layout,
@@ -72,6 +74,7 @@ impl Fixture {
             env: env_for(self.home.path()),
             now_ms: NOW_MS,
             self_exe: None,
+            terminal_socket: None,
         };
         dispatch(&context, &parse(&args)?).map(|output| output.json)
     }

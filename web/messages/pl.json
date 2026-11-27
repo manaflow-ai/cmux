@@ -3366,7 +3366,8 @@
       "darkArt": "Mroczna sztuka",
       "museumIcons": "Arcydzieła muzealne",
       "calm": "Spokój",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Malarstwo wschodnioazjatyckie"
     }
   },
   "testimonials": {
@@ -5497,7 +5498,9 @@
     "errorInvalidTotp": "Ten kod uwierzytelniania dwuskładnikowego jest nieprawidłowy.",
     "errorSignUpNotAllowed": "Obecnie nie można tworzyć nowych kont.",
     "errorPasskey": "Logowanie kluczem dostępu nie zostało ukończone. Spróbuj ponownie lub użyj innej metody.",
-    "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
+    "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie.",
+    "errorRedirectNotAllowed": "Adres logowania tej kompilacji nie jest dozwolony w {backend}.",
+    "backendDevelopment": "backendzie deweloperskim"
   },
   "MobileRelease106": {
     "title": "Co nowego w 1.0.6",
@@ -5533,5 +5536,15 @@
     "unavailableTitle": "Nie udało się potwierdzić logowania",
     "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
     "retry": "Spróbuj ponownie"
+  },
+  "connected": {
+    "title": "Zalogowano do {app}",
+    "titleGeneric": "Zalogowano",
+    "errorTitle": "Nie udało się zalogować do {app}",
+    "errorTitleGeneric": "Logowanie nie zostało ukończone",
+    "body": "Wróć do cmux, aby kontynuować.",
+    "errorBody": "Wróć do cmux i spróbuj ponownie.",
+    "button": "Wróć do cmux",
+    "closeHint": "Możesz zamknąć tę kartę."
   }
 }

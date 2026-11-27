@@ -15,6 +15,7 @@ import CmuxNextFloating
 import CmuxNextGitHubViewer
 import CmuxNextHistory
 import CmuxNextHomeModel
+import CmuxNextHostPressureTunables
 import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextMacScreen

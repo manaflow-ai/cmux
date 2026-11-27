@@ -4,6 +4,7 @@ import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
 import { ChoiceOrUrlEditor } from "./ChoiceOrUrlEditor";
 import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
+import { DefaultImageEditor, DEFAULT_IMAGE_KEY } from "./DefaultImageEditor";
 import { DomainListEditor } from "./DomainListEditor";
 import { ChatRootsEditor } from "./ChatRootsEditor";
 import { FolderListEditor } from "./FolderListEditor";
@@ -13,7 +14,10 @@ import { NumberEditor } from "./NumberEditor";
 import { ZoomEditor } from "./ZoomEditor";
 import { DurationEditor, isDuration } from "./DurationEditor";
 import { NumberListEditor } from "./NumberListEditor";
+import { JsonEditor } from "./JsonEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
+import { RowLayoutEditor } from "./RowLayoutEditor";
+import { isLayoutKey } from "../rowLayout";
 import { SoundEditor } from "./SoundEditor";
 import { StringMapEditor } from "./StringMapEditor";
 import { TextEditor } from "./TextEditor";
@@ -56,6 +60,8 @@ export function Editor(props: EditorProps): ReactNode {
     case "sound":
       return <SoundEditor {...props} />;
     case "text":
+      // Settings > Cloud > Default Image picks one of the account's environments, never free text.
+      if (row.key === DEFAULT_IMAGE_KEY) return <DefaultImageEditor {...props} />;
       return <TextEditor {...props} />;
     case "url":
       return row.validation === "domain:search_template" ? (
@@ -80,5 +86,9 @@ export function Editor(props: EditorProps): ReactNode {
     case "string_map":
       // A site per line with its engine (browser.siteEngines); appearance.themeEdits never shows as a row.
       return <StringMapEditor {...props} />;
+    case "json":
+      // The sidebar row layouts (CMUX-383) share one editor, a tab per key; any other nested value
+      // is JSON text the daemon checks.
+      return isLayoutKey(row.key) ? <RowLayoutEditor {...props} /> : <JsonEditor {...props} />;
   }
 }

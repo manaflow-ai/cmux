@@ -5,19 +5,20 @@ public import CmuxNextDesignTokens
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
 /// (`.themedHelp` in SwiftUI); hovering it shows this tooltip below the view, kept on screen, with
 /// AppKit's hover intent (Leo, 2026-10-14; `HoverIntent`): the first waits `tooltipDelay`, a
-/// neighbor's then shows at once while the group is warm, and a control whose own label already
-/// names it shows none. The first of a group fades in and rises 2 pt; a warm neighbor's is
-/// there at once; each fades out quicker than it came. It draws in the view's theme scope on the
-/// shared overlay glass (`Glass.makeOverlayPanel`, the hover cards' too; a small tight shadow)
-/// under the legibility tint (`TooltipSurface.tint`), with a shortcut hint in the secondary ink. Pages draw the same tooltip
-/// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
-/// inactive puts it away.
+/// neighbor's then shows at once while the group is warm, and a control that shows its own text
+/// (a titled button, a label) shows none. Each shows and goes in one frame, as the pages' do. It draws in the view's
+/// theme scope on the shared overlay glass (`Glass.makeOverlayPanel`, the hover cards' too; a small
+/// tight shadow) under the legibility tint (`TooltipSurface.tint`): the text, then the shortcut's
+/// keycap (``TooltipContentView``, ``TooltipMetrics``). Pages draw the same tooltip
+/// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`), and a page's tooltip past its window's edge is
+/// this one (``showExternal(text:shortcut:anchor:preferAbove:in:)``). A click, a key, a scroll or
+/// the app going inactive puts it away.
 @MainActor
 public final class TooltipPresenter {
     public static let shared = TooltipPresenter()
     /// Room kept between the tooltip and the screen's edges, and its gap from the view.
-    static let edge: CGFloat = 6
-    static let gap: CGFloat = 6
+    static var edge: CGFloat { TooltipMetrics.edge }
+    static var gap: CGFloat { TooltipMetrics.gap * TooltipContentView.scale }
 
     /// How often a shown tooltip checks that its view is still under the pointer and on screen (a view
     /// removed, hidden or scrolled away sends no exit). Only while one is on screen.
@@ -45,6 +46,10 @@ public final class TooltipPresenter {
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
+    /// The anchor (screen) the shown tooltip was placed at: it stays there while the layout under it
+    /// shifts (Leo 2026-11-24: "affected by layout shifts when it shouldnt be"), and moves only when the
+    /// pointer takes another target. Nil while hidden.
+    private(set) var placedAnchor: NSRect?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         checker = DemandTimer(owner: "tooltip-check", clock: clock)
@@ -70,13 +75,16 @@ public final class TooltipPresenter {
         resolve()
     }
 
-    /// A tooltip's text changed: the shown one shows the new text, or hides when it has none.
+    /// A tooltip's text changed: the shown one shows the new text where it is, or hides when it has none.
+    /// A relayout that sets the same text again (a row reconfigured as the list shifts) changes nothing:
+    /// the tooltip keeps its place, never re-placed at where its view moved to.
     func changed(_ tracker: TooltipTracker) {
         guard tracker === current else { return }
         if tracker.text == nil {
             exit(tracker)
-        } else if shown != nil {
-            show()
+        } else if let shown {
+            guard shown.text != tracker.text || shown.shortcut != tracker.shortcut else { return }
+            show(at: placedAnchor)
         }
     }
 
@@ -120,13 +128,11 @@ public final class TooltipPresenter {
         let timing = self.timing ?? .current
         intent.delay = timing.tooltipDelay
         intent.warmFor = timing.tooltipWarm
-        // A tooltip of a warm group is there at once; only the first of a group fades in.
-        let warm = intent.isWarm
-        run(intent.hover(target.map(ObjectIdentifier.init)), fade: !warm)
+        run(intent.hover(target.map(ObjectIdentifier.init)))
         if target == nil, inside.isEmpty, shown == nil, !intent.isWarm { unwatch() }
     }
 
-    private func run(_ effects: [HoverIntent<ObjectIdentifier>.Effect], fade: Bool = true) {
+    private func run(_ effects: [HoverIntent<ObjectIdentifier>.Effect]) {
         for effect in effects {
             switch effect {
             case .schedule(let token, let delay):
@@ -141,7 +147,7 @@ public final class TooltipPresenter {
                 }
                 current = tracker
                 watch()
-                show(fade: fade)
+                show()
                 // Its view left its window or lost its text while it waited: nothing shows, so the
                 // intent must not think one does (the next would skip its delay).
                 if shown == nil { _ = intent.dismiss() }
@@ -156,10 +162,11 @@ public final class TooltipPresenter {
         if inside.isEmpty, shown == nil, !scrolling, !intent.isWarm { unwatch() }
     }
 
-    /// Shows `current`: fading in when `fade` (the first of a warm group), else at once.
-    private func show(fade: Bool = false) {
+    /// Shows `current`, in one frame, below its view, or at `placed` (the anchor it was shown at) when it
+    /// shows again with new text.
+    private func show(at placed: NSRect? = nil) {
         guard let tracker = current, let view = tracker.view, let window = view.window, !Self.isClear(view),
-              let text = tracker.text, let anchor = tracker.screenRect else { return }
+              let text = tracker.text, let anchor = placed ?? tracker.screenRect else { return }
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
         panel.show(text: text, shortcut: tracker.shortcut, scope: view.themeScope.fullStrength,
@@ -167,22 +174,52 @@ public final class TooltipPresenter {
         // The surface sits `margin` inside the window (room for its shadow): place the surface.
         let origin = Self.origin(for: panel.surfaceSize, below: anchor, on: screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000))
         panel.setFrameOrigin(NSPoint(x: origin.x - TooltipPanel.margin, y: origin.y - TooltipPanel.margin))
-        panel.present(fade: fade)
+        external = nil
+        panel.present()
         shown = (text, tracker.shortcut)
+        placedAnchor = anchor
         scheduleCheck()
     }
 
-    /// Hides what shows: fading out, or `immediately` (a click, a key, a scroll, the app going inactive).
+    /// Hides what shows, in one frame (the pointer left, a click, a key, a scroll, the app going inactive).
     private func hide(immediately: Bool = false) {
         checker.cancel()
-        if immediately {
-            if panel.isVisible { panel.hideNow() }
-        } else if shown != nil {
-            panel.fadeOut()
-        }
+        if shown != nil || immediately, external == nil, panel.isVisible { panel.hideNow() }
         shown = nil
+        placedAnchor = nil
         current = nil
         if inside.isEmpty, !scrolling, candidate == nil, !intent.isWarm { unwatch() }
+    }
+
+    /// The page tooltip on screen (``showExternal(text:shortcut:anchor:preferAbove:in:)``): the page owns
+    /// its hover intent and its hide; nil while a view's tooltip (or none) shows.
+    private(set) var external: (text: String, shortcut: String?)?
+
+    /// Shows a page's tooltip that has no room in its web view (``WebPopupHost``): the same panel,
+    /// look and placement as a view's tooltip, at `anchor` (screen), below it unless `preferAbove`,
+    /// flipping at the screen's edge. The page already waited its hover delay, so it shows at once.
+    /// Returns the surface's frame (screen) and whether it sits below the anchor; nil when nothing shows.
+    @discardableResult
+    public func showExternal(text: String, shortcut: String?, anchor: NSRect, preferAbove: Bool = false,
+                             in view: NSView) -> (frame: NSRect, below: Bool)? {
+        guard !text.isEmpty, let window = view.window else { return nil }
+        hide(immediately: true)
+        let center = NSPoint(x: anchor.midX, y: anchor.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
+        panel.show(text: text, shortcut: shortcut, scope: view.themeScope.fullStrength, appearance: view.effectiveAppearance)
+        let bounds = screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000)
+        let origin = Self.origin(for: panel.surfaceSize, below: anchor, on: bounds, preferAbove: preferAbove)
+        panel.setFrameOrigin(NSPoint(x: origin.x - TooltipPanel.margin, y: origin.y - TooltipPanel.margin))
+        panel.present()
+        external = (text, shortcut)
+        return (NSRect(origin: origin, size: panel.surfaceSize), origin.y < anchor.minY)
+    }
+
+    /// Takes a page's tooltip away (its pointer left, or the page hid it); a view's tooltip stays.
+    public func hideExternal() {
+        guard external != nil else { return }
+        external = nil
+        if shown == nil { panel.hideNow() }
     }
 
     /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the
@@ -205,12 +242,12 @@ public final class TooltipPresenter {
         return under.isEmpty ? trackers : under
     }
 
-    /// The deepest tooltip under the pointer whose view draws; nil when its control's label already names it. A clear
+    /// The deepest tooltip under the pointer whose view draws; nil when its control shows its own text. A clear
     /// view's area takes no part (`isClear`): a hover control cleared by paint over a row must not hide the row's own
     /// tooltip under it, as a hidden one did not.
     static func pick(_ trackers: [TooltipTracker]) -> TooltipTracker? {
         let drawn = trackers.filter { $0.view.map { !isClear($0) } ?? false }
-        return underPointer(drawn).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+        return underPointer(drawn).max { $0.depth < $1.depth }.flatMap { $0.showsOwnText ? nil : $0 }
     }
 
     /// The view or an ancestor draws nothing (opacity 0): a hover control cleared by paint (the sidebar row's x and ⋮,
@@ -232,11 +269,15 @@ public final class TooltipPresenter {
         return anchor.insetBy(dx: -1, dy: -1).contains(window.convertPoint(toScreen: pointer))
     }
 
-    /// Below the view and centered, above it when there is no room below, shifted to stay on screen
-    /// (screen coordinates: y grows upward).
-    static func origin(for size: NSSize, below anchor: NSRect, on screen: NSRect) -> NSPoint {
+    /// Below the view and centered (above it when `preferAbove` and there is room), above it when
+    /// there is no room below, shifted to stay on screen (screen coordinates: y grows upward).
+    static func origin(for size: NSSize, below anchor: NSRect, on screen: NSRect, preferAbove: Bool = false) -> NSPoint {
         let below = anchor.minY - gap - size.height
-        let y = below >= screen.minY + edge ? below : min(anchor.maxY + gap, screen.maxY - edge - size.height)
+        let above = anchor.maxY + gap
+        let fitsBelow = below >= screen.minY + edge
+        let fitsAbove = above + size.height <= screen.maxY - edge
+        let y = preferAbove && fitsAbove ? above
+            : fitsBelow ? below : min(above, screen.maxY - edge - size.height)
         let centered = anchor.midX - size.width / 2
         let x = min(max(screen.minX + edge, centered), max(screen.minX + edge, screen.maxX - edge - size.width))
         return NSPoint(x: x.rounded(), y: y.rounded())

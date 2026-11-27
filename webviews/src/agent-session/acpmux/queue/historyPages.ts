@@ -6,8 +6,10 @@
 import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
-import type { LedgerScreen } from "../ledger/LedgerScreen";
+import type { LedgerSaveOutcome, LedgerScreen } from "../ledger/LedgerScreen";
+import type { LedgerExportKind } from "../ledger/ledgerModel";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
+import type { DirectoryMethod, TeamDirectoryScreen } from "../teamDirectory/TeamDirectoryScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -19,6 +21,7 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 export type HistoryPagesClient = {
   ledger(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
+  teamDirectory(method: DirectoryMethod, params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
   reviewVerdict(params: Record<string, unknown>): Promise<unknown>;
   audit(params?: Record<string, unknown>): Promise<unknown>;
@@ -98,6 +101,7 @@ export function historyPages({
   queue: ComponentProps<typeof QueueScreen>;
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
+  directory: ComponentProps<typeof TeamDirectoryScreen>;
 } {
   const connected = () => {
     const current = client();
@@ -109,6 +113,18 @@ export function historyPages({
     // Another machine's chat opens as the sidebar and the home's lists open it: its listed row.
     const session = itemSession(item, sessions);
     if (session) selectSession(session);
+  };
+  // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
+  // cannot save it (one that predates the kind, or a failed write) copies it instead.
+  const save = async (text: string, suggestedName: string, kind: LedgerExportKind): Promise<LedgerSaveOutcome> => {
+    try {
+      const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
+      return saved === true ? "saved" : "cancelled";
+    } catch {
+      // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
+      if (!(await copy(text))) throw new Error("clipboard refused");
+      return "copied";
+    }
   };
   return {
     queue: {
@@ -156,20 +172,18 @@ export function historyPages({
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
       copy,
-      // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
-      // cannot save it (one that predates the kind, or a failed write) copies it instead.
-      save: async (text, suggestedName, kind) => {
-        try {
-          const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
-          return saved === true ? "saved" : "cancelled";
-        } catch {
-          // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
-          if (!(await copy(text))) throw new Error("clipboard refused");
-          return "copied";
-        }
-      },
+      save,
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
-    team: { load: async (params) => connected().teamAudit(params) },
+    // Export's JSON saves through the same panel as Costs' Save. `loadUsage` stays unset until acpmux
+    // serves the platform's usage export (teamAudit/usageExport.ts `USAGE_EXPORT_METHOD`, a stub).
+    team: { load: async (params) => connected().teamAudit(params), save },
+    // People (RFD 0170): the team navigator, Send to and a session's links, each answered by acpmux's
+    // `_acpmux/team/*` reads; History shows it only while the `team-directory` experiment is on.
+    directory: {
+      load: async (method, params) => connected().teamDirectory(method, params),
+      openSession: selectSession,
+      copy,
+    },
   };
 }

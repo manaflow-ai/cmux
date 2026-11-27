@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { COLUMN_REACH, leadEdge, offColumn, offTokenGaps, sharedEdge, startEdge } from "../src/gallery/invariants";
+import {
+  COLUMN_REACH,
+  iconGutterGaps,
+  leadEdge,
+  offColumn,
+  offTokenGaps,
+  sharedEdge,
+  startEdge,
+} from "../src/gallery/invariants";
 
 test("the column is the edge most rows share", () => {
   expect(sharedEdge([24, 24, 24.2, 26])).toBe(24);
@@ -47,4 +55,30 @@ test("a menu label's edge is its start edge: right in an RTL row, left in an LTR
   expect(offColumn(edges(false), "menu-label", "the label").map(({ key }) => key)).toEqual(["menu-label:menu b"]);
   expect(startEdge({ left: 10, right: 40 }, false)).toBe(10);
   expect(startEdge({ left: 10, right: 40 }, true)).toBe(40);
+});
+
+test("a menu mixing icon and icon-less action rows has an empty icon gutter; all or none, or a toggle, does not", () => {
+  const more = [
+    { label: "Settings…", icon: true, toggle: false },
+    { label: "Show in Toolbar", icon: false, toggle: false },
+  ];
+  expect(iconGutterGaps("More", more).map(({ key }) => key)).toEqual(["menu-icon-gutter:More Show in Toolbar"]);
+  expect(
+    iconGutterGaps(
+      "More",
+      more.map((row) => ({ ...row, icon: true })),
+    ),
+  ).toEqual([]);
+  expect(
+    iconGutterGaps("Show in Toolbar", [
+      { label: "Media Controls", icon: false, toggle: true },
+      { label: "Zoom Level", icon: false, toggle: false },
+    ]),
+  ).toEqual([]);
+  expect(
+    iconGutterGaps("Mic", [
+      { label: "Dictate with cmux", icon: false, toggle: true },
+      { label: "Hide", icon: true, toggle: false },
+    ]),
+  ).toEqual([]);
 });

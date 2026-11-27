@@ -1,0 +1,26 @@
+{
+  "manifestVersion": 2,
+  "id": "local/scratch",
+  "name": "Scratch",
+  "version": "1.0.0",
+  "description": "A note pad that floats over the window.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderPad",
+      "title": "Scratch"
+    }
+  },
+  "presentation": {
+    "overlay": {
+      "title": "Scratch",
+      "width": 420,
+      "height": 280
+    }
+  }
+}

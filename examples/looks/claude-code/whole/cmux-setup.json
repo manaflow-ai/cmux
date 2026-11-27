@@ -1,0 +1,41 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-whole",
+  "name": "Claude Code",
+  "description": "The Code tab’s project sidebar, transcript and prompt field, with the Claude demo’s New Tab, usage section and session status line.",
+  "version": "1.0.0",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "claude-code-app",
+    "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupHeader.unreadCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.showColors": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.showContextUsage": true,
+    "agentPane.composerRing": "context",
+    "sidebar.showProjects": true,
+    "sidebar.showChats": true,
+    "sidebar.controlsOnHover": true,
+    "appearance.metrics.sidebarWidth": 284,
+    "sidebar.showNewWorkspaceChooser": true,
+    "agentPane.display.font.preset": "system",
+    "tabs.newTabApp": "local/customize"
+  }
+}

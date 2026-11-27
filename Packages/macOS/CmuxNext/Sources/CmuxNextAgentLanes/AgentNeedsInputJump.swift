@@ -103,6 +103,6 @@ public final class AgentNeedsInputJump {
     }
 
     static var noneWaiting: String {
-        String(localized: "agent.needsInput.none", defaultValue: "No agent is waiting for input", bundle: .module)
+        String(localized: "agent.needsInput.none", defaultValue: "No agent is waiting for input", bundle: .localizedModule)
     }
 }

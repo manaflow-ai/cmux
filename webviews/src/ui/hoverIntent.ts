@@ -8,13 +8,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The timing, in ms. AppKit's tooltip waits `NSInitialToolTipDelay` (about 1000 ms at the default
- * setting). cmux waits 450 ms (Leo, 2026-10-14: 400-500): a pointer sweeping across a toolbar
+ * setting). cmux waits 250 ms (Leo, 2026-10-14 asked 400-500; 2026-11-22, on a keyed tooltip:
+ * "such a bullshit long hover"): a pointer sweeping across a toolbar
  * button is on it for 30-100 ms, far under the delay, while a deliberate rest gets its answer in
- * under half a second. Mirrors `HoverIntentTiming.standard`.
+ * a quarter second. Mirrors `HoverIntentTiming.standard`.
  */
 export const HOVER_INTENT = {
   /** Pointer rest before the first tooltip of a group shows. */
-  tooltipDelay: 450,
+  tooltipDelay: 250,
   /** After the last tooltip hid, how long the next one still shows at once. */
   tooltipWarm: 500,
   /**

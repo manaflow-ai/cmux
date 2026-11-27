@@ -40,7 +40,9 @@ import os
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
-    private var handlingSendEvent = false
+    private var handlingSendEvent = false, sawKeyDown = false
+    /// A click on the full-screen titlebar band that lands on a button of the window under it.
+    private let fullScreenTitlebarPresses = FullScreenTitlebarPress()
     /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
@@ -71,7 +73,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
     private(set) var currentEventIsSynthetic = false
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app"); private let wakeSignpost: Void = DisplaySleep.shared.onWake = { WakeFrameSignpost().begin(source: .display) } // switch.wake (idle ledger)
 
     /// Set once by `AppServices`: a nil-targeted action's target instead of
     /// the responder chain's (`found`), or nil to keep it. Paste commands
@@ -110,6 +112,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
             KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            if !sawKeyDown { sawKeyDown = true; DebugTimings.markLaunch("first_key_down") } // startup-tti: the first key AppKit gave the app
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
@@ -118,8 +121,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
-        let previous = handlingSendEvent
-        handlingSendEvent = true
+        let previous = handlingSendEvent; handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
@@ -147,6 +149,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .keyUp || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown, keyUpOrClickInterceptor?(event) == true { return }
+        if fullScreenTitlebarPresses.take(event, in: event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else { super.sendEvent(event) }
@@ -206,7 +209,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     var assistiveClientsChanged: ((Bool) -> Void)? {
         didSet { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
     }
-    private var assistiveRequests = AssistiveClientRequests()
+    private var assistiveRequests = AssistiveClientRequests(environment: ProcessInfo.processInfo.environment)
 
     nonisolated override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
         guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {

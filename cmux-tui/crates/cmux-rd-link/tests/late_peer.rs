@@ -13,6 +13,7 @@
 
 use cmux_rd_link::{
     Endpoint, HANDSHAKE_TIMEOUT_US, KeyPair, LinkError, RESPONDER_WAIT_US, Role, Route,
+    SIGNALING_TIMEOUT_US,
 };
 use cmux_transport::PathKind;
 use std::net::SocketAddr;
@@ -130,11 +131,25 @@ fn host_fails_at(contact_at: Option<u64>, until_us: u64) -> Option<u64> {
     None
 }
 
-/// A host no viewer ever reaches still ends: after the responder's wait.
+/// A host no viewer ever reaches still ends. In an endpoint the bound is signaling's (#48007):
+/// with no route it is still waiting at the bare link's responder wait, and it ends with
+/// `NoRoute` at `SIGNALING_TIMEOUT_US`.
 #[test]
 fn a_responder_nobody_contacts_gives_up_after_its_wait() {
-    let failed = host_fails_at(None, RESPONDER_WAIT_US + 1_000_000).expect("the wait is bounded");
-    assert!(failed > RESPONDER_WAIT_US && failed <= RESPONDER_WAIT_US + 100_000, "{failed}");
+    assert_eq!(host_fails_at(None, RESPONDER_WAIT_US + 1_000_000), None);
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let mut host = Endpoint::new(Role::Responder, b"late-peer", &h, v.public, 0).unwrap();
+    let mut now = 0;
+    let failed = loop {
+        match host.poll_transmit(now) {
+            Ok(_) => {}
+            Err(LinkError::NoRoute) => break now,
+            Err(e) => panic!("host: {e}"),
+        }
+        assert!(now <= SIGNALING_TIMEOUT_US + 1_000_000, "the wait is bounded");
+        now += 100_000;
+    };
+    assert!(failed > SIGNALING_TIMEOUT_US && failed <= SIGNALING_TIMEOUT_US + 100_000, "{failed}");
 }
 
 /// Once signaling gave the host a route (the viewer is dialing), the

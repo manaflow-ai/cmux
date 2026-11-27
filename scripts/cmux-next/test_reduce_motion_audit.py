@@ -53,6 +53,11 @@ class Audit(unittest.TestCase):
         self.assertIn("error", report["macos"])
         self.assertIsNone(report["total"])
 
+    def test_check_fails_on_a_tree_it_cannot_read_and_passes_without_it(self):
+        root = self.tree({"webviews/src/a.ts": ""})
+        self.assertEqual(audit.main(["--root", str(root), "--check"]), 1)
+        self.assertEqual(audit.main(["--root", str(root)]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

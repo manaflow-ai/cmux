@@ -127,6 +127,9 @@ pub struct TurnFold {
     /// Permission requests of the turn's session that wait for an answer
     /// (acpmux `permission_request` with no `permission_decision` yet).
     asking: std::collections::BTreeSet<String>,
+    /// Each asked permission's tool call and its reject options: a deny (or
+    /// a cancel) ends that call, which the harness may never end itself.
+    asked_calls: HashMap<String, (String, Vec<String>)>,
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
     /// Answers Claude Code finished (`result`) before a steered message
@@ -427,11 +430,44 @@ impl TurnFold {
             ("mux", "permission_request") => {
                 if let Some(id) = event.msg.get("permissionId").and_then(Value::as_str) {
                     self.asking.insert(id.to_owned());
+                    let request = event.msg.get("request");
+                    if let Some(call) = request.and_then(|r| r.get("toolCall")).and_then(tool_id) {
+                        let rejects = request
+                            .and_then(|r| r.get("options"))
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter(|o| {
+                                o.get("kind")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|k| k.starts_with("reject"))
+                            })
+                            .filter_map(|o| o.get("optionId").and_then(Value::as_str))
+                            .map(str::to_owned)
+                            .collect();
+                        self.asked_calls.insert(id.to_owned(), (call, rejects));
+                    }
                 }
             }
             ("mux", "permission_decision" | "permission_auto") => {
                 if let Some(id) = event.msg.get("permissionId").and_then(Value::as_str) {
                     self.asking.remove(id);
+                    if let Some((call, rejects)) = self.asked_calls.remove(id) {
+                        let outcome = event.msg.get("outcome");
+                        let kind = outcome
+                            .and_then(|o| o.get("outcome"))
+                            .and_then(Value::as_str);
+                        let option = outcome
+                            .and_then(|o| o.get("optionId"))
+                            .and_then(Value::as_str);
+                        let denied = kind == Some("cancelled")
+                            || option.is_some_and(|o| rejects.iter().any(|r| r == o));
+                        if denied && !self.tools.get(&call).is_some_and(|t| t.done) {
+                            // The call will not run: its row and the line must not
+                            // keep naming it ("Telling a31" after the tell was denied).
+                            self.run.call_failed(&call);
+                        }
+                    }
                 }
             }
             ("mux", kind @ ("turn_end" | "turn_error")) => {

@@ -12,6 +12,7 @@
 
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode};
@@ -118,10 +119,15 @@ pub(super) struct CloudCommand {
     pub timeout_seconds: u64,
 }
 
-/// How long one wait step waits (its step limit is this plus [`STEP_SLACK`],
-/// within the provider's 300 s).
+/// How long one wait step waits. Its step limit is this plus [`STEP_SLACK`],
+/// [`STEP_LIMIT`], within the provider's 300 s exec. (On 2026-11-21 an exec
+/// held open was cut at about 125 s by the provider's edge, a 524; cmux-vm now
+/// sends a longer one as a background request, workers/cmux-vm
+/// src/upstream/live-background.ts, and a 200 s step passed on production.)
 pub(super) const WAIT_SECONDS: u64 = 280;
-const STEP_SLACK: u64 = 15;
+const STEP_SLACK: u64 = 10;
+/// The limit of every step, the start step's too: within the provider's 300 s.
+const STEP_LIMIT: u64 = WAIT_SECONDS + STEP_SLACK;
 /// A body holds at most 50 steps: one start and 49 waits.
 pub(super) const MAX_CLOUD_COMMAND_SECONDS: u64 = 49 * WAIT_SECONDS;
 /// Where a run keeps its files on the machine (under the machine user's home).
@@ -143,6 +149,10 @@ fn checkout_name(repo: &str) -> String {
 }
 
 /// Step 0's script: start the command once per run (`CMUX_RUN` names it), detached.
+/// A repo's checkout (the first clone of a large repo takes minutes; manaflow-ai/cmux's is 1.1 GB)
+/// runs in the detached part too, before the command, so step 0 returns at once and the wait steps
+/// cover the clone (in step 0 it outlived the provider's exec and the run failed "the machine did
+/// not answer", leaving a half-made checkout and its `index.lock`, which the next run clears).
 /// It leads a session of its own (`setsid`, or perl's where there is none, as on macOS), so the
 /// step's process group can end without it and the last wait can end its whole group. The step
 /// returns only after the command detached (its `detached` mark, at most 10 s), so a step runner
@@ -150,26 +160,30 @@ fn checkout_name(repo: &str) -> String {
 /// detach from console" under launchd (a fleet or Cloud daemon), so the command ignores HUP itself.
 pub(super) fn start_script(c: &CloudCommand) -> String {
     let q = super::cloud_start_chat::shell_quote;
-    let place = match (&c.repo, &c.folder) {
-        (Some((repo, branch)), _) => format!(
-            "w=\"$HOME/.cmux/automations/checkouts/\"{name}; \
-             if [ -d \"$w/.git\" ]; then git -C \"$w\" fetch --quiet origin {branch} && git -C \"$w\" checkout --quiet --force --detach FETCH_HEAD; \
-             else rm -rf \"$w\" && mkdir -p \"$(dirname \"$w\")\" && git clone --quiet --filter=blob:none --branch {branch} {url} \"$w\"; fi; \
-             git -C \"$w\" log -1 --format='%H %s' > \"$d/commit\"; ",
-            name = q(&checkout_name(repo)),
-            branch = q(branch),
-            url = q(&format!("https://github.com/{repo}.git")),
+    // `prep.sh WORKDIR RUNDIR`: what readies the folder, run detached before the command.
+    let (place, prep) = match (&c.repo, &c.folder) {
+        (Some((repo, branch)), _) => (
+            format!("w=\"$HOME/.cmux/automations/checkouts/\"{}; ", q(&checkout_name(repo))),
+            format!(
+                "set -e; w=\"$1\"; rm -f \"$w/.git/index.lock\"; \
+                 if [ -d \"$w/.git\" ]; then git -C \"$w\" fetch --quiet origin {branch} && git -C \"$w\" checkout --quiet --force --detach FETCH_HEAD; \
+                 else rm -rf \"$w\" && mkdir -p \"$(dirname \"$w\")\" && git clone --quiet --filter=blob:none --branch {branch} {url} \"$w\"; fi; \
+                 git -C \"$w\" log -1 --format='%H %s' > \"$2/commit\"",
+                branch = q(branch),
+                url = q(&format!("https://github.com/{repo}.git")),
+            ),
         ),
-        (None, Some(folder)) => format!("w={}; ", folder_words(folder)),
-        (None, None) => "w=\"$HOME\"; ".into(),
+        (None, Some(folder)) => (format!("w={}; ", folder_words(folder)), ":".into()),
+        (None, None) => ("w=\"$HOME\"; ".into(), ":".into()),
     };
     format!(
         "set -e; d=\"{RUNS}/$CMUX_RUN\"; if [ -e \"$d/started\" ]; then echo started; exit 0; fi; mkdir -p \"$d\"; \
-         {place}cd \"$w\"; printf '%s\\n' {command} > \"$d/cmd.sh\"; s=; if command -v setsid >/dev/null 2>&1; then s=setsid; \
+         {place}printf '%s\\n' {prep} > \"$d/prep.sh\"; printf '%s\\n' {command} > \"$d/cmd.sh\"; s=; if command -v setsid >/dev/null 2>&1; then s=setsid; \
          elif command -v perl >/dev/null 2>&1; then s='perl -MPOSIX -e POSIX::setsid();exec(@ARGV)'; fi; \
-         $s sh -c 'trap \"\" HUP; : > \"$1/detached\"; bash \"$1/cmd.sh\" > \"$1/log\" 2>&1; echo $? > \"$1/exit.tmp\"; mv \"$1/exit.tmp\" \"$1/exit\"' _ \"$d\" </dev/null >/dev/null 2>\"$d/launch.log\" & \
+         $s sh -c 'trap \"\" HUP; : > \"$1/detached\"; {{ bash \"$1/prep.sh\" \"$2\" \"$1\" && cd \"$2\" && bash \"$1/cmd.sh\"; }} > \"$1/log\" 2>&1; echo $? > \"$1/exit.tmp\"; mv \"$1/exit.tmp\" \"$1/exit\"' _ \"$d\" \"$w\" </dev/null >/dev/null 2>\"$d/launch.log\" & \
          echo $! > \"$d/pid\"; i=0; while [ ! -e \"$d/detached\" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; \
          : > \"$d/started\"; echo started in \"$w\"",
+        prep = q(&prep),
         command = q(&c.command),
     )
 }
@@ -195,7 +209,7 @@ pub(super) fn wait_script(wait: u64, last: bool) -> String {
 pub(super) fn command_body(c: &CloudCommand) -> Value {
     let waits = c.timeout_seconds.clamp(1, MAX_CLOUD_COMMAND_SECONDS).div_ceil(WAIT_SECONDS);
     let mut steps = vec![json!({
-        "type": "machine", "machine": c.machine, "command": start_script(c), "timeout_seconds": 290,
+        "type": "machine", "machine": c.machine, "command": start_script(c), "timeout_seconds": STEP_LIMIT,
     })];
     let mut left = c.timeout_seconds.clamp(1, MAX_CLOUD_COMMAND_SECONDS);
     for i in 0..waits {
@@ -227,7 +241,7 @@ pub(super) fn command_create_params(
         "concurrency": {"max": 1, "on_limit": "skip"},
     });
     if let Some(policy) = catch_up {
-        params["catch_up"] = json!(policy);
+        params.set("catch_up", json!(policy));
     }
     params
 }
@@ -331,162 +345,5 @@ pub(super) fn print_refusal(error: &Value, output: OutputMode) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zone_names_come_from_the_zoneinfo_link() {
-        assert_eq!(
-            zone_from_path("/var/db/timezone/zoneinfo/America/Los_Angeles").as_deref(),
-            Some("America/Los_Angeles")
-        );
-        assert_eq!(zone_from_path("/usr/share/zoneinfo/UTC").as_deref(), Some("UTC"));
-        assert_eq!(zone_from_path("/etc/elsewhere"), None);
-    }
-
-    #[test]
-    fn the_default_active_chief_is_picked() {
-        let list = json!({"chiefs": [
-            {"id": "agent_OLD", "is_default": true, "archived_at": 5, "main_conversation": "c_old"},
-            {"id": "agent_A", "is_default": false, "archived_at": null, "main_conversation": "c_a"},
-            {"id": "agent_B", "is_default": true, "archived_at": null, "main_conversation": "c_b"},
-        ], "tombstones": []});
-        assert_eq!(default_chief(&list), Some(("agent_B".into(), "c_b".into())));
-        let no_default =
-            json!({"chiefs": [{"id": "agent_A", "is_default": false, "main_conversation": "c_a"}]});
-        assert_eq!(default_chief(&no_default), Some(("agent_A".into(), "c_a".into())));
-        assert_eq!(default_chief(&json!({"chiefs": []})), None);
-    }
-
-    fn scout(timeout: u64) -> CloudCommand {
-        CloudCommand {
-            command: "bash scripts/models/run-scout.sh".into(),
-            folder: None,
-            repo: Some(("manaflow-ai/cmux".into(), "feat-cmux-next".into())),
-            machine: "vm_abcdefghij0123456789".into(),
-            timeout_seconds: timeout,
-        }
-    }
-
-    #[test]
-    fn a_cloud_command_is_one_start_step_then_waits_that_cover_its_timeout() {
-        let p = command_create_params(
-            "models-scout",
-            &scout(1_200),
-            &CloudSchedule::Cron { expr: "0 */6 * * *".into(), tz: "UTC".into() },
-            Some("latest"),
-            false,
-        );
-        let steps = p["body"]["steps"].as_array().unwrap();
-        assert_eq!(p["body"]["type"], "steps");
-        assert_eq!(steps.len(), 1 + 5, "20 min = 5 waits of at most 280 s");
-        for s in steps {
-            assert_eq!(s["type"], "machine");
-            assert_eq!(s["machine"], "vm_abcdefghij0123456789");
-            assert!(
-                s["timeout_seconds"].as_u64().unwrap() <= 300,
-                "one provider exec answers within 300 s"
-            );
-            assert!(
-                s["command"].as_str().unwrap().len() <= 4000,
-                "a step command is at most 4000 characters"
-            );
-        }
-        assert!(
-            steps[0]["command"]
-                .as_str()
-                .unwrap()
-                .contains("git -C \"$w\" fetch --quiet origin feat-cmux-next"),
-            "each run moves to the branch's newest head"
-        );
-        assert_eq!(p["concurrency"], json!({"max": 1, "on_limit": "skip"}));
-        assert_eq!(p["catch_up"], "latest");
-        assert_eq!(p["triggers"][1], json!({"type": "manual"}));
-        assert_eq!(command_machine(&p["body"]), Some("vm_abcdefghij0123456789"));
-        let long = command_body(&scout(10 * 86_400));
-        assert_eq!(long["steps"].as_array().unwrap().len(), 50, "a body holds at most 50 steps");
-    }
-
-    /// Runs one step script as the Workflow does (`bash -lc`, `CMUX_RUN` set) with HOME at `home`.
-    fn step(script: &str, home: &std::path::Path, run: &str) -> (i32, String, String) {
-        let out = cmux_process::Command::new("bash")
-            .args(["-c", script])
-            .env("HOME", home)
-            .env("CMUX_RUN", run)
-            .stdin(cmux_process::Stdio::null())
-            .output()
-            .unwrap();
-        (
-            out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stdout).into(),
-            String::from_utf8_lossy(&out.stderr).into(),
-        )
-    }
-
-    #[test]
-    fn the_step_scripts_start_once_wait_and_answer_the_commands_exit() {
-        let home = std::env::temp_dir().join(format!("cmux-cloud-command-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        std::fs::create_dir_all(home.join("work")).unwrap();
-        let mut c = scout(60);
-        c.repo = None;
-        c.folder = Some("~/work".into());
-
-        // A command that succeeds: the start answers at once, a wait sees it end.
-        c.command = "pwd; echo hello".into();
-        let (code, out, _) = step(&start_script(&c), &home, "run_ok");
-        assert_eq!(code, 0, "{out}");
-        let (again, out2, _) = step(&start_script(&c), &home, "run_ok");
-        assert_eq!((again, out2.trim()), (0, "started"), "a replayed start never starts it twice");
-        let (code, out, err) = step(&wait_script(20, true), &home, "run_ok");
-        let launch = std::fs::read_to_string(home.join(".cmux/automations/runs/run_ok/launch.log"))
-            .unwrap_or_default();
-        assert_eq!(code, 0, "wait: {err}; launch: {launch}");
-        assert!(out.contains("hello") && out.contains("/work"), "{out}");
-        let log = std::fs::read_to_string(home.join(".cmux/automations/runs/run_ok/log")).unwrap();
-        assert!(log.contains("hello"));
-
-        // A command that fails: the wait answers its exit code with the log's last lines on stderr.
-        c.command = "echo building; echo 'error: 2 tests failed' >&2; exit 3".into();
-        step(&start_script(&c), &home, "run_fail");
-        let (code, _, err) = step(&wait_script(20, true), &home, "run_fail");
-        assert_eq!(code, 3);
-        assert!(err.contains("error: 2 tests failed"), "{err}");
-
-        // A command still running: a middle wait says so, the last one ends it as a timeout.
-        c.command = "sleep 30; echo never".into();
-        step(&start_script(&c), &home, "run_slow");
-        let (code, out, _) = step(&wait_script(1, false), &home, "run_slow");
-        assert_eq!((code, out.trim()), (0, "running"));
-        let (code, _, err) = step(&wait_script(1, true), &home, "run_slow");
-        assert_eq!(code, 124, "{err}");
-        assert!(err.contains("timed out"));
-        let (code, out, _) = step(&log_script("run_fail"), &home, "x");
-        assert_eq!(code, 0);
-        assert!(out.contains("building"));
-        let (code, _, _) = step(&log_script("run_none"), &home, "x");
-        assert_eq!(code, 3);
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn create_params_make_a_chief_job_with_a_manual_trigger() {
-        let p = create_params(
-            "Morning brief",
-            "Summarize PRs",
-            &CloudSchedule::Cron { expr: "0 9 * * 1-5".into(), tz: "America/Los_Angeles".into() },
-            &("agent_B".into(), "c_b".into()),
-            false,
-        );
-        assert_eq!(
-            p["body"],
-            json!({"type": "chief", "chief": "agent_B", "conversation": "c_b", "prompt": "Summarize PRs"})
-        );
-        assert_eq!(
-            p["triggers"],
-            json!([{"type": "cron", "expr": "0 9 * * 1-5", "tz": "America/Los_Angeles"}, {"type": "manual"}])
-        );
-        assert_eq!(p["enabled"], json!(true));
-        assert_eq!(CloudSchedule::Manual.triggers(), json!([{"type": "manual"}]));
-    }
-}
+#[path = "automation_cloud_tests.rs"]
+mod tests;

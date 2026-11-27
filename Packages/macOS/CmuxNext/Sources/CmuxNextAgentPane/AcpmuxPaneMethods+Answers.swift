@@ -18,19 +18,30 @@ nonisolated extension AcpmuxPaneMethods {
     /// ``maximumAnswerListStrings`` strings, or Codex's `{answers: [string]}` with that one key. Each key and each string is at most
     /// ``maximumAnswerBytes`` UTF-8 bytes (per string, never a list's strings together).
     static func breaksAnswersRule(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> Bool {
+        answersRuleViolation(object, options: options) != nil
+    }
+
+    /// Which part of the answers rule a frame breaks, in a few words that name fields and bounds,
+    /// never a value (the app log's cause, ``AgentPaneRefusalLog``); nil when it keeps the rule.
+    static func answersRuleViolation(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> String? {
         guard let object, object["method"] as? String == "_acpmux/permission_respond",
-              let params = object["params"] as? [String: Any] else { return false }
-        if let annotations = params["annotations"], breaksAnnotationsRule(annotations, params: params, options: options) {
-            return true
+              let params = object["params"] as? [String: Any] else { return nil }
+        if let annotations = params["annotations"],
+           let violation = annotationsRuleViolation(annotations, params: params, options: options) {
+            return violation
         }
-        guard let rawAnswers = params["answers"] else { return false }
-        guard let permission = params["permissionId"] as? String,
-              let keys = options.questionKeys(permissionId: permission),
-              let answers = rawAnswers as? [String: Any],
-              (1...maximumAnswerItems).contains(answers.count) else { return true }
-        return answers.contains { key, value in
-            key.utf8.count > maximumAnswerBytes || !keys.contains(key) || !fitsAnswer(value)
+        guard let rawAnswers = params["answers"] else { return nil }
+        guard let permission = params["permissionId"] as? String else { return "answers without a permissionId" }
+        guard let keys = options.questionKeys(permissionId: permission) else { return "answers for no pending question" }
+        guard let answers = rawAnswers as? [String: Any], (1...maximumAnswerItems).contains(answers.count) else {
+            return "answers not an object of 1 to \(maximumAnswerItems) items"
         }
+        for (key, value) in answers {
+            if key.utf8.count > maximumAnswerBytes { return "answers item key over \(maximumAnswerBytes) bytes" }
+            if !keys.contains(key) { return "answers item not one of the question's" }
+            if !fitsAnswer(value) { return "answers item value not a bounded string, list or {answers}" }
+        }
+        return nil
     }
 
     /// The most UTF-8 bytes of one annotation string (a chosen preview or the notes).
@@ -42,16 +53,28 @@ nonisolated extension AcpmuxPaneMethods {
     /// an object of `preview` and `notes` strings of at most ``maximumAnnotationBytes`` bytes.
     /// acpmux checks the preview against the question's own options and bounds the notes.
     static func breaksAnnotationsRule(_ raw: Any, params: [String: Any], options: AcpmuxPermissionOptions) -> Bool {
-        guard params["answers"] != nil, let permission = params["permissionId"] as? String,
-              let keys = options.questionKeys(permissionId: permission),
-              let annotations = raw as? [String: Any],
-              (1...maximumAnswerItems).contains(annotations.count) else { return true }
-        return annotations.contains { key, value in
-            guard keys.contains(key), let note = value as? [String: Any], !note.isEmpty else { return true }
-            return note.contains { field, text in
-                !["preview", "notes"].contains(field) || (text as? String).map { $0.utf8.count > maximumAnnotationBytes } ?? true
+        annotationsRuleViolation(raw, params: params, options: options) != nil
+    }
+
+    /// Which part of the annotations rule `raw` breaks (see ``answersRuleViolation(_:options:)``).
+    static func annotationsRuleViolation(_ raw: Any, params: [String: Any], options: AcpmuxPermissionOptions) -> String? {
+        guard params["answers"] != nil else { return "annotations without answers" }
+        guard let permission = params["permissionId"] as? String else { return "annotations without a permissionId" }
+        guard let keys = options.questionKeys(permissionId: permission) else { return "annotations for no pending question" }
+        guard let annotations = raw as? [String: Any], (1...maximumAnswerItems).contains(annotations.count) else {
+            return "annotations not an object of 1 to \(maximumAnswerItems) items"
+        }
+        for (key, value) in annotations {
+            if !keys.contains(key) { return "annotations item not one of the question's" }
+            guard let note = value as? [String: Any], !note.isEmpty else { return "annotations item not a non-empty object" }
+            for (field, text) in note {
+                if !["preview", "notes"].contains(field) { return "annotations item field other than preview or notes" }
+                guard let text = text as? String, text.utf8.count <= maximumAnnotationBytes else {
+                    return "annotations item \(field) not a string of at most \(maximumAnnotationBytes) bytes"
+                }
             }
         }
+        return nil
     }
 
     /// One item's value: a string, a list of strings, or `{answers: [string]}`.

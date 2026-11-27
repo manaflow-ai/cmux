@@ -75,7 +75,7 @@ function stopped(): AcpmuxSnapshot {
 }
 const emptyState = {
   offered: true,
-  text: "",
+  blank: true,
   attachments: 0,
   pending: 0,
   shell: false,
@@ -90,8 +90,7 @@ test("Resume requires an empty stopped-turn offer and cannot race work, queue, g
   expect(canResumeFromComposer(snapshot, emptyState)).toBe(true);
   for (const change of [
     { offered: false },
-    { text: "next" },
-    { text: " " },
+    { blank: false },
     { attachments: 1 },
     { pending: 1 },
     { shell: true },

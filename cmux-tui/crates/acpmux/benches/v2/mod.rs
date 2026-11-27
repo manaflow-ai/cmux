@@ -273,6 +273,9 @@ fn merge_for_report(
     (joined, refused, missing)
 }
 
+/// The reason a measured row reads `failed` when its gate wrote no line.
+const NO_MEASURE: &str = "the gate did not report a measure";
+
 /// The report, and whether it stops the run: a row the home refused, a line with no registered
 /// name, or a measured row with no measure. The report names each in its rows or `errors`.
 fn report_value(
@@ -294,7 +297,7 @@ fn report_value(
             measured_row(row, measure)
         } else if row.measured && measures_requested && missing_set.contains(row.name) {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
-                "status": "failed", "reason": "the gate did not report a measure",
+                "status": "failed", "reason": NO_MEASURE,
                 "small_p95": Value::Null, "god_p95": Value::Null })
         } else if row.measured {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
@@ -343,8 +346,14 @@ pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<
     print_report_with_mode(measure_files, output, true)
 }
 
-/// Write the report, then fail if it holds a refused row, an unnamed line or a missing measure:
-/// no one line keeps the report from being written.
+/// Write the report, then fail if it holds a refused row or an unnamed line: no one line keeps the
+/// report from being written.
+///
+/// A gate that reported no measure is that gate's red, not the home's: its row reads `failed` with
+/// the reason, the line goes to stderr, and the exit stays 0. The quality report's last step fails
+/// the job on every `failed` row, and NOW counts a home that exits non-zero as blind
+/// (`quality.v2_home_blind_h`), so one red gate (v2.pr04.chat_stopped_reader, run 45590353660)
+/// must not hide every other row.
 pub fn print_report_with_mode(
     measure_files: &[PathBuf],
     output: Option<&Path>,
@@ -357,7 +366,26 @@ pub fn print_report_with_mode(
     } else {
         println!("{text}");
     }
-    if stops { Err(stop_reasons(&value)) } else { Ok(()) }
+    if !stops {
+        return Ok(());
+    }
+    if home_stops(&value) {
+        return Err(stop_reasons(&value));
+    }
+    eprintln!("v2 bench: wrote every row; red gates: {}", stop_reasons(&value));
+    Ok(())
+}
+
+/// Whether the report holds a stop of the home's own: an `errors` line, or a `failed` row for any
+/// reason but a gate that reported no measure.
+fn home_stops(value: &Value) -> bool {
+    let errors = value["errors"].as_array().is_some_and(|errors| !errors.is_empty());
+    errors
+        || value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["status"] == "failed" && row["reason"] != NO_MEASURE)
 }
 
 #[cfg(test)]
@@ -455,29 +483,52 @@ mod tests {
         found
     }
 
-    /// The `json!` object around `at`: from the `{` before it that no `}` closes to the `}` that
-    /// closes it; None when that `{` does not open a `json!(` call. Braces are counted as they
-    /// stand, so a string value holding a brace would mislead it; no gate line has one.
-    fn json_object_around(text: &str, at: usize) -> Option<&str> {
+    /// Where a `"name": "v2.` key stands among the `json!` calls around it.
+    #[derive(Debug, PartialEq)]
+    enum JsonPlace<'a> {
+        /// In the object a `json!(` call opens: that object, from its `{` to its `}`.
+        Object(&'a str),
+        /// In an object or array nested inside a `json!` value: the scan cannot place it.
+        Nested,
+        /// No `json!` call holds it.
+        Outside,
+    }
+
+    /// Where the key at `at` stands: the brackets before it that nothing closes are walked from
+    /// the innermost out, and the first that opens a `json!(` call decides. Brackets are counted
+    /// as they stand, so a string value holding one would mislead it; no gate line has one.
+    fn json_place(text: &str, at: usize) -> JsonPlace<'_> {
+        let bytes = text.as_bytes();
+        let opens_json = |open: usize| text[..open].trim_end().ends_with("json!(");
+        let (mut depth, mut innermost) = (0_usize, true);
+        for index in (0..at).rev() {
+            match bytes[index] {
+                b'}' | b']' => depth += 1,
+                b'{' | b'[' if depth > 0 => depth -= 1,
+                b'{' | b'[' => {
+                    if opens_json(index) {
+                        let close = if innermost && bytes[index] == b'{' {
+                            closing_brace(text, index)
+                        } else {
+                            None
+                        };
+                        return close.map_or(JsonPlace::Nested, |close| {
+                            JsonPlace::Object(&text[index..=close])
+                        });
+                    }
+                    innermost = false;
+                }
+                _ => {}
+            }
+        }
+        JsonPlace::Outside
+    }
+
+    /// The `}` that closes the `{` at `open`.
+    fn closing_brace(text: &str, open: usize) -> Option<usize> {
         let bytes = text.as_bytes();
         let mut depth = 0_usize;
-        let open = (0..at).rev().find(|index| match bytes[*index] {
-            b'}' => {
-                depth += 1;
-                false
-            }
-            b'{' if depth == 0 => true,
-            b'{' => {
-                depth -= 1;
-                false
-            }
-            _ => false,
-        })?;
-        if !text[..open].trim_end().ends_with("json!(") {
-            return None;
-        }
-        let mut depth = 0_usize;
-        let close = (open..bytes.len()).find(|index| match bytes[*index] {
+        (open..bytes.len()).find(|index| match bytes[*index] {
             b'{' => {
                 depth += 1;
                 false
@@ -487,17 +538,28 @@ mod tests {
                 depth == 0
             }
             _ => false,
-        })?;
-        Some(&text[open..=close])
+        })
     }
 
-    /// The gate lines a source spells as a `json!` object with a `"name": "v2.` key, each with
-    /// the file and line its name is on, and those of them that lack `small_p95` or `god_p95`.
-    fn json_lines_without_the_home_shape(file: &Path, text: &str) -> (usize, Vec<String>) {
+    /// The gate lines a source spells as a `json!` object with a `"name": "v2.` key: how many it
+    /// read, those of them that lack `small_p95` or `god_p95`, and those nested inside another
+    /// `json!` value, which it cannot place; each with the file and line its name is on.
+    fn json_lines_without_the_home_shape(
+        file: &Path,
+        text: &str,
+    ) -> (usize, Vec<String>, Vec<String>) {
         let name = regex::Regex::new(r#""name"\s*:\s*"v2\."#).unwrap();
-        let (mut lines, mut found) = (0, Vec::new());
+        let (mut lines, mut found, mut unplaced) = (0, Vec::new(), Vec::new());
         for at in name.find_iter(text).map(|m| m.start()) {
-            let Some(object) = json_object_around(text, at) else { continue };
+            let line = text[..at].lines().count();
+            let object = match json_place(text, at) {
+                JsonPlace::Object(object) => object,
+                JsonPlace::Nested => {
+                    unplaced.push(format!("{file:?}:{line}"));
+                    continue;
+                }
+                JsonPlace::Outside => continue,
+            };
             lines += 1;
             let lacks: Vec<_> = ["small_p95", "god_p95"]
                 .into_iter()
@@ -506,11 +568,10 @@ mod tests {
                 })
                 .collect();
             if !lacks.is_empty() {
-                let line = text[..at].lines().count();
                 found.push(format!("{file:?}:{line} lacks {lacks:?}: {object}"));
             }
         }
-        (lines, found)
+        (lines, found, unplaced)
     }
 
     /// The home reads `small_p95` and `god_p95` from every line (`parse_measure`); a hand-written
@@ -522,7 +583,7 @@ mod tests {
         // The registry's own tests spell broken lines on purpose.
         let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2");
         let (mut lines, mut json_lines) = (0, 0);
-        let mut found = Vec::new();
+        let (mut found, mut unplaced) = (Vec::new(), Vec::new());
         for file in gate_writer_sources() {
             if file.starts_with(&registry) {
                 continue;
@@ -530,13 +591,16 @@ mod tests {
             let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
             lines += text.matches(r#"\"name\":\"v2."#).count();
             found.extend(hand_written_lines_without_the_home_shape(&file, &text));
-            let (in_json, lacking) = json_lines_without_the_home_shape(&file, &text);
+            let (in_json, lacking, nested) = json_lines_without_the_home_shape(&file, &text);
             json_lines += in_json;
             found.extend(lacking);
+            unplaced.extend(nested);
         }
         assert!(lines >= 3, "the scan read too few hand-written gate lines: {lines}");
         assert!(json_lines >= 3, "the scan read too few json! gate lines: {json_lines}");
         assert!(found.is_empty(), "gate lines the home cannot read:\n{}", found.join("\n"));
+        let unplaced = unplaced.join("\n");
+        assert!(unplaced.is_empty(), "gate lines inside another json! value, unread:\n{unplaced}");
     }
 
     #[test]
@@ -563,8 +627,9 @@ mod tests {
             r#"    "name": "v2.pr06.client_chat_held", "capped": {"p95": 1}, "unit": "bytes""#,
             "\n}));"
         );
-        let (lines, found) = json_lines_without_the_home_shape(Path::new("a.rs"), without);
-        assert_eq!((lines, found.len()), (1, 1), "{found:?}");
+        let (lines, found, unplaced) =
+            json_lines_without_the_home_shape(Path::new("a.rs"), without);
+        assert_eq!((lines, found.len(), unplaced.len()), (1, 1, 0), "{found:?}");
         assert!(found[0].contains("small_p95") && found[0].contains("god_p95"), "{found:?}");
         let with = concat!(
             "let line = serde_json::json!({\n",
@@ -573,9 +638,33 @@ mod tests {
             r#"    "small_p95":small, "god_p95":god, "unit":"ns""#,
             "\n});"
         );
-        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), with), (1, Vec::new()));
+        let none = Vec::<String>::new;
+        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), with), (1, none(), none()));
         let not_json = r#"let row = Row { name: "v2.x" }; let v = map(&{ "name": "v2.y" });"#;
-        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), not_json), (0, Vec::new()));
+        let read = json_lines_without_the_home_shape(Path::new("a.rs"), not_json);
+        assert_eq!(read, (0, none(), none()));
+    }
+
+    /// A gate line nested inside another `json!` value is no object the scan can check: it is
+    /// counted and named, never skipped without a sound.
+    #[test]
+    fn the_json_line_check_names_a_line_it_cannot_place() {
+        let in_array = concat!(
+            "write_gate_line(&json!({\n",
+            r#"    "rows": [{"name": "v2.pr06.client_chat_held", "capped": {"p95": 1}}]"#,
+            "\n}));"
+        );
+        let (lines, found, unplaced) =
+            json_lines_without_the_home_shape(Path::new("a.rs"), in_array);
+        assert_eq!((lines, found.len()), (0, 0), "{found:?}");
+        assert_eq!(unplaced, vec![r#""a.rs":2"#.to_string()]);
+        let in_object = concat!(
+            "let line = json!({\n",
+            r#"    "meta": {"name": "v2.pr06.client_chat_held"}, "small_p95": 1, "god_p95": 2"#,
+            "\n});"
+        );
+        let (lines, _, unplaced) = json_lines_without_the_home_shape(Path::new("a.rs"), in_object);
+        assert_eq!((lines, unplaced.len()), (0, 1), "{unplaced:?}");
     }
 
     /// Whether a source's name is this row's: equal, or a `format!` whose holes fit.
@@ -906,6 +995,111 @@ mod tests {
         );
     }
 
+    /// The lines of a source that are part of an assert statement (`assert!`, `assert_eq!`, a
+    /// `panic!`, or a call to a helper whose name starts `assert`), and the lines that start one.
+    /// A statement runs from its first line until its parentheses close.
+    fn assert_statements(lines: &[&str]) -> (Vec<bool>, Vec<bool>) {
+        let start =
+            regex::Regex::new(r"^\s*(?:[a-z_]+::)*(?:assert[a-z_]*!?|panic!)\s*\(").unwrap();
+        let (mut inside, mut starts) = (vec![false; lines.len()], vec![false; lines.len()]);
+        let mut at = 0;
+        while at < lines.len() {
+            if !start.is_match(lines[at]) {
+                at += 1;
+                continue;
+            }
+            starts[at] = true;
+            let mut depth = 0i64;
+            while at < lines.len() {
+                depth +=
+                    lines[at].matches('(').count() as i64 - lines[at].matches(')').count() as i64;
+                inside[at] = true;
+                at += 1;
+                if depth <= 0 {
+                    break;
+                }
+            }
+        }
+        (inside, starts)
+    }
+
+    /// For each function of `source` and each gate name it spells, an assert statement that
+    /// starts after the name's first mention outside an assert and before its last such
+    /// mention (the line written): the assert's line and the name.
+    fn asserts_before_writes(source: &Source) -> Vec<(usize, String)> {
+        let (inside, starts) = assert_statements(&source.lines);
+        let mut found = Vec::new();
+        for (_, first, last) in &source.functions {
+            let mut mentions: HashMap<&str, Vec<usize>> = HashMap::new();
+            for (at, name) in &source.names {
+                if first <= at && at <= last && !inside[*at] {
+                    mentions.entry(*name).or_default().push(*at);
+                }
+            }
+            for (name, ats) in mentions {
+                let (opens, writes) = (ats[0], ats[ats.len() - 1]);
+                if let Some(assert) = (opens + 1..writes).find(|at| starts[*at]) {
+                    found.push((assert + 1, name.to_owned()));
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// A gate test writes its row's line before it asserts anything about the measure: an
+    /// assert that fails first leaves the row with no line, the home reads it "the gate did not
+    /// report a measure" and exits 2, and the night's report carries none of the home's rows
+    /// (`v2.pr05.summary_change`'s 10 µs bound, 2026-11-22 to 11-24). Written first, the line
+    /// is kept and `run-v2-gates.sh` marks it `gate_failed`, so the row reads red with its
+    /// numbers. The check reads a row's first mention (its rounds report, a `let name =`) and
+    /// its last (the line written) in each function, skipping mentions inside assert messages.
+    #[test]
+    fn a_gate_writes_its_row_before_it_asserts() {
+        let mut early = Vec::new();
+        for (file, text) in gate_sources() {
+            let source = Source::read(&text);
+            for (line, name) in asserts_before_writes(&source) {
+                early.push(format!(
+                    "{}:{line} asserts before {name}'s line is written",
+                    file.display()
+                ));
+            }
+        }
+        assert!(
+            early.is_empty(),
+            "move each assert after the row's line is written (the home re-judges the bounds): {early:#?}"
+        );
+    }
+
+    #[test]
+    fn the_assert_check_reads_the_rows_first_and_last_mention() {
+        let text = [
+            "fn late() {",
+            "    gate_rounds::report(\"v2.pr99.late\", &rounds);",
+            "    assert!(",
+            "        god <= small,",
+            "        \"v2.pr99.late: {god}\"",
+            "    );",
+            "    gate(\"v2.pr99.late\", small, god);",
+            "}",
+            "fn written_first() {",
+            "    gate_rounds::report(\"v2.pr99.first\", &rounds);",
+            "    gate(\"v2.pr99.first\", small, god);",
+            "    assert!(god <= small, \"v2.pr99.first: {god}\");",
+            "}",
+            "fn named_in_a_helper_assert() {",
+            "    list_daemon::assert_fds_given_back(\"v2.pr99.helper\", fds);",
+            "    assert!(god <= small);",
+            "    let name = \"v2.pr99.helper\";",
+            "    emit(name, small, god);",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        assert_eq!(asserts_before_writes(&source), [(3, "v2.pr99.late".to_owned())]);
+    }
+
     #[test]
     fn a_row_reports_its_rounds_through_the_functions_it_calls() {
         let text = [
@@ -953,14 +1147,45 @@ mod tests {
         assert!(!source.reports_rounds(&source.reaches("v2.pr99.through_list_daemon")));
     }
 
-    /// The gate script's group table: each `.gates` group word and the runner it starts.
+    /// The gate script's `gate_runner` cases: each `.gates` group word and the runner it starts.
     fn gate_groups(script: &str) -> HashMap<String, String> {
-        let entry = regex::Regex::new(r"^\s*\[([a-z0-9-]+)\]=(run_[a-z_]+)$").unwrap();
+        let entry = regex::Regex::new(r"^\s*([a-z0-9-]+)\) echo (run_[a-z_]+) ;;$").unwrap();
         script
             .lines()
             .filter_map(|line| entry.captures(line))
             .map(|found| (found[1].to_owned(), found[2].to_owned()))
             .collect()
+    }
+
+    /// One `.gates` line, read the way the gate script reads it: `None` when it is blank after its
+    /// `#` comment is cut, else its group and filter, or `Err` for a line of another shape. A
+    /// filter is one word of `[A-Za-z0-9_]`, so `core mod::gate` is refused here and by the script.
+    fn gate_line(line: &str) -> Result<Option<(&str, &str)>, ()> {
+        let words: Vec<&str> =
+            line.split('#').next().unwrap_or_default().split_whitespace().collect();
+        match words[..] {
+            [] => Ok(None),
+            [group, filter]
+                if filter.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') =>
+            {
+                Ok(Some((group, filter)))
+            }
+            _ => Err(()),
+        }
+    }
+
+    #[test]
+    fn a_gate_line_is_read_with_the_scripts_shape_rule() {
+        assert_eq!(gate_line(""), Ok(None));
+        assert_eq!(gate_line("# a comment"), Ok(None));
+        assert_eq!(
+            gate_line("core replay_append_gate # row 5c"),
+            Ok(Some(("core", "replay_append_gate")))
+        );
+        assert_eq!(gate_line("book v2_pr03d_"), Ok(Some(("book", "v2_pr03d_"))));
+        for bad in ["core", "core mod::gate", "core two words", "core gate-name"] {
+            assert_eq!(gate_line(bad), Err(()), "{bad:?}");
+        }
     }
 
     /// Every line of `scripts/cmux-next/v2-gates.d`, as its file's prefix (`pr03d` for
@@ -988,13 +1213,10 @@ mod tests {
             );
             let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
             for (number, line) in text.lines().enumerate() {
-                let words: Vec<&str> =
-                    line.split('#').next().unwrap_or_default().split_whitespace().collect();
-                if words.is_empty() {
-                    continue;
-                }
-                let [group, filter] = words[..] else {
+                let Some((group, filter)) = gate_line(line).unwrap_or_else(|()| {
                     panic!("{file:?}:{}: a gate line is GROUP FILTER: {line:?}", number + 1)
+                }) else {
+                    continue;
                 };
                 let runner = groups.get(group).unwrap_or_else(|| {
                     panic!("{file:?}:{}: {group} is not a gate group", number + 1)
@@ -1436,6 +1658,31 @@ mod unreadable_line_tests {
 
     fn status_of<'a>(value: &'a Value, name: &str) -> &'a Value {
         value["rows"].as_array().unwrap().iter().find(|row| row["name"] == name).unwrap()
+    }
+
+    /// A gate with no measure fails its row and the job's last step, but the home writes every row
+    /// and exits 0 (run 45590353660: one red gate read as a blind home).
+    #[test]
+    fn a_missing_measure_writes_every_row_and_exits_zero() {
+        let skip = GATE_ROWS.iter().find(|row| row.measured).unwrap();
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured && row.name != skip.name) {
+            lines.push_str(&format!("{}\n", in_bound_line(row)));
+        }
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let output = tempfile::NamedTempFile::new().unwrap();
+        print_report_with_mode(&[measures.path().to_path_buf()], Some(output.path()), true)
+            .expect("a red gate is not the home's stop");
+        let value: Value = serde_json::from_str(&fs::read_to_string(output.path()).unwrap())
+            .expect("the report is written");
+        let row = status_of(&value, skip.name);
+        assert_eq!(row["status"], "failed");
+        assert_eq!(row["reason"], NO_MEASURE);
+        for other in GATE_ROWS.iter().filter(|row| row.measured && row.name != skip.name) {
+            assert_eq!(status_of(&value, other.name)["status"], "ok", "{}", other.name);
+        }
+        assert!(report(&[measures.path().to_path_buf()]).is_err(), "report() stays strict");
     }
 
     /// One malformed line, one that is not JSON and one with no registered name among good

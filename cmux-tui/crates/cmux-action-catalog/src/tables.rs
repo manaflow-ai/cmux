@@ -12,6 +12,7 @@ pub static DEBUG_BUILD_ONLY_ACTIONS: &[&str] = &[
     "home.mcpConnectPlayground",
     "home.compareTablePlayground",
     "home.chiefTeleportPlayground",
+    "debug.envSecretsPlayground",
 ];
 
 /// Enumeration cases only Debug builds offer: none since Open Desktop's development-only `native`

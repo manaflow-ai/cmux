@@ -9,7 +9,10 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   hostSelfRetrying,
+  lostRetryDelay,
   nextRetryDelay,
+  SELF_RETRY_SAID_MS,
+  troubleSinceAfterLoss,
   QUICK_RETRY_WINDOW_MS,
   quickRetry,
   offersAcpmuxRestart,
@@ -26,6 +29,8 @@ test("only a typed recovery or an unclassified lost transport is neutral", () =>
   expect(hostIsReconnecting({ code: "native.not_connected" })).toBe(true);
   expect(hostIsReconnecting({ code: "native.not_connected", retryable: false })).toBe(true);
   expect(hostIsReconnecting({ code: "native.timed_out" })).toBe(true);
+  expect(hostIsReconnecting({ code: "cmux.page.failed", retryable: false })).toBe(true);
+  expect(hostIsReconnecting({ code: "native.failed", retryable: false })).toBe(true);
   expect(hostIsReconnecting({ code: "known", retryable: true })).toBe(true);
   expect(hostIsReconnecting({ code: "known", retryable: false })).toBe(false);
   expect(hostIsReconnecting(new Error("socket closed"))).toBe(true);
@@ -233,4 +238,53 @@ test("a handshake refused as message.too_large is told apart from every other re
   expect(hostRefusedTooLarge({ code: -32000, reason: "trust.pending" })).toBe(false);
   expect(hostRefusedTooLarge(new Error("message too large to send"))).toBe(false);
   expect(hostRefusedTooLarge(null)).toBe(false);
+});
+
+// Leo, 2026-11-23: "im getting an infinite Reconnecting... thing with claude-sr2-coord-old". A chat
+// that never opens (its attach never answers, or the daemon drops the pane right after every
+// connect) was a bare "Reconnecting…" forever: no reason, no Details, no Retry. The loop below is the
+// pane's own (App.tsx): each connect clears `failingSince`, so only the trouble clock, which a
+// connection lost within CONNECTION_STABLE_MS does not end, can bound it.
+// cmux#60478 (a brief forwarded as Leo's, unverified: "retry on its own ... just remove it"): this app's
+// own agent service is never said, however long it stays away; only a chat's other machine is.
+test("a chat that never stays open stays quiet past the bound", () => {
+  const timedOut = { code: "native.timed_out" };
+  let now = 0;
+  let troubleSince: number | undefined;
+  let connectedAt = 0;
+  let delay = 250;
+  const said: boolean[] = [];
+  // A handshake that fails (the attach never answered), then a connect lost 3 s later, over and over.
+  while (now < 4 * 60_000) {
+    troubleSince ??= now; // the handshake catch
+    said.push(!hostSelfRetrying(timedOut, false, now - troubleSince));
+    now += 2_000;
+    connectedAt = now; // a connect
+    now += 3_000; // lost soon after
+    troubleSince = troubleSinceAfterLoss(troubleSince, now - connectedAt, now);
+    const lost = lostRetryDelay(delay, now - connectedAt);
+    delay = lost.next;
+    now += lost.wait;
+    said.push(!hostSelfRetrying(timedOut, false, now - troubleSince));
+  }
+  // Never said: the pane keeps asking (slowly past the bound, hostRetryStep) and draws nothing.
+  expect(said.some(Boolean)).toBe(false);
+  expect(troubleSince).toBe(0);
+});
+
+test("the usual recovery stays quiet, and a connection that stayed up starts the trouble over", () => {
+  const lostLink = new Error("Couldn't connect to the agent.");
+  expect(hostSelfRetrying(lostLink, false, 0)).toBe(true);
+  expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS - 1)).toBe(true);
+  expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS)).toBe(true);
+  // A chat's other machine still gone past the bound is said: the person may bring it back.
+  const peer = new Error("peer_unreachable: studio (connecting, last seen 3s ago)");
+  expect(hostSelfRetrying(peer, false, SELF_RETRY_SAID_MS - 1)).toBe(hostIsReconnecting(peer));
+  expect(hostSelfRetrying(peer, false, SELF_RETRY_SAID_MS)).toBe(false);
+  // A refusal that waits on the person is said at once, bound or not.
+  expect(hostSelfRetrying({ code: "host_unavailable" }, false, 0)).toBe(false);
+  // Lost after a minute up: a new trouble, starting now; lost after a second: the old one goes on.
+  expect(troubleSinceAfterLoss(5_000, 60_000, 200_000)).toBe(200_000);
+  expect(troubleSinceAfterLoss(5_000, 1_000, 200_000)).toBe(5_000);
+  expect(troubleSinceAfterLoss(undefined, 1_000, 200_000)).toBe(200_000);
 });

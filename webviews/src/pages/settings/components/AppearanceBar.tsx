@@ -2,18 +2,29 @@
 // bottom right of the content while Appearance shows, so a whole look is one click and a wrong pick
 // is always one click from undone. Presets set the window's Opacity and Material and every surface's
 // opacity at once (appearancePresets.ts), as one undoable step. Reset is a
-// menu: Restore How It Was (when Appearance first showed in this visit) or Reset to Defaults; each
-// runs on the pick and is itself one Undo step, so neither asks first.
+// menu: Restore How It Was (when Appearance first showed in this visit), Reset to Defaults, or Reset
+// <card> for one card of the page (Leo, 11-19: "make sure you can recover and stuff. for all
+// customizations"), leaving the others as they are; each runs on the pick and is itself one Undo
+// step, so none asks first. Cmd-Z and Shift-Cmd-Z run Undo and Redo while no text field has focus.
 import { Button } from "../../../ui/Button";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
+import { isTypingTarget } from "../../../ui/focusRoute";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
 import { activePreset, APPEARANCE_PRESETS } from "../appearancePresets";
+import { appearanceAreas } from "../appearanceUndo";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
-import { t } from "../strings";
+import { t, text } from "../strings";
 
-export function AppearanceBar() {
+/** Cmd-Z (undo) or Shift-Cmd-Z (redo), else null. */
+function undoChord(event: KeyboardEvent): "undo" | "redo" | null {
+  if (!event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return null;
+  if (event.key.toLowerCase() !== "z") return null;
+  return event.shiftKey ? "redo" : "undo";
+}
+
+export function AppearanceBar({ section }: { section: string }) {
   const store = useStore();
   const state = useSettingsState();
   const history = store.appearance;
@@ -27,13 +38,16 @@ export function AppearanceBar() {
     if (state.readable) store.noteAppearanceOpened();
   }, [store, state.readable]);
   const live = state.connected && state.readable && !busy;
-  const undo = history.nextUndo;
+  const areas = useMemo(() => appearanceAreas(section), [section]);
+  // The durable history's next change (the page's own step, or a newer one by an agent or the CLI).
+  const undo = store.appearanceUndoLabel();
   const redo = history.nextRedo;
-  const undoLabel = undo ? t("settingsPage.history.undoNamed", undo.label) : t("settingsPage.history.undo");
+  const undoLabel = undo ? t("settingsPage.history.undoNamed", undo) : t("settingsPage.history.undo");
   const redoLabel = redo ? t("settingsPage.history.redoNamed", redo.label) : t("settingsPage.history.redo");
   const canRestore = store.appearanceChangedSinceOpened();
   const canReset = store.appearanceCustomized();
   const preset = activePreset(state);
+  const canResetArea = areas.map((area) => store.appearanceAreaCustomized(area));
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
     try {
@@ -42,6 +56,20 @@ export function AppearanceBar() {
       setBusy(false);
     }
   };
+  // The page's own Cmd-Z: a text field keeps its own undo; a step running finishes first.
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    const chord = undoChord(event);
+    if (!chord || event.defaultPrevented) return;
+    if (isTypingTarget(event.target as Element | null)) return;
+    event.preventDefault();
+    if (!live) return;
+    void run(() => (chord === "undo" ? store.undoAppearance() : store.redoAppearance()));
+  });
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onKeyDown(event);
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, []);
   return (
     <div
       className="appearance-bar"
@@ -109,7 +137,7 @@ export function AppearanceBar() {
           className="button appearance-bar-reset"
           label={t("settingsPage.history.resetMenu")}
           data-menu="appearance-reset"
-          disabled={!live || (!canRestore && !canReset)}
+          disabled={!live || (!canRestore && !canReset && !canResetArea.includes(true))}
           aria-haspopup="menu"
         >
           <Icon name="reset" />
@@ -122,6 +150,16 @@ export function AppearanceBar() {
           <MenuItem disabled={!canReset} onSelect={() => void run(() => store.resetAppearanceToDefaults())}>
             {t("settingsPage.history.resetDefaultsItem")}
           </MenuItem>
+          {areas.length > 0 && <MenuSeparator />}
+          {areas.map((area, index) => (
+            <MenuItem
+              key={area.key}
+              disabled={!canResetArea[index]}
+              onSelect={() => void run(() => store.resetAppearanceArea(area))}
+            >
+              {t("settingsPage.history.resetArea", text(area.title))}
+            </MenuItem>
+          ))}
         </MenuPopup>
       </Menu>
     </div>

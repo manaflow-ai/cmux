@@ -42,7 +42,7 @@ const SINKS: [kind: string, pattern: RegExp][] = [
 /// with edits above it, so entries are by file and the start of the matched text, not line number.
 const ALLOWED: Record<string, string> = {
   // Details-only.
-  "acpmux/App.tsx|errorMessage(error) || String(error)":
+  "acpmux/pane/paneSnapshot.ts|errorMessage(error) || String(error)":
     "setHostError: hostLine.ts hostLineText puts every text that is not the pane's own behind the line's Details",
   "acpmux/newtab/NewTabScreen.tsx|setStartError({ harness: args[0], error: startErrorMessage(error)":
     "StartFailure with a harness: startFailureView says a plain sentence and keeps the text behind ErrorDetails",
@@ -51,8 +51,12 @@ const ALLOWED: Record<string, string> = {
   // follow-up that gives each a plain sentence and Details.
   "acpmux/newtab/NewTabScreen.tsx|setStartError({ error: errorMessage(error)":
     "follow-up: New Tab card open/archive refusal",
-  "acpmux/conversation/DiagramBlock.tsx|setFailure(error instanceof Error ? error.message":
-    "follow-up: diagram render error, shown with the diagram's code",
+  "acpmux/conversation/DiagramBlock.tsx|setFailure({ reason: error instanceof Error ? error.message":
+    "follow-up: diagram render error, shown with the diagram's code (a renderer that did not load says plain words)",
+  'acpmux/PerfPanel.tsx|translate("inspector.perfFailed", { message: errorText(error)':
+    "follow-up: Inspector Perf tab (a diagnostics surface, Leo #49911), its start and read refusals",
+  'acpmux/PerfPanel.tsx|t("inspector.perfFailed", { message: errorText(error)':
+    "follow-up: Inspector Perf tab (a diagnostics surface, Leo #49911), its stop refusal",
   'acpmux/AddAccountDialog.tsx|t("environment.saveFailed", { reason: failure instanceof Error ? failure.message':
     "follow-up: Add Account save",
   'acpmux/SavedEnvironmentPanel.tsx|t("environment.saveFailed", { reason: failure instanceof Error ? failure.message':

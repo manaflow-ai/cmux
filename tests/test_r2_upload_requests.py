@@ -322,7 +322,7 @@ class R2UploadRequestsTests(unittest.TestCase):
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                time.sleep(5)
+                time.sleep(5)  # sleep-ok: a server whose answer never starts within the 1 s attempt deadline
 
             def log_message(self, *_args):
                 pass

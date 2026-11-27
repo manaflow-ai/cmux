@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-19",
+  "row": "observer_sites",
+  "allow": 1,
+  "why": "The user, 2026-11-19 (msgs 42216, 42221): the traffic lights and Home's header shift. AppKit re-tiles its own titlebar (a new window title, an appearance change, its titlebar's layout) with no layout of any app view, and puts the buttons back at its place one by one. Only the frame notifications of the three buttons and their container say when, in AppKit's own call. TrafficLightsOwner is the one per-window adapter: one MainActorObservation(atOnce:) per watched view, which places every button again at once and once more before Core Animation's commit. Red runs at 5866f0b and dd87891 measured up to 8 pt drift of the lights and of Home's header at base; fleet step da97baab showed a bounds shift alone does not hold (AppKit tiles in window coordinates). The review's two P2 nits (spacing keyed by the tiling mask, the commit-pass comment) are applied after it.",
+  "author": "a1244 (claude opus, Chief subagent)",
+  "owner": "a1244: lower the row if AppKit ever offers a titlebar-layout hook for the standard buttons",
+  "receipt": "Review (claude opus, independent read-only run; codex was at its usage limit): SHIP at 822a662bed7be70e2171ffcb8824bc7c4b114f65",
+  "expiry": "2026-12-19",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
+}
