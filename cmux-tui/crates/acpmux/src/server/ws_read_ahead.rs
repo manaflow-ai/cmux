@@ -22,6 +22,36 @@ pub(crate) const READ_AHEAD_BYTES: usize = 1024 * 1024;
 /// Frames held while the connection takes an earlier one.
 pub(crate) const READ_AHEAD_FRAMES: usize = 256;
 
+/// How often the listener pings a connection (`ws_shutdown::write_link`).
+pub(crate) const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// A connection that sent nothing, not even a pong, for this long is gone: a client that
+/// vanished (a laptop asleep, a flapped tailnet link) leaves a socket the kernel keeps open for
+/// as long as nothing is written to it, and its connection (queues, fan-out task, sessions'
+/// viewer state) was held for ever. Three missed pings.
+pub(crate) const IDLE_BOUND: std::time::Duration = std::time::Duration::from_secs(95);
+
+/// `source`, ended once it has been silent for `bound`: the read half of a connection whose
+/// client vanished then ends as a closed socket does, and the connection unwinds.
+pub(crate) fn idle_bound<S>(
+    source: S,
+    bound: std::time::Duration,
+) -> std::pin::Pin<Box<dyn Stream<Item = Result<Frame, WsError>> + Send>>
+where
+    S: Stream<Item = Result<Frame, WsError>> + Unpin + Send + 'static,
+{
+    Box::pin(futures_util::stream::unfold(source, move |mut source| async move {
+        // timeout: ends a connection that sent nothing for `bound`; no request is cancelled.
+        match tokio::time::timeout(bound, source.next()).await {
+            Ok(Some(item)) => Some((item, source)),
+            Ok(None) => None,
+            Err(_) => {
+                tracing::info!("closing a connection: nothing heard for {bound:?}");
+                None
+            }
+        }
+    }))
+}
+
 /// Read `source` until it ends, handing each frame but pings and pongs to `deliver`, in order,
 /// one at a time; while one is being handed off, later frames are read (and pings answered) up to
 /// the bounds above. Stops when `deliver` says false. A read error ends reading: the frames read

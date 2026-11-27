@@ -192,6 +192,7 @@ fn play(s: &Owned) {
         let body = FrameBody {
             t_capture_us: t(i),
             ref_frame: if i % 4 == 0 { REF_NONE } else { f - 1 },
+            ltr_token: None,
             access_unit: au,
         };
         let fl = if i % 4 == 0 { flags::KEYFRAME } else { 0 };

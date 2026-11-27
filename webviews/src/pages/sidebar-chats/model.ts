@@ -20,11 +20,23 @@ export const SidebarChatsOps = {
   ready: "cmux.sidebarChats.ready",
   /** Stream, host to page: {revision, top, height} in CSS px, the part of this block's page the sidebar shows
    * (`height` 0: scrolled out). At most one per frame, after each `ready` and each block push, and at once on
-   * subscribe. The page then mounts only the rows near it (`sliceRange`); before the first it draws every row. */
+   * subscribe. The page then mounts only the rows near it (`sliceRange`); before the first it draws every row.
+   * The old wire: a host that streams `visibleSlice` sends none. Accepted until that host ships, then it goes. */
   slice: "cmux.sidebarChats.slice",
+  /** Stream, host to page, subscribed with `{surface}` (`sliceSurface`): {surface, revision, top, height}, the same
+   * slice as `slice` on the page's generic visible-slice stream. Once one arrives for a surface, `slice` events for
+   * it are ignored. */
+  visibleSlice: "cmux.page.visibleSlice",
 } as const;
 
 export type SidebarChatsPart = "pinned" | "earlier";
+
+export const SIDEBAR_CHATS_PARTS: readonly SidebarChatsPart[] = ["pinned", "earlier"];
+
+/** A block's surface on `cmux.page.visibleSlice` (the host's `SidebarChatHistoryHost.surface`). */
+export function sliceSurface(part: SidebarChatsPart): string {
+  return `sidebar-chats:${part}`;
+}
 
 /** One chat row. `meta` is its age ("12m"), formatted by the host; `markColor` is set for a harness no
  * mark knows, whose generic mark takes that stable colour. */
@@ -140,6 +152,14 @@ export function parseSlice(data: unknown): SidebarChatsSlice | null {
   return { revision, top, height };
 }
 
+/** A `cmux.page.visibleSlice` event, checked: its surface (one of the blocks') and the slice; else null. */
+export function parseVisibleSlice(data: unknown): { surface: string; slice: SidebarChatsSlice } | null {
+  const slice = parseSlice(data);
+  const surface = (data as Record<string, unknown> | null)?.surface;
+  if (!slice || !SIDEBAR_CHATS_PARTS.some((part) => sliceSurface(part) === surface)) return null;
+  return { surface: surface as string, slice };
+}
+
 /** A block event from the host, checked: anything that is not one is dropped. */
 export function parseBlock(data: unknown): SidebarChatsBlock | null {
   if (!data || typeof data !== "object") return null;
@@ -152,4 +172,38 @@ export function parseBlock(data: unknown): SidebarChatsBlock | null {
   );
   const tail = value.tail === "more" || value.tail === "loading" ? value.tail : null;
   return { revision: value.revision, part: value.part, folded: !!value.folded, rows, tail, metrics: value.metrics };
+}
+
+/** A click the page draws before the host answers it: Earlier's fold (to `folded`) or Show More (made with
+ * `rows` chats listed). `answered`: the host's call returned, so its next block is the answer. */
+export type SidebarChatsPending =
+  | { kind: "fold"; folded: boolean; answered: boolean }
+  | { kind: "more"; rows: number; answered: boolean };
+
+/** What Earlier last listed while open: an unfold draws these at once, until the host's block. */
+export interface SidebarChatsOpenRows {
+  rows: SidebarChatRow[];
+  tail: SidebarChatsBlock["tail"];
+}
+
+/** The block as the page draws it while `pending` waits for the host: a fold shows only the header, an unfold
+ * the rows Earlier last listed (`open`), Show More reads Loading. The host's block replaces it when it answers. */
+export function drawnBlock(
+  block: SidebarChatsBlock,
+  pending: SidebarChatsPending | null,
+  open: SidebarChatsOpenRows | null,
+): SidebarChatsBlock {
+  if (!pending) return block;
+  if (pending.kind === "more") return block.tail === "more" ? { ...block, tail: "loading" } : block;
+  if (pending.folded) return { ...block, folded: true, rows: [], tail: null };
+  if (!block.folded) return block;
+  return { ...block, folded: false, rows: open?.rows ?? block.rows, tail: open?.tail ?? block.tail };
+}
+
+/** Whether `next` from the host ends `pending`: it shows the fold asked for, or new rows or another tail after
+ * Show More, or it is the first block after the host's call returned (the host's own answer). */
+export function answers(pending: SidebarChatsPending, next: SidebarChatsBlock): boolean {
+  if (pending.answered) return true;
+  if (pending.kind === "fold") return next.folded === pending.folded;
+  return next.rows.length !== pending.rows || next.tail !== "more";
 }

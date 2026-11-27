@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { TAB_ROW_ACCESSORY } from "./tabRow";
 
 /// One quick-action button's share of the row at the default interface size: its 24px square and
@@ -70,7 +71,7 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
         px(style.paddingRight) -
         px(style.columnGap) -
         HEADER_LEADING_RESERVE;
-      // The row's accessories (the rolling summary, tabRow.ts TAB_ROW_ACCESSORY) take only the room the tools leave:
+      // The row's accessories (tabRow.ts TAB_ROW_ACCESSORY) take only the room the tools leave:
       // a button never folds to make room for one (Leo, 2026-11-22: "the icons on the top right have gotten
       // displaced due to putting things on a line").
       let width = element.getBoundingClientRect().width;
@@ -79,12 +80,18 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
         if (box > 0) width -= box + px(getComputedStyle(element).columnGap);
       }
       const pitch = tools.current ? measuredPitch(tools.current) : HEADER_TOOL_PITCH;
-      setFold(headerFoldCount(width, folded.current, room, count, pitch));
+      const next = headerFoldCount(width, folded.current, room, count, pitch);
+      // The observer reports between the browser's layout and its paint: commit the fold now, so a
+      // header that does not fit is folded in the frame that first draws it, not one frame later.
+      flushSync(() => setFold(next));
     };
+    // No read in this layout effect. Here it forced a style and layout of the whole page in the
+    // middle of a chat's first commit, before the transcript placed its rows (about 19 ms of an
+    // attach, goal chat-attach-p95). The observer's first report, which observe() always sends,
+    // comes after the browser's own layout of that frame, where these reads cost nothing extra.
     const observer = new ResizeObserver(measure);
     observer.observe(header);
     observer.observe(element);
-    measure();
     return () => observer.disconnect();
   }, [tools, count]);
   return Math.min(fold, count);

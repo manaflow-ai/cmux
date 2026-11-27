@@ -164,7 +164,7 @@ test("before the turn's first output it stays Thinking, however long the model t
 
 test("a call that runs long is never called Waiting", () => {
   const running = liveLine([prompt, activity("run", T0 + 1_000, [shell("bun test", "in_progress", T0 + 1_000)])]);
-  expect(drawn(running, T0 + 120_000)).toStartWith("Running bun test");
+  expect(drawn(running, T0 + 120_000)).toStartWith("Running tests");
 });
 
 test("the label changes when a tool starts", () => {
@@ -172,8 +172,8 @@ test("the label changes when a tool starts", () => {
   expect(drawn(before, T0 + 34_000)).toStartWith("Thinking");
   const started = activity("next", T0 + 34_000, [shell("cargo check", "in_progress", T0 + 34_000)]);
   const after = liveLine([prompt, ran, thinking, started]);
-  expect(after.doing).toBe("cargo check");
-  expect(drawn(after, T0 + 35_000)).toBe("Running cargo check 35s");
+  expect(after.doing).toBe("Building");
+  expect(drawn(after, T0 + 35_000)).toBe("Building 35s");
 });
 
 test("with the default arms (one clock, the turn's over the work) the line still says Waiting, with how long", () => {
@@ -211,6 +211,12 @@ test("a notice that set the agent going again after its reply starts the turn's 
   const line = liveLine([prompt, reply, notice]);
   expect(line.at).toBe(notice.at);
   expect(drawn(line, notice.at + 24_000)).toBe("Thinking 24s");
+  // A call after the reply: the agent was still at work, so a notice steered in then (acpmux
+  // who-else) set nothing going and the clock keeps the prompt's start. A thought is not a call.
+  const ran = activity("r", T0 + 61_000, [shell("bun run typecheck", "completed", T0 + 61_000, T0 + 70_000)]);
+  expect(continuationStart([prompt, reply, ran, notice], T0)).toBe(T0);
+  const mused = activity("t", T0 + 61_000, [thought(T0 + 61_000, T0 + 62_000)]);
+  expect(continuationStart([prompt, reply, mused, notice], T0)).toBe(notice.at);
 });
 
 const scope = globalThis as Record<string, unknown>;

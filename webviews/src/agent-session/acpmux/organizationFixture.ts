@@ -5,7 +5,7 @@
 // a question asked and answered (the answered QuestionCard), a checklist of three steps, then a
 // thought and five shell steps under "Ran 5 commands", and the prose after them. The same turn as
 // the gallery's `agent-pane.claude-desktop-organization`; every name and path in it is made up.
-import type { AcpmuxActivity, AcpmuxPlanEntry, AcpmuxRow } from "./model";
+import type { AcpmuxActivity, AcpmuxRow } from "./model";
 import type { AgentQuestion } from "./question/model";
 import { QUESTION_RECORD } from "./question/record";
 
@@ -65,8 +65,6 @@ const LEAD =
   "I should read how the helper decides to retry, find who calls it, and check whether the tests already cover a client error.\n\n" +
   "If the retry loop has no status check, the fix belongs there rather than in each caller.";
 
-const todo = (content: string, status: AcpmuxPlanEntry["status"]): AcpmuxPlanEntry => ({ content, status });
-
 export function organizationRows(at: number): AcpmuxRow[] {
   /// A finished shell step with Claude's Bash description, its command and what it printed.
   const step = (n: number, description: string, command: string, output: string): AcpmuxActivity => ({
@@ -114,17 +112,6 @@ export function organizationRows(at: number): AcpmuxRow[] {
       at: at + 4 * SECOND,
       kind: QUESTION_RECORD,
       question: ANSWERED,
-    },
-    {
-      id: "organization-plan",
-      version: 1,
-      at: at + 10 * SECOND,
-      kind: "plan",
-      plan: [
-        todo("Find where the helper decides to retry", "completed"),
-        todo("Stop retrying 4xx responses", "in_progress"),
-        todo("Cover it with a test", "pending"),
-      ],
     },
     {
       id: "organization-run",

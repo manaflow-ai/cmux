@@ -357,7 +357,7 @@ pub(super) async fn call(
     body: Option<&Value>,
     timeout: Duration,
 ) -> Option<(u16, Value)> {
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui_core::server::agent_session_share_room")
         .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
@@ -825,7 +825,12 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_HOST_FRAME_BYTES))
         .max_frame_size(Some(MAX_HOST_FRAME_BYTES));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui_core::server::agent_session_share_room",
+    );
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(reply))) => Err(match reply.status().as_u16() {
@@ -1067,6 +1072,7 @@ impl Guests {
                 }
                 ask
             }
+            "guest_cancel" => relay::Ask::Cancel,
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
@@ -1104,7 +1110,8 @@ impl Guests {
         tries: u32,
     ) {
         self.waiting.remove(guest);
-        if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
+        let Some(view) = view(mux, share_id) else { return };
+        if !view.active.iter().any(|g| g == guest) {
             return;
         }
         let bridge = &shares(mux).bridge;
@@ -1207,7 +1214,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
             let redeem = Redeem {
                 share_id: share_id.to_owned(),
-                secret: field("secret"),
+                // A null secret is no secret (an account-only accept), never an empty one to check.
+                secret: frame.get("secret").filter(|v| !v.is_null()).map(|_| field("secret")),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
                 // The account the room signed in: an invitee's (no secret then), or a signed-in
@@ -1350,3 +1358,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_room_seeded_tests.rs"]
+mod seeded_tests;

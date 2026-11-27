@@ -21,6 +21,11 @@ run_group() {
 # A filter that fails having written none is named here: the home can only say
 # its rows "did not report a measure", and this line says which command it was.
 run() {
+  # A group's build step runs its runner with a filter no test matches: the build alone.
+  if [[ -n $build_only ]]; then
+    "$@"
+    return
+  fi
   local before=0 after=0
   [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
@@ -73,7 +78,11 @@ run_acpmux_test() {
 # line order. An unknown group or a line of another shape fails the script by name.
 # The script keeps to bash 3.2, a Mac's stock bash: no associative arrays.
 gates_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/v2-gates.d"
-gate_groups="book client core acpmux-lib tui-core-lib acpmux-v2-connection"
+# Groups run in this order. tui-core-lib goes last: from a cold target its build alone took 31 to
+# 35 minutes on a 4-CPU pool runner (runs 45275598234, 45363239143) for one row (7c), so when the
+# step's limit cuts the run it costs that row, not acpmux-v2-connection's five 4.x rows (Nov 24,
+# goal v2-gate-home-reports). acpmux-v2-connection follows acpmux-lib on the same gate profile.
+gate_groups="book client core acpmux-lib acpmux-v2-connection tui-core-lib"
 
 # Each group word and the runner it starts. A group's timing line is named by its word.
 gate_runner() {
@@ -112,12 +121,27 @@ read_gates() {
 }
 read_gates || exit 2
 
+# A group builds its test target once, then each of its filters runs against that build.
+# A group that does not build runs none of its gates and says so in one line: before, each
+# filter rebuilt it and failed again, so one acpmux compile error spent the nightly's whole
+# gate budget (run 45413199195, 75 minutes) and the v2 home step never wrote its rows.
+build_only=
 run_gates() {
-  local runner line
+  local runner line filters="" built=0
   runner=$(gate_runner "$1")
   for line in ${gate_lines[@]+"${gate_lines[@]}"}; do
-    if [[ ${line%% *} == "$1" ]]; then "$runner" "${line#* }"; fi
+    if [[ ${line%% *} == "$1" ]]; then filters="$filters ${line#* }"; fi
   done
+  [[ -n $filters ]] || return 0
+  build_only=1
+  "$runner" v2_gates_build_only_no_test_matches && built=1
+  build_only=
+  if ((!built)); then
+    failed=1
+    printf 'v2 gates: group %s does not build; its gates did not run:%s\n' "$1" "$filters" >&2
+    return
+  fi
+  for line in $filters; do "$runner" "$line"; done
 }
 
 # cmux-tui-core links libghostty-vt (ghostty-vt-sys): its build needs the ghostty-next

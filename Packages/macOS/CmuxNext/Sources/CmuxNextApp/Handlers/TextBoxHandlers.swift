@@ -4,8 +4,8 @@ import CmuxNextTerminal
 
 /// The TextBox composer's actions (inventory row 23) on the targeted or focused terminal: Toggle
 /// TextBox, Focus TextBox (back and forth between the box and the terminal), Cycle TextBox Submit
-/// Action and Attach File to TextBox. The palette, the keys, the box's own Shift-Tab and buttons,
-/// `cmux action run` and MCP all run these.
+/// Action and Attach File to TextBox, and Insert Path (its file panel, the paths typed into the terminal).
+/// The palette, the keys, the box's own Shift-Tab and buttons, `cmux action run` and MCP all run these.
 enum TextBoxHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("palette.terminalToggleTextBoxInput", invoke: { invocation in
@@ -31,11 +31,29 @@ enum TextBoxHandlers {
             box.show(focus: focus)
             let window = entry.session.view.window
             registry.track(Task { @MainActor in
-                let paths = await chooseFiles(in: window)
+                let paths = await TerminalFilePicker.choose(NSOpenPanel(), title: TextBoxStrings.addFilesPanelTitle, prompt: TextBoxStrings.addFilesPanelPrompt, in: window)
                 box.insert(paths: paths)
                 if focus, !paths.isEmpty { box.show(focus: true) }
                 return nil
             })
+        })
+        bindInsertPath(registry, ctx)
+    }
+
+    /// Insert Path (⌃⌘I): the made-ahead panel's paths (local terminals) or a `path` argument's, typed as a drop is.
+    private static func bindInsertPath(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bindEffect("insertPath", effect: { invocation in
+            guard let (tab, pane) = ctx.daemonTab(invocation) else { return .done }
+            guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
+            let surface = tab.surface, daemon = ctx.services.daemon(for: pane), given = invocation["path"]?.stringValue.flatMap { $0.isEmpty ? nil : [$0] }
+            guard given != nil || daemon.isLocal else { return .refused(FindInDirectoryStrings.localOnly) }
+            let panel = given == nil ? ctx.services.openPanel.panel() : nil, window = ctx.activeWindow?.window
+            // action-wait-allow: the person picks in the system's open panel (its own process); the shell echoes the paths
+            return .waiting(.externalProcess) {
+                let paths = if let panel { await TerminalFilePicker.choose(panel, prompt: FindInDirectoryStrings.insertPath, in: window) } else { given ?? [] }
+                guard let text = TerminalFilePicker.insertText(for: paths) else { return nil }
+                return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
+            }
         })
     }
 
@@ -61,23 +79,5 @@ enum TextBoxHandlers {
             }
         }
         return nil
-    }
-
-    /// Add Files: a multi-selection file panel, a sheet on `window` when there is one; no paths on cancel.
-    private static func chooseFiles(in window: NSWindow?) async -> [String] {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.title = TextBoxStrings.addFilesPanelTitle
-        panel.prompt = TextBoxStrings.addFilesPanelPrompt
-        let response = await withCheckedContinuation { done in
-            if let window {
-                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
-            } else {
-                panel.begin { done.resume(returning: $0) }
-            }
-        }
-        return response == .OK ? panel.urls.map(\.path) : []
     }
 }

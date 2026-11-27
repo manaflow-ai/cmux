@@ -1,3 +1,4 @@
+import CCmuxURLInputFFI
 public import Foundation
 
 /// Where a Chromium internal page opens (spec decision CHROME-INTERNAL-PAGES):
@@ -27,27 +28,25 @@ public nonisolated enum ChromiumPageRoute: Equatable, Sendable {
     /// Chromium's own page, in a Chromium tab.
     case chromium(URL)
 
-    /// Hosts whose pages cmux shows itself, and the cmux page for each.
-    package static let cmuxPages: [String: String] = [
-        "history": "cmux://history",
-        "bookmarks": "cmux://bookmarks",
-    ]
-
     /// The route of `url`, nil when it is not a `chrome://` page. Any
     /// spelling works: `CHROME://History`, `about:history` and
-    /// `chrome://history` route alike (`ChromiumInternalURL`).
+    /// `chrome://history` route alike. The table is Rust's (cmux-url-input
+    /// src/chromium.rs, over URLInputFFI).
     public init?(_ url: URL) {
-        guard let page = ChromiumInternalURL(typed: url.absoluteString), page.url.scheme == "chrome",
-              let host = page.url.host() else { return nil }
-        let path = page.url.path()
-        if let address = Self.cmuxPages[host], let cmuxURL = URL(string: address) {
-            self = .cmuxPage(cmuxURL)
-        } else if host == "password-manager" || (host == "settings" && (path == "/passwords" || path.hasPrefix("/passwords/"))) {
-            self = .passwordsPage
-        } else if host == "settings", path == "/" {
+        let route = URLInputFFI.chromiumPageRoute(url.absoluteString)
+        switch route.kind {
+        case CMUX_URL_INPUT_ROUTE_CMUX_PAGE:
+            guard let page = route.url.flatMap(URL.init(string:)) else { return nil }
+            self = .cmuxPage(page)
+        case CMUX_URL_INPUT_ROUTE_BROWSER_SETTINGS:
             self = .browserSettings
-        } else {
-            self = .chromium(page.url)
+        case CMUX_URL_INPUT_ROUTE_PASSWORDS_PAGE:
+            self = .passwordsPage
+        case CMUX_URL_INPUT_ROUTE_CHROMIUM:
+            guard let page = route.url.flatMap(URL.init(string:)) else { return nil }
+            self = .chromium(page)
+        default:
+            return nil
         }
     }
 

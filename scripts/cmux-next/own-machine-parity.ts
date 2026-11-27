@@ -112,8 +112,17 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
   const cmux = (sock: string, ...a: string[]) => ["cmux", "--app-socket", sock, ...a]
   const results: StepResult[] = []
   const token = `owp-${run}-${d.now().toString(36)}`
-  const dir = `/tmp/${token}`
-  const file = `${dir}/hello.txt`
+  // B's own folder for this run, made by mktemp -d there: a name guessed in /tmp could already be another
+  // account's FIFO or link.
+  let dir = ""
+  const ownDir = async (): Promise<string | null> => {
+    if (dir) return null
+    const m = await bsh(`mktemp -d "\${TMPDIR:-/tmp}/owp-${run}-XXXXXX"`)
+    const made = m.stdout.trim()
+    if (m.code !== 0 || !made.startsWith("/")) return `could not make a folder on B: ${classify(m).text}`
+    dir = made
+    return null
+  }
   const port = o.port + run - 1
   let broken = false
   const step = async (name: StepName, body: (calls: () => number) => Promise<{ status: Status; detail: string; terminal?: boolean }>) => {
@@ -134,7 +143,6 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
     d.write(`run ${run} ${name}: ${status} ${seconds}s ${r.detail}`)
   }
   const bsh = async (script: string) => (o.bShell.length ? d.exec([...o.bShell, script], 30_000) : d.exec(["sh", "-c", script], 30_000))
-  let server = false
   try {
     await step("join", async (c) => {
       const deadline = d.now() + 60_000
@@ -159,9 +167,10 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
       return j?.session_id ? { status: "pass", detail: `session ${String(j.session_id).replace(/[^\w/.:-]/g, "").slice(0, 64)}` } : { status: "fail", detail: "no session_id in the answer" }
     })
     await step("port", async (c) => {
-      const s = await bsh(`mkdir -p ${dir} && cd ${dir} && (nohup python3 -m http.server ${port} --bind 127.0.0.1 >/dev/null 2>&1 & echo $! > ${dir}/pid)`)
+      const no = await ownDir()
+      if (no) return { status: "fail", detail: no }
+      const s = await bsh(`cd ${dir} && (nohup python3 -m http.server ${port} --bind 127.0.0.1 >/dev/null 2>&1 & echo $! > ${dir}/pid)`)
       if (s.code !== 0) return { status: "fail", detail: `could not start the dev server on B: ${classify(s).text}` }
-      server = true
       const t0 = d.now()
       // Time from the server listening to its port on A.
       for (;;) {
@@ -182,7 +191,10 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
       }
     })
     await step("file", async (c) => {
-      const w = await bsh(`mkdir -p ${dir} && echo ${token} > ${file}`)
+      const no = await ownDir()
+      if (no) return { status: "fail", detail: no }
+      const file = `${dir}/hello.txt`
+      const w = await bsh(`echo ${token} > ${file}`)
       if (w.code !== 0) return { status: "fail", detail: `could not write the file on B: ${classify(w).text}` }
       c()
       const r = await d.exec(cmux(o.aSocket, ...fill(o.fileArgv, { name: o.bName, path: file })), 30_000)
@@ -196,7 +208,7 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
     })
   } finally {
     // Only what this run made: its server (by its own pid file) and its own directory.
-    if (server || results.some((r) => r.step === "file")) await bsh(`[ -f ${dir}/pid ] && kill $(cat ${dir}/pid) 2>/dev/null; rm -f ${dir}/pid ${file}; rmdir ${dir} 2>/dev/null; true`)
+    if (dir) await bsh(`[ -f ${dir}/pid ] && kill $(cat ${dir}/pid) 2>/dev/null; rm -f ${dir}/pid ${dir}/hello.txt; rmdir ${dir} 2>/dev/null; true`)
   }
   const terminalSteps = results.filter((r) => r.terminal).length
   return { run, steps: results, terminalSteps, pass: terminalSteps === 0 && results.every((r) => r.status === "pass") }

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.workspacesAsTabs.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل مساحة عمل في سطر واحد، وينتقل Cmd-Shift-[ و ] بين مساحات العمل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svaki radni prostor je jedan red, a Cmd-Shift-[ i ] mijenjaju radne prostore."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvert arbejdsområde er én linje, og Cmd-Shift-[ og ] skifter arbejdsområde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jeder Arbeitsbereich belegt eine Zeile, und Cmd-Shift-[ und ] wechseln Arbeitsbereiche."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada espacio de trabajo ocupa una línea, y Cmd-Shift-[ y ] cambian de espacio de trabajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chaque espace de travail tient sur une ligne, et Cmd-Shift-[ et ] changent d’espace de travail."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ogni workspace occupa una riga, e Cmd-Shift-[ e ] cambiano workspace."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "各ワークスペースを1行で表示し、Cmd-Shift-[ と ] でワークスペースを切り替えます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការនីមួយៗជាមួយបន្ទាត់ ហើយ Cmd-Shift-[ និង ] ប្ដូរកន្លែងធ្វើការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "워크스페이스마다 한 줄로 표시되며, Cmd-Shift-[ 와 ]로 워크스페이스를 전환합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvert arbeidsområde er én linje, og Cmd-Shift-[ og ] bytter arbeidsområde."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Każdy obszar roboczy zajmuje jeden wiersz, a Cmd-Shift-[ i ] przełączają obszary robocze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada espaço de trabalho ocupa uma linha, e Cmd-Shift-[ e ] alternam entre espaços de trabalho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Каждое рабочее пространство занимает одну строку, а Cmd-Shift-[ и ] переключают рабочие пространства."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แต่ละเวิร์กสเปซเป็นหนึ่งบรรทัด และ Cmd-Shift-[ กับ ] จะสลับเวิร์กสเปซ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her çalışma alanı tek satırdır; Cmd-Shift-[ ve ] çalışma alanları arasında geçer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кожен робочий простір займає один рядок, а Cmd-Shift-[ і ] перемикають робочі простори."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mỗi không gian làm việc là một dòng, và Cmd-Shift-[ và ] chuyển không gian làm việc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每个工作区占一行，Cmd-Shift-[ 和 ] 切换工作区。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每個工作區佔一行，Cmd-Shift-[ 和 ] 會切換工作區。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

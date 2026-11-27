@@ -58,6 +58,7 @@
   },
   "serves": {
     "ops": [
+      "cloud.allotment.get",
       "cloud.billing.checkout",
       "cloud.environment.boot",
       "cloud.environment.build",
@@ -84,7 +85,8 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.list",
-      "cloud.snapshot.restore"
+      "cloud.snapshot.restore",
+      "cloud.usage.current"
     ]
   },
   "scopes": {

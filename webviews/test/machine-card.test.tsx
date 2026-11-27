@@ -165,7 +165,7 @@ async function mount({
 const doc = () => dom.window.document;
 const chip = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
-    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.environment") + ":"),
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
   );
 async function open() {
   const button = chip();

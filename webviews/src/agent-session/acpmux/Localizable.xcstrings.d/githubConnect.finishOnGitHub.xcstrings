@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "githubConnect.finishOnGitHub" : {
+      "comment" : "Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): after the tap, while GitHub's page is open",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Finish on GitHub. This chat goes on when you're back"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

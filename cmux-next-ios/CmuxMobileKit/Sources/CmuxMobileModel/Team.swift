@@ -153,11 +153,11 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// Who registered the Mac (nil when not known: mock data, older snapshots).
     public var ownerUserID: String?
     /// The computer it runs on (PROTOCOL.md "Devices"): the same for every cmux
-    /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
-    /// never said (an older host); a name is never used instead.
+    /// build of one account on one Mac. Lists do not group by it (``MacRoster``
+    /// lists each build as its own Mac). Nil when the Mac never said (an older host).
     public var machineID: String?
     /// How long the cmux service had not heard the Mac's heartbeat when it last said, in ms,
-    /// kept only past ``MacReachability/freshMillis`` (PROTOCOL.md "Mac freshness") and rounded
+    /// kept only past the service's freshness bound (``MacReachability/lateQuiet(_:)``) (PROTOCOL.md "Mac freshness") and rounded
     /// down to 10 s, so a healthy Mac's every poll changes nothing. Nil: fresh, offline or unknown.
     public var quietMs: Int?
 

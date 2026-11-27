@@ -139,12 +139,14 @@ enum CmuxStrings {
 
     /// The context menu item on my "Not Delivered" message that sends it again.
     static var tryAgain: String {
+        // retry-prompt-ok: re-sends the person's message to the model (a paid turn)
         String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
     /// The context menu item on a person's committed Chief message: run the
     /// Chief's turn again for that message (distinct from a failed send).
     static var retryReply: String {
+        // retry-prompt-ok: asks the model for the reply again (a paid turn)
         String(localized: "home.menu.retryReply", defaultValue: "Retry Reply", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 

@@ -21,6 +21,10 @@
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
 // with and one after (empty_xN_after; see the bracket below the launches).
+// HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a hidden one) for
+// DevTools. HEAP_RETAINERS=1 prints, per launch, the renderers' memory-infra allocators and what holds the JS heap
+// (heapRetainers.ts: the dominator tree, and self size by class over the empty launch).
+// CASES=long runs only empty x1, long x1, empty xN and long xN.
 // HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
 // before cmux#45531). HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a
 // hidden one) for DevTools. CASES=long runs only empty x1, long x1, empty xN and long xN.
@@ -30,7 +34,7 @@
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
-// windows, and of each profiled launch's CPU settle; each idle and settle profile prints its self time per site and its
+// windows, of grown x1's grow, and of each profiled launch's CPU settle; each idle and settle profile prints its self time per site and its
 // time per entry (the outermost script frame: the timer, frame callback, handler or observer that ran).
 // WAKES=1 counts what wakes the renderers in each idle window, per second: the renderer threads' context switches
 // (/proc/PID/task/*/status), and on every page the timer and interval callbacks, animation frames, MessagePort posts
@@ -55,6 +59,8 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
+import { takeSnapshot } from "./heapProbe";
+import { printRetainers, type Retainers } from "./heapRetainers";
 import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
@@ -71,6 +77,8 @@ const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
 const HIDDEN_FOCUS = process.env.HIDDEN_FOCUS === "1";
 const PROFILE = process.env.PROFILE;
+// GROW_WAIT_S: how long the grown case waits for every page to show its last turn (default 900).
+const GROW_WAIT_MS = Number(process.env.GROW_WAIT_S ?? 900) * 1000;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
@@ -116,6 +124,8 @@ if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASE
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
+const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
+const retainerBase = new Map<number, Retainers>();
 const WAKES = process.env.WAKES === "1";
 const TRACE = process.env.TRACE;
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
@@ -129,8 +139,19 @@ if (process.platform !== "linux") {
 }
 const webviews = path.resolve(import.meta.dir, "..");
 
-type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
-type Template = { events: Rec[]; session: Record<string, unknown>; turns: number };
+type Rec = {
+  sessionId: string;
+  seq: number;
+  at: number;
+  dir: string;
+  kind: string;
+  msg: Record<string, unknown>;
+};
+type Template = {
+  events: Rec[];
+  session: Record<string, unknown>;
+  turns: number;
+};
 const template = (turns: number): Template => {
   const { events, session } = papercutEvents({ turns, running: false });
   return { events: events as Rec[], session, turns };
@@ -148,7 +169,15 @@ const median = (values: number[]) => {
 };
 
 type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
+  nodes: {
+    id: number;
+    callFrame: {
+      functionName: string;
+      url: string;
+      lineNumber: number;
+      columnNumber: number;
+    };
+  }[];
   samples?: number[];
   timeDeltas?: number[];
 };
@@ -177,7 +206,9 @@ function entryTimes(
   cpu: CpuProfile,
   sources?: (file: string, line: number, column: number) => string,
 ): Map<string, number> {
-  const nodes = cpu.nodes as (CpuProfile["nodes"][number] & { children?: number[] })[];
+  const nodes = cpu.nodes as (CpuProfile["nodes"][number] & {
+    children?: number[];
+  })[];
   const parent = new Map<number, number>();
   for (const node of nodes) for (const child of node.children ?? []) parent.set(child, node.id);
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -234,7 +265,8 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
+    // HEAP_RETAINERS: names as written, so a holder reads as its source's (the minified build's are two letters).
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT, ...(HEAP_RETAINERS ? { minify: false } : {}) },
     logLevel: "error",
   });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
@@ -246,7 +278,9 @@ try {
       const pathname = new URL(request.url).pathname;
       const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
       if (!(await file.exists())) return new Response("not found", { status: 404 });
-      return new Response(file, { headers: pathname.endsWith(".css") ? { "cache-control": "max-age=3600" } : {} });
+      return new Response(file, {
+        headers: pathname.endsWith(".css") ? { "cache-control": "max-age=3600" } : {},
+      });
     },
   });
   releases.push(() => statics.stop(true));
@@ -267,7 +301,12 @@ try {
       grow = 0,
       runGrow = 0,
       match,
-    }: { profile?: string; grow?: number; runGrow?: number; match?: Launch } = {},
+    }: {
+      profile?: string;
+      grow?: number;
+      runGrow?: number;
+      match?: Launch;
+    } = {},
   ): Promise<Launch> => {
     // The stand-in daemon for this launch: `count` chats of `chat`, and what streamed into each since.
     const sessions = Array.from({ length: count }, (_, index) => ({
@@ -282,7 +321,9 @@ try {
       const extra = streamed.get(id);
       return extra?.length ? [...chat.events, ...extra] : chat.events;
     };
-    const lastSeqOf = (id: string) => recordsOf(id).at(-1)?.seq ?? 0;
+    // Read from the newest record, never from a copy of the chat: emit calls it once a record, and a copy a call made
+    // growing a chat by n records cost O(n^2) (200k records a grown chat, about 2 min of the bench's own CPU each).
+    const lastSeqOf = (id: string) => (streamed.get(id)?.at(-1) ?? chat.events.at(-1))?.seq ?? 0;
     const summaryOf = (id: string) => {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };
@@ -291,7 +332,12 @@ try {
       const id = String(params.sessionId ?? PAPERCUT_CHAT);
       switch (method) {
         case "initialize":
-          return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+          return {
+            protocolVersion: 1,
+            _meta: {
+              acpmux: { origin: "local", extensions: [], operations: [] },
+            },
+          };
         case "_acpmux/watch":
           return { sessions: sessions.map((s) => summaryOf(s.sessionId)) };
         case "_acpmux/attach": {
@@ -301,14 +347,23 @@ try {
             limit: Number(params.limit ?? 400),
             maxBytes: params.maxBytes,
           });
-          return { session: summaryOf(id), lastSeq: lastSeqOf(id), events: rekey(page, id), hasMore };
+          return {
+            session: summaryOf(id),
+            lastSeq: lastSeqOf(id),
+            events: rekey(page, id),
+            hasMore,
+          };
         }
         case "_acpmux/events": {
           const records = recordsOf(id);
           if (params.promptIndex === true) {
             const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
             const prompts = records.filter((record) => record.kind === "user_message" && record.seq < before);
-            return { events: rekey(prompts, id), hasMore: false, lastSeq: lastSeqOf(id) };
+            return {
+              events: rekey(prompts, id),
+              hasMore: false,
+              lastSeq: lastSeqOf(id),
+            };
           }
           if (params.beforeSeq !== undefined) {
             const { page, hasMore } = newestPage(records, {
@@ -332,7 +387,11 @@ try {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: Record<string, unknown>;
+          };
           if (message.id === undefined) return;
           ws.send(
             JSON.stringify({
@@ -344,12 +403,24 @@ try {
         },
       },
     });
-    const notify = (id: string, method: string, params: unknown) =>
-      sockets.get(id)?.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+    // Bun's send drops a message (returns 0) once a socket's buffer passes its backpressure limit; the daemon never
+    // drops one, so the bench counts drops and the grow loop waits for the pages to drain (backpressured, below).
+    let dropped = 0;
+    const notify = (id: string, method: string, params: unknown) => {
+      if (sockets.get(id)?.send(JSON.stringify({ jsonrpc: "2.0", method, params })) === 0) dropped += 1;
+    };
+    const backpressured = () => [...sockets.values()].some((ws) => ws.getBufferedAmount() > 1 << 20);
     const emit = (id: string, dir: string, kind: string, msg: Record<string, unknown>) => {
       const list = streamed.get(id) ?? [];
       streamed.set(id, list);
-      const record: Rec = { sessionId: id, seq: lastSeqOf(id) + 1, at: Date.now(), dir, kind, msg };
+      const record: Rec = {
+        sessionId: id,
+        seq: lastSeqOf(id) + 1,
+        at: Date.now(),
+        dir,
+        kind,
+        msg,
+      };
       list.push(record);
       notify(id, "_acpmux/event", record);
     };
@@ -370,7 +441,9 @@ try {
     });
     const root = server.process().pid!;
     const browser = await chromium.connect(server.wsEndpoint());
-    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    const context = await browser.newContext({
+      viewport: { width: 1200, height: 800 },
+    });
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
@@ -412,7 +485,12 @@ try {
         };
         new MutationObserver((records) => {
           wakes.mutations += records.length;
-        }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        }).observe(document, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        });
       });
     try {
       const origin = `http://127.0.0.1:${statics.port}`;
@@ -449,7 +527,10 @@ try {
             "agent_message_chunk",
             update({
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: `Running step ${step}: checking the lane. ` },
+              content: {
+                type: "text",
+                text: `Running step ${step}: checking the lane. `,
+              },
             }),
           );
           const call = `run-${step}`;
@@ -474,7 +555,15 @@ try {
               sessionUpdate: "tool_call_update",
               toolCallId: call,
               status: "completed",
-              content: [{ type: "content", content: { type: "text", text: `checks SUCCESS: ${step} passed` } }],
+              content: [
+                {
+                  type: "content",
+                  content: {
+                    type: "text",
+                    text: `checks SUCCESS: ${step} passed`,
+                  },
+                },
+              ],
             }),
           );
           batch += 3;
@@ -496,19 +585,34 @@ try {
       if (grow > 0) {
         // Grown: each chat takes `grow` finished turns live, GROW_BATCH records at a time, a frame apart.
         const began = performance.now();
+        // PROFILE: the shown page's CPU while it takes the grown turns, where a chat that grows slower than linearly
+        // shows its cost (the self and entry times below, and DIR/NAME-grow.cpuprofile).
+        const growProfiler = profile ? pages.at(-1)!.cdp : undefined;
+        if (growProfiler) {
+          await growProfiler.send("Profiler.enable");
+          await growProfiler.send("Profiler.start");
+        }
         for (let turn = 1, batch = 0; turn <= grow; turn++) {
           for (let index = 0; index < count && GROW_OPEN; index++) {
             const id = sessionId(index);
             const said = (sessionUpdate: string, fields: Record<string, unknown>) =>
               emit(id, "in", sessionUpdate, {
                 method: "session/update",
-                params: { sessionId: "agent-1", update: { sessionUpdate, ...fields } },
+                params: {
+                  sessionId: "agent-1",
+                  update: { sessionUpdate, ...fields },
+                },
               });
             if (turn === 1) {
-              emit(id, "mux", "user_message", { text: "Grown question: coordinate the lanes" });
+              emit(id, "mux", "user_message", {
+                text: "Grown question: coordinate the lanes",
+              });
               emit(id, "mux", "turn_started", {});
             }
-            emit(id, "mux", "user_message", { text: `Grown steer ${turn}`, steer: true });
+            emit(id, "mux", "user_message", {
+              text: `Grown steer ${turn}`,
+              steer: true,
+            });
             for (let chunk = 0; chunk < 7; chunk++)
               said("agent_message_chunk", {
                 messageId: `grown-${turn}`,
@@ -526,7 +630,12 @@ try {
             said("tool_call_update", {
               toolCallId: `grown-call-${turn}`,
               status: "completed",
-              content: [{ type: "content", content: { type: "text", text: `ok ${turn}` } }],
+              content: [
+                {
+                  type: "content",
+                  content: { type: "text", text: `ok ${turn}` },
+                },
+              ],
             });
             batch += 10;
           }
@@ -540,7 +649,10 @@ try {
                 sessionId: "agent-1",
                 update: {
                   sessionUpdate: "agent_message_chunk",
-                  content: { type: "text", text: `Grown answer ${turn}: the checks on the merged head are green.` },
+                  content: {
+                    type: "text",
+                    text: `Grown answer ${turn}: the checks on the merged head are green.`,
+                  },
                 },
               },
             });
@@ -549,19 +661,34 @@ try {
           }
           if (batch >= GROW_BATCH) {
             batch = 0;
-            // fixed-wait: one frame between batches, so the pages apply them as they would a fast stream.
+            // fixed-wait: one frame between batches, so the pages apply them as they would a fast stream; and while a
+            // page's socket holds over 1 MB unread, as the daemon's writes would wait on it.
             await Bun.sleep(16);
+            while (backpressured()) await Bun.sleep(16);
           }
         }
         const lastText = `Grown answer ${grow}:`;
-        for (const { page } of pages)
-          await page.waitForFunction((text) => document.body.textContent?.includes(text), lastText, {
-            timeout: 900_000,
-            polling: 1000,
-          });
-        console.log(
-          `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
-        );
+        try {
+          for (const { page } of pages)
+            await page.waitForFunction((text) => document.body.textContent?.includes(text), lastText, {
+              timeout: GROW_WAIT_MS,
+              polling: 1000,
+            });
+          console.log(
+            `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s` +
+              (dropped ? `; ${dropped} records dropped on backpressure` : ""),
+          );
+        } finally {
+          if (dropped) console.log(`  ${name}: ${dropped} records dropped on backpressure during the grow`);
+          // A grow that never shows its last turn still writes its profile: what the page was busy with instead.
+          if (growProfiler) {
+            const { profile: cpu } = (await growProfiler.send("Profiler.stop")) as { profile: CpuProfile };
+            fs.mkdirSync(profile!, { recursive: true });
+            fs.writeFileSync(path.join(profile!, `${name}-grow.cpuprofile`), JSON.stringify(cpu));
+            printTop(`  ${name}: grow profile, self ms (the shown page's main thread):`, selfTimes(cpu, sources), 30);
+            printTop(`  ${name}: grow profile, ms by entry (outermost script frame):`, entryTimes(cpu, sources), 20);
+          }
+        }
       }
       const window = async (seconds: number, during?: () => Promise<void>) => {
         const pids = renderers(root);
@@ -610,8 +737,14 @@ try {
         // (tried: 0 of 19 turned hidden). HIDDEN_FOCUS=1 keeps the old fake (the hidden pages keep their focus).
         for (const { page } of pages.slice(0, -1))
           await page.evaluate((blur) => {
-            Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-            Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              get: () => "hidden",
+            });
+            Object.defineProperty(document, "hidden", {
+              configurable: true,
+              get: () => true,
+            });
             document.dispatchEvent(new Event("visibilitychange"));
             if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
           }, !HIDDEN_FOCUS);
@@ -629,9 +762,19 @@ try {
       }
       // The shown page's V8 heap in use, MB (the pages share one isolate): a collection reads as a drop in it.
       const heapMB = async () =>
-        ((await pages.at(-1)!.cdp.send("Runtime.getHeapUsage")) as { usedSize: number }).usedSize / 2 ** 20;
+        (
+          (await pages.at(-1)!.cdp.send("Runtime.getHeapUsage")) as {
+            usedSize: number;
+          }
+        ).usedSize /
+        2 ** 20;
       const settleFrom = performance.now();
-      const settleSamples: { from: number; s: number; pct: number; heap: number }[] = [];
+      const settleSamples: {
+        from: number;
+        s: number;
+        pct: number;
+        heap: number;
+      }[] = [];
       const meanBar = match ? Math.max(SETTLE_PCT, SETTLE_K * match.idlePct) : undefined;
       let settleS: number | undefined;
       let settledMedian: number | undefined;
@@ -690,7 +833,9 @@ try {
         const self = new Map<string, number>();
         const entries = new Map<string, number>();
         for (const [index, cdp] of settleProfiled.entries()) {
-          const { profile: cpu } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+          const { profile: cpu } = (await cdp.send("Profiler.stop")) as {
+            profile: CpuProfile;
+          };
           const file = `${name}-settle${index ? `-${index}` : ""}.cpuprofile`;
           fs.writeFileSync(path.join(profile!, file), JSON.stringify(cpu));
           for (const [site, ms] of selfTimes(cpu, sources)) self.set(site, (self.get(site) ?? 0) + ms);
@@ -793,7 +938,9 @@ try {
           const self = new Map<string, number>();
           const entries = new Map<string, number>();
           for (const [index, cdp] of profiled.entries()) {
-            const { profile: cpu } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+            const { profile: cpu } = (await cdp.send("Profiler.stop")) as {
+              profile: CpuProfile;
+            };
             const file = profiled.length > 1 ? `${name}-idle-${index}.cpuprofile` : `${name}-idle.cpuprofile`;
             fs.writeFileSync(path.join(profile!, file), JSON.stringify(cpu));
             for (const [site, ms] of selfTimes(cpu, sources)) self.set(site, (self.get(site) ?? 0) + ms);
@@ -835,7 +982,11 @@ try {
         if (WAKES)
           for (const index of [0, count - 1]) {
             const sites = await pages[index]!.page.evaluate(() => {
-              const map = (globalThis as unknown as { __benchRafSites?: Map<string, number> }).__benchRafSites;
+              const map = (
+                globalThis as unknown as {
+                  __benchRafSites?: Map<string, number>;
+                }
+              ).__benchRafSites;
               const out = map ? [...map] : [];
               map?.clear();
               return out;
@@ -895,7 +1046,12 @@ try {
         // Each window's rows (`${window}_frames_per_s`, ...): numbers of their own, never in ratio_max.
         const rows = (prefix: string, paint: Awaited<ReturnType<typeof paintWindow>>) => {
           const row = (key: string, value: number, unit: string) =>
-            perfRow({ name: `${ROW}.${name}.${prefix}_${key}`, p50: value, p95: value, unit });
+            perfRow({
+              name: `${ROW}.${name}.${prefix}_${key}`,
+              p50: value,
+              p95: value,
+              unit,
+            });
           row("frames_per_s", paint.framesPerS, "count");
           row("main_frames_per_s", paint.mainFramesPerS, "count");
           row("paints_per_s", paint.paintsPerS, "count");
@@ -928,14 +1084,23 @@ try {
         const openPct = await window(IDLE_S);
         const paint = await paintWindow(page, cdp, IDLE_S, sources);
         console.log(describePaintWindow(`${name} idle, turn open, ${openPct.toFixed(2)} % CPU`, paint));
-        perfRow({ name: `${ROW}.${name}.idle_open_cpu_pct`, p50: openPct, p95: openPct, unit: "pct", clock: "cpu" });
+        perfRow({
+          name: `${ROW}.${name}.idle_open_cpu_pct`,
+          p50: openPct,
+          p95: openPct,
+          unit: "pct",
+          clock: "cpu",
+        });
         rows("idle_open", paint);
         // A trickle: the open turn takes one reply chunk a second (a coordinator's slow stream), so what one record
         // costs in frames and paints shows beside the window above.
         let trickling = true;
         const trickle = (async () => {
           for (let n = 0; trickling; n++) {
-            said({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `still waiting ${n}. ` } });
+            said({
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: `still waiting ${n}. ` },
+            });
             // fixed-wait: the trickle's own pacing.
             await new Promise((resolve) => setTimeout(resolve, 1000));
           }
@@ -966,7 +1131,9 @@ try {
       let sent = 0;
       for (let round = 0; round < REPEAT; round++) {
         if (runGrow === 0) {
-          emit(shown, "mux", "user_message", { text: `Stream a reply ${round + 1}` });
+          emit(shown, "mux", "user_message", {
+            text: `Stream a reply ${round + 1}`,
+          });
           emit(shown, "mux", "turn_started", {});
           setStatus(shown, "running");
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -987,7 +1154,10 @@ try {
                   method: "session/update",
                   params: {
                     sessionId: "agent-1",
-                    update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word${sent} ` } },
+                    update: {
+                      sessionUpdate: "agent_message_chunk",
+                      content: { type: "text", text: `word${sent} ` },
+                    },
                   },
                 });
               // fixed-wait: the wall-clock pacing of the stream itself.
@@ -996,7 +1166,9 @@ try {
           }),
         );
         if (profile && round === 0) {
-          const { profile: cpu } = (await shownCdp.send("Profiler.stop")) as { profile: unknown };
+          const { profile: cpu } = (await shownCdp.send("Profiler.stop")) as {
+            profile: unknown;
+          };
           fs.mkdirSync(profile, { recursive: true });
           const file = path.join(profile, `${name}-streaming.cpuprofile`);
           fs.writeFileSync(file, JSON.stringify(cpu));
@@ -1039,10 +1211,97 @@ try {
           const chunks: string[] = [];
           const onChunk = (event: { chunk: string }) => chunks.push(event.chunk);
           cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
-          await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false } as never);
+          await cdp.send("HeapProfiler.takeHeapSnapshot", {
+            reportProgress: false,
+          } as never);
           cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
           fs.writeFileSync(path.join(HEAP_SNAPSHOT, `${name}-${label}.heapsnapshot`), chunks.join(""));
         }
+      }
+      if (HEAP_RETAINERS) {
+        // HEAP_RETAINERS=1: what holds the renderer's memory. Chromium's memory-infra dump of the renderers (V8, Blink's
+        // GC heap, PartitionAlloc's partitions, malloc, caches), then the JS heap's dominator tree and self size by
+        // class over the empty launch of the same count (heapRetainers.ts).
+        try {
+          const browserCdp = await browser.newBrowserCDPSession();
+          const events: { ph?: string; pid?: number; args?: { dumps?: { allocators?: Record<string, unknown> } } }[] =
+            [];
+          browserCdp.on("Tracing.dataCollected", (event: { value: typeof events }) => events.push(...event.value));
+          const complete = new Promise((resolve) => browserCdp.once("Tracing.tracingComplete", resolve));
+          await browserCdp.send("Tracing.start", {
+            traceConfig: {
+              includedCategories: ["disabled-by-default-memory-infra"],
+              memoryDumpConfig: { triggers: [] },
+            },
+            transferMode: "ReportEvents",
+          } as never);
+          await browserCdp.send("Tracing.requestMemoryDump", {
+            deterministic: true,
+            levelOfDetail: "detailed",
+          } as never);
+          await browserCdp.send("Tracing.end");
+          await complete;
+          const rendererPids = new Set(pids);
+          for (const event of events) {
+            const allocators = event.args?.dumps?.allocators as
+              | Record<string, { attrs?: Record<string, { value?: string }> }>
+              | undefined;
+            if (event.ph !== "v" || !allocators || !rendererPids.has(event.pid!)) continue;
+            const sizes = Object.entries(allocators)
+              .map(([key, value]) => {
+                const attr = value.attrs?.effective_size ?? value.attrs?.size;
+                return [key, attr?.value ? parseInt(attr.value, 16) / 1048576 : 0] as const;
+              })
+              .filter(([key, size]) => key.split("/").length <= 3 && size >= 0.5 && !key.includes("0x"))
+              .sort((a, b) => a[0].localeCompare(b[0]));
+            console.log(`heap-retainers ${name}: renderer ${event.pid} allocators (MB):`);
+            for (const [key, size] of sizes) console.log(`  ${size.toFixed(1).padStart(8)}  ${key}`);
+          }
+          await browserCdp.detach();
+        } catch (error) {
+          console.log(`heap-retainers ${name}: no memory-infra dump (${String(error).slice(0, 200)})`);
+        }
+        // Each React component on the shown page drawn from a `rows` list, with that list's length: the rows a view
+        // holds, beside the rows its chat holds.
+        const rowLists = await shownPage.page.evaluate(() => {
+          const out: string[] = [];
+          const seen = new Set<unknown>();
+          type Fiber = { child?: Fiber; sibling?: Fiber; memoizedProps?: Record<string, unknown>; type?: unknown };
+          const nameOf = (type: unknown): string =>
+            typeof type === "function"
+              ? (type as { displayName?: string; name?: string }).displayName || (type as { name: string }).name
+              : typeof type === "object" && type !== null
+                ? nameOf((type as { type?: unknown; render?: unknown }).type ?? (type as { render?: unknown }).render)
+                : String(type);
+          const roots = [document, ...document.querySelectorAll("body, body > *")];
+          for (const node of roots) {
+            const key = Object.keys(node).find(
+              (k) => k.startsWith("__reactContainer$") || k.startsWith("__reactFiber$"),
+            );
+            if (!key) continue;
+            const stack: Fiber[] = [(node as unknown as Record<string, Fiber>)[key]!];
+            while (stack.length && out.length < 40) {
+              const fiber = stack.pop()!;
+              if (!fiber || seen.has(fiber)) continue;
+              seen.add(fiber);
+              for (const [prop, value] of Object.entries(fiber.memoizedProps ?? {}))
+                if (Array.isArray(value) && value.length > 200 && !seen.has(value)) {
+                  seen.add(value);
+                  out.push(`${nameOf(fiber.type)}.${prop}=${value.length}`);
+                }
+              if (fiber.sibling) stack.push(fiber.sibling);
+              if (fiber.child) stack.push(fiber.child);
+            }
+          }
+          return out;
+        });
+        console.log(`heap-retainers ${name}: row lists ${rowLists.join(" ")}`);
+        const domCounters = (await shownPage.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
+        console.log(`heap-retainers ${name}: shown page DOM counters ${JSON.stringify(domCounters)}`);
+        const snapshot = await takeSnapshot(shownPage.cdp);
+        const base = name.startsWith("empty") ? undefined : retainerBase.get(count);
+        const summary = printRetainers(name, snapshot, base);
+        if (name.startsWith("empty")) retainerBase.set(count, summary);
       }
       if (count === 1 && RESIZE) {
         const { page, cdp } = pages[0]!;
@@ -1075,13 +1334,49 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
-      const row: Launch = { name, idlePct, streamPct, mb, heapMb, renderers: pids.length, settleS: settledS, capped };
-      perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settledS, p95: settledS, unit: "s" });
-      perfRow({ name: `${ROW}.${name}.cpu_settle_capped`, p50: Number(capped), p95: Number(capped), unit: "count" });
-      perfRow({ name: `${ROW}.${name}.settle_spike_cpu_s`, p50: spikeCpuS, p95: spikeCpuS, unit: "s", clock: "cpu" });
-      perfRow({ name: `${ROW}.${name}.idle_gc_windows`, p50: idleGcWindows, p95: idleGcWindows, unit: "count" });
+      const row: Launch = {
+        name,
+        idlePct,
+        streamPct,
+        mb,
+        heapMb,
+        renderers: pids.length,
+        settleS: settledS,
+        capped,
+      };
+      perfRow({
+        name: `${ROW}.${name}.cpu_settle_s`,
+        p50: settledS,
+        p95: settledS,
+        unit: "s",
+      });
+      perfRow({
+        name: `${ROW}.${name}.cpu_settle_capped`,
+        p50: Number(capped),
+        p95: Number(capped),
+        unit: "count",
+      });
+      perfRow({
+        name: `${ROW}.${name}.settle_spike_cpu_s`,
+        p50: spikeCpuS,
+        p95: spikeCpuS,
+        unit: "s",
+        clock: "cpu",
+      });
+      perfRow({
+        name: `${ROW}.${name}.idle_gc_windows`,
+        p50: idleGcWindows,
+        p95: idleGcWindows,
+        unit: "count",
+      });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
-      perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
+      perfRow({
+        name: `${ROW}.${name}.idle_cpu_pct`,
+        p50: idlePct,
+        p95: idlePct,
+        unit: "pct",
+        clock: "cpu",
+      });
       perfRow({
         name: `${ROW}.${name}.stream_cpu_pct`,
         p50: streamPct,
@@ -1089,8 +1384,18 @@ try {
         unit: "pct",
         clock: "cpu",
       });
-      perfRow({ name: `${ROW}.${name}.renderer_mb`, p50: mb, p95: mb, unit: "MB" });
-      perfRow({ name: `${ROW}.${name}.heap_mb`, p50: heapMb, p95: heapMb, unit: "MB" });
+      perfRow({
+        name: `${ROW}.${name}.renderer_mb`,
+        p50: mb,
+        p95: mb,
+        unit: "MB",
+      });
+      perfRow({
+        name: `${ROW}.${name}.heap_mb`,
+        p50: heapMb,
+        p95: heapMb,
+        unit: "MB",
+      });
       return row;
     } finally {
       await context.close().catch(() => undefined);
@@ -1107,10 +1412,17 @@ try {
   if (CASES !== "grown-many" && CASES !== "long-many") {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
-      const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE, match: emptyOne });
+      const longOne = await runLaunch("long_x1", long, 1, {
+        profile: PROFILE,
+        match: emptyOne,
+      });
       pairs.push(["long_x1", longOne, emptyOne]);
       if (CASES !== "long") {
-        const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns, match: emptyOne });
+        const grownOne = await runLaunch("grown_x1", small, 1, {
+          profile: PROFILE,
+          grow: long.turns,
+          match: emptyOne,
+        });
         pairs.push(["grown_x1", grownOne, emptyOne]);
       }
     }
@@ -1138,12 +1450,18 @@ try {
   if (emptyMany && CASES !== "grown-many")
     many.push([
       `long_x${CHATS}`,
-      await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE, match: emptyMany }),
+      await runLaunch(`long_x${CHATS}`, long, CHATS, {
+        profile: PROFILE,
+        match: emptyMany,
+      }),
     ]);
   if (emptyMany && CASES !== "main" && CASES !== "long" && CASES !== "long-many")
     many.push([
       `grown_x${CHATS}`,
-      await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns, match: emptyMany }),
+      await runLaunch(`grown_x${CHATS}`, small, CHATS, {
+        grow: long.turns,
+        match: emptyMany,
+      }),
     ]);
   if (emptyMany && many.length) {
     const after = await runLaunch(`empty_x${CHATS}_after`, small, CHATS);
@@ -1172,18 +1490,37 @@ try {
   }
   for (const [name, value] of ratios) {
     console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
-    perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
+    perfRow({
+      name: `${ROW}.${name}`,
+      p50: value,
+      p95: value,
+      unit: "x",
+      target: 1.2,
+      floor: 0.05,
+    });
   }
   // The JS heap's long/empty ratios: where a renderer MB ratio comes from, read beside ratio_max, never in it.
   for (const [label, big, base] of pairs) {
     const value = big.heapMb / base.heapMb;
     console.log(`chat-100k-flat: ${label}.heap_mb_ratio ${value.toFixed(2)}x`);
-    perfRow({ name: `${ROW}.${label}.heap_mb_ratio`, p50: value, p95: value, unit: "x" });
+    perfRow({
+      name: `${ROW}.${label}.heap_mb_ratio`,
+      p50: value,
+      p95: value,
+      unit: "x",
+    });
   }
   const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
   const maxRow = `${ROW}.ratio_max`;
-  perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
+  perfRow({
+    name: maxRow,
+    p50: max,
+    p95: max,
+    unit: "x",
+    target: 1.2,
+    floor: 0.05,
+  });
   // The longest CPU settle of a long, grown or running launch, beside the empty launches' own: a number of its own,
   // read against its own target in the goal record, never in ratio_max.
   const [slowest, settleMax] = pairs
@@ -1195,11 +1532,27 @@ try {
     `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s` +
       (cappedLaunches.length ? `; hit the ${SETTLE_MAX_S} s cap: ${cappedLaunches.map((l) => l.name).join(", ")}` : ""),
   );
-  perfRow({ name: `${ROW}.cpu_settle_capped`, p50: cappedLaunches.length, p95: cappedLaunches.length, unit: "count" });
-  perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
+  perfRow({
+    name: `${ROW}.cpu_settle_capped`,
+    p50: cappedLaunches.length,
+    p95: cappedLaunches.length,
+    unit: "count",
+  });
+  perfRow({
+    name: `${ROW}.cpu_settle_s_max`,
+    p50: settleMax,
+    p95: settleMax,
+    unit: "s",
+  });
   // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
   const excess = Math.max(0, settleMax - emptySettle);
-  perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
+  perfRow({
+    name: `${ROW}.cpu_settle_excess_s`,
+    p50: excess,
+    p95: excess,
+    unit: "s",
+    target: 2,
+  });
 } finally {
   await release();
 }

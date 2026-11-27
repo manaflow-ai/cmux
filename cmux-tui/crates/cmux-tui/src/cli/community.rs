@@ -114,6 +114,13 @@ pub(super) fn routed(words: &[String], is_file: impl Fn(&str) -> bool) -> Option
 /// A link carries nothing else that is used: any other parameter, a user, a
 /// port or a fragment is refused, so a link can never pass `--yes` or a flag.
 pub(super) fn link_reference(link: &str) -> Result<String, String> {
+    link_reference_at(link, "apps")
+}
+
+/// [`link_reference`] for the link of one kind of install: `apps` (an
+/// extension, theme or snippet) or `setups` (a setup repo,
+/// `<scheme>://setups/install?repo=...&commit=...`, from a cmux.com setup page).
+pub(super) fn link_reference_at(link: &str, kind: &str) -> Result<String, String> {
     let bad = |why: &str| Err(format!("{link}: {why}"));
     let Some((scheme, rest)) = link.split_once("://") else {
         return bad("not a cmux link");
@@ -128,10 +135,11 @@ pub(super) fn link_reference(link: &str) -> Result<String, String> {
         return bad("a link to install has no fragment");
     }
     let (location, query) = rest.split_once('?').unwrap_or((rest, ""));
-    if !location.eq_ignore_ascii_case("apps/install")
-        && !location.eq_ignore_ascii_case("apps/install/")
+    let install = format!("{kind}/install");
+    if !location.eq_ignore_ascii_case(&install)
+        && !location.eq_ignore_ascii_case(&format!("{install}/"))
     {
-        return bad("not an install link (<scheme>://apps/install?repo=HOST/OWNER/REPO)");
+        return bad(&format!("not an install link (<scheme>://{install}?repo=HOST/OWNER/REPO)"));
     }
     let (mut repo, mut commit) = (None, None);
     for pair in query.split('&').filter(|pair| !pair.is_empty()) {
@@ -381,6 +389,9 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 package.themes.join(", "),
                 package.art.images.len()
             );
+            if !package.art.applied.is_empty() {
+                human.push_str(&format!("\n  applied: {}", package.art.applied.join(", ")));
+            }
             if !package.fonts.files.is_empty() {
                 human.push_str(&format!(
                     "; {} font files ({})",
@@ -400,6 +411,7 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 "id": package.id,
                 "themes": package.themes,
                 "images": package.art.images,
+                "applied": package.art.applied,
                 "fonts": package.fonts.files,
                 "fontLicense": package.fonts.license,
                 "pending": package.art.pending,
@@ -624,6 +636,9 @@ fn install(
         if !package.art.images.is_empty() {
             human.push_str(&format!("; {} images", package.art.images.len()));
         }
+        if !package.art.applied.is_empty() {
+            human.push_str(&format!("\n  applied: {}", package.art.applied.join(", ")));
+        }
         if !package.fonts.files.is_empty() {
             human.push_str(&format!("; {} font files", package.fonts.files.len()));
         }
@@ -647,6 +662,7 @@ fn install(
         "receipt": receipt,
         "themes": package.themes,
         "images": package.art.images.len(),
+        "applied": package.art.applied,
         "fonts": package.fonts.files.len(),
         "pending": package.art.pending,
         "change": change,

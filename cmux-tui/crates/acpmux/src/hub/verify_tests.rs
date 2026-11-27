@@ -79,8 +79,28 @@ fn plan_picks_checks_by_language() {
         matches!(&checks[0], Check::Cargo { package, files, .. } if package == "cc" && files.len() == 2)
     );
     assert_eq!(checks.len(), 6);
-    assert!(checks.iter().any(|c| matches!(c, Check::NodeCheck { .. })));
+    assert!(checks.iter().any(|c| matches!(c, Check::Node { .. })));
     assert!(!checks.iter().any(|c| c.key().contains("swift")));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn rust_edition_follows_the_nearest_package_or_workspace() {
+    let dir = std::env::temp_dir().join(format!("verify-edition-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(dir.join("c")).unwrap();
+    std::fs::write(dir.join("Cargo.toml"), "[workspace.package]\nedition = \"2024\"\n").unwrap();
+    std::fs::write(
+        dir.join("c/Cargo.toml"),
+        "[package]\nname = \"cc\"\nversion = \"0.1.0\"\nedition.workspace = true\n",
+    )
+    .unwrap();
+    assert_eq!(cargo_edition(&dir.join("c/src/lib.rs")).as_deref(), Some("2024"));
+    std::fs::write(
+        dir.join("c/Cargo.toml"),
+        "[package]\nname = \"cc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    assert_eq!(cargo_edition(&dir.join("c/src/lib.rs")).as_deref(), Some("2021"));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -208,5 +228,78 @@ async fn an_edit_through_the_hub_finds_its_new_error() {
     assert_eq!(m["harnessMagic.verify.runs"], 1);
     assert_eq!(m["harnessMagic.verify.red"], 1);
     assert_eq!(m["harnessMagic.verify.notices"], 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn rustfmt_uses_the_file_package_or_workspace_edition() {
+    let dir = std::env::temp_dir().join(format!("verify-edition-{}", uuid::Uuid::now_v7()));
+    let write = |name: &str, text: &str| {
+        let file = dir.join(name);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, text).unwrap();
+        file
+    };
+    write(
+        "ws/Cargo.toml",
+        "[workspace]\nmembers = [\"modern\", \"legacy\", \"linked\"]\n[workspace.package]\nedition = \"2024\"\n",
+    );
+    write(
+        "ws/modern/Cargo.toml",
+        "[package]\nname = \"modern\"\nversion = \"0.1.0\"\nedition.workspace = true\n",
+    );
+    write(
+        "ws/legacy/Cargo.toml",
+        "[package]\nname = \"legacy\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(
+        "ws/linked/Cargo.toml",
+        "[package]\nname = \"linked\"\nversion = \"0.1.0\"\nworkspace = \"..\"\nedition.workspace = true\n",
+    );
+
+    write(
+        "ws/default/Cargo.toml",
+        r#"[package]
+name = "default"
+version = "0.1.0"
+"#,
+    );
+    let cases = [
+        (
+            "ws/modern/src/lib.rs",
+            "fn check(x: Option<bool>) { if let Some(v) = x && v {} }\n",
+            Some("2024"),
+            false,
+        ),
+        ("ws/legacy/src/lib.rs", "fn gen() {}\n", Some("2021"), false),
+        (
+            "ws/legacy/src/broken.rs",
+            "fn check(x: Option<bool>) { if let Some(v) = x && v {} }\n",
+            Some("2021"),
+            true,
+        ),
+        (
+            "ws/linked/src/lib.rs",
+            "fn check(x: Option<bool>) { if let Some(v) = x && v {} }\n",
+            Some("2024"),
+            false,
+        ),
+        (
+            "ws/loose.rs",
+            "fn check(x: Option<bool>) { if let Some(v) = x && v {} }\n",
+            Some("2024"),
+            false,
+        ),
+        ("ws/default/src/lib.rs", "fn async() {}\n", Some("2015"), false),
+        ("outside.rs", "fn gen() {}\n", None, false),
+    ];
+    for (name, source, edition, red) in cases {
+        let file = write(name, source);
+        assert_eq!(cargo_edition(&file).as_deref(), edition, "{name}");
+        let check = plan(&[file]).pop().unwrap();
+        let skip_slow: BTreeSet<String> = [check.key()].into_iter().collect();
+        let outcome = run_check(&check, &mut BTreeSet::new(), &skip_slow).await.unwrap();
+        assert_eq!(!outcome.lines.is_empty(), red, "{name}: {:?}", outcome.lines);
+    }
     std::fs::remove_dir_all(&dir).ok();
 }
