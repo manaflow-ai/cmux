@@ -21,15 +21,11 @@ func debugCEFPagesReport(_ services: AppServices) -> JSONValue {
 }
 
 /// `debug.cef_page_devtools {browser, method, params}`: a DevTools method on one of cmux's own Chromium pages by browser
-/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:timeout:)``). `timeout_ms`
-/// (default 5000, at most 600000) bounds the wait for Chromium's answer: a script awaited in the page (a measured scroll)
-/// may take longer than the default.
+/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:timeoutMS:)``).
 @MainActor
 func debugCEFPageDevTools(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
-    let ms = min(max(params["timeout_ms"]?.intValue ?? 5000, 1), 600_000)
     let answer = await services.cache.cef.cmuxPageDevTools(browser: params["browser"]?.intValue, method: params["method"]?.stringValue,
-                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue),
-                                                           timeout: .milliseconds(ms))
+                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue), timeoutMS: params["timeout_ms"]?.intValue)
     return .object([answer.error == nil ? "result" : "error": .string(answer.error ?? answer.result ?? "")])
 }
 
