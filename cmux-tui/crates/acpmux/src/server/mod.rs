@@ -107,6 +107,7 @@ mod goal;
 mod harness_admin;
 mod harness_enable;
 mod held_rows;
+mod history;
 pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;
@@ -234,6 +235,9 @@ mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
 mod stream_cursor_tests;
+#[cfg(test)]
+#[path = "stream_prev_tests.rs"]
+mod stream_prev_tests;
 mod subsessions;
 mod surgery;
 /// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
@@ -318,6 +322,11 @@ pub struct SubOpts {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+    /// The seq of the last record this event stream sent the client for this chat (0: none yet):
+    /// the next one carries it as `prev`, so a client whose newest record is older knows records
+    /// were lost on the way (a bridge, a relay, a dropped frame) and reads them from its cursor,
+    /// instead of drawing a hole a reload alone repaired (`stream_prev`).
+    pub stream_sent: u64,
 }
 
 /// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
@@ -1198,6 +1207,23 @@ impl Conn {
         Ok(())
     }
 
+    /// The `prev` of an event-stream record of `session_id` with `seq` going out now: the seq of
+    /// the record this stream sent before it (0 when none since the attach, or `seq` is not past
+    /// it), and `seq` becomes the stream's last. A client that holds less than `prev` missed
+    /// records the stream sent: it reads them from its cursor (`_acpmux/events {afterSeq}`), the
+    /// read a reload did (Leo, 2026-11-22: "we need to make sure any solutions that reloading
+    /// would help with, we never encounter those classes of bugs in the first place.").
+    fn stream_prev(&self, session_id: &str, seq: u64) -> u64 {
+        let mut subs = self.subs.lock_or_recover();
+        let Some(sub) = subs.get_mut(session_id) else { return 0 };
+        let prev = sub.stream_sent;
+        if seq <= prev {
+            return 0;
+        }
+        sub.stream_sent = seq;
+        prev
+    }
+
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -1890,7 +1916,7 @@ pub async fn serve_ws_gated(
                     () = read_shutdown.closing() => {},
                     () = async {
                         // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                        let ended = ws_read_ahead::read_ahead(ws_read_ahead::idle_bound(source, ws_read_ahead::IDLE_BOUND), |frame| {
                             let (frames, in_tx) = (frames.clone(), in_tx.clone());
                             async move {
                                 match frame {
