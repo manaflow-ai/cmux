@@ -219,6 +219,9 @@ on:
       - "docs/mdm/com.manaflow.cmux.json"
       - "docs/mdm/com.manaflow.cmux.plist"
       - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/row-facts.json"
+      - "schemas/settings/source/samples.json"
+      - "schemas/window-registry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -423,6 +426,9 @@ on:
       - "docs/mdm/com.manaflow.cmux.json"
       - "docs/mdm/com.manaflow.cmux.plist"
       - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/row-facts.json"
+      - "schemas/settings/source/samples.json"
+      - "schemas/window-registry/vectors.json"
   workflow_dispatch:
 
 concurrency:
