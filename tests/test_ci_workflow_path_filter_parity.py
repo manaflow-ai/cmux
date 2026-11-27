@@ -88,8 +88,6 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/ci/lib/signing-runtime-guard.sh", "scripts/ci/macho_minos.py",
             "scripts/ci/swift_incremental_diagnostics.py", "scripts/cmux-next/cef-license/LICENSE.txt",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt",
-            # The web jobs' own-bun step (#48817); pull requests admit it through scripts/cmux-next/**.
-            "scripts/cmux-next/private-bun.sh",
         }),
         "base pushes also compile for the nightly release inputs, so a nightly repair "
         "earns its Release compile before promotion; the base-red classifier runs "
