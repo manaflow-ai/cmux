@@ -88,13 +88,17 @@ pub struct View {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hidden {
     Closed,
+    /// Archived (`acpmux archive`, the inactive archive, the lifecycle pass): off the lists,
+    /// counted, as the app's list leaves them out; `ls --archived` lists them.
+    Archived,
     Reviewer,
     SubSession,
     Unnamed,
 }
 
-const HIDDEN_ORDER: [(Hidden, &str); 4] = [
+const HIDDEN_ORDER: [(Hidden, &str); 5] = [
     (Hidden::Closed, "closed"),
+    (Hidden::Archived, "archived"),
     (Hidden::Reviewer, "reviewers"),
     (Hidden::SubSession, "sub-sessions"),
     (Hidden::Unnamed, "unnamed"),
@@ -103,6 +107,9 @@ const HIDDEN_ORDER: [(Hidden, &str); 4] = [
 fn hidden(row: &Value) -> Option<Hidden> {
     if row.get_str("status").unwrap_or("") == "closed" {
         return Some(Hidden::Closed);
+    }
+    if crate::cli::run::ls_archived::archived(row) {
+        return Some(Hidden::Archived);
     }
     let tags = row
         .get("tags")
