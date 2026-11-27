@@ -18,6 +18,12 @@ The next full `scripts/update-spec.sh` refresh supersedes these entries.
   device key; the hub then binds the credential to that key. The proof routes
   (`/v1/machines/credentials/self/challenge` and `/session`) are called by hand
   in `acpmux/src/mesh_http.rs` with the device's own credential.
+- `POST /v1/machines/{id}/fork` request body `size`: the optional ladder
+  enum (`sm`, `md`, `lg`, `xl`, `2xl`) from `manaflow-ai/cmux-platform`
+  `openapi.json` at `0f11d03a30b9f22a0b46145a336c58a250b2e355` (PR #2323,
+  merged 2026-11-27; RFD 0144 piece 8). The copy starts at that size, never
+  smaller than the source. An older hub refuses the field with 400; the
+  run VM then runs here, as any refused fork does.
 
 `tests/web_redeem.rs` exercises the generated client's actual HTTP request,
 success response, old-hub refusals and redirects. A merged platform schema is

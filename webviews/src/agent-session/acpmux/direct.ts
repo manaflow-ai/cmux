@@ -31,6 +31,7 @@ import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
+  AcpmuxModelCall,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -118,7 +119,7 @@ import {
 } from "./attachParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource, HOLD_ATTACH_CAPABILITY } from "./rows/chatSource";
-import { holdAttach, holdReads } from "./rows/holdKinds";
+import { holdAttach, holdAttachRefused, holdReads } from "./rows/holdKinds";
 import {
   forgetTail,
   keptEvents,
@@ -564,6 +565,22 @@ const QUEUE_WITHDRAWN_KEPT = 16;
 /// context a harness holds (Claude Code's result repeats its last call's for the context ring;
 /// other harnesses, whatever their family, report only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// When a marked call went out and came back, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs): unix ms on the daemon's clock, the clock of every event's `at`.
+/// None from an older daemon, or for times that do not read.
+const modelCallTiming = (update: any): AcpmuxModelCall | undefined => {
+  const timing = update?._meta?.acpmux?.timing;
+  const first = Number(timing?.firstTokenAt);
+  const last = Number(timing?.lastTokenAt);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return undefined;
+  const request = Number(timing?.requestAt);
+  return {
+    ...(Number.isFinite(request) && request <= first && { requestAt: request }),
+    firstTokenAt: first,
+    lastTokenAt: last,
+    ...(timing?.thought === true && { thought: true as const }),
+  };
+};
 /// The generated side of one model call. Older daemons only sent `used`, which is a context
 /// snapshot and must never be mistaken for output; those calls therefore do not contribute.
 const callOutputTokens = (update: any): number | undefined => {
@@ -6662,38 +6679,51 @@ export class AcpmuxDirectClient {
     const attending = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible, undefined, attending) : undefined;
     // `forward: false` drops `afterSeq` (an `undefined` argument would take the default back).
-    const ask = (settled: boolean, forward = true) =>
+    const plainAsk = (settled: boolean, forward = true) =>
       this.typed(
         "_acpmux/attach",
-        hold ??
-          plainAttach(sessionId, {
-            settled,
-            visible,
-            attending,
-            local: guess ? guess.local : this.localOrigin,
-            maxBytes: OPEN_PAGE_BYTES,
-            afterSeq: forward ? afterSeq : undefined,
-          }),
+        plainAttach(sessionId, {
+          settled,
+          visible,
+          attending,
+          local: guess ? guess.local : this.localOrigin,
+          maxBytes: OPEN_PAGE_BYTES,
+          afterSeq: forward ? afterSeq : undefined,
+        }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
     // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
+    const plain = () =>
+      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && afterSeq === undefined
+        ? plainAsk(true).catch((error: unknown) => {
+            if (!settledAttachFailed(error)) throw error;
+            return plainAsk(false);
+          })
+        : plainAsk(false);
+    const sent: SentAttach = { attaching: Promise.resolve(), hold: !!hold };
+    // A host whose params rule does not take `hold` (a page newer than its app) refuses the hold as
+    // malformed: the chat falls to v1 and asks the plain attach, so it opens with no error line
+    // (Leo's NIGHTLY 2026-11-16: every chat on the store said "Something went wrong" after a restart).
     // So too a reconnect's forward attach that a host refuses as malformed (a relay whose params rule
     // does not take `afterSeq`, as every one before Leo's 2026-11-22 report): asked again for the
     // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
     // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
-    const attaching =
-      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
-        ? ask(true).catch((error: unknown) => {
-            if (!settledAttachFailed(error)) throw error;
-            return ask(false);
+    const attaching = hold
+      ? this.typed("_acpmux/attach", hold).catch((error: unknown) => {
+          if (!holdAttachRefused(error)) throw error;
+          console.warn("agent pane: the host refused the row store's hold; the chat opens on v1", error);
+          this.chatRows.holdRefused(sessionId);
+          sent.hold = false;
+          return plain();
+        })
+      : afterSeq !== undefined
+        ? plainAsk(false).catch((error: unknown) => {
+            if (!forwardAttachRefused(error)) throw error;
+            this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
+            return plainAsk(false, false);
           })
-        : !hold && afterSeq !== undefined
-          ? ask(false).catch((error: unknown) => {
-              if (!forwardAttachRefused(error)) throw error;
-              this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
-              return ask(false, false);
-            })
-          : ask(false);
+        : plain();
+    sent.attaching = attaching;
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
@@ -6707,7 +6737,8 @@ export class AcpmuxDirectClient {
       },
       () => settled(),
     );
-    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined, hold: !!hold };
+    sent.reads = reads ? this.startAttachReads(sessionId) : undefined;
+    return sent;
   }
 
   /// The attach asked with the list for a chat that may draw from the store: the switch is asked
@@ -6733,7 +6764,11 @@ export class AcpmuxDirectClient {
         const out = this.sendAttach(sessionId, generation, false, undefined, guess);
         sent.hold = out.hold;
         sent.switched = true;
-        return out.attaching;
+        // A refused hold that fell to v1 clears `out.hold` before its attach settles.
+        return out.attaching.then((result: unknown) => {
+          sent.hold = out.hold;
+          return result;
+        });
       });
     return sent;
   }
@@ -10229,6 +10264,8 @@ export class AcpmuxDirectClient {
       // count belongs on the running line; adding `used` here counted the whole context again on
       // every tool step (for example, 5 × 100K input became 500K instead of 5K output). What the
       // calls read stays apart, in the split, for the line's "in" and its hover.
+      const timed = isCallUsage(update) ? modelCallTiming(update) : undefined;
+      if (timed) this.timeModelCall(timed);
       if (this.turnTokens !== undefined && isCallUsage(update)) {
         const output = callOutputTokens(update);
         if (output !== undefined) this.turnTokens += output;
@@ -11120,6 +11157,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "assistant",
         ...(messageTurnStartedAtMs !== undefined && { turnStartedAtMs: messageTurnStartedAtMs }),
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
         text: `${existing?.text ?? ""}${text}`,
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
@@ -11185,6 +11223,7 @@ export class AcpmuxDirectClient {
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
         streaming: true,
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -11264,6 +11303,7 @@ export class AcpmuxDirectClient {
         toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
@@ -11853,6 +11893,16 @@ export class AcpmuxDirectClient {
     const text = row.text ?? "";
     const claims = readClaims(msg.claims).filter((claim) => text.includes(claim.text));
     if (claims.length) this.rows.set(row.id, { ...row, version: row.version + 1, claims });
+  }
+
+  /// A model call acpmux timed goes on the row its output streamed into, which the turn's footer
+  /// Timeline reads (conversation/waterfallSpans.ts `turnWork`). A call read twice (a catch-up over
+  /// events already read) is kept once.
+  private timeModelCall(call: AcpmuxModelCall): void {
+    const id = this.streamingActivity ?? this.streamingAssistant;
+    const row = id === undefined ? undefined : this.rows.get(id);
+    if (!row || row.modelCalls?.some((held) => held.lastTokenAt === call.lastTokenAt)) return;
+    this.rows.set(id!, { ...row, version: row.version + 1, modelCalls: [...(row.modelCalls ?? []), call] });
   }
 
   private endAssistantSegment(): void {
