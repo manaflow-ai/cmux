@@ -135,6 +135,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BASE_REF: feat-cmux-next
           PR: ${{ steps.pr.outputs.number }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: |
@@ -147,10 +148,50 @@ jobs:
           fi
           apply=base/scripts/cmux-next/pr-autofix-apply.sh
           # Only what the pull request owns (#21946): its own files, and outputs whose inputs it changed.
-          # The list comes from the files API, not the artifact.
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
-          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head --changed "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          # The list comes from the files API or git, never the artifact. github.token's quota is the
+          # repo's, shared with every job here, and it runs dry ("API rate limit exceeded for
+          # installation"), so a failed listing falls back to git, as namespace-autofix.yml does (#59292,
+          # #59545): deepen the depth-1 head and the base tip in head/ until they meet, and diff from their
+          # merge base, the same three-dot diff the files API lists. --no-renames lists a rename's old
+          # and new paths and keeps deletions, as filename + previous_filename does.
+          changed="$RUNNER_TEMP/changed.txt"
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' > "$changed"; then
+            echo "::warning::Listing the PR's files through the API failed (see above); using git's merge-base diff instead."
+            # base/ is a sparse checkout of the tip's scripts only, so the base tip is fetched into head/.
+            if ! git -C head fetch --no-tags --quiet --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+              echo "::error::Both sources of the PR's files failed: the API listing and git, which could not fetch $BASE_REF (above). Rerun the job."
+              exit 1
+            fi
+            merge_base=""
+            fetch_failed=""
+            for deepen in 100 400 1600 6400; do
+              merge_base="$(git -C head merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/dev/null || true)"
+              [ -z "$merge_base" ] || break
+              # One fetch per side: given both at once, git deepened only one of them.
+              if ! git -C head fetch --no-tags --quiet --deepen="$deepen" origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                fetch_failed="deepening $BASE_REF by $deepen"; break
+              fi
+              if ! git -C head fetch --no-tags --quiet --deepen="$deepen" origin "+refs/pull/$PR/head:refs/remotes/pr/head"; then
+                fetch_failed="deepening the PR head by $deepen"; break
+              fi
+            done
+            [ -n "$merge_base" ] || merge_base="$(git -C head merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/dev/null || true)"
+            if [ -z "$merge_base" ]; then
+              # Refuse, never guess: without the PR's own list, --changed would push repairs it does not own.
+              if [ -n "$fetch_failed" ]; then
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, whose fetch failed while $fetch_failed (above). Rerun the job."
+              else
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_REF and ${HEAD_SHA:0:12} within 8500 commits. Rerun once the API quota resets."
+              fi
+              exit 1
+            fi
+            echo "Merge base: $merge_base"
+            # quotePath off: git otherwise prints non-ASCII paths quoted and escaped
+            # ("Packages/\303\251.swift"), which the API never does and --changed would never match.
+            git -C head -c core.quotePath=false diff --no-renames --name-only "$merge_base" "$HEAD_SHA" > "$changed"
+          fi
+          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head --changed "$changed" | tee -a "$GITHUB_STEP_SUMMARY"
           if ! git -C head status --porcelain | grep -q .; then
             echo "Every repair belongs to the base autofix; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "pushed=false" >> "$GITHUB_OUTPUT"

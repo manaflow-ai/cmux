@@ -832,6 +832,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate PR file listings fall back to git when the API quota runs dry
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_files_git_fallback.py
+
       - name: Validate the CLA quota re-run janitor
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cla_quota_rerun.py
