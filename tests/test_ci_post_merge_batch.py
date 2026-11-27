@@ -783,6 +783,34 @@ class JudgeOriginUnreadableTest(unittest.TestCase):
         self.assertEqual((code, sent), (1, []))
 
 
+class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
+    def test_the_origin_check_walks_back_only_to_the_probe_jobs_green(self) -> None:
+        probe_job, other = "web / Web tests (2/4)", "web / web-typecheck"
+        batch = lambda rid, sha: {"id": rid, "status": "completed", "head_sha": sha * 40, "display_title": f"{pmb.BATCH} at {sha * 40}"}
+        runs = [batch(50, "5"), batch(40, "4"), batch(30, "3")]
+        judge = {"name": "judge", "status": "completed", "conclusion": "success"}
+        jobs = {60: [{"name": probe_job, "status": "completed", "conclusion": "failure"}, {"name": other, "status": "completed", "conclusion": "failure"}, judge],
+                50: [{"name": probe_job, "status": "completed", "conclusion": "success"}, {"name": other, "status": "completed", "conclusion": "failure"}, judge],
+                40: [{"name": probe_job, "status": "completed", "conclusion": "success"}, {"name": other, "status": "completed", "conclusion": "failure"}, judge],
+                30: [{"name": probe_job, "status": "completed", "conclusion": "success"}, {"name": other, "status": "completed", "conclusion": "success"}, judge],
+                70: [{"name": probe_job, "status": "completed", "conclusion": "failure"}]}
+        read: list[int] = []
+
+        def run_jobs(repo, rid, api=None):
+            read.append(int(rid))
+            return jobs[int(rid)]
+
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="6" * 40, suite="web", job=probe_job, only="web-tests", probe_sha="6" * 40,
+                         good="5" * 40, bad="", origin="60", tries="0", pieces="", dry_run=True, summary=None, github_output=None)
+        with mock.patch.object(pmb, "run_jobs", run_jobs), mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "gh_api", return_value=batch(60, "6")), \
+                mock.patch.object(pmb, "first_parent_range", return_value=["6" * 40]), mock.patch("sys.stderr"):
+            pmb.cmd_judge(args)
+        self.assertNotIn(40, read)
+        self.assertNotIn(30, read)
+
+
 class KnownVerdictTest(unittest.TestCase):
     commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
 

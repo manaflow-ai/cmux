@@ -960,7 +960,12 @@ def cmd_judge(args: argparse.Namespace) -> int:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
         if origin and is_batch(origin):
             before = list_runs(args.repo, args.branch, before=origin["id"], batches=LOOKBACK_BATCHES)
-            origin_verdicts = jobs_of(origin["id"])[0]
+            # Only the probe's own job: probe_refusal reads found for it alone, and new_reds and stuck_reds walk each
+            # red job on its own. All of the origin's reds walked back to the deepest one's green: at the 24-batch
+            # lookback (cmux#60187) that was every batch run, two job pages each, in every probe's judge (run
+            # 45931127675: 24 runs for any probe, 9 for its web-typecheck job, 2 for cmux-rd-host), and the
+            # installation's rate limit ended the web-typecheck chain at its culprit (probe 45897849727, 11-26 21:37Z).
+            origin_verdicts = {name: v for name, v in jobs_of(origin["id"])[0].items() if name == probe.job}
             found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
             found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
     except RuntimeError as err:
