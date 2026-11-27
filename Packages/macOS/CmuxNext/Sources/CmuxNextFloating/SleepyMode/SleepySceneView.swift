@@ -1,18 +1,18 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
-import SwiftUI
+public import SwiftUI
 
 /// Sleepy Mode's scene: a night sky with twinkling stars, a moon, drifting Zs,
 /// the clock and how many of this Mac's agents run a turn. A click anywhere
 /// but the Lock Mac button wakes it. The sky is Core Animation layers
 /// (``NightSkyView``), so a scene left up for hours costs the main thread only
 /// the clock's update once a minute and changes to the agent count.
-struct SleepySceneView: View {
+public struct SleepySceneView: View {
     let workingAgents: @MainActor () -> Int
     let wake: @MainActor () -> Void
     let lockMac: @MainActor () -> Void
 
-    var body: some View {
+    public var body: some View {
         ZStack {
             // The sky's loops run in the render server (NightSkyView): no frame runs app code.
             NightSky(loops: Motion.panes.animatesLoops)
@@ -59,7 +59,7 @@ struct SleepySceneView: View {
 extension SleepySceneView {
     /// The scene as an AppKit view, for a window's `contentView`: the overlay windows and the
     /// scene's tests take this, so only this file bridges the scene into AppKit.
-    static func hostView(workingAgents: @escaping @MainActor () -> Int,
+    public static func hostView(workingAgents: @escaping @MainActor () -> Int,
                          wake: @escaping @MainActor () -> Void,
                          lockMac: @escaping @MainActor () -> Void) -> NSView {
         NSHostingView(rootView: SleepySceneView(workingAgents: workingAgents, wake: wake, lockMac: lockMac))
