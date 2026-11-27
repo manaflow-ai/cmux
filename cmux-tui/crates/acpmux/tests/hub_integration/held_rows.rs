@@ -4,7 +4,7 @@ use super::*;
 
 #[tokio::test]
 async fn a_turns_opening_rows_are_all_sent_in_row_order_before_its_answer() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let s = c
         .request(
             method::SESSION_NEW,
@@ -36,11 +36,25 @@ async fn a_turns_opening_rows_are_all_sent_in_row_order_before_its_answer() {
             assert_eq!(kinds.iter().filter(|k| **k == opening).count(), 1, "{kinds:?} {methods:?}");
         }
         assert!(kinds.contains(&"status") && kinds.contains(&"turn_end"), "{kinds:?}");
-        // Row order is the order of their records: a held row is never passed by a later row.
+        // Every row stays in list order, including unlogged snapshot notices.
         let seqs: Vec<u64> = rows.iter().filter_map(|p| p["listSeq"].as_u64()).collect();
         assert_eq!(seqs.len(), rows.len(), "{rows:?}");
         assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{kinds:?} {seqs:?}");
-        let record_seqs: Vec<u64> = rows.iter().filter_map(|p| p["seq"].as_u64()).collect();
+        // A time-breakdown notice is not a journal record: its seq is the snapshot's
+        // current tail and can exceed a logged row already queued behind the notice.
+        let records = hub.events(&id, 0, 100_000).unwrap();
+        let record_seqs: Vec<u64> = rows
+            .iter()
+            .filter(|p| p["recordKind"] != "time_breakdown")
+            .map(|p| {
+                let seq = p["seq"].as_u64().expect("logged row sequence");
+                assert!(
+                    records.iter().any(|r| r.seq == seq && p["recordKind"] == r.kind),
+                    "row must identify its journal record: {p}"
+                );
+                seq
+            })
+            .collect();
         assert!(record_seqs.windows(2).all(|w| w[0] <= w[1]), "{kinds:?} {record_seqs:?}");
         // The row of each opening record carries that record's own seq, as its event does.
         for (m, p) in &seen {
