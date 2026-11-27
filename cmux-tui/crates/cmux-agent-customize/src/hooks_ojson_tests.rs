@@ -16,3 +16,18 @@ fn round_trip_keeps_key_order_and_numbers() {
 fn empty_file_is_an_empty_object() {
     assert_eq!(OJson::parse("  \n").unwrap(), OJson::object());
 }
+
+#[test]
+fn render_over_keeps_untouched_members_text() {
+    let old = "{\n  \"allow\": [\"a\", \"b\"],\n  \"hooks\": {}\n}\n";
+    let mut value = OJson::parse(old).unwrap();
+    // Unchanged: byte for byte, the compact array included.
+    assert_eq!(value.render_over(old), old);
+    if let Some(map) = value.as_object_mut() {
+        map.insert("hooks".to_owned(), OJson::parse("{\"Stop\": []}").unwrap());
+    }
+    assert_eq!(
+        value.render_over(old),
+        "{\n  \"allow\": [\"a\", \"b\"],\n  \"hooks\": {\n    \"Stop\": []\n  }\n}\n"
+    );
+}

@@ -5,6 +5,7 @@ import Foundation
 /// The pickers' items and their "Default" titles for one snapshot: "Default"
 /// alone says nothing, so for a field the owner has not chosen it names what the
 /// brain runs ("Default (claude)", "Default (Opus 5.5)"), from the brain's report.
+/// The rules are Rust's `chief_settings.engineTitles` (cmux-home-rules `chief_settings/engine.rs`).
 nonisolated struct HomeChiefEngineTitles {
     var harnesses: [(value: String, title: String)]
     /// Every model row's value and title, in the menu's order (``menu`` has its sections).
@@ -21,37 +22,108 @@ nonisolated struct HomeChiefEngineTitles {
 
     /// - Parameter listed: this Mac's acpmux harness ids, offered after the official engines.
     init(_ snapshot: HomeChiefSnapshot, recents: [String] = [], listed: [String] = []) {
-        harnesses = HomeChiefSettingsView.harnessItems(routeConfigured: snapshot.routeConfigured, listed: listed)
-        // The models acpmux offers for the engine's harness (cx-miuo), grouped and deduped;
-        // acpmux's own "default" is the picker's first item.
-        menu = HomeChiefModelMenu(models: snapshot.models, chosen: snapshot.model, recents: recents)
-        var seen = Set<String>()
-        models = menu.items.filter { seen.insert($0.value).inserted }.map { ($0.value, $0.title) }
-        let engine = snapshot.effective
-        // The model the turns run: the chosen one, else what Default runs (the brain's
-        // resolved model, else what acpmux's own "default" row resolves to).
-        let defaultRuns = engine?.model ?? snapshot.models.first { $0.id == "default" }?.resolvedModel
-        let running = (snapshot.model ?? defaultRuns).flatMap { HomeChiefModelMenu.release(of: $0, in: snapshot.models) }
-        let takes = running?.efforts.map { levels in
-            snapshot.efforts.isEmpty ? levels : levels.filter(snapshot.efforts.contains)
-        }
-        efforts = (takes.flatMap { $0.isEmpty ? nil : $0 } ?? snapshot.efforts).map { ($0, HomeEngineStrings.effortTitle($0)) }
-        offersFast = snapshot.speeds.contains("fast") && (running?.fast != false || snapshot.speed == "fast")
-        // The effective engine is engine.json over the brain's defaults, so it names what
-        // Default runs only for a field with no choice; a chosen field's Default stays plain.
-        defaultHarness = Self.titled((snapshot.harness == nil ? engine?.harness : nil).map { $0 == "default" ? $0 : ChiefBackend.title(for: $0) })
-        let defaultModelRow = snapshot.model == nil ? defaultRuns.flatMap { HomeChiefModelMenu.release(of: $0, in: snapshot.models) } : nil
-        // A model the catalog does not name reads by its id made readable, never the raw id.
-        defaultModel = Self.titled(snapshot.model == nil
-            ? defaultModelRow.map { $0.shortName ?? HomeChiefModelMenu.readable($0) } ?? defaultRuns.map { $0 == "default" ? $0 : HomeChiefModelMenu.name(of: $0, in: snapshot.models) }
-            : nil)
-        let defaultLevel = engine?.effort ?? running?.defaultEffort
-        defaultEffort = Self.titled((snapshot.effort == nil ? defaultLevel : nil).map(HomeEngineStrings.effortTitle))
+        let reply: Reply? = try? HomeRules.call(
+            "chief_settings.engineTitles",
+            Request(snapshot: HomeChiefSnapshotWire(snapshot), recents: recents, listed: listed, strings: HomeChiefRuleStrings()))
+        harnesses = reply?.harnesses.map { ($0.value, $0.title) } ?? []
+        models = reply?.models.map { ($0.value, $0.title) } ?? []
+        menu = HomeChiefModelMenu(entries: reply?.menu.entries.map(\.entry) ?? [])
+        efforts = reply?.efforts.map { ($0.value, $0.title) } ?? []
+        defaultHarness = reply?.defaultHarness ?? HomeEngineStrings.defaultValue
+        defaultModel = reply?.defaultModel ?? HomeEngineStrings.defaultValue
+        defaultEffort = reply?.defaultEffort ?? HomeEngineStrings.defaultValue
+        offersFast = reply?.offersFast ?? false
     }
 
     /// "Default (value)", or "Default" when the brain did not say (or says "default").
+    /// Rust's `chief_settings.defaultTitled`.
     static func titled(_ value: String?) -> String {
-        guard let value, !value.isEmpty, value != "default" else { return HomeEngineStrings.defaultValue }
-        return String(format: HomeEngineStrings.defaultNamedFormat, value)
+        (try? HomeRules.call("chief_settings.defaultTitled", TitledRequest(value: value, strings: HomeChiefRuleStrings())))
+            ?? HomeEngineStrings.defaultValue
+    }
+
+    private nonisolated struct Request: Encodable {
+        var snapshot: HomeChiefSnapshotWire
+        var recents: [String]
+        var listed: [String]
+        var strings: HomeChiefRuleStrings
+    }
+
+    private nonisolated struct TitledRequest: Encodable {
+        var value: String?
+        var strings: HomeChiefRuleStrings
+    }
+
+    private nonisolated struct Pick: Decodable {
+        var value: String
+        var title: String
+    }
+
+    private nonisolated struct Reply: Decodable {
+        var harnesses: [Pick]
+        var models: [Pick]
+        var menu: HomeChiefModelMenu.Reply
+        var efforts: [Pick]
+        var defaultHarness: String
+        var defaultModel: String
+        var defaultEffort: String
+        var offersFast: Bool
+    }
+}
+
+/// ``HomeChiefSnapshot`` as the rules read and return it (cmux-home-rules `chief_settings::Snapshot`):
+/// every field but the trace's turns, which stay in Swift.
+nonisolated struct HomeChiefSnapshotWire: Codable {
+    var harness: String?
+    var model: String?
+    var effort: String?
+    var speed: String?
+    var avatar: String?
+    var routeConfigured: Bool
+    var models: [ChiefEngineReport.Model]
+    var efforts: [String]
+    var speeds: [String]
+    var effective: ChiefEngineReport.Engine?
+    var classifierHarness: String?
+    var classifierModel: String?
+    var classifierPrompt: String?
+    var reactionsCanWake: String?
+    var brainOff: Bool
+    var computer: String?
+
+    init(_ snapshot: HomeChiefSnapshot) {
+        harness = snapshot.harness
+        model = snapshot.model
+        effort = snapshot.effort
+        speed = snapshot.speed
+        avatar = snapshot.avatar
+        routeConfigured = snapshot.routeConfigured
+        models = snapshot.models
+        efforts = snapshot.efforts
+        speeds = snapshot.speeds
+        effective = snapshot.effective
+        classifierHarness = snapshot.classifierHarness
+        classifierModel = snapshot.classifierModel
+        classifierPrompt = snapshot.classifierPrompt
+        reactionsCanWake = snapshot.reactionsCanWake
+        brainOff = snapshot.brainOff
+        computer = snapshot.computer
+    }
+
+    /// The snapshot these fields make, with `turns` (the rules never see the trace).
+    func snapshot(turns: [HomeEngineTurn]) -> HomeChiefSnapshot {
+        var snapshot = HomeChiefSnapshot(harness: harness, model: model, effort: effort, speed: speed, avatar: avatar, turns: turns)
+        snapshot.routeConfigured = routeConfigured
+        snapshot.models = models
+        snapshot.efforts = efforts
+        snapshot.speeds = speeds
+        snapshot.effective = effective
+        snapshot.classifierHarness = classifierHarness
+        snapshot.classifierModel = classifierModel
+        snapshot.classifierPrompt = classifierPrompt
+        snapshot.reactionsCanWake = reactionsCanWake
+        snapshot.brainOff = brainOff
+        snapshot.computer = computer
+        return snapshot
     }
 }
