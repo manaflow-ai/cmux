@@ -66,7 +66,7 @@ extension DaemonLauncher {
 
     /// The packaged `--version --json` of `binary`; nil when there is no file or it does not parse.
     static func readBuildStamp(beside binary: URL) -> DaemonBuildStamp? {
-        guard let data = try? Data(contentsOf: buildStampFile(beside: binary)),
+        guard let data = try? Data(blockingContentsOf: buildStampFile(beside: binary)),
               let stamp = DaemonBuildStamp(versionJSON: data), stamp.commit != nil || stamp.id != nil else { return nil }
         return stamp
     }
