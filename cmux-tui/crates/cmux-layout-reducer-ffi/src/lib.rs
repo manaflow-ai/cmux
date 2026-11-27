@@ -32,6 +32,8 @@
 //! chats fold behind Settled, and what Archive Settled Chats archives),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-rd-core`'s Mac Screen device hub rules (`rd_hub_*`: the host's ticket admission, a
+//! viewer tab's progress with the hub, end reasons, refusals, access and default sharing),
 //! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
 //! `auto_name_hold_step`: one step of the state the app holds),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested

@@ -339,6 +339,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `workspace-factory.sh` | Throwaway per-job workspace from a read-only seed vs today's step workspaces, one real SwiftPM prebuild (bench workspace-factory). | hq RFD 0005 | 2026-11-17 | active |
 | `workspace-factory` | `wsfactory`, the std-only Rust factory the script builds: seed publish/verify, create, destroy, reconcile. | hq RFD 0005 | 2026-11-17 | active |
+| `ci140-unmapped` | `unmapped.py`: PR job minutes the ci140 reuse measurement could not map to a head SHA, by reason, workflow, job and event, plus a minutes-weighted API sample of their real head SHAs: new head vs the same input as an earlier green. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 | `quiet-host.sh` | Runs one measurement on a quiet host and records other CPU use. | - | 2026-10-31 | active |
 | `require-chromium.sh` | Sourced by an entry that builds its app: the build requires the Chromium engine unless `--allow-no-chromium`. Measures nothing. | - | 2026-11-16 | active |
 | `bench-ab` | Interleaved A/B driver for fleet benches with A/A self-test and intervals. | - | 2026-11-06 | active |
