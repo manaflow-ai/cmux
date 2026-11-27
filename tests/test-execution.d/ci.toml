@@ -335,6 +335,10 @@ path = "tests/test_ci_gallery_health_merge_ref.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_gallery_probe_entries.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_gateway_jobs_on_linux.py"
 lane = "linux-guard"
 

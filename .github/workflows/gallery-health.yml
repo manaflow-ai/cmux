@@ -52,6 +52,10 @@ on:
         description: "The commit the red states are judged against (the post-merge batch's last judged batch head, or a bisect probe's known-good commit): a state red there too is a standing red, listed by name and not failed. Empty: no base, every red state fails."
         type: string
         default: ""
+      origin:
+        description: "A post-merge bisect probe's origin batch run id. Set: render only the entries of that run's own red states (scripts/ci/gallery_probe_entries.py), not the whole gallery. Empty, or the origin's reds cannot be read: render as before."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       screenshots:
@@ -195,9 +199,13 @@ jobs:
     if: ${{ (inputs.only == '' || inputs.only == 'health') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
+    # actions: read downloads the origin batch run's health artifacts (a bisect probe only).
+    permissions:
+      actions: read
+      contents: read
     outputs:
-      all: ${{ steps.entries.outputs.all }}
-      ids: ${{ steps.entries.outputs.ids }}
+      all: ${{ steps.size.outputs.all }}
+      ids: ${{ steps.size.outputs.ids }}
       cases: ${{ steps.size.outputs.cases }}
       shards: ${{ steps.size.outputs.shards }}
       split: ${{ steps.size.outputs.split }}
@@ -274,6 +282,23 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # A post-merge bisect probe asks whether the origin batch's red is at one commit. It rendered the whole
+      # gallery, about 22 shards and 400 runner-minutes, for a red of a few states: 8 such probes in 3.5 h were
+      # most of the post-merge batch's 12.2 CI minutes per merged PR (2026-11-27, goal ci-min-per-pr-30; Leo:
+      # "de facto, im asking for 99% fewer minutes of ci time, period."). It renders the entries of the
+      # origin's own red states instead. Any doubt (no artifact, a crash, a cut-short render) renders everything.
+      - name: Read the origin batch run's red entries
+        if: ${{ inputs.origin != '' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN: ${{ inputs.origin }}
+        run: |
+          set -euo pipefail
+          gh run download "$ORIGIN" -R "$GITHUB_REPOSITORY" -p 'gallery-health-*' -D "$RUNNER_TEMP/origin"
+          python3 scripts/ci/gallery_probe_entries.py "$RUNNER_TEMP/origin" > "$RUNNER_TEMP/origin-entries.txt"
+          echo "the origin run's own red entries: $(cat "$RUNNER_TEMP/origin-entries.txt")"
+
       - name: Choose the entries to render
         id: entries
         env:
@@ -319,6 +344,14 @@ jobs:
               echo "all=$(jq -r .all "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
             fi
             echo "ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
+            # A bisect probe: the origin's red entries only (read above). The size step renders everything
+            # again when they name no case at this commit, so a probe never skips (a skipped probe is lost).
+            narrowed=$(tr -d '[:space:]' < "$RUNNER_TEMP/origin-entries.txt" 2>/dev/null || true)
+            if [ "$EVENT" = workflow_dispatch ] && [ -n "$narrowed" ]; then
+              echo 'all=false' >> "$GITHUB_OUTPUT"
+              echo "ids=$narrowed" >> "$GITHUB_OUTPUT"
+              echo "a bisect probe: rendering only $narrowed"
+            fi
           else
             echo 'all=false' >> "$GITHUB_OUTPUT"
             echo 'ids=' >> "$GITHUB_OUTPUT"
@@ -343,6 +376,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           PUSH_FULL_SHARDS: ${{ vars.GALLERY_HEALTH_PUSH_FULL_SHARDS || '2' }}
           RUN_NUMBER: ${{ github.run_number }}
+          ORIGIN: ${{ inputs.origin }}
         run: |
           set -euo pipefail
           cd webviews
@@ -353,6 +387,14 @@ jobs:
           else
             echo '[]' > "$RUNNER_TEMP/manifest.json"
           fi
+          if [ -n "${ORIGIN:-}" ] && [ "$ALL" != true ] && [ "$(jq length "$RUNNER_TEMP/manifest.json")" = 0 ]; then
+            # A bisect probe whose origin red entries name no case at this commit: render everything.
+            echo "the origin's red entries ($IDS) have no case here: rendering every entry"
+            ALL=true
+            bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
+          fi
+          echo "all=$ALL" >> "$GITHUB_OUTPUT"
+          echo "ids=$IDS" >> "$GITHUB_OUTPUT"
           cases=$(jq length "$RUNNER_TEMP/manifest.json")
           shards=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
           [ "$shards" -le "$MAX_SHARDS" ] || shards=$MAX_SHARDS
