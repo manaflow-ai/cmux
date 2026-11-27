@@ -46521,6 +46521,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "name", true, "\"value\"")
 	})
+	t.Run("ClientDisconnectedByEvent.By", func(t *testing.T) {
+		var missing ClientDisconnectedByEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"client-disconnected-by\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.By != nil {
+			t.Fatal("By did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "by", false, "")
+		var nullValue ClientDisconnectedByEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"client-disconnected-by\",\"by\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field by accepted null")
+		}
+		var presentValue ClientDisconnectedByEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"client-disconnected-by\",\"by\":{}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.By == nil {
+			t.Fatal("By lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "by", true, "{}")
+	})
 	t.Run("CloudConversationChangedEvent.Account", func(t *testing.T) {
 		var missing CloudConversationChangedEvent
 		if err := json.Unmarshal([]byte("{\"change\":null,\"conversation\":\"value\",\"rev\":1,\"seq\":1,\"transaction\":\"value\"}"), &missing); err != nil {
@@ -70130,10 +70152,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1976
+	generatedFieldShapeCount               = 1977
 	generatedOptionalNullableFieldCount    = 1370
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 428
+	generatedOptionalNonnullableFieldCount = 429
 	generatedRequiredFieldCount            = 1662
 	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139

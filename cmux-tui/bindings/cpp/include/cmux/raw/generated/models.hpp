@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fc6fa19a8ff72cdc2afe7f6f6e7e744f43fafa5a646f280b3587826d99559767";
+inline constexpr std::string_view kProtocolIrSha256 = "77e8232b68ccd2af08d54f534e3199096a008d38ec836d64f88852673ec6c23e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -665,6 +665,7 @@ struct ChiefChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
+struct ClientDisconnectedByEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
@@ -1627,6 +1628,18 @@ struct ClientChangedEvent {
 struct ClientDetachedEvent {
     std::uint64_t client{};
     friend bool operator==(const ClientDetachedEvent&, const ClientDetachedEvent&) = default;
+};
+
+struct SizeDetachActor {
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
+    Field<std::string> user_id{};
+    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
+};
+
+struct ClientDisconnectedByEvent {
+    std::optional<SizeDetachActor> by{};
+    friend bool operator==(const ClientDisconnectedByEvent&, const ClientDisconnectedByEvent&) = default;
 };
 
 struct ClientFocusRequest {
@@ -3034,13 +3047,6 @@ struct DetachAttachedViewRequest {
 struct DetachClientTarget {
     Json value{};
     friend bool operator==(const DetachClientTarget&, const DetachClientTarget&) = default;
-};
-
-struct SizeDetachActor {
-    Field<std::string> device_name{};
-    Field<std::string> display_name{};
-    Field<std::string> user_id{};
-    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
 };
 
 struct DetachClientRequest {
@@ -10927,6 +10933,12 @@ template <>
 struct Codec<ClientDetachedEvent> {
     static Result<Json> encode(const ClientDetachedEvent& value);
     static Result<ClientDetachedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientDisconnectedByEvent> {
+    static Result<Json> encode(const ClientDisconnectedByEvent& value);
+    static Result<ClientDisconnectedByEvent> decode(const Json& value);
 };
 
 template <>
