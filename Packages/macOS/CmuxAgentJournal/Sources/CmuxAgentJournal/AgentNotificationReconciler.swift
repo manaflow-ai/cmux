@@ -1,5 +1,10 @@
 internal import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
+#if canImport(CryptoKit)
 internal import CryptoKit
+#endif
 
 /// Reconciles all providers' notification candidates on the journal's ordered consumer.
 ///
