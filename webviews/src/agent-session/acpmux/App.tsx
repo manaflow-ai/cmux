@@ -10340,7 +10340,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 />
                                                               )}
                                                             </ChatFindScope>
-                                                            {!childRows && <NativeTranscript link={nativeLink} sessionId={shownSessionId} />}
+                                                            {!childRows && (
+                                                              <NativeTranscript
+                                                                link={nativeLink}
+                                                                sessionId={shownSessionId}
+                                                              />
+                                                            )}
                                                             <SelectionReplyChip />
                                                           </FailedSendsContext.Provider>
                                                         </StartedMentionsContext.Provider>
