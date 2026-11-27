@@ -441,14 +441,31 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
-  // The account card opens over the lists in the flow and takes its height from them: the checked
-  // model scrolls back into view if the shorter list hid it (cmux#63167).
+  // The account card opens in the flow above the lists (cmux#63167: drawn over them, it hid the
+  // checked model). The menu grows by the card's height, away from the chip, as far as it has room
+  // (heightOf), so the lists keep theirs; past the room the card scrolls and the lists keep a floor
+  // (quickModelColumns.css). Its height is its content's, whatever room it was given.
+  const [cardHeight, setCardHeight] = useState(0);
   useLayoutEffect(() => {
-    if (!profileOpen) return;
-    modelsList.current
-      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
-      ?.scrollIntoView?.({ block: "nearest" });
-  }, [profileOpen]);
+    const card = profileOpen ? popupRef.current?.querySelector<HTMLElement>(".acpmux-cols-card") : null;
+    // The card and the rule under it.
+    const next = card ? card.scrollHeight + (card.nextElementSibling?.getBoundingClientRect().height ?? 0) : 0;
+    if (next !== cardHeight) setCardHeight(next);
+  });
+  // With the card open, the highlighted model (else the checked one) is scrolled back into the list's
+  // view if the shorter list hid it, within the list alone: nothing around the menu scrolls.
+  useLayoutEffect(() => {
+    const list = modelsList.current;
+    if (!profileOpen || !list) return;
+    const row =
+      list.querySelector<HTMLElement>("[data-hl]") ??
+      list.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
+    if (!row) return;
+    const view = list.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    if (box.top < view.top) list.scrollTop -= view.top - box.top;
+    else if (box.bottom > view.bottom) list.scrollTop += box.bottom - view.bottom;
+  }, [profileOpen, cardHeight]);
   // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
   // A row that moves a short way (two rows at most) keeps its old place for the frame it lands and
   // glides to the new one on one clock (a CSS keyframe, see quickModelColumns.css). A row that moves
@@ -555,8 +572,10 @@ function Columns({
     (popup: HTMLElement | null | undefined) => {
       const frame = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
       if (!frame || dragging.current) return;
+      // The open account card's height on top of the menu's own (cmux#63167), never past the room.
+      const card = profileOpen ? cardHeight : 0;
       if (ownHeight) {
-        const size = `min(${ownHeight}px, var(--available-height, ${ownHeight}px))`;
+        const size = `min(${ownHeight + card}px, var(--available-height, ${ownHeight + card}px))`;
         delete frame.dataset.fitHeight;
         frame.style.minHeight = "";
         frame.style.height = size;
@@ -566,7 +585,8 @@ function Columns({
       // The default: the tallest effort column whole, from the search row to Fast (fitMenuHeight),
       // never past the room; before it is measured, the stylesheet's cap.
       if (natural?.height) {
-        const size = `min(${natural.height}px, var(--available-height, ${natural.height}px))`;
+        const tall = natural.height + card;
+        const size = `min(${tall}px, var(--available-height, ${tall}px))`;
         // The measured default, also readable where the style's min() is not (a test, an inspector).
         frame.dataset.fitHeight = String(natural.height);
         frame.style.minHeight = "";
@@ -578,7 +598,7 @@ function Columns({
       frame.style.height = "";
       frame.style.maxHeight = "";
     },
-    [ownHeight, natural],
+    [ownHeight, natural, profileOpen, cardHeight],
   );
   useLayoutEffect(() => heightOf(popupRef.current), [heightOf, popupNode]);
 
@@ -1255,7 +1275,10 @@ function Columns({
     : undefined;
   // No route bound on the chat's own harness: the sign-in acpmux reports its agent runs on (SR2, a
   // subscription, an API key), never a "CLI login" a launcher harness does not have (cmux#63167).
-  const signIn = onChatTab && !activeAccount ? signInName(menu.signIn) : undefined;
+  // Only while the chat is known to be on its default: its routes read with none bound (or none to
+  // read, a Cloud chat), and no account picked in this opening, whose agent has not reported yet.
+  const onDefault = !account || (!!accounts.list && !accounts.list.active && !accounts.picked);
+  const signIn = onChatTab && !activeAccount && onDefault ? signInName(menu.signIn) : undefined;
   const signedOut = (!!owner?.note && !!owner.logIn) || (onChatTab && !!auth && canSessionLogin(auth.verdict));
   const authNote = auth ? authText(auth.verdict, t) : undefined;
   // No harness (an empty Starred tab) or one this Mac does not have: no account, so the corner draws

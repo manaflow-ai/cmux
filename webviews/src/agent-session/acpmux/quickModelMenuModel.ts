@@ -387,6 +387,9 @@ export function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);
   const [switchFailed, setSwitchFailed] = useState(false);
+  // An account was picked here for this chat: the sign-in the chat last reported (`signIn`) is the
+  // one before the switch until its agent restarts on the new one.
+  const [picked, setPicked] = useState(false);
   const sessionId = account?.sessionId;
   const accounts = account?.accounts;
   useEffect(() => {
@@ -408,10 +411,12 @@ export function useAccountList(open: boolean, account: QuickMenu["account"]) {
     pickFor.current = sessionId;
     setList(undefined);
     setSwitchFailed(false);
+    setPicked(false);
   }, [sessionId]);
   const pick = (routeId: string | null) => {
     if (!sessionId || !accounts) return;
     const forSession = sessionId;
+    setPicked(true);
     setList((old) =>
       old
         ? {
@@ -430,5 +435,5 @@ export function useAccountList(open: boolean, account: QuickMenu["account"]) {
       },
     );
   };
-  return { list, failed, switchFailed, pick };
+  return { list, failed, switchFailed, picked, pick };
 }

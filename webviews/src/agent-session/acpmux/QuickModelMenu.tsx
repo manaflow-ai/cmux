@@ -552,7 +552,10 @@ export function QuickModelMenu({
   };
   const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
   // No route bound: the sign-in acpmux reports for the chat, else the harness's own login (cmux#63167).
-  const defaultSignIn = signInName(menu.signIn) ?? t("picker.harnessLogin");
+  // Only while the chat is on its default: a bound route's sign-in is that route's, and one picked
+  // here is not reported until the agent restarts on it.
+  const login = t("picker.harnessLogin");
+  const defaultSignIn = (!accounts.list?.active && !accounts.picked && signInName(menu.signIn)) || login;
   const accountValue = accounts.switchFailed
     ? t("picker.accountSwitchFailed")
     : accounts.list
@@ -561,7 +564,7 @@ export function QuickModelMenu({
   const routeRows = account && (
     <AccountRows
       list={accounts.list}
-      defaultName={accounts.list?.active ? t("picker.harnessLogin") : defaultSignIn}
+      defaultName={defaultSignIn}
       failed={accounts.failed}
       switchFailed={accounts.switchFailed}
       grouped={menu.routeLayout !== "inline"}

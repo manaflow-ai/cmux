@@ -111,6 +111,12 @@ fn a_launcher_brings_its_own_sign_in_and_route() {
         launcher(&argv(&["/Users/me/.local/bin/claude-sr2"])),
         Some(("SR2 token (sr2 claude)", "SR2 (sr2 claude)"))
     );
+    assert_eq!(
+        launcher(&argv(&["claude-sr2-pipe"])),
+        Some(("SR2 token (sr2 claude)", "SR2 (sr2 claude)"))
+    );
+    // `sr2` alone launches Claude only with `claude` after it.
+    assert_eq!(launcher(&argv(&["sr2", "health"])), None);
     assert_eq!(launcher(&argv(&["claude"])), None);
     assert_eq!(launcher(&argv(&["/opt/homebrew/bin/claude"])), None);
 }

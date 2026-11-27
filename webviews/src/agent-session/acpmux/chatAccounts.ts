@@ -49,7 +49,9 @@ export const useChatAccounts = () => useContext(ChatAccountsContext);
 /// without where it came from ("SR2 token (sr2 claude)" → "SR2 token"). Undefined for none.
 export function signInName(source: string | undefined): string | undefined {
   const text = source?.trim();
-  if (!text) return undefined;
+  // acpmux found none it could read (a keychain on Linux, a launcher it does not know): no name, not
+  // "No sign-in found" on a chat that works.
+  if (!text || /^no sign-in/i.test(text)) return undefined;
   return text.replace(/\s*\(.*\)\s*$/, "") || text;
 }
 
