@@ -154,7 +154,10 @@ fn applies_every_checked_step_and_never_sends_a_login() {
     );
     assert!(!cloud.calls.iter().any(|c| c.contains("create off")));
     assert!(
-        cloud.calls.iter().any(|c| c.contains("git apply") && c.contains("/home/cmux/work/app"))
+        cloud
+            .calls
+            .iter()
+            .any(|c| c.contains("git bundle verify") && c.contains("/home/cmux/work/app"))
     );
     assert!(cloud.calls.contains(&"secrets m1 STRIPE_KEY".to_owned()));
     assert!(

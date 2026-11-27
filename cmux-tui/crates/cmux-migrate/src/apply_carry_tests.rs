@@ -135,15 +135,21 @@ fn dirty_files_and_unpushed_commits_arrive_exactly_through_a_bundle() {
     let tag_kept = git(&dst, &["tag", "--list", "v1"]) == "v1";
     let branch = git(&dst, &["symbolic-ref", "--short", "HEAD"]);
     // The staged file arrives untracked: a move keeps the files, not what was staged.
-    let want = state(&src).replace("A  staged.txt", "?? staged.txt");
-    let tree_kept = state(&dst) == want;
+    let sorted = |s: String| {
+        let mut l: Vec<&str> = s.lines().collect();
+        l.sort_unstable();
+        l.join("\n")
+    };
+    let want = sorted(state(&src).replace("A  staged.txt", "?? staged.txt"));
+    let got = sorted(state(&dst));
+    let tree_kept = got == want;
     eprintln!(
         "nothing-lost: remote head_kept={head_kept} merges={merges} side_kept={side_kept} \
          tag_kept={tag_kept} tree_kept={tree_kept} ({said})"
     );
     assert!(head_kept && side_kept && tag_kept, "{said}");
     assert_eq!((merges.as_str(), branch.as_str()), ("1", "main"));
-    assert_eq!(state(&dst), want);
+    assert_eq!(got, want);
     assert!(said.contains("3 commit(s) and 4 changed file(s)"), "{said}");
 }
 
