@@ -417,6 +417,11 @@ path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hot_apply_abi_read_error.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hot_apply_abi_read_error.py"
+
+[[test]]
 path = "tests/test_hung_test_watchdog.py"
 lane = "linux-guard"
 
