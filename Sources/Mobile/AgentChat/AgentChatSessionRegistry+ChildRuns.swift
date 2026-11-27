@@ -6,7 +6,11 @@ import Foundation
 ///
 /// Claude opens children through its spawn tool's `PreToolUse`, named `Task`
 /// before 2.x and `Agent` after (both are still on the wire; see
-/// `isTaskSpawn`), and closes them on `SubagentStop`. Its spawn tool's
+/// `isTaskSpawn`), and closes them on `SubagentStop`, matched by the
+/// subagent's `agent_id` once one of its own hooks has named it (see
+/// `bindSubagent(agentID:agentType:)`). A subagent stopped with `TaskStop`
+/// sends no stop; its `<task-notification>` closes it. Tool events are
+/// best-effort telemetry, so a subagent can stay unbound. Its spawn tool's
 /// `PostToolUse` is ignored for Claude because a background spawn returns at
 /// detach while the child keeps running. Codex, pi and OMP use their
 /// dedicated `SubagentStart`/`SubagentStop` pair, with the FIFO fallback when
@@ -17,18 +21,26 @@ import Foundation
 ///
 /// Honest limits: without per-child ids from the CLI, a dedicated stop event
 /// can close the oldest open child, while a parent `stop`/`Stop` closes every
-/// open child (a stopped parent has no running foreground children).
+/// open child (a stopped parent has no running foreground children). For
+/// Claude that fallback only reaches children no agent id is bound to yet.
 extension AgentChatSessionRegistry {
     nonisolated static func applyChildRunEvent(
         _ record: inout AgentChatSessionRecord,
         event: WorkstreamEvent
     ) {
+        let isClaude = event.source == "claude"
+        // Every hook a Claude subagent fires names its agent id and type.
+        if isClaude, event.hookEventName != .subagentStop, let agentID = event.feedAgentID {
+            record.children.bindSubagent(agentID: agentID, agentType: event.feedAgentType)
+        }
         switch event.hookEventName {
         case .preToolUse where isTaskSpawn(event):
             openChild(
                 &record,
                 id: event.requestId ?? UUID().uuidString,
                 label: taskLabel(from: event.toolInputJSON),
+                agentType: isClaude ? spawnInput(event.toolInputJSON)?.subagentType : nil,
+                toolUseID: isClaude ? event.feedToolUseID : nil,
                 at: event.receivedAt
             )
         // Claude's PostToolUse arrives when a background spawn detaches. The
@@ -42,8 +54,20 @@ extension AgentChatSessionRegistry {
                 label: taskLabel(from: event.toolInputJSON),
                 at: event.receivedAt
             )
+        case .subagentStop where isClaude:
+            record.children.closeSubagent(
+                agentID: event.feedAgentID,
+                agentType: event.feedAgentType,
+                requestID: event.requestId,
+                at: event.receivedAt
+            )
         case .subagentStop:
             closeChild(&record, id: event.requestId, at: event.receivedAt)
+        case .userPromptSubmit where isClaude:
+            // Claude sends no SubagentStop for a subagent stopped with
+            // TaskStop. The parent's next prompt carries its
+            // `<task-notification>`; the hook CLI forwards the ids it names.
+            record.children.closeSubagents(finishedTaskIDs: event.feedFinishedTaskIDs, at: event.receivedAt)
         case .sessionEnd:
             // SessionEnd retires the parent session and all of its children.
             for index in record.children.indices where record.children[index].endedAt == nil {
@@ -75,12 +99,16 @@ extension AgentChatSessionRegistry {
         _ record: inout AgentChatSessionRecord,
         id: String,
         label: String?,
+        agentType: String? = nil,
+        toolUseID: String? = nil,
         at date: Date
     ) {
         // A repeated PreToolUse for the same request (retries) must not fork
         // a duplicate child.
         if record.children.contains(where: { $0.id == id && $0.endedAt == nil }) { return }
-        record.children.append(AgentChatChildRun(id: id, label: label, startedAt: date))
+        record.children.append(AgentChatChildRun(
+            id: id, label: label, startedAt: date, agentType: agentType, toolUseID: toolUseID
+        ))
     }
 
     private nonisolated static func closeChild(
@@ -119,14 +147,25 @@ extension AgentChatSessionRegistry {
     /// The spawn payload's human-readable label: `description`, falling
     /// back to `subagent_type`.
     private nonisolated static func taskLabel(from toolInputJSON: String?) -> String? {
-        guard let toolInputJSON,
-              let data = toolInputJSON.data(using: .utf8),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return nil
+        guard let input = spawnInput(toolInputJSON) else { return nil }
+        return input.description ?? input.subagentType
+    }
+
+    /// The spawn payload's `description` and `subagent_type`, trimmed, nil
+    /// when blank.
+    private nonisolated static func spawnInput(
+        _ toolInputJSON: String?
+    ) -> (description: String?, subagentType: String?)? {
+        guard let object = jsonObject(toolInputJSON) else { return nil }
+        func trimmed(_ key: String) -> String? {
+            let value = (object[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value?.isEmpty == false ? value : nil
         }
-        let description = (object["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let description, !description.isEmpty { return description }
-        let type = (object["subagent_type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (type?.isEmpty == false) ? type : nil
+        return (trimmed("description"), trimmed("subagent_type"))
+    }
+
+    private nonisolated static func jsonObject(_ json: String?) -> [String: Any]? {
+        guard let data = json?.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 }

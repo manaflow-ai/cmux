@@ -40,6 +40,26 @@ extension WorkstreamEvent {
         return value
     }
 
+    /// The subagent type of the agent that fired the hook, when it named one.
+    var feedAgentType: String? {
+        guard let value = feedExtraFields?["agent_type"] as? String,
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// The agent's own id for the tool call behind this event.
+    var feedToolUseID: String? {
+        guard let value = feedExtraFields?["tool_use_id"] as? String,
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// Task and tool-use ids the prompt's `<task-notification>` blocks report
+    /// as finished or stopped.
+    var feedFinishedTaskIDs: [String] {
+        feedExtraFields?["finished_task_ids"] as? [String] ?? []
+    }
+
     /// True for the synchronous hook lane whose event order is established by
     /// the agent before the frame is sent. Detached telemetry workers omit this
     /// marker because their completion can arrive after a newer prompt.
