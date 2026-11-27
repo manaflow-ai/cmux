@@ -3,7 +3,7 @@
 // (bench/linkModel.ts) and the numbers read from a relaunch's painted frames (bench/restartSettled.ts).
 import { describe, expect, test } from "bun:test";
 import { LinkPipe, linkProfile, linkProfiles, schedule, ZLIB_MIN_BYTES, zlibWire } from "../bench/linkModel";
-import { movedPx, restartSettled, goneRows } from "../bench/restartSettled";
+import { goneRows, movedPx, pickNames, restartSettled } from "../bench/restartSettled";
 import { classifyFrames, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 
 describe("link model", () => {
@@ -148,5 +148,20 @@ describe("restart to settled", () => {
     const rows = [{ id: "a", top: 100 }];
     expect(movedPx(frame(0, rows), frame(1, rows, { top: 660, height: 116 }))).toBe(20);
     expect(movedPx(frame(0, rows), frame(1, [{ id: "a", top: 100.5 }]))).toBe(0);
+  });
+});
+
+describe("pickNames (ONLY= / ARMS=)", () => {
+  const all = ["chat_switch", "workspace_switch", "open_recent", "restart"] as const;
+  test("unset or empty runs every scenario, so ONLY= from a wrapper never runs none and scores 0", () => {
+    expect(pickNames(undefined, all, "scenario")).toEqual([...all]);
+    expect(pickNames("", all, "scenario")).toEqual([...all]);
+    expect(pickNames(" , ", all, "scenario")).toEqual([...all]);
+  });
+  test("a list keeps the canonical order", () => {
+    expect(pickNames("restart,chat_switch", all, "scenario")).toEqual(["chat_switch", "restart"]);
+  });
+  test("an unknown name throws instead of silently running nothing", () => {
+    expect(() => pickNames("chat_swich", all, "scenario")).toThrow(/unknown scenario chat_swich/);
   });
 });
