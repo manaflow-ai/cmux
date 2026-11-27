@@ -493,6 +493,9 @@ jobs:
     needs: [route, fast-gates]
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
     uses: ./.github/workflows/ios-link-ffi-linux.yml
+    with:
+      # The required fast-gates status owns skew; keep linkage coverage without a duplicate build.
+      pair_skew: false
     permissions:
       contents: read
 
@@ -517,6 +520,8 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-fast-gates.yml') }}
     uses: ./.github/workflows/cmux-next-fast-gates.yml
+    with:
+      pair_required: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
     # Reusable workflows do not receive repository secrets implicitly (including status-post fallbacks).
     secrets:
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}

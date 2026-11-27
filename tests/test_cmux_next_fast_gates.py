@@ -103,6 +103,74 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 
 
 
+
+class PhonePairRequiredGate(unittest.TestCase):
+    def verdict(self, **overrides):
+        step = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
+        script = step["run"].split("          # A rate-limit refusal")[0]
+        # YAML has stripped indentation. Execute the workflow's actual decision block, without its API write.
+        script = step["run"].split("# A rate-limit refusal")[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, HEAD_SHA="a" * 40, BASE="b" * 40, GATES="success", RATCHET="skipped",
+                       ROUTED_OUT="false", RECEIPT_VALID="false", RECEIPT_AUDIT="false",
+                       RECEIPT_BASE="c" * 40, RECEIPT_RUN="", RECEIPT_PRODUCER="",
+                       PAIR_REQUIRED="true", PAIR_RESULT="success", GITHUB_STEP_SUMMARY=tmp + "/summary")
+            env.update(overrides)
+            result = subprocess.run(["bash", "-c", script + '\nprintf "%s\\n%s\\n" "$state" "$description"'],
+                                    env=env, text=True, capture_output=True, check=True)
+            return result.stdout.strip().splitlines()[-2:]
+
+    def test_local_receipt_cannot_hide_cross_commit_failure(self):
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true", PAIR_RESULT="failure"),
+                         ["failure", "base " + "c" * 40 + "; phone/Mac cross-commit failed"])
+
+    def test_receipt_and_pair_success_preserve_receipt_base(self):
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true"),
+                         ["success", "base " + "c" * 40])
+
+    def test_required_pair_stop_never_passes(self):
+        for stopped in ("skipped", "cancelled", ""):
+            with self.subTest(stopped=stopped):
+                self.assertEqual(self.verdict(PAIR_RESULT=stopped)[0], "pending")
+        self.assertEqual(self.verdict(GATES="failure", PAIR_RESULT="skipped")[0], "failure")
+
+    def test_unaffected_change_does_not_need_pair(self):
+        self.assertEqual(self.verdict(PAIR_REQUIRED="false", PAIR_RESULT="skipped")[0], "success")
+
+    def test_no_early_success_and_no_duplicate_pair(self):
+        doc = workflow()
+        self.assertIn("pair-skew", job(doc, "post")["needs"])
+        receipt = step_named(job(doc, "resolve")["steps"], "Post the cmux-next/fast-gates status from the receipt")
+        self.assertIn("steps.pair-route.outputs.required == 'false'", receipt["if"])
+        nested = job(doc, "pair-skew")
+        self.assertEqual(nested["with"]["head"], "${{ needs.resolve.outputs.head_sha }}")
+        self.assertFalse(nested["with"]["linkage"])
+        router = yaml.safe_load((WORKFLOW.parent / "pr-router.yml").read_text())
+        self.assertFalse(router["jobs"]["ios-link-ffi-linux"]["with"]["pair_skew"])
+        pair = yaml.safe_load((WORKFLOW.parent / "ios-link-ffi-linux.yml").read_text())
+        self.assertIn("inputs.linkage", pair["concurrency"]["group"])
+
+    def test_swift_pairing_projection_and_transport_paths_route(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_router
+        config = pr_router.load_manifest()["ios-link-ffi-linux.yml"]
+        for path in (
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkPairing.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/DaemonTerminalSession.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/GhosttyTerminalTabContent.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Session/TerminalSessionChoice.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Session/TerminalProjectingSession.swift",
+            "cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs",
+            "cmux-tui/crates/cmux-remote-protocol/src/lib.rs",
+            "cmux-tui/crates/cmux-braid-carrier/src/lib.rs",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/Pairing.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(pr_router.matches_filter(config, [path]))
+                self.assertTrue(pr_router.affects(config, [path]))
+        self.assertFalse(pr_router.matches_filter(config, ["docs/unrelated.md"]))
+
+
 class WorkflowShape(unittest.TestCase):
     def test_callers_forward_status_secrets(self):
         # Run 45940333376/job 140314249449: the router passed no secrets, so minting the app token

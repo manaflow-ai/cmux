@@ -210,7 +210,22 @@
     "cmux-tui/crates/cmux-transport/**",
     "cmux-tui/crates/cmux-wg/**",
     "cmux-tui/vendor/smoltcp/**",
-    ".github/workflows/ios-link-ffi-linux.yml"
+    ".github/workflows/ios-link-ffi-linux.yml",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/CmuxMobilePreferences.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/TerminalFitToPhoneMemory.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Settings.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/**",
+    "cmux-next-ios/UITests/**",
+    "scripts/ci/mobile-pair-skew.sh",
+    "scripts/ci/pr_router.json",
+    ".github/workflows/cmux-next-fast-gates.yml"
    ],
    "affects": [
     "cmux-next-ios/rust/Cargo.lock",
@@ -247,9 +262,29 @@
     "cmux-tui/crates/cmux-transport/**",
     "cmux-tui/crates/cmux-wg/**",
     "cmux-tui/vendor/smoltcp/**",
-    ".github/workflows/ios-link-ffi-linux.yml"
+    ".github/workflows/ios-link-ffi-linux.yml",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/CmuxMobilePreferences.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/TerminalFitToPhoneMemory.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Settings.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/**",
+    "cmux-next-ios/UITests/**",
+    "scripts/ci/mobile-pair-skew.sh",
+    "scripts/ci/pr_router.json",
+    ".github/workflows/cmux-next-fast-gates.yml",
+    "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-dial/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-proto/**"
    ],
-   "affects_why": "The cross-commit receipt is the iPhone link from this PR against the Mac host shipped by NIGHTLY, over WebRTC and WireGuard, followed by the daemon identify handshake. Its host and dial binaries consume these shared transport, carrier, tailnet, remote-protocol, screen-share and terminal-projection crates; a change in any of them can break an already-shipped Mac while the phone has newer code. Keep this gate required for every pairing/transport/protocol/projection change, even when the same-commit matrix is green."
+   "affects_why": "The cross-commit component test runs both directions: this PR's iPhone link against NIGHTLY's Mac host, and NIGHTLY's iPhone link against this PR's host, over WebRTC and WireGuard plus daemon identify. The fast-gates required status waits for it even with a local test receipt. Swift pairing and terminal projection changes also select this transport prerequisite; this Linux test does not execute the Swift app or prove its UI.",
+   "draft": true,
+   "draft_why": "Pairing and transport regressions must be caught at every affected head, including drafts."
   },
   "cmux-next-compile-preflight.yml": {
    "types": [
