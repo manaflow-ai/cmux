@@ -99,6 +99,9 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -120,7 +123,7 @@ jobs:
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q -f --detach "$SHA"
-          [[ $reuse == fresh || "$(git config --get core.sparseCheckout || true)" != true ]] || git sparse-checkout reapply
+          [[ $reuse == fresh ]] || git sparse-checkout reapply
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       # A router failure leaves the output empty, and the gate runs.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
