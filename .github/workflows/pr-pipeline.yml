@@ -19,6 +19,19 @@ on:
         required: false
         type: string
         default: ""
+      # The steps the jobs run only, space-separated (pr-router.yml's `only` output: on a landing head of the affected
+      # tier, the steps the nightly also runs that the change routes, pr_router.py nightly_gate_table). Empty: every
+      # routed step.
+      only:
+        required: false
+        type: string
+        default: ""
+      # The commit the ios fast verdict checks out; empty: the event's (a pull request's merge commit).
+      # ios-fast-verdict-dispatch.yml passes the PR's merge commit, since its own event's commit is the base tip.
+      ref:
+        required: false
+        type: string
+        default: ""
     # The ios fast verdict, for pr-router.yml's ios-fast-status (the `cmux/ios-fast` commit status): whether its plan
     # builds anything, its summary, and the ios-fast job's result (empty when it never finished).
     outputs:
@@ -56,10 +69,10 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
-    # instruction counts 40 min, the compile canary 30 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min): 623 min with 46 shared steps (23 waves) and the setup and
+    # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
+    # release guards 20 min, the cmux cloud CLI 15 min): 649 min with 47 shared steps (24 waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 623
+    timeout-minutes: 649
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -90,16 +103,36 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
+          git checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout disable
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -136,9 +169,15 @@ jobs:
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+          ROUTER_ONLY: ${{ inputs.only }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
+          # The router's nightly gate (a landing head of the affected tier): only the steps the nightly also runs.
+          if [ -n "${ROUTER_ONLY:-}" ]; then
+            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs that this change routes)."
+            exec ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$ROUTER_ONLY" "${scope[@]}"
+          fi
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
           only=""
           if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${scope[@]}" \
@@ -237,16 +276,36 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
+          git checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout disable
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
@@ -349,7 +408,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
   # The `ios` job's Mac: an idle owned simulator Mac first (scripts/ci/ios_runner_pool.py, the `pipeline` lane: one
-  # simulator job on one Mac), Blacksmith macOS 26 on a re-run, a fork or a fork owner. The markers let the pool
+  # simulator job on one Mac), Blacksmith macOS 26 on the rescue bot's re-run, a fork or a fork owner; a person's
+  # re-run keeps this pick (Leo, 2026-11-16: past a bound on an owned label "it moves to Blacksmith", the bot's move). The markers let the pool
   # charge this run's simulator while it holds one, as cmux-next-ios-kit.yml's and ios-reliability-matrix.yml's
   # pickers do. Not a job of ci/steps.toml: it runs no step, only places the ios job, and only when that runs.
   ios-runner:
@@ -506,7 +566,7 @@ jobs:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
     # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (80 min with the fleet pool's wait) and
     # phone cells (45 min), the fleet pool's build (25 min), with room for the checkout and Xcode
     # (tests/test_ci_step_table.py holds this).
@@ -611,7 +671,7 @@ jobs:
     # No picker to wait on: it starts with the run, on the mac job's Xcode.
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       - name: Checkout the merge commit and the base tip
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -645,10 +705,14 @@ jobs:
   # ios-fast builds that target on the warm owned mini (clean: false keeps the xcframework, DerivedData slot and
   # resolved packages) and runs only its tests, as its own check, so it reports before the full matrix. It does not
   # wait for the router's `ios` route (pr_router.json routes none since #57353): every full-tier pull request plans.
-  # vars.CI_IOS_FAST_VERDICT=0 turns it off.
+  # vars.CI_IOS_FAST_VERDICT=0 turns it off. format() because GitHub compares an unset variable (null) to '0' as
+  # 0 == 0: the bare comparison skipped this job whenever the variable was unset, the pipeline
+  # with it on a landing head, and left `cmux/ios-fast` pending at the head (cmux#57010, run 45957942340).
+  # !cancelled(): in a called workflow the implicit success() also reads the caller's needs, and pr-router.yml's
+  # pipeline needs fast-gates, which skips on a landing head (cmux#57755, router run 45952045688).
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ vars.CI_IOS_FAST_VERDICT != '0' }}
+    if: ${{ !cancelled() && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -664,6 +728,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 2
           sparse-checkout: |
             ci/
@@ -794,7 +859,7 @@ jobs:
     name: ios fast verdict
     needs: [ios-fast-runner]
     if: ${{ needs.ios-fast-runner.outputs.run == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-fast-runner.outputs.retry_runs_on || needs.ios-fast-runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-fast-runner.outputs.retry_runs_on || needs.ios-fast-runner.outputs.runs_on) }}
     # Warm: about 3-4 min. Cold (a new Mac, a changed FFI or Package.resolved): the FFI (the fleet's copy, up to
     # 10 min, or this Mac builds it) and a full kit build.
     timeout-minutes: 40
@@ -808,6 +873,7 @@ jobs:
       - name: Checkout the merge commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
           fetch-depth: 1
           submodules: false
@@ -858,7 +924,7 @@ jobs:
       id-token: write
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       - name: Checkout the merge commit and the base tip
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -1021,7 +1087,7 @@ jobs:
       contents: read
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       - name: Checkout the merge commit and the base tip
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

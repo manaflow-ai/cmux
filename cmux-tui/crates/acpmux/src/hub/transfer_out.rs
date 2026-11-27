@@ -262,6 +262,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+#[path = "compaction_outline.rs"]
+pub(super) mod compaction_outline;
 /// Where a move's begin token is kept, in its bundle folder.
 const BEGIN_TOKEN_FILE: &str = "begin-token";
 
@@ -525,7 +527,7 @@ impl Hub {
             let deadline = tokio::time::Instant::now() + wait;
             let busy = || {
                 let why = format!(
-                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    "the running turn did not end within {}s, so nothing moved; --interrupt stops it and moves the chat now",
                     wait.as_secs()
                 );
                 transfer_error("busy", why)
@@ -902,6 +904,7 @@ impl Hub {
         }
         let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
         let next = start + data.len() as u64;
+        super::transfer_watch::note_paged(&dir);
         super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
@@ -973,6 +976,7 @@ impl Hub {
             meta.bookmarks.clear();
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
+        self.forget_draft_attachments(session);
         // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
