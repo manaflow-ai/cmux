@@ -1000,10 +1000,16 @@ jobs:
           done
           echo "::error title=hot verify::could not start one more look for ${HEAD_SHA:0:12}: $(grep -v '^::' "$err" | tail -n 2 | tr '\n' ' ' | cut -c1-300)"
           exit 1
+      # Advisory: a read that fails says gallery=false (the comment only drops its gallery line). Uncapped, a spent hour on
+      # every token slept up to gh_budget_wait.sh's 3600 s here: 2026-11-26 22:21-22:54Z, jobs 140197196758,
+      # 140198476666 and 140197628927 sat 1,839-2,036 s in this one GET (goal ci-min-per-pr-1500).
       - name: Is the gallery advisory also on this head
         id: gallery
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
+        timeout-minutes: 2
+        continue-on-error: true
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: 30
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
