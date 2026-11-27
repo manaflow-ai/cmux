@@ -29,6 +29,8 @@ fn delivery(id: &str, state: State, at: u64) -> Delivery {
         resends: 0,
         resent_at: 0,
         relay_post: None,
+        relay_unreached: false,
+        direct_maybe: false,
         open_on_peer: false,
         pin: None,
         proof: None,
