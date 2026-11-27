@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import { motionToken } from "../../../ui/motion/motionTokens";
 import { lineEdge, type StreamingStyle } from "./streamingStyle";
 
 /// The display frames the reveal runs on, and its clock (tests drive their own).
@@ -30,9 +31,9 @@ export const FADE_MS = MOTION_MS.micro * FRESH_FADE_STEPS;
 function freshFadeMs(): number {
   if (typeof document === "undefined") return FADE_MS;
   try {
-    const token =
-      document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--agent-motion-in").trim() ??
-      "";
+    // Kept per page and theme (motionTokens.ts): read each frame of a fade, the style read recalculated
+    // the page's style after every commit that drew new text (a tool's output, 0.074 ms a record).
+    const token = motionToken(document.documentElement, "--agent-motion-in", document);
     const value = Number.parseFloat(token);
     if (!Number.isFinite(value) || value < 0) return FADE_MS;
     if (token.endsWith("ms")) return value * FRESH_FADE_STEPS;

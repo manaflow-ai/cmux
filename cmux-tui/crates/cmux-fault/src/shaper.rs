@@ -37,7 +37,7 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -336,6 +336,8 @@ struct Counting {
     wire: Mutex<Option<Trace>>,
     /// Lines `wire` may still take (a bulk run reads thousands of chunks).
     wire_left: AtomicU64,
+    /// [`Shaper::trace_wire_text`]: each read's line also carries its first bytes, printable.
+    wire_text: AtomicBool,
 }
 
 impl Counting {
@@ -478,6 +480,13 @@ impl Shaper {
         *lock(&self.counting.wire) = Some(self.trace.clone());
     }
 
+    /// [`Self::trace_wire`], each read's line ending in its first [`WIRE_TEXT_BYTES`] bytes
+    /// (printable ASCII, others `.`): a relay's control frames read as their JSON.
+    pub fn trace_wire_text(&self, lines: u64) {
+        self.counting.wire_text.store(true, Ordering::SeqCst);
+        self.trace_wire(lines);
+    }
+
     pub fn reset_counters(&self) {
         for counter in [
             &self.counting.up_bytes,
@@ -599,6 +608,19 @@ async fn connection(
     tokio::select! { () = up => {}, () = down => {} }
 }
 
+/// How many of a read's bytes [`Shaper::trace_wire_text`] shows.
+pub const WIRE_TEXT_BYTES: usize = 96;
+
+/// A read's first bytes for the wire trace: printable ASCII as is, anything else `.`.
+fn wire_text(chunk: &[u8]) -> String {
+    let text: String = chunk
+        .iter()
+        .take(WIRE_TEXT_BYTES)
+        .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+        .collect();
+    format!("|{text}|")
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "one direction of one connection: each is its own part"
@@ -670,13 +692,18 @@ async fn direction(
             }
             counting.wire(|| {
                 let way = if down { "down" } else { "up" };
-                match lands {
+                let line = match lands {
                     Some(at) => format!(
                         "c{index} {way} {}B, lands +{}ms",
                         chunk.len(),
                         at.saturating_duration_since(read_at).as_millis()
                     ),
                     None => format!("c{index} {way} {}B, dropped (link silent)", chunk.len()),
+                };
+                if counting.wire_text.load(Ordering::Relaxed) {
+                    format!("{line} {}", wire_text(chunk))
+                } else {
+                    line
                 }
             });
         }
