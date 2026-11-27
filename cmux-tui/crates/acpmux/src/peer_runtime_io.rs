@@ -920,7 +920,7 @@ impl Peer {
                 let (id, params): (Value, Option<Value>) = ($id, $params);
                 // Refused here, before anything is spawned, unless this Mac lends the peer
                 // GitHub, the handshake on this link finished, and a slot is free.
-                let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots);
+                let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots, params.as_ref().unwrap_or(&Value::Null));
                 match admitted {
                     Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot, link),
                     Err(e) => {
