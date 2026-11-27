@@ -243,7 +243,7 @@ impl Hub {
         e: &RpcError,
         joined: &super::digest::DigestTurn,
     ) -> bool {
-        let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let ends = self.settled_by_shutdown.read().unwrap_or_else(|e| e.into_inner());
         let field = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
         // A Stop's own end (`stopped_before_prompt`) is written as ever: the Stop settled it.
         let began = self.shutting_down() && field != Some("stopped");

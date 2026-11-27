@@ -1372,8 +1372,11 @@ pub struct Hub {
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
     pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
     /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
-    /// prompt futures write no result of their own when the agent ends.
-    pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// prompt futures write no result of their own when the agent ends. Turn ends read it and
+    /// the shutdown writes it: each end is wholly before or after the shutdown's step, and ends
+    /// of different chats no longer wait on each other's disk writes (a Mutex here made every
+    /// turn end on a host one line, on runtime workers: the s2k fan-out burst, cmux#61473).
+    pub(super) settled_by_shutdown: std::sync::RwLock<std::collections::HashSet<String>>,
     /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
     /// ends looks again (`shutdown.rs` `settle_ends`).
     pub(super) ends_moved: Notify,
@@ -1905,7 +1908,7 @@ impl Hub {
             handoffs,
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
-            settled_by_shutdown: StdMutex::new(Default::default()),
+            settled_by_shutdown: std::sync::RwLock::new(Default::default()),
             ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
