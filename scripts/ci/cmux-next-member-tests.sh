@@ -27,8 +27,12 @@ echo "cmux_next_ tests of $member: ${args[*]}"
 start=$SECONDS
 status=1
 for attempt in 1 2 3; do
+  # set -e would end the script on a failing pipeline: keep it off for the test so the retry, the timing line and the
+  # daemon cleanup below still run.
+  set +e
   cargo test "${args[@]}" --locked cmux_next_ 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
+  set -e
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
   if [ "$status" -eq 0 ]; then
     grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" && break
