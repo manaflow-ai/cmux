@@ -343,6 +343,35 @@
           ]
         },
         {
+          "key": "agentPane.display.sendScrollsToTop",
+          "note": "A sent prompt scrolls to the top of the transcript with room below it for the reply, which fills in under it (cmux#56827, Leo: \"sent message scrolls to top\"). Off unless switched on: off, the view follows the bottom as before. The room is one term of conversation/roomUnder.ts (sendTop), read from chatDisplay.ts.",
+          "title": {
+            "key": "settings.agentPane.display.sendScrollsToTop",
+            "text": "Scroll Sent Prompts to Top"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendScrollsToTop.help",
+            "text": "A prompt you send moves to the top of the chat, with room below it for the reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "scroll",
+            "top",
+            "pin",
+            "pinned",
+            "reply",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.trayTucked",
           "note": "The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"what if you wanted to collapse that one line?\"). The hat's own chevron and the tab write it too.",
           "title": {
@@ -1052,7 +1081,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.inspector.help",
-            "text": "Push narrows the chat; Overlay covers it."
+            "text": "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."
           },
           "kind": "choice",
           "choices": [
@@ -1068,6 +1097,13 @@
               "title": {
                 "key": "settings.choice.agentChatInspectorOverlay",
                 "text": "Overlay"
+              }
+            },
+            {
+              "value": "inline",
+              "title": {
+                "key": "settings.choice.agentChatInspectorInline",
+                "text": "Inline"
               }
             }
           ],

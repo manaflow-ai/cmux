@@ -6,7 +6,8 @@ import Observation
 import SwiftUI
 
 /// A terminal's comment threads (diff-comments-threads-v1): a popup card at the terminal's top trailing
-/// corner listing each thread's quote, comment, "Sent" and then the agent's reply, with Resolve.
+/// corner listing each thread's quote, comment, "Sent" and then the agent's reply, with Resolve, and
+/// Show in Terminal for a thread that kept its scrollback rows (it scrolls back to them).
 /// It opens after Comment… sends, and again by itself when a reply comes while it is closed
 /// (``TerminalCommentThreads``).
 @MainActor
@@ -25,11 +26,13 @@ final class TerminalCommentsPopup {
     var isShown: Bool { popup.isShown }
 
     /// Shows the threads of `model` on terminal `terminalID` over the terminal view `anchor`.
-    func show(_ model: CommentThreadsModel, terminalID: String, anchor: NSView, makeKey: Bool) {
+    func show(_ model: CommentThreadsModel, terminalID: String, anchor: NSView, makeKey: Bool,
+              reveal: @escaping @MainActor (CommentThread) -> Void) {
         guard let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return }
         self.anchor = anchor
         state.model = model
         state.terminalID = terminalID
+        state.onReveal = reveal
         state.colors = anchor.performWithTheme { PopupCardColors.resolve() }
         state.onResolve = { [weak self, weak model] id in
             guard let model else { return }
@@ -98,6 +101,7 @@ final class TerminalCommentsPopupState {
     var terminalID = ""
     var colors = PopupCardColors()
     @ObservationIgnored var onResolve: (String) -> Void = { _ in }
+    @ObservationIgnored var onReveal: (CommentThread) -> Void = { _ in }
 
     var threads: [CommentThread] { model?.threads(onTerminal: terminalID) ?? [] }
 }
@@ -112,7 +116,7 @@ struct TerminalCommentsPopupView: View {
                 .font(Font(Typography.header))
                 .foregroundStyle(colors.secondary)
             ForEach(state.threads) { thread in
-                TerminalCommentThreadRow(thread: thread, colors: colors) { state.onResolve(thread.id) }
+                TerminalCommentThreadRow(thread: thread, colors: colors, reveal: { state.onReveal(thread) }) { state.onResolve(thread.id) }
                 if thread.id != state.threads.last?.id {
                     Rectangle().fill(colors.separator).frame(height: 1)
                 }
@@ -128,6 +132,7 @@ struct TerminalCommentsPopupView: View {
 private struct TerminalCommentThreadRow: View {
     let thread: CommentThread
     let colors: PopupCardColors
+    let reveal: () -> Void
     let resolve: () -> Void
 
     var body: some View {
@@ -164,6 +169,11 @@ private struct TerminalCommentThreadRow: View {
             }
             HStack {
                 Spacer()
+                if thread.terminalRows != nil {
+                    Button(TerminalCommentStrings.show, action: reveal)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("terminal.comments.show")
+                }
                 Button(TerminalCommentStrings.resolve, action: resolve)
                     .controlSize(.small)
             }

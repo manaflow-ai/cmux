@@ -71,10 +71,14 @@ const live = (finish = false) => ({
   play: async (ctx: PlayContext) => {
     await open(ctx);
     const page = ctx.document.defaultView as Window;
+    // The rewrite is the reply streaming on (and, for `finish`, its last chunk landing): the last row
+    // grows at the transcript's end, a stream append the play causes through the bridge.
+    const streaming = ctx.declare("stream-append");
     page.cmuxAcpmuxBridge?.receive(liveReply(notesV2, 2, !finish));
     await ctx.waitFor(() =>
       [...ctx.document.querySelectorAll(".cv-codeblock")].some((node) => node.textContent?.includes("Backoff caps")),
     );
+    streaming();
   },
 });
 

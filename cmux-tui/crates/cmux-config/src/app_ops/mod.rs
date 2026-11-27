@@ -13,14 +13,25 @@
 //! - `jsonc.strip` `{source}` answers `{text}` or `{problem}`.
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
-//! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`].
+//! - The areas, each answering its own `area.*` ops (one per line, like the
+//!   `pub mod` list and the `.or_else` chain below, so two branches that each
+//!   add an area insert a line apiece and merge cleanly):
+//!   - [`theme`]
+//!   - [`effective`]
+//!   - [`looks`]
+//!   - [`home_table`]
+//!   - [`shortcut`]
+//!   - [`schema`]
+//!   - [`snapshot`]
 
 pub mod chrome_theme;
 pub mod effective;
+pub mod home_table;
 pub mod jsonc;
 pub mod looks;
 pub mod schema;
 pub mod shortcut;
+pub mod snapshot;
 pub mod theme;
 
 use serde_json::Value;
@@ -43,7 +54,9 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         _ => theme::call(op, request)
             .or_else(|| effective::call(op, request))
             .or_else(|| looks::call(op, request))
+            .or_else(|| home_table::call(op, request))
             .or_else(|| chrome_theme::call(op, request))
+            .or_else(|| snapshot::call(op, request))
             .or_else(|| shortcut::call(op, request))
             .or_else(|| schema::call(op, request))
             .unwrap_or(Err(OpError::Unknown)),
