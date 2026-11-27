@@ -1203,6 +1203,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_gallery_health_merge_ref.py
 
+      - name: Validate that a gallery bisect probe renders its origin run's own red entries
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gallery_probe_entries.py
+
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_pr_merge_tree.py

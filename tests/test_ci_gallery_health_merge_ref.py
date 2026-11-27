@@ -455,7 +455,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         on = triggers()
         self.assertNotIn("pull_request", on)
         self.assertNotIn("push", on)
-        self.assertEqual(set(on["workflow_call"]["inputs"]), {"sha", "only", "base"})
+        self.assertEqual(set(on["workflow_call"]["inputs"]), {"sha", "only", "base", "origin"})
         self.assertIn("workflow_dispatch", on)
         self.assertEqual(json.loads(BATCH_MANIFEST.read_text(encoding="utf-8"))["suites"]["gallery-health"]["workflow"],
                          "gallery-health.yml")

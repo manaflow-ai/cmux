@@ -364,7 +364,11 @@ jobs:
       # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
       # then fails; the standing reds are listed by name in its summary.
       base: ${{ needs.plan.outputs.base }}
+      # A bisect probe renders only the entries of its origin batch run's own gallery reds (scripts/ci/
+      # gallery_probe_entries.py); actions: read lets it download that run's health artifacts.
+      origin: ${{ inputs.mode == 'probe' && inputs.origin || '' }}
     permissions:
+      actions: read
       contents: read
 
   cmux-tui-sdks:
