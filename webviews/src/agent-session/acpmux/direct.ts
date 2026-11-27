@@ -977,6 +977,9 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
 /// The longest a chat switch keeps the chat before on screen while the new one attaches. Match the
 /// cold-open hold: a busy daemon must not expose a blank transcript between the old and new chats.
 const SWITCH_HOLD_MS = 1_500;
+/// How many chats this page keeps the rows of once left (`leftRows`): one map of row references each,
+/// the rows themselves already held by the chat's kept tail (tailCache.ts `KEPT_TAILS`).
+const LEFT_ROWS_KEPT = 8;
 /// The longest a chat drawn from its own rows (a copy kept while its machine was down) keeps that
 /// frame while its machine's page and the records between them are read (`reattachPeerCopy`): the
 /// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
@@ -1443,6 +1446,14 @@ export class AcpmuxDirectClient {
   private budget = new RequestBudget();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
+  /// Each chat this page left, its rows as drawn then (`rememberCurrentTail`), newest last, at most
+  /// ``LEFT_ROWS_KEPT``. A chat opened again is refolded from its kept tail into new objects; the rows
+  /// that came out unchanged get these objects back (`OrderedRows.keepSame`), so what is keyed on a
+  /// row object (shaped turns, drawn heights, memoized rows) is not built again on every chat switch
+  /// (settled-page bench, chat_switch).
+  private readonly leftRows = new Map<string, ReadonlyMap<string, AcpmuxRow>>();
+  /// The left rows of the chat a kept tail is being drawn for, for that rebuild alone (`drawKeptTail`).
+  private revisitRows: ReadonlyMap<string, AcpmuxRow> | undefined;
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
   /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
@@ -3458,6 +3469,12 @@ export class AcpmuxDirectClient {
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
     if (!sessionId || !tail || this.chatRows.holds(sessionId)) return undefined;
     rememberTail(sessionId, tail, forThisPage, toHost);
+    if (forThisPage) {
+      this.leftRows.delete(sessionId);
+      this.leftRows.set(sessionId, new Map(this.rows));
+      // ends: each pass deletes the oldest key, so the map shrinks to LEFT_ROWS_KEPT
+      while (this.leftRows.size > LEFT_ROWS_KEPT) this.leftRows.delete(this.leftRows.keys().next().value!);
+    }
     return { sessionId, tail };
   }
 
@@ -3971,7 +3988,12 @@ export class AcpmuxDirectClient {
     // native root while it consumes the historical events, not after the malformed tree is drawn.
     const keptSummary = { ...kept.summary, ...listed };
     this.summary = keptSummary;
-    this.rebuild();
+    this.revisitRows = this.leftRows.get(sessionId);
+    try {
+      this.rebuild();
+    } finally {
+      this.revisitRows = undefined;
+    }
     // A session_changed can carry newer live state than the kept tail. Restore it after replay;
     // only the root identity needs to be visible during the fold rebuild itself.
     this.summary = keptSummary;
@@ -9294,6 +9316,9 @@ export class AcpmuxDirectClient {
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
+    // A chat opened again from its kept tail: its rows from when it was left (`leftRows`). For the
+    // objects alone, not `adoptFrames`: those rows are not on screen.
+    if (this.revisitRows) this.rows.keepSame(this.revisitRows);
     // A rail jump that replaced the held window (`jumpNewer`, `jumpWindow`) shows none of the messages drawn
     // before it, so no frame is kept for them: matching every gone message against every new one cost a slow
     // rail click ~100 ms of its paint (bench/chat-fast-scroll.bench.ts, rail_click_paint p95).
