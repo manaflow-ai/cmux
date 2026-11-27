@@ -26,8 +26,11 @@ test("the text layout library measures on a canvas the chat replaces when its ca
     }
   };
   try {
-    const { freshMeasureContext } = await import("../src/agent-session/acpmux/measureContext");
+    const { ensureMeasureContext, freshMeasureContext } = await import("../src/agent-session/acpmux/measureContext");
     const { prepare, clearCache } = await import("@chenglou/pretext");
+    // Importing it measures nothing: the swap waits for the chat's first text.
+    expect(made.length).toBe(0);
+    ensureMeasureContext();
     // The library's canvas is the chat's: its first measure went to the chat's real context.
     expect(made.length).toBe(1);
     expect(made[0]!.measured.length).toBeGreaterThan(0);

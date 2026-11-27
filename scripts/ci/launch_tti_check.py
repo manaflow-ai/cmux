@@ -44,6 +44,9 @@ a chat input_ms is late by at most that; the terminal's is the echo of the key t
 (premain, did_finish_launching, daemon_connected, first_window_shown, first_frame, webview_ready, first_chat_paint,
 first_interaction; launch_stages.py), and the run's `stages` is each stage's median per front.
 Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+A round that leaves no app running (its launch failed, or the app exited) no longer ends the plan: the run ends any
+instance of the copy still up, launches it once unmeasured until its socket answers (`TTI-RECOVER {json}`), and goes on
+to the next round, at most MAX_RECOVERIES times. The failed round still fails the verdict.
 
 Percentiles (startup-matrix, a fixed-slot harness like a device farm): a plan item KIND:FRONT*N runs N rounds of it
 (`cold_install:terminal*20`). Before each launch the round waits up to --load-wait s for the Mac's 1-minute load per
@@ -312,18 +315,29 @@ class Launched:
             pass
 
 
+def executable_paths(executable: Path) -> set[str]:
+    """The paths ps may name EXECUTABLE by: as given and resolved. LaunchServices starts a bundle at its resolved path,
+    so an app copied under /tmp runs as /private/tmp/... (pure but for the resolve)."""
+    return {str(executable), os.path.realpath(executable)}
+
+
+def pids_running(ps_out: str, paths: set[str]) -> set[int]:
+    """Pids in `ps -axo pid=,comm=` output PS_OUT whose executable is one of PATHS (pure)."""
+    pids = set()
+    for line in ps_out.splitlines():
+        pid, _, comm = line.strip().partition(" ")
+        if comm.strip() in paths and pid.isdigit():
+            pids.add(int(pid))
+    return pids
+
+
 def running_pids(executable: Path) -> set[int]:
-    """Pids whose executable is EXECUTABLE (ps comm is the full path on macOS)."""
+    """Pids whose executable is EXECUTABLE (ps comm is the full path on macOS), under either of its paths."""
     try:
         out = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
         return set()
-    pids = set()
-    for line in out.splitlines():
-        pid, _, comm = line.strip().partition(" ")
-        if comm.strip() == str(executable) and pid.isdigit():
-            pids.add(int(pid))
-    return pids
+    return pids_running(out, executable_paths(executable))
 
 
 def open_args(app: Path, env: dict, fifo: Path, log_path: Path) -> list[str]:
@@ -360,7 +374,7 @@ def ls_launch(app: Path, env: dict, out_log: Path) -> tuple[Launched, int]:
             time.sleep(0.01)
     if pid is None:
         os.close(fd)
-        raise RuntimeError("open returned but no new process of the app showed within 15 s")
+        raise RuntimeError(f"open returned but no new process of the app showed within 15 s (looked for {sorted(executable_paths(executable))})")
     return Launched(pid), fd
 
 
@@ -777,6 +791,51 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     return None, quit_app(inst, process)
 
 
+MAX_RECOVERIES = 3  # a run whose launches keep failing stops after this many, as it stopped at the first before
+RECOVER_READY_S = 30.0
+
+
+def app_answers(inst: rr.Instance) -> bool:
+    return rr.call(inst.sock, "system.ping", timeout=2).get("error") is None
+
+
+def recover_app(inst: rr.Instance, app: Path, env: dict, out: Path):
+    """After a round left no app this run tracks (its launch failed, or the app exited): end any instance of APP still
+    up, then one unmeasured launch of APP, ready when its socket answers. Returns (the process, None) or (None, why).
+    Before 2026-11-26 the plan stopped at such a round: one failed launch (round 1 of 51, cmuxterm-hq job
+    140156243595) left every NOW app_*_launch_to_interaction_ms row null for the night (goals/startup-matrix.md)."""
+    import fresh_home_launch_smoke as smoke
+    _, name = smoke.bundle_info(app)
+    executable = app / "Contents" / "MacOS" / name
+    if app_answers(inst):  # an instance this run started but could not track (cmux#59530's missed pid)
+        rr.call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
+        rr.wait(lambda: not running_pids(executable), 20, 0.25)
+    for pid in running_pids(executable):  # only this run's own copy of the app: its path is under the smoke's root
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+    if os.path.exists(inst.sock):
+        try:
+            os.remove(inst.sock)
+        except OSError:
+            pass
+    try:
+        process, fd, _ = rr.launch(app, env, out / "app-recover.log")
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        return None, f"the recovery launch failed: {error}"
+    marks: dict = {}
+    buf = bytearray()
+    ready = rr.wait(lambda: (read_marks(fd, buf, marks), app_answers(inst))[1], RECOVER_READY_S, 0.25)
+    os.close(fd)
+    if not ready or process.poll() is not None:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        return None, f"the recovery launch never answered within {RECOVER_READY_S:.0f} s (status {process.poll()})"
+    return process, None
+
+
 def round_has_marks(which: str, args) -> dict:
     """{paint, input}: whether this run's build has the front's paint and input marks (decided once per run; a
     missing one reads `no_mark`, never a harness time). The terminal's marks are in every build."""
@@ -914,6 +973,10 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["input_ms"] = marks.get(CHAT_MARK)
         if not has_marks["input"]:
             row["no_mark"] = True  # this build's pages never post the composer's input mark
+        elif path == "in_app" and row["input_ms"] is None and PAINT_MARK["chat"] in marks:
+            # The app typed its one key before this chat page was up: the round measured no chat key by design (the
+            # posted path times the chat). It drew, so it counts toward the verdict, named, never as a number.
+            row["unmeasured"] = "in_app: the app types its one key before a chat page is up"
     elif which == "browser":
         row["input_ms"] = marks.get(BROWSER_INPUT)
         if not has_marks["input"]:
@@ -980,7 +1043,7 @@ def restart_first_paint(rounds: list[dict], load: str) -> tuple[list[dict], list
 
 def check(args) -> int:
     import fresh_home_launch_smoke as smoke
-    result: dict = {"rounds": []}
+    result: dict = {"rounds": [], "recoveries": []}
     keys = Keys()
 
     def journey(process, socket_path, env, app, out, report):
@@ -1017,7 +1080,17 @@ def check(args) -> int:
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
-                break
+                # No app left to quit into the next round: bring one up unmeasured and go on, so one failed launch
+                # costs its own round, not the rest of the plan (the 20 cold_install:terminal p50/p95 rounds).
+                if len(result["recoveries"]) >= MAX_RECOVERIES or n == len(args.plan):
+                    break
+                recovered, why = recover_app(inst, app, launch_env(env, out / "typing-recover.csv", "posted"), out)
+                result["recoveries"].append({"after_round": n, "error": why})
+                rr.safe_print("TTI-RECOVER " + json.dumps(result["recoveries"][-1]), flush=True)
+                if recovered is None:
+                    failures.append(f"after round {n}: {why}")
+                    break
+                process = recovered
         rr.call(inst.sock, "action.run", {"action": "quitEndEverything"}, timeout=10)
         try:
             process.wait(timeout=20)
@@ -1058,7 +1131,9 @@ def check(args) -> int:
     result["percentiles"] = percentiles(result["rounds"], args.max_load_per_core, args.min_quiet)
     rr.safe_print("TTI-PCT " + json.dumps(result["percentiles"]), flush=True)
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
-    measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
+    # So does an in_app chat round that drew (`unmeasured`): the app's one key went in before the page was up.
+    measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")
+                or r.get("unmeasured")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
     result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access, launch_delay_ms=args.launch_delay_ms,
                   input=input_path(keys.access, args.input))
@@ -1072,7 +1147,7 @@ def check(args) -> int:
     for line in ratios:
         print("RESTART-FIRST-PAINT-RATIO " + json.dumps(line), flush=True)
     shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "percentiles",
-             *summary)
+             "recoveries", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)

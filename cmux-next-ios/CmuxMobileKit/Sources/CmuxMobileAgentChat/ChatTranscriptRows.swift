@@ -43,6 +43,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case working(label: String, since: Date?)
         case editedFiles(DiffChangeSet)
         case stopped
+        /// A message this phone sent that could not reach the Mac in time (``AgentTurn/LocalSend``):
+        /// one quiet line under its bubble; a tap sends it again.
+        case notSent
         case failed(prompt: String, errorText: String?)
         case actions(AgentTurn, isLast: Bool)
         /// The tagged ask a finished turn's answer ended on (the Mac's next-step card):
@@ -248,7 +251,7 @@ final class ChatTranscriptBuilder {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
-        if turn.incoming?.messages.isEmpty != true {
+        if turn.incoming?.messages.isEmpty != true, turn.localSend != .sending {
             var gap: Double = context.isFirst ? 0 : (context.followsActions ? 18 : 24)
             var prompt = turn.prompt
             // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
@@ -270,6 +273,13 @@ final class ChatTranscriptBuilder {
                                         ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
                                     gap: gap))
             }
+        }
+        // A message still on its way to the Mac is its bubble alone: no Working line, no
+        // actions; one that could not go says so under it.
+        if let local = turn.localSend {
+            if local == .notSent { add("ns-\(turnID)", .notSent, gap: 6) }
+            rowsMade += rows.count
+            return (rows, false)
         }
         let running = turn.status == .running
         // Ended, a steer the agent was finishing when it came draws over its final reply (Leo,
