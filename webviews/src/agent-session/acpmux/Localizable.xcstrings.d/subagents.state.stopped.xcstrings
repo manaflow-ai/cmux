@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "subagents.state.disconnected" : {
+    "subagents.state.stopped" : {
       "comment" : "Agent pane",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "انقطع الاتصال"
+            "value" : "متوقفة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Veza prekinuta"
+            "value" : "Zaustavljeno"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Afbrudt"
+            "value" : "Stoppet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Getrennt"
+            "value" : "Gestoppt"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Disconnected"
+            "value" : "Stopped"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Desconectado"
+            "value" : "Detenida"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déconnecté"
+            "value" : "Arrêtée"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Disconnesso"
+            "value" : "Interrotta"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "切断"
+            "value" : "停止"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បានផ្ដាច់"
+            "value" : "បានឈប់"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "연결 끊김"
+            "value" : "중지됨"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Frakoblet"
+            "value" : "Stoppet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rozłączono"
+            "value" : "Zatrzymane"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Desconectado"
+            "value" : "Interrompida"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отключено"
+            "value" : "Остановлена"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ตัดการเชื่อมต่อแล้ว"
+            "value" : "หยุดแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bağlantı kesildi"
+            "value" : "Durduruldu"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Відключено"
+            "value" : "Зупинено"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đã ngắt kết nối"
+            "value" : "Đã dừng"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已断开"
+            "value" : "已停止"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已中斷連線"
+            "value" : "已停止"
           }
         }
       }

@@ -27,9 +27,9 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
-  scrollRunning,
   settleScroll,
   stopScroll,
+  scrollRunning,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
@@ -49,6 +49,7 @@ import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { tickRanges } from "./tickWindow";
+import { drawTicksAfterPaint } from "./ticksFrame";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
@@ -1661,9 +1662,19 @@ function ThreadMinimapView({
     [held.focused, held.hovered, reveal, showCard ? held.card : undefined, domFocused],
     rowPitch,
   );
-  const drawnKey = drawn.join(" ");
+  /// A chat's ticks draw after its first paint, not in the open's commit: that commit drew about 180
+  /// ticks with the transcript's newest message and the next about 200 more (bench/chat-open.bench.ts
+  /// PROFILE=1), so the open waited on the rail. Until the frame after a chat's first commit, the list
+  /// is one spacer as tall as every row, so the rail keeps its size and nothing moves when they come.
+  const [ticksFor, setTicksFor] = useState<{ sessionId?: string } | undefined>(undefined);
+  const ticksDrawn = ticksFor !== undefined && ticksFor.sessionId === sessionId;
+  useEffect(() => {
+    if (ticksDrawn) return;
+    return drawTicksAfterPaint(() => setTicksFor({ sessionId }));
+  }, [ticksDrawn, sessionId]);
+  const drawnKey = ticksDrawn ? `drawn ${drawn.join(" ")}` : "none";
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ranges' contents, not the new array.
-  const ranges = useMemo(() => drawn, [drawnKey]);
+  const ranges = useMemo(() => (ticksDrawn ? drawn : NO_RANGES), [drawnKey]);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: it keeps the rows' keys as of this commit, and its setState calls run only when the ticks moved a row.
   useLayoutEffect(() => {
     // Reading the page's focus lays nothing out.
@@ -2213,6 +2224,9 @@ const TickList = memo(function TickList({
     );
   }
 });
+
+/// No rows drawn: a chat's list before its first paint (ThreadMinimapView `ticksDrawn`).
+const NO_RANGES: ReadonlyArray<readonly [number, number]> = [];
 
 /// The rows not drawn, as one block as tall as they are.
 function Spacer({ rows, pitch }: { rows: number; pitch: number }) {

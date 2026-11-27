@@ -83,6 +83,8 @@ mod cloud_agent;
 #[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
+mod cloud_apps_relay;
+#[cfg(unix)]
 mod cloud_auth_handoff_relay;
 #[cfg(unix)]
 mod cloud_automation_relay;
@@ -130,9 +132,13 @@ mod code_mode;
 mod codex_app_server;
 mod command;
 mod completion;
+#[cfg(unix)]
+mod env_command;
 mod intent;
 #[cfg(unix)]
 mod key_broker;
+#[cfg(unix)]
+mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
@@ -675,6 +681,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "computer-use",
     "chat",
     "vm",
+    "env",
     "customize",
     "agent-config",
     "move",
@@ -1136,6 +1143,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_provider::run_if_requested(args))
@@ -1152,6 +1160,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
+        .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
