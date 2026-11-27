@@ -132,10 +132,10 @@ cmux_next_cas_bound() {
 # (8b6d15df0, ultra1, 2026-11-27) died this way with no compile error in the tree.
 # The next build gets a new build service, so a caller that already allows one
 # retry should spend it here too.
-# One awk, no pipe: `awk | grep -q` under pipefail failed whenever the log was bigger than a pipe buffer
-# (grep -q exits at the first match, awk dies writing the rest: "awk: write error on /dev/stdout"), so a
-# real crash read as no crash and the no-cache retry never ran (nightly-next runs 46074261734, 46076637784,
-# 46079235693, about 110k log lines each).
+# One awk, no pipe: the callers run under pipefail, and `awk | grep -q` stopped at
+# grep's first match, so awk died writing the rest of a 100k-line log ("awk: write
+# error on /dev/stdout") and the pipeline read as no crash. nightly-next runs
+# 46051203184 and 46060011808 crashed this way and never retried.
 # Usage: cmux_next_build_service_crashed <log>
 cmux_next_build_service_crashed() {
   [[ -f "$1" ]] || return 1
