@@ -26,6 +26,14 @@
 //! | `browser_rules_automation_tab_url_changed` | `{lastUrl, url, loading, provisional}` | `{lastUrl, sameDocument}` |
 //! | `browser_rules_automation_tab_fragment_only` | `{a, b}` | a bool |
 //! | `browser_rules_automation_tab_process_exit_is_new` | `{exit, last}` | a bool |
+//! | `browser_rules_automation_driver_params` | `{method, params, reads}` | `{values}` or `{error}` |
+//! | `browser_rules_automation_call_deadline` | `{what, timeoutMs}` | `{milliseconds, message}` |
+//! | `browser_rules_automation_tab_place` | a `tabs.open` call's params | `{workspace, terminal}` |
+//! | `browser_rules_automation_frame_tree` | `{root}` | the frames, parents first |
+//!
+//! `browser_rules_automation_driver_params` reads each of `reads` (`{key, read, default?}`, `read`
+//! one of `has`, `string`, `optionalString`, `number`, `optionalNumber`, `bool`, `strings`,
+//! `array`, `timeout`) in order and answers the values, or the first read's error.
 //!
 //! `browser_rules_automation_load_waits` takes the machine's `waits` (absent: a new one), and
 //! `do`: `snapshot`, `navigationEvent {event}`, `signal {state, document}`, `loadingEnded`,
@@ -36,7 +44,7 @@ use crate::load_waits::{
     self, LoadState, LoadWaits, NavigationEvent, Reach, Resolution, Ticket, WaitError,
 };
 use crate::ops::OpError;
-use crate::{cookie_backups as backups, cookies, tab_watcher};
+use crate::{cookie_backups as backups, cookies, driver, frames, tab_watcher};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -218,6 +226,79 @@ struct ExitRequest {
     last: Option<Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeadlineRequest {
+    what: String,
+    timeout_ms: f64,
+}
+
+#[derive(Deserialize)]
+struct FrameTreeRequest {
+    #[serde(default)]
+    root: Option<frames::FrameNode>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum ReadKind {
+    Has,
+    String,
+    OptionalString,
+    Number,
+    OptionalNumber,
+    Bool,
+    Strings,
+    Array,
+    Timeout,
+}
+
+#[derive(Deserialize)]
+struct ParamRead {
+    #[serde(default)]
+    key: String,
+    read: ReadKind,
+    #[serde(default)]
+    default: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct DriverParamsRequest {
+    method: String,
+    #[serde(default)]
+    params: Value,
+    reads: Vec<ParamRead>,
+}
+
+fn read_param(params: &driver::DriverParams, read: &ParamRead) -> Result<Value, String> {
+    let key = read.key.as_str();
+    Ok(match read.read {
+        ReadKind::Has => json!(params.has(key)),
+        ReadKind::String => json!(params.string(key)?),
+        ReadKind::OptionalString => json!(params.optional_string(key)?),
+        ReadKind::Number => json!(params.number(key)?),
+        ReadKind::OptionalNumber => json!(params.optional_number(key)?),
+        ReadKind::Bool => {
+            let fallback = read.default.as_ref().and_then(Value::as_bool).unwrap_or(false);
+            json!(params.bool(key, fallback)?)
+        }
+        ReadKind::Strings => json!(params.strings(key)?),
+        ReadKind::Array => Value::Array(params.array(key)?),
+        ReadKind::Timeout => {
+            let fallback =
+                read.default.as_ref().and_then(Value::as_f64).unwrap_or(driver::DEFAULT_TIMEOUT_MS);
+            json!(params.timeout_ms(fallback)?)
+        }
+    })
+}
+
+fn driver_params_op(request: Value) -> Result<Value, OpError> {
+    let DriverParamsRequest { method, params, reads } = parse(request)?;
+    let values = driver::DriverParams::new(&method, &params)
+        .and_then(|params| reads.iter().map(|read| read_param(&params, read)).collect());
+    Ok(result::<Vec<Value>>(values, "values"))
+}
+
 /// Runs the automation op `op`, or None when it is not one of them.
 pub fn call(op: &str, request: Value) -> Option<Result<Value, OpError>> {
     let name = op.strip_prefix("browser_rules_automation_")?;
@@ -323,6 +404,20 @@ fn run(name: &str, request: Value) -> Result<Value, OpError> {
         "tab_process_exit_is_new" => {
             let ExitRequest { exit, last } = parse(request)?;
             Ok(json!(tab_watcher::process_exit_is_new(exit.as_ref(), last.as_ref())))
+        }
+        "driver_params" => driver_params_op(request),
+        "call_deadline" => {
+            let DeadlineRequest { what, timeout_ms } = parse(request)?;
+            let milliseconds = driver::deadline_ms(timeout_ms);
+            Ok(json!({
+                "milliseconds": milliseconds,
+                "message": driver::timeout_message(&what, milliseconds),
+            }))
+        }
+        "tab_place" => Ok(encode(&driver::TabPlace::from_params(&request))),
+        "frame_tree" => {
+            let FrameTreeRequest { root } = parse(request)?;
+            Ok(encode(&root.map(|root| frames::flatten(&root)).unwrap_or_default()))
         }
         other => Err(OpError::UnknownOp(format!("browser_rules_automation_{other}"))),
     }

@@ -124,3 +124,29 @@ fn browser_rules_automation_cookie_clear_scopes_to_the_site() {
     assert_eq!(code, OK);
     assert_eq!(body, json!([true, false]));
 }
+
+#[test]
+fn browser_rules_automation_driver_params_reads_typed_fields() {
+    let request = json!({
+        "method": "page.fill",
+        "params": {"selector": "#q", "value": 3},
+        "reads": [{"key": "selector", "read": "string"}, {"key": "value", "read": "string"}],
+    });
+    let (code, body) =
+        call("browser_rules_automation_driver_params", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"error": "page.fill: value: expected a string, got a number"}));
+}
+
+#[test]
+fn browser_rules_automation_frame_tree_flattens_parents_first() {
+    let request =
+        json!({"root": {"frameId": "7", "children": [{"frameId": "8", "url": "https://a.test/"}]}});
+    let (code, body) =
+        call("browser_rules_automation_frame_tree", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(
+        body[1],
+        json!({"frameId": "8", "parentFrameId": "7", "url": "https://a.test/", "isMain": false})
+    );
+}

@@ -13,6 +13,9 @@
 //! - [`load_waits`], [`cookie_backups`], [`cookies`], [`tab_watcher`]: the browser automation's
 //!   rules (`LoadWaits`, `CookieBackups`, the cookie calls of `WebKitDriver`, `TabWatcher`), ops in
 //!   [`automation_ops`].
+//! - [`driver`], [`frames`]: a driver call's params and deadline, where its new tab opens and a
+//!   tab's frame tree (`DriverParams`, `CallDeadline`, `AutomationTabPlace`, `FrameTree`), ops in
+//!   [`automation_ops`].
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
@@ -24,6 +27,8 @@ pub mod automation_ops;
 pub mod calculator;
 pub mod cookie_backups;
 pub mod cookies;
+pub mod driver;
+pub mod frames;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
@@ -40,6 +45,10 @@ mod calculator_tests;
 mod cookie_backups_tests;
 #[cfg(test)]
 mod cookies_tests;
+#[cfg(test)]
+mod driver_tests;
+#[cfg(test)]
+mod frames_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]
