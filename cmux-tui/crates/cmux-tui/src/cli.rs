@@ -295,11 +295,11 @@ mod machine_join;
 #[cfg(unix)]
 mod machine_link;
 #[cfg(unix)]
+mod machine_list_reads;
+#[cfg(unix)]
 mod machine_request;
 #[cfg(unix)]
 mod mobile_pair_requests;
-#[cfg(unix)]
-mod machine_list_reads;
 #[cfg(unix)]
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
