@@ -300,6 +300,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
+pub(crate) mod plan_first;
 pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
