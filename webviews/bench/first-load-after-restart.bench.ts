@@ -751,7 +751,10 @@ function installHost({
   refuseUntilMs,
   bridge,
   rows,
+  trace,
 }: {
+  /// WIRE_TRACE=1: every call the page makes to its host and the answer's first 200 characters, to the console.
+  trace: boolean;
   tail: unknown;
   readyDelayMs: number;
   refuseUntilMs: number;
@@ -814,13 +817,22 @@ function installHost({
         if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge && !rows)) continue;
         const post = handler.postMessage.bind(handler);
         const envelope = name === "cmuxPage";
-        handler.postMessage = async (request: {
+        type HostRequest = {
           t?: string;
           id?: unknown;
           method?: string;
           op?: string;
           params?: Record<string, unknown>;
-        }) => {
+        };
+        handler.postMessage = async (request: HostRequest) => {
+          const reply = await answerHost(request);
+          if (trace && !(request.method ?? request.op ?? "").endsWith("transport.send"))
+            console.log(
+              `benchhost ${performance.now().toFixed(0)} ms ${name} ${request.t ?? ""} ${request.method ?? request.op ?? ""} ${JSON.stringify(request.params ?? {}).slice(0, 120)} -> ${String(JSON.stringify(reply)).slice(0, 200)}`,
+            );
+          return reply;
+        };
+        const answerHost = async (request: HostRequest) => {
           if (envelope && request.t !== "call") return post(request);
           const method = (request.method ?? request.op ?? "").replace(/^cmux\.agent\./, "");
           const own = rowsCall(method, request.params) ?? transport(method, request.params);
@@ -1892,6 +1904,7 @@ try {
       readyDelayMs,
       refuseUntilMs,
       bridge: BRIDGE,
+      trace: WIRE_TRACE,
       rows: ROWS_WINDOW
         ? { window: ROWS_WINDOW, delayMs: LINK.rttMs, ended: ends ? ROWS_ENDED : null, endedMs: ROWS_ENDED_MS }
         : null,
@@ -1932,7 +1945,7 @@ try {
       const said: string[] = [];
       page.on("pageerror", (error) => said.push(`pageerror ${error.message}`));
       page.on("console", (message) => {
-        if (message.type() === "error" || message.type() === "warning")
+        if (message.type() === "error" || message.type() === "warning" || message.text().startsWith("benchhost "))
           said.push(`${message.type()} ${message.text()}`);
       });
       page.on("requestfailed", (request) =>
@@ -1962,11 +1975,16 @@ try {
                 rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
                 root: root ? `${root.childElementCount} children, hidden=${root.hidden}` : "no #root",
                 text: (document.body.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 400),
+                hash: location.hash.slice(0, 200),
+                launch:
+                  (
+                    window as unknown as { cmuxAcpmuxDebug?: { perfStats(): { launch: unknown } } }
+                  ).cmuxAcpmuxDebug?.perfStats().launch ?? null,
               };
             })
             .catch((failed: unknown) => `page state unreadable: ${String(failed)}`);
           console.log(`WARM never settled: ${JSON.stringify(state)}`);
-          for (const line of said.slice(0, 40)) console.log(`WARM page ${line.slice(0, 600)}`);
+          for (const line of said.slice(0, 200)) console.log(`WARM page ${line.slice(0, 600)}`);
           throw error;
         });
       await page.addScriptTag({ content: captureScript });
