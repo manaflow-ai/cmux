@@ -157,6 +157,27 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         }
       });
 
+  // Under 260 px the transcript's floor gives way (bottomStack.css, ask c-6a24624c5c): in a 140 or 200 px
+  // pane the floor left the stack 32 or 92 px, so the card and the quiet row ran past the pane's bottom.
+  // The stack now takes the pane under the header, and the card, its controls and the quiet row stay in it.
+  for (const name of browsers.keys())
+    for (const [label, width, height] of [
+      ["a 140 px pane", 360, 140],
+      ["a 200 px pane", 360, 200],
+    ] as const)
+      test(`${name}: in ${label} the card, its controls and the quiet row stay inside the pane`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height });
+        try {
+          await grow(page, 16);
+          const drawn = await measure(page);
+          expect({ past: clamp(drawn.past) }).toEqual({ past: inside });
+          expect(drawn.overflow).toEqual(flat);
+        } finally {
+          await page.close();
+        }
+      });
+
   for (const name of browsers.keys())
     test(`${name}: in a tall pane the grown prompt stops at Claude desktop's 384 px cap, bounded by 50%`, async () => {
       current = browsers.get(name)!;

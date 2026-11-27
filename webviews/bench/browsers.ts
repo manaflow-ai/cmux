@@ -21,21 +21,20 @@ import { useSystemChrome as launchSystemChrome } from "../test/support/systemChr
 /// from the start. `BENCH_SHIPPED_JS_FLAGS=0` launches without them (an A/B of the flag itself).
 export const SHIPPED_JS_FLAGS = ["--min-semi-space-size=32"];
 
+type LaunchOptions = { args?: string[] };
+
 /// OPTIONS with SHIPPED_JS_FLAGS joined into its one `--js-flags` argument (pure). A flag the launch already names
-/// (any value) is the launch's: a bench that sets its own young generation keeps it. Generic over the options type, so
-/// each Playwright launch gets back its own options type (a `Record<string, unknown>` result is no `LaunchOptions`).
-export function withShippedJsFlags<O extends object>(
-  options: O | undefined,
+/// (any value) is the launch's: a bench that sets its own young generation keeps it.
+export function withShippedJsFlags<T extends object = LaunchOptions>(
+  options: T | undefined,
   flags = SHIPPED_JS_FLAGS,
-): O & { args: string[] } {
-  const args = (options as { args?: string[] } | undefined)?.args ?? [];
+): T & LaunchOptions {
+  const args = (options as LaunchOptions | undefined)?.args ?? [];
   const own = args.filter((arg) => arg.startsWith("--js-flags=")).flatMap((arg) => arg.slice(11).split(/\s+/));
   const named = (flag: string) => own.some((f) => f.split("=")[0] === flag.split("=")[0]);
   const joined = [...own.filter(Boolean), ...flags.filter((flag) => !named(flag))];
   const rest = args.filter((arg) => !arg.startsWith("--js-flags="));
-  return { ...options, args: joined.length ? [...rest, `--js-flags=${joined.join(" ")}`] : rest } as O & {
-    args: string[];
-  };
+  return { ...options, args: joined.length ? [...rest, `--js-flags=${joined.join(" ")}`] : rest } as T & LaunchOptions;
 }
 
 function launchWithShippedJsFlags(env: Record<string, string | undefined> = process.env): void {

@@ -139,7 +139,6 @@ function shared(value: unknown): unknown {
 
 /** `session` with its `modes` and `configOptions` the page's shared copies (`shared`). */
 export function withSharedShapes<S extends Summary>(session: S): S {
-  // Through the constraint: a type parameter's property access does not reach its index signature (TS2339).
   const row: Summary = session;
   if (row.modes !== undefined) row.modes = shared(row.modes);
   if (row.configOptions !== undefined) row.configOptions = shared(row.configOptions);
@@ -403,6 +402,9 @@ export class SessionPager<S extends Summary> {
       this.listedFrom(reply, asked);
       const at = cursorOf(reply);
       if (reply.more !== true || at === undefined) break;
+      // A reply that says more but leaves the cursor where it was asked would be asked again
+      // forever; what it held is laid over the list, and the next lag or reconnect reads on.
+      if (at.seq <= asked) break;
       asked = at.seq;
       reply = await this.request("_acpmux/watch", {
         enabled: true,

@@ -843,6 +843,7 @@ dependencies = [
  "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
+ "cmux-vnc",
  "cmux-window-rules",
  "libc",
  "p256",
@@ -1058,6 +1059,19 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-vnc"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "flate2",
+ "getrandom 0.3.4",
+ "num-bigint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
