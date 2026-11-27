@@ -53,7 +53,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
+  Api, CHAT_START_SIZE, FAILED_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -87,6 +87,19 @@ export function accountCensus(rows: any[], nowMs: number): string {
   for (const r of failed) causes.set(cause(r), (causes.get(cause(r)) ?? 0) + 1);
   const failedBy = failed.length ? `; failed by error: ${[...causes].sort((a, b) => b[1] - a[1]).map(([k, c]) => `${k}=${c}`).join(" | ")}` : "";
   return `status: ${by((r) => String(r?.status ?? "?"))}; age: ${by(age)}; names: ${by(shape)}${failedBy}`;
+}
+
+/** The account's machines by status, total first ("165 machines: running=60 create_overdue=78 ..."): each create
+ * logs it next to its time, so a slow create can be read against how loaded the drill account was when it asked
+ * (staging 09:30Z: 165 machines, 78 create_overdue, creates 91-544 s behind the scaler's orphan sweep). */
+export function statusCounts(rows: any[]): string {
+  const n = new Map<string, number>();
+  for (const r of rows) {
+    const k = String(r?.status ?? "?");
+    n.set(k, (n.get(k) ?? 0) + 1);
+  }
+  const parts = [...n].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, c]) => `${k}=${c}`);
+  return `${rows.length} machines${parts.length ? `: ${parts.join(" ")}` : ""}`;
 }
 
 /** A machine the provider failed at create, after the platform's retry window: no host, never active, and the
@@ -289,6 +302,45 @@ export function markdownTable(rows: ArmRow[]): string {
   return [head, ...rows.map((r) => `| ${r.arm} | ${r.machines} | ${r.turn_end_advertised} | ${r.awake_s} | ${r.paused_s} | ${r.awake_pct} | ${r.resumes} | ${r.mean_resume_ms ?? "n/a"} | ${r.p50_resume_ms ?? "n/a"} | ${r.p95_resume_ms ?? "n/a"} | ${r.resume_failures} | ${r.vm_unavailable} | ${r.turns_ok} |`)].join("\n");
 }
 
+/**
+ * Each run of `starting` samples on one machine: what it started from (`paused`, or `pausing` for a resume that met a
+ * pause still in flight) and its sampled upper bound in seconds, from the sample before the first `starting` to the
+ * first sample after the last (so it is high by up to two poll intervals). hq#21300's resume p95 8.4 s is a host-side
+ * number; this split shows whether a slower arm p50 is a fast mode read through the sampler or a slow mode of its own.
+ */
+export function startingSpans(samples: Sample[]): { from: string; s: number }[] {
+  const sorted = [...samples].sort((a, b) => a.at - b.at);
+  const out: { from: string; s: number }[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].status !== "starting" || sorted[i - 1].status === "starting") continue;
+    let j = i;
+    while (j < sorted.length && sorted[j].status === "starting") j++;
+    const endAt = j < sorted.length ? sorted[j].at : sorted[j - 1].at;
+    out.push({ from: sorted[i - 1].status === "paused" ? "paused" : sorted[i - 1].status, s: Math.round((endAt - sorted[i - 1].at) / 100) / 10 });
+    i = j - 1;
+  }
+  return out;
+}
+
+/** A slow start: at or past the 30 s the platform's old vmApiTimeoutMs cut a resume at (platform#2256, #2263). */
+export const SLOW_START_S = 30;
+
+/** Per arm and start origin: count, p50, and how many starts were slow, from every machine's samples. */
+export function startingTable(results: MachineResult[], arms: string[]): string {
+  const head = `| arm | from | starts | p50 s | fast (<${SLOW_START_S} s) p50 s | slow (>=${SLOW_START_S} s) | slow s |\n|---|---|---|---|---|---|---|`;
+  const rows: string[] = [];
+  for (const arm of arms) {
+    const spans = results.filter((r) => r.arm === arm && !r.skipped).flatMap((r) => startingSpans(r.samples));
+    for (const from of [...new Set(spans.map((x) => x.from))].sort()) {
+      const v = spans.filter((x) => x.from === from).map((x) => x.s);
+      const fast = v.filter((x) => x < SLOW_START_S);
+      const slow = v.filter((x) => x >= SLOW_START_S).sort((a, b) => a - b);
+      rows.push(`| ${arm} | ${from} | ${v.length} | ${percentile(v, 0.5) ?? "n/a"} | ${percentile(fast, 0.5) ?? "n/a"} | ${slow.length} | ${slow.join(", ") || "-"} |`);
+    }
+  }
+  return [head, ...rows].join("\n");
+}
+
 /** The pair numbers in order, each with its machines (one per arm): the drill brings pairs up one after another. */
 /** The guest's `acp wait; acp last; @@werr` output: wait's exit code, the last reply, wait's stderr tail. */
 export function parseWaitOutput(stdout: string): { code: string | undefined; text: string; werr: string } {
@@ -415,6 +467,9 @@ export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUS
     if (r.status === "deleted" || r.status === "deleting") { keep(`status=${r.status}`); continue; }
     const started = parseInt(m[1], 36);
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) { keep("tag is not a start time"); continue; }
+    // A failed machine is dead whatever its age (the platform never revives one); its own run is long past it by
+    // FAILED_JOURNEY_MS, so it is the sweep's then rather than at the full window.
+    if (r.status === "failed" && nowMs - started > FAILED_JOURNEY_MS) { if (id) out.push({ id, name: r.name, why: `failed, started ${Math.round((nowMs - started) / 60_000)} min ago` }); else keep("no id"); continue; }
     if (nowMs - started <= maxAgeMs) { keep(`started ${Math.round((nowMs - started) / 60_000)} min ago`); continue; }
     // No activity spare past the cutoff: a left-behind drill machine still runs the drill's own model stub, which
     // keeps it active for good (pause-ab-mwxbi2gl, 08:55Z, kept "active 0 min ago" by every sweep until 11:10Z).
@@ -655,7 +710,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     writeFileSync(path.join(outDir, "summary.md"), `# Pause-policy A/B (${backend.name})\n\n` +
       `${perArm} machine(s) per arm, ${turnCount} stub turns, seeds ${seed}..${seed + perArm - 1} (one per pair), pair 1 gaps ${gaps.join(", ")} s, tail ${tailS} s. ` +
       `Awake/paused from \`cloud.machine.get\` status every ${pollMs / 1000} s. Account VM seconds over the run (all machines, cross-check): ${usage ?? "n/a"}.\n\n` +
-      `${markdownTable(rows)}\n\n## Per pair (same seed and gaps in every arm)\n\n${pairTable(results, arms)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
+      `${markdownTable(rows)}\n\n## Starting phase (sampled upper bound per start)\n\n${startingTable(results, arms)}\n\n## Per pair (same seed and gaps in every arm)\n\n${pairTable(results, arms)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
       results.map((r) => `- start ${guestLine(r.name, r.guest_update_start)}\n- end ${guestLine(r.name, r.guest_update_end)}`).join("\n") +
       `\n\n## Idle decision per gap (\`cloud.machine.get\` at the gap's end; guest listeners when awake)\n\n` +
       `| machine | turn | gap s | idle decision | listeners (addr, owner) | guest report at turn end |\n|---|---|---|---|---|---|\n` +
@@ -847,6 +902,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let ttlRefused: string | null = null;
     const createOne = async (r: MachineResult) => {
       const c0 = Date.now();
+      // Read alongside the create, not before it, so the census never delays the timed call.
+      const census = listAllMachines((p) => api.read("cloud.machine.list", p)).then(statusCounts, (e: Error) => `census failed: ${String(e?.message ?? e).slice(0, 120)}`);
       const ask = (ttl: boolean) => api.op("cloud.machine.create", { name: r.name, size: CHAT_START_SIZE, ...(ttl ? { ttl_seconds: PAUSE_AB_STALE_MS / 1000 } : {}) }, `pab-${tag}-create-${r.name}${ttl ? "" : "-nottl"}`);
       let v: any;
       try {
@@ -858,7 +915,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         v = await ask(false);
       }
       r.id = String(v.machine?.id ?? v.machine ?? "") || null;
-      took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
+      const secs = Math.round((Date.now() - c0) / 1000);
+      const at = await census;
+      took.push(`${r.name} ${secs} s`);
+      console.log(`create: ${r.name} ${secs} s at ${new Date(c0).toISOString()}; account at ask: ${at}`);
+      J.record({ step: `create ${r.name}`, status: "pass", ms: Date.now() - c0, detail: `${secs} s; account at ask: ${at}` });
       if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
     };
     // At most --bringup-pairs pairs in bring-up at once (default 3, so 6 creates): run 45864237040's 20 concurrent

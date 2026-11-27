@@ -14,6 +14,7 @@ import {
   MARK_FOOTER,
   MARK_FOOTER_ROW,
   MARK_LIVE_STEP,
+  MARK_LIVE_THOUGHT,
   MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
@@ -1887,13 +1888,6 @@ const MESSAGE_GAP = 0;
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
 
-/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
-/// about 60 characters, and the toggle once it is cut.
-function replyHeight(reply: string): number {
-  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
-  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
-}
-
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
@@ -1914,12 +1908,22 @@ export const isLiveLine = (row: AcpmuxRow) => row.below === true && (row.kind ==
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// The live line right under a step row that ends on a thought (transcriptGrid.ts MARK_LIVE_THOUGHT): it stands the
+/// run gap the reply that follows the thought stands, so the reply takes its place and nothing over it moves more than
+/// the reply's own lines.
+export const isLiveThought = (row: AcpmuxRow, prev: AcpmuxRow | undefined) => {
+  if (prev?.kind !== "activity" || !isLiveStep(row, prev)) return false;
+  const last = prev.items?.at(-1);
+  return last !== undefined && isThought(last);
+};
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
 /// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
 /// from one that opens its turn over that line (`headsIncomingTurn`).
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
-  (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
+  ((wokenUnderFooter(row, prev) && wokenGapLook() === "tail") || noticeUnderFooter(row, prev)
+    ? MARK_STATUS
+    : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
   (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
@@ -1967,6 +1971,16 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: 
 /// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
 const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
   line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
+/// Whether `row` is a notice line ("Background command finished", a task's end that woke the agent)
+/// right under the footer row of the turn before: it opens the turn it woke as a status line does,
+/// flush under the footer (transcriptGrid.ts), not a step row's run gap away. Another agent's
+/// message keeps its own gap (footer-to-received). O(1).
+const noticeUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  row.kind === "user" &&
+  !row.received &&
+  row.incoming?.kind === "notice" &&
+  prev !== undefined &&
+  rowMark(prev) === MARK_FOOTER_ROW;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -1978,7 +1992,7 @@ const wokenUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
   rowMark(prev) === MARK_FOOTER_ROW;
 /// How that row stands under the footer (gallery `agent-pane.woken-turn-gap`, `<html data-woken-gap>`):
 /// `block`, shipped, the block gap any row under a footer stands; `turn`, the turn gap it stood
-/// before; `tail`, the 8 a status line under a footer stands, in the hidden line's place. Read only
+/// before; `tail`, flush, as a status line under a footer stands, in the hidden line's place. Read only
 /// for such a row, so a layout pass pays nothing for it.
 export function wokenGapLook(): "block" | "turn" | "tail" {
   const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.wokenGap;
@@ -2023,7 +2037,9 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
       : isStepRow(row)
         ? MARK_STEP
         : isLiveStep(row, prev)
-          ? MARK_LIVE_STEP
+          ? isLiveThought(row, prev)
+            ? MARK_LIVE_THOUGHT
+            : MARK_LIVE_STEP
           : isStatusRow(row)
             ? MARK_STATUS
             : rowMark(row);
@@ -4180,6 +4196,114 @@ function withHeight(
 /// like chatgpt").
 export const isOverlayFooter = (row: AcpmuxRow) => row.kind === "turnSummary" && isEmptyFooter(row);
 
+type LayoutArrays = { gaps: Float64Array; marks: Uint8Array; tops: Float64Array; heights: Float64Array };
+
+/// New arrays of `length` rows holding `previous`'s first `start` rows.
+function freshLayoutArrays(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
+  const arrays = {
+    gaps: new Float64Array(length),
+    marks: new Uint8Array(length),
+    tops: new Float64Array(length),
+    heights: new Float64Array(length),
+  };
+  if (previous && start > 0) copyLayoutRows(arrays, previous, 0, start);
+  return arrays;
+}
+
+function copyLayoutRows(into: LayoutArrays, from: ConversationLayout, begin: number, end: number): void {
+  if (end <= begin) return;
+  if (from.gaps) into.gaps.set(from.gaps.subarray(begin, end), begin);
+  else into.gaps.fill(0, begin, end);
+  if (from.marks) into.marks.set(from.marks.subarray(begin, end), begin);
+  else into.marks.fill(0, begin, end);
+  into.tops.set(from.tops.subarray(begin, end), begin);
+  into.heights.set(from.heights.subarray(begin, end), begin);
+}
+
+/// How many layouts' arrays a transcript keeps before it writes over the oldest. The transcript
+/// reads the newest estimate and its last committed placement (`hold`), which reads an older
+/// estimate's arrays, so three leave one to write.
+const LAYOUT_BUFFER_SETS = 3;
+
+/// A transcript's layout arrays, kept from one layout to the next (chat-instant-under-load.md piece
+/// 4). Before, every new rows array (a streamed token) allocated four arrays of the chat's row count
+/// and copied every unchanged row into them: about 128 KB of garbage a token in a 4,000-row chat, the
+/// god chat's extra collector time. Now a set's capacity grows by doubling, and a layout writes
+/// into the set written longest ago, copying only the rows that changed since that set was written.
+export class LayoutBuffers {
+  private sets: { arrays?: LayoutArrays; generation: number; unchanged: number }[] = Array.from(
+    { length: LAYOUT_BUFFER_SETS },
+    () => ({ generation: -1, unchanged: 0 }),
+  );
+  private generation = 0;
+  private last: { layout?: ConversationLayout; set: number } = { set: -1 };
+  private pending?: { set: number; from: number };
+  private held?: ArrayBufferLike;
+
+  // perf-hot: O(changed rows) per streamed token chat-100k-flat
+  take(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
+    // The set written longest ago that neither the last layout nor the held one reads.
+    let index = -1;
+    for (let at = 0; at < this.sets.length; at += 1) {
+      const each = this.sets[at]!;
+      if (at === this.last.set || (this.held !== undefined && each.arrays?.gaps.buffer === this.held)) continue;
+      if (index < 0 || each.generation < this.sets[index]!.generation) index = at;
+    }
+    const set = this.sets[index]!;
+    let arrays = set.arrays;
+    const lineal = previous !== undefined && previous === this.last.layout;
+    if (!arrays || arrays.tops.length < length) {
+      const capacity = Math.max(length, (arrays?.tops.length ?? 0) * 2, 64);
+      arrays = {
+        gaps: new Float64Array(capacity),
+        marks: new Uint8Array(capacity),
+        tops: new Float64Array(capacity),
+        heights: new Float64Array(capacity),
+      };
+      set.arrays = arrays;
+      set.generation = -1;
+    }
+    // Rows this set already holds as `previous` does: those before the first row any layout written
+    // since this set changed. Anything else is copied from `previous`.
+    const agree = lineal && set.generation >= 0 ? Math.min(start, set.unchanged) : 0;
+    if (previous && start > agree) copyLayoutRows(arrays, previous, agree, start);
+    // Rows a layout leaves alone (a row that draws nothing keeps no gap) read 0, as in new arrays.
+    arrays.gaps.fill(0, start, length);
+    // Until `wrote`, the set holds no generation's layout whole (a layout that throws leaves it so).
+    set.generation = -1;
+    this.pending = { set: index, from: lineal ? start : 0 };
+    return {
+      gaps: arrays.gaps.subarray(0, length),
+      marks: arrays.marks.subarray(0, length),
+      tops: arrays.tops.subarray(0, length),
+      heights: arrays.heights.subarray(0, length),
+    };
+  }
+
+  /// The layout the transcript keeps past the next estimates (its last committed placement,
+  /// VirtualTranscript previousLayout). A placement reads its estimate's arrays (placedFromEstimate
+  /// keeps gaps and marks, its geometry reads tops and heights), and several estimates can come
+  /// before the next commit (a send during a running call), so `take` never writes the set it reads.
+  hold(layout: { gaps?: Float64Array } | null): void {
+    this.held = layout?.gaps?.buffer;
+  }
+
+  /// Records the layout `take`'s arrays went into.
+  wrote(layout: ConversationLayout): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    // Each set needs only the prefix it still shares with this layout, even when a placement
+    // holds its arrays through thousands of estimates.
+    for (const set of this.sets) set.unchanged = Math.min(set.unchanged, pending.from);
+    const written = this.sets[pending.set]!;
+    written.unchanged = layout.tops.length;
+    written.generation = this.generation;
+    this.generation += 1;
+    this.last = { layout, set: pending.set };
+  }
+}
+
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
   rows: readonly AcpmuxRow[],
@@ -4218,11 +4342,9 @@ export function layoutConversation(
   /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
   /// paint. The open's first frame costs the rows it mounts, not the whole page of history.
   roughAbove?: number,
+  /// The caller's reusable arrays (LayoutBuffers): one per transcript, never shared between two.
+  buffers?: LayoutBuffers,
 ): ConversationLayout {
-  const gaps = new Float64Array(rows.length);
-  const marks = new Uint8Array(rows.length);
-  const tops = new Float64Array(rows.length);
-  const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
@@ -4232,7 +4354,9 @@ export function layoutConversation(
   const gapScale = scale * gapFactor;
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
-  if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
+  const keeps =
+    previous !== undefined && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor;
+  if (keeps) {
     // Asked of the same two row arrays by the pane's other passes too: walked once a pair, or not at
     // all where the rows' maker said how many it kept (prefixFlatMap.ts `noteKeptPrefix`).
     start = keptPrefix(previous.rows, rows);
@@ -4246,11 +4370,13 @@ export function layoutConversation(
         rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
-    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
-    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
-    tops.set(previous.layout.tops.subarray(0, start));
-    heights.set(previous.layout.heights.subarray(0, start));
   }
+  // The rows before `start` keep the last layout's places. With `buffers` (the transcript's own), the
+  // arrays are reused and only what changed since they were last written is copied: a delta to the
+  // last row writes O(1) entries and allocates nothing. Without, new arrays as before.
+  const { gaps, marks, tops, heights } = buffers
+    ? buffers.take(keeps ? previous.layout : undefined, start, rows.length)
+    : freshLayoutArrays(keeps ? previous.layout : undefined, start, rows.length);
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
   // Kept rows may hold a remembered height of their own.
   let remembered = start > 0 && previous?.layout.remembered === true;
@@ -4399,6 +4525,7 @@ export function layoutConversation(
   };
   trimPreparedRows(cache);
   messages.finish(rows, layout);
+  buffers?.wrote(layout);
   return layout;
 }
 
@@ -4861,6 +4988,7 @@ import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { ROW_METRIC } from "./rowMetric";
+import { replyHeight } from "./replyHeight";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import type { SurgeHold } from "./conversation/surgeHold";
 

@@ -52,6 +52,7 @@ agentPane.display.senderIcon.lead
 agentPane.display.sessionInfo.placement
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
+agentPane.display.streaming
 agentPane.display.subagentOf
 agentPane.display.thinking.glyph
 agentPane.display.thinking.glyphSize
