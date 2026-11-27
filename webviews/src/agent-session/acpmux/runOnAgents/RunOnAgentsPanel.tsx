@@ -7,8 +7,10 @@
 // an agent moves the rows under it by one row and nothing else.
 
 import { useState, type Ref } from "react";
+import { Button } from "../../../ui/Button";
 import { DialogButton } from "../../../ui/DialogButton";
 import { Select, type SelectOption } from "../../../ui/Select";
+import { Tooltip } from "../../../ui/Tooltip";
 import { useT } from "../i18n";
 import type { PickerCatalog } from "../modelCatalogData";
 import { SenderIcon } from "../subagents/SenderIcon";
@@ -123,29 +125,30 @@ export function RunOnAgentsPanel({ catalog, prompt, onRun, onClose, initial, run
                   set(index, value ? { ...rest, effort: value } : rest);
                 }}
               />
-              <button
-                type="button"
-                className="acpmux-run-on-remove"
-                aria-label={t("runOn.remove")}
-                title={t("runOn.remove")}
-                disabled={variants.length <= MIN_RUNS || running}
-                onClick={() => setVariants(variants.filter((_, i) => i !== index))}
-              >
-                ×
-              </button>
+              <Tooltip label={t("runOn.remove")}>
+                <Button
+                  bare
+                  className="acpmux-run-on-remove"
+                  aria-label={t("runOn.remove")}
+                  disabled={variants.length <= MIN_RUNS || running}
+                  onClick={() => setVariants(variants.filter((_, i) => i !== index))}
+                >
+                  ×
+                </Button>
+              </Tooltip>
             </li>
           );
         })}
       </ol>
       <footer className="acpmux-run-on-foot">
-        <button
-          type="button"
+        <Button
+          bare
           className="acpmux-run-on-add"
           disabled={variants.length >= MAX_RUNS || running || !harnesses.length}
           onClick={add}
         >
           {t("runOn.add")}
-        </button>
+        </Button>
         <span className="acpmux-run-on-spacer" />
         <DialogButton dialogKey="escape" className="acpmux-run-on-cancel" onClick={onClose}>
           {t("runOn.cancel")}
