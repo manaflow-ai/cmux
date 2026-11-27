@@ -889,6 +889,7 @@
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
         "CmuxNextFloating",
+        "CmuxNextHomeModel",
         "CmuxNextSettings",
         "CmuxNextSidebar"
       ],
@@ -1340,6 +1341,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDiff",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextPages",
@@ -1380,6 +1382,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups"
@@ -1598,6 +1601,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCloud",
@@ -1877,6 +1881,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups"
@@ -2038,6 +2043,7 @@
         "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextSignposts"
       ],
@@ -2572,6 +2578,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
@@ -2690,6 +2697,12 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "DaemonWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin",
+      "targets": [],
+      "packages": []
     },
     "DesignScalePlugin": {
       "kind": "plugin",

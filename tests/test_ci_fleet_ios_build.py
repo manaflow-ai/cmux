@@ -64,6 +64,8 @@ class Route:
             return Resp(self.archive)
         assert req.full_url == fib.ROUTE, req.full_url
         assert req.get_header("Authorization") == "Bearer tok"
+        # urllib's default agent gets HTTP 403 "error code: 1010" from the CDN (run 45898219170).
+        assert req.get_header("User-agent") == fib.USER_AGENT, req.get_header("User-agent")
         body = json.loads(req.data)
         self.bodies.append(body)
         ans = self.submit if body["op"] == "submit" else self.statuses.pop(0)
