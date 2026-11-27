@@ -21,6 +21,7 @@ function ComboboxCaseRow({ label, lines }: { label: string; lines: number }) {
 }
 
 let changeOne = () => {};
+const vary = new URLSearchParams(location.search).get("vary") === "1";
 const params = new URLSearchParams(location.search);
 const vary = params.get("vary") === "1";
 const start = params.has("start") ? Number(params.get("start")) : undefined;

@@ -3,6 +3,11 @@
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
 //
+// A list of more than COMBOBOX_VIRTUAL_AFTER rows mounts only the rows near its scroller's viewport
+// (VirtualRows), with or without pinned actions, so a picker over thousands draws and filters as one
+// over a menu's worth. Each row is a memoized ComboboxOption with stable handlers and style: a
+// caller's re-render (a highlight preview, a live update) re-renders only the rows it changed.
+//
 // A list of more than COMBOBOX_VIRTUAL_AFTER scrolling rows mounts only the rows near its scroller's
 // viewport (VirtualRows), with or without pinned actions and with or without `virtualRows`, so a
 // picker over thousands draws and filters as one over a menu's worth. Each row is a memoized
@@ -20,7 +25,13 @@ import {
   memo,
 } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { defaultRangeExtractor, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
+import {
+  measureElement,
+  useVirtualizer,
+  type Virtualizer,
+  defaultRangeExtractor,
+  type Range,
+} from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
@@ -100,11 +111,12 @@ export interface ComboboxProps {
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
   onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
-  /** Only the scrolling rows near the viewport are in the DOM (TanStack
-   * Virtual over the list's own scroller), so a list of thousands (the Projects picker, Leo
-   * 2026-11-04: "opening the project picker lags like shit since we have so many") opens in a
-   * frame. `estimate` is a row's height in pixels before it is measured. `sizeKey` is a string
-   * that differs whenever a row's outer size can differ without its border box changing (a section
+  /** Only the scrolling rows near the viewport are in the DOM (TanStack Virtual over the list's
+   * scroller), so a list of thousands (the Projects picker, Leo 2026-11-04: "opening the project
+   * picker lags like shit since we have so many") opens in a frame. With `pinnedSuggestions` this
+   * windows at any length; any list windows past COMBOBOX_VIRTUAL_AFTER rows without it. `estimate`
+   * is a row's height in pixels before it is measured (default 28). `sizeKey` is a string that
+   * differs whenever a row's outer size can differ without its border box changing (a section
    * heading drawn in the row's margin): a row whose `sizeKey` changes remounts and is measured
    * again, and its size for one value is never reused for another. */
   virtualRows?: { estimate: number; sizeKey?(item: string): string };
@@ -302,6 +314,9 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
+  // A pinned list, or one whose caller asked for virtual rows, scrolls inside a ScrollArea; a long
+  // plain list windows inside the list itself (`virtualized` below).
+  const hasScroller = hasPinned || virtualRows !== undefined;
   const edges = useScrollEdges();
   const pinnedEdges = useScrollEdges();
   const deliberatelyHighlighted = useRef(false);
@@ -337,6 +352,12 @@ export function Combobox({
     ? enabledSuggestions.length - availableSuggestions.filter((item) => pinnedSet.has(item)).length
     : enabledSuggestions.length;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
+  const scrollingRows = hasPinned ? scrollingCount : enabledSuggestions.length;
+  // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
+  // and back must not rebuild the window (and measure its rows again) on each key.
+  const [windowing, setWindowing] = useState(() => scrollingRows > COMBOBOX_VIRTUAL_AFTER);
+  if (!windowing && scrollingRows > COMBOBOX_VIRTUAL_AFTER) setWindowing(true);
+  const virtualized = virtualRows !== undefined || windowing || scrollingRows > COMBOBOX_VIRTUAL_AFTER;
   // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
   // and back must not rebuild the window (and measure its rows again) on each key. A list that opens
   // long windows from its first render; one that grows past the bound switches on as it does.
@@ -362,7 +383,7 @@ export function Combobox({
     if (index < 0) return;
     if (virtualized) {
       revealedCurrent.current = true;
-      if (index < scrollingCount) virtualizer.current?.scrollToIndex(index, { align: "center" });
+      if (index < scrollingRows) virtualizer.current?.scrollToIndex(index, { align: "center" });
       return;
     }
     const list = listRef.current;
@@ -472,7 +493,7 @@ export function Combobox({
       label={itemLabel?.(item)}
       current={isItemCurrent?.(item) ?? false}
       className={itemClassName}
-      element={hasScroller ? "div" : "li"}
+      element={hasScroller || virtualized ? "div" : "li"}
       renderItem={renderItem}
       onPressStart={pressStart}
       onPress={press}
@@ -520,7 +541,7 @@ export function Combobox({
         !hasScroller && "ui-scroll-edge-fade",
         hasScroller ? "ui-combobox-pinned-list" : listClassName,
       )}
-      render={hasScroller ? <div /> : <ul />}
+      render={hasScroller || virtualized ? <div /> : <ul />}
       hidden={suggestions.length === 0 && !held}
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
@@ -544,6 +565,15 @@ export function Combobox({
             </Autocomplete.Collection>
           )}
         </ScrollArea>
+      ) : virtualized ? (
+        <VirtualRows
+          items={enabledSuggestions}
+          count={enabledSuggestions.length}
+          estimate={ESTIMATED_ROW_PX}
+          keep={keyboardIndex}
+          virtualizerRef={virtualizer}
+          render={renderOption}
+        />
       ) : (
         renderUnpinnedRows()
       )}
@@ -554,7 +584,7 @@ export function Combobox({
         </div>
       )}
       {hasPinned && pinnedPlacement === "bottom" && pinnedRows}
-      {hasScroller && disabledSuggestions.map((item) => renderDisabledOption(item, "div"))}
+      {(hasScroller || virtualized) && disabledSuggestions.map((item) => renderDisabledOption(item, "div"))}
     </Autocomplete.List>
   );
   // With no pinned actions there is nothing to keep it over: it follows the list.
@@ -600,7 +630,7 @@ export function Combobox({
       onItemHighlighted={(item, details) => {
         // A virtualized row the arrows reach may not be mounted yet: bring it into view (a pinned
         // action is never in the scroller).
-        if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingCount) {
+        if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingRows) {
           const index = details.index;
           setKeyboardIndex(index);
           queueMicrotask(() => virtualizer.current?.scrollToIndex(index, { align: "auto" }));
@@ -669,11 +699,11 @@ export function revealRow(row: HTMLElement, list: HTMLElement, framesLeft = 3): 
   scroller.scrollTop += box.top - view.top - (scroller.clientHeight - box.height) / 2;
 }
 
-/// The scrolling rows of a virtualized list: only those near the scroller's viewport mount,
-/// each placed at its measured offset inside a spacer the full list's height, so the scroller, its
-/// thumb and the popover's size read as with every row mounted. The scroller is the ScrollArea's
-/// viewport around it. The first frame lays out a menu's worth of rows before the viewport is
-/// measured, so the menu never opens empty.
+/// The scrolling rows of a virtualized list: only those near the scroller's viewport mount, each
+/// placed at its measured offset inside a spacer the full list's height, so the scroller, its thumb
+/// and the popover's size read as with every row mounted. The scroller is the nearest ancestor that
+/// scrolls: a pinned list's ScrollArea viewport, the list, or the popup around it. The first frame
+/// lays out a menu's worth of rows before the viewport is measured, so the menu never opens empty.
 function VirtualRows({
   items,
   count,
@@ -700,13 +730,17 @@ function VirtualRows({
     (index: number) => virtualRowKey(items[index] ?? String(index), sizeKey),
     [items, sizeKey],
   );
+  const scroller = useRef<HTMLElement | null>(null);
   // Rows not yet mounted are sized as the first one measured (the theme's row height and interface
   // scale), so the list's height, and where its end scrolls to, hold as rows mount.
   const [rowHeight, setRowHeight] = useState<number | undefined>(undefined);
   const measured = useRef(false);
   const virtualizer = useVirtualizer<HTMLElement, Element>({
     count,
-    getScrollElement: () => spacer.current?.closest<HTMLElement>(".ui-combobox-viewport") ?? null,
+    getScrollElement: () => {
+      if (!scroller.current?.isConnected) scroller.current = spacer.current ? scrollingAncestor(spacer.current) : null;
+      return scroller.current;
+    },
     estimateSize: () => rowHeight ?? estimate,
     overscan: 8,
     initialRect: { width: 320, height: 400 },
@@ -803,6 +837,18 @@ export function virtualRowSlot(cached: number | undefined, measure: () => number
 export function virtualRowSize(borderBox: number, marginTop: string, marginBottom: string): number {
   const px = (value: number) => (Number.isFinite(value) ? value : 0);
   return px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom));
+}
+
+/// The nearest ancestor of `node` that scrolls vertically (a pinned list's ScrollArea viewport
+/// first, since it is the innermost), or the document's scroller.
+function scrollingAncestor(node: HTMLElement): HTMLElement | null {
+  const viewport = node.closest<HTMLElement>(".ui-combobox-viewport");
+  if (viewport) return viewport;
+  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay") return parent;
+  }
+  return node.ownerDocument.scrollingElement as HTMLElement | null;
 }
 
 interface ComboboxOptionProps {

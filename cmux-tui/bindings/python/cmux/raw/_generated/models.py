@@ -1006,6 +1006,16 @@ class IdMapping:
 
 
 @dataclass(frozen=True)
+class IdentifyRestore:
+    __cmux_schema_path__: ClassVar[str] = 'types/IdentifyRestore'
+    done: Union[int, None]
+    elapsed_ms: int
+    last_advance_ms: int
+    phase: str
+    total: Union[int, None]
+
+
+@dataclass(frozen=True)
 class IdentifyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/IdentifyResult'
     app: Literal['cmux-tui']
@@ -1038,6 +1048,7 @@ class IdentifyResult:
     machine_symbol: Union[str, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
     min_api_version: Union[str, None, MissingType] = field(default=MISSING)
+    restore: Union[IdentifyRestore, MissingType] = field(default=MISSING)
     screen_device_id: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
@@ -1658,6 +1669,17 @@ class ServerStatsDisk:
     segments: Union[ServerStatsDiskSegments, None]
     shm_bytes: int
     wal_bytes: int
+    checkpoints: Union[ServerStatsDiskCheckpoints, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskCheckpoints:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskCheckpoints'
+    budget_bytes: int
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    checkpoints: int
+    largest_bytes: int
+    over_budget: bool
 
 
 @dataclass(frozen=True)
@@ -4056,6 +4078,7 @@ class HomeInboxResult:
 class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
+    restore_progress: Union[bool, MissingType] = field(default=MISSING)
     revisions: Union[bool, MissingType] = field(default=MISSING)
 
 
@@ -5053,6 +5076,7 @@ class SendKeyRequest:
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
     include: Union[List[str], None, MissingType] = field(default=MISSING)
+    restore_progress: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5310,6 +5334,7 @@ class SetWorkspaceMetadataRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_revision: Union[int, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
+    keep_awake: Union[bool, None, MissingType] = field(default=MISSING)
     key: Union[str, None, MissingType] = field(default=MISSING)
     marked_unread: Union[bool, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
@@ -6932,6 +6957,7 @@ __all__ = [
     'HostSizePolicy',
     'HostSizePolicyRequest',
     'IdMapping',
+    'IdentifyRestore',
     'IdentifyResult',
     'IdsResult',
     'KittyGraphicsState',
@@ -6994,6 +7020,7 @@ __all__ = [
     'ServerStatsCommands',
     'ServerStatsConnections',
     'ServerStatsDisk',
+    'ServerStatsDiskCheckpoints',
     'ServerStatsDiskFile',
     'ServerStatsDiskJournal',
     'ServerStatsDiskJournalKind',

@@ -128,7 +128,8 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
   };
 }
 
-const frames = (page: Page) =>
+/** Two painted frames: what a step waits for its renders and measurements to land. */
+export const frames = (page: Page) =>
   page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 
 async function taskSeconds(cdp: CDPSession): Promise<number> {
