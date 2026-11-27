@@ -269,6 +269,14 @@ final class ChromiumRemotePageContainer: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Flipped, so the page stays pinned to the pane's top while its size catches up. The host places the page's
+    /// `WebContentsViewCocoa` here with Views' top-left bounds (`WebContentsNSViewBridge::SetBounds`). In an unflipped
+    /// view the bridge turns that Y around with the host's own superview height, which trails this view's height
+    /// during a live resize, so the whole page moved up or down by the height change until the host caught up
+    /// (a corner drag: 60 pt at p50 for the whole drag). Flipped, the bridge takes the top-left Y as it is, and a
+    /// stale size shows only at the page's bottom edge, as an in-process page's does.
+    override var isFlipped: Bool { true }
+
     override func viewWillMove(toSuperview newSuperview: NSView?) {
         super.viewWillMove(toSuperview: newSuperview)
         if let newSuperview { frame = newSuperview.bounds }
