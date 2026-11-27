@@ -1541,7 +1541,7 @@ jobs:
           CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}
           # Pull requests only: files red on every base push for a day or more are the batch runs' (held-red-files).
           CMUX_WEB_TEST_HELD_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/held-reds', runner.temp) || '' }}
-          # Pull requests only: once 5 alone retries have run and none passed, the rest of the red files keep their
+          # Pull requests only: once the last 5 alone retries in a row all failed again, the rest of the red files keep their
           # first run for react-apps-base-check, which replays them on the base and re-runs alone on the head any it
           # would charge (run-webviews-tests.sh). Shard 1 of run 44987019885 spent 23 min retrying 38 files alone and
           # none passed. A push keeps every retry: its verdicts are the base's history. Undo: the repository variable
