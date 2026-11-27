@@ -617,6 +617,15 @@ def main():
             record("idle install relaunched", bool(wait(lambda: app.status().get("build") == to_item["build"], 90)),
                    app.status().get("build"))
         else:
+            # The quit leg needs updates.installOnQuit on (off by default, the nightly restart
+            # policy); the app must have read it from the harness's settings file.
+            read = {key: (app.rpc("settings.get", {"path": key}) or {}).get("value")
+                    for key in ("updates.installOnQuit", "app.quitBehavior")}
+            record("the app read the harness's settings file", read == {"updates.installOnQuit": True, "app.quitBehavior": "keep"},
+                   f"{json.dumps(read)} from {app.config}")
+            for pid in app.pids():
+                env = run("ps", "eww", "-o", "command=", "-p", str(pid)).stdout.split()
+                print(f"app pid {pid} cmux env: {[e for e in env if e.startswith(('CMUX', 'MUX_'))]}")
             quit_started = time.strftime("%Y-%m-%d %H:%M:%S")
             still = app.pids()
             pre_quit_log = "\n".join(app.status().get("log", [])) or sparkle_log
