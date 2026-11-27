@@ -1306,8 +1306,8 @@ async fn a_window_that_holds_an_idle_daemon_restarts_it_once() {
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
 }
 
-/// A session mid-turn keeps the window as it is: nothing installed, busy;
-/// the first run after the window forces the restart as before.
+/// A session mid-turn keeps the self-update timer from restarting the daemon;
+/// the next 15-minute timer run retries after the turn ends.
 #[tokio::test]
 #[cfg(unix)]
 async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
@@ -1316,11 +1316,7 @@ async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
     restarted_ago(&peer, 5 * 60);
     let installed = peer.read(".local/bin/acpmux");
     let up = windowed_apply(&peer, NEW).await;
-    assert_eq!(
-        (up.outcome, up.reason.as_deref()),
-        (Outcome::Busy, Some("restartWindow")),
-        "{up:?}"
-    );
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Busy, Some("busy")), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
     assert!(peer.read(".acpmux/update.idle-restarted").is_empty(), "no early restart was made");
 
@@ -1329,12 +1325,13 @@ async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
     let up = windowed_apply(&peer, NEW).await;
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
 
-    // Busy for the whole window: the forced restart after it, as today.
+    // Busy for the whole window: the timer still waits rather than interrupting
+    // the turn; graceful daemon handoff owns the eventual update.
     let peer = FakePeer::new("idle-early-forced");
     peer.write("sessions.json", MID_TURN);
     restarted_ago(&peer, 61 * 60);
     let up = windowed_apply(&peer, NEW).await;
-    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Busy, Some("busy")), "{up:?}");
 }
 
 /// `0` in `~/.acpmux/update.idle-restart` is today's behaviour.

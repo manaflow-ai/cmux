@@ -19,7 +19,8 @@
 //! same commit (most likely the marker's) is kept. When the installed
 //! `~/.local/bin/acpmux` has another sha256 than the chosen build, this
 //! host's binary is downloaded, checked against it, and handed to
-//! [`update_peer`] on this machine ([`LocalRemote`]): it installs the binary, restarts `acpmux.service` (agents keep running and
+//! [`update_peer`] on this machine ([`LocalRemote`]): it installs the binary, waits for the
+//! daemon's sessions to be idle, then restarts `acpmux.service` (agents keep running and
 //! the new daemon adopts them, so what the restart interrupted resumes) and
 //! rolls back a daemon that does not come back on it. A build rolled back
 //! here is not tried again; the next one the channel names is. A failure
@@ -889,7 +890,12 @@ pub(super) fn apply(
     };
     let opts = UpdateOptions {
         binary_dir: Some(dir.clone()),
-        if_idle: false,
+        // The self-update timer is the high-frequency path (the channel watcher can
+        // observe a new build every 30s). Never restart a daemon while one of its
+        // sessions is running a turn or waiting for permission: the 15-minute
+        // update timer will retry after the busy batch drains. The second probe in
+        // `update_peer` closes the race where a turn starts while copying.
+        if_idle: true,
         keep_newer: false,
         // Newer wins: a host whose installed build is of a newer commit than
         // the channel's keeps it (`current`, reason `newerInstalled`), as it
