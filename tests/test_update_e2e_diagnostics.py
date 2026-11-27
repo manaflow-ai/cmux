@@ -31,7 +31,7 @@ class App:
 
 
 class StagingEvidenceTests(unittest.TestCase):
-    def run_stage(self, states, expected_build=None, installed="old"):
+    def run_stage(self, states, expected_build=None, installed="old", label="quit path"):
         def wait(predicate, *_):
             for _ in range(15):
                 result = predicate()
@@ -43,7 +43,7 @@ class StagingEvidenceTests(unittest.TestCase):
         replay.results.clear()
         with contextlib.redirect_stdout(output), patch.object(replay, "wait", wait), \
                 patch.object(replay, "bundle_build", return_value=installed):
-            result = replay.stage_update(App(states), "quit path", expected_build)
+            result = replay.stage_update(App(states), label, expected_build)
         diagnostics = [line for line in output.getvalue().splitlines() if line.startswith("[DIAGNOSTIC] ")]
         self.assertEqual(len(diagnostics), 1, output.getvalue())
         return result, json.loads(diagnostics[0].removeprefix("[DIAGNOSTIC] "))
@@ -73,6 +73,17 @@ class StagingEvidenceTests(unittest.TestCase):
         self.assertIsNone(staged)
         self.assertLessEqual(len(evidence["states"]), 12)
         self.assertEqual(evidence["states"][-1], states[-1])
+
+    def test_notice_card_still_fails_visibility_assertion(self):
+        state = {"phase": "installing", "badge": "Update Ready", "card": {"kind": "error"}}
+        self.run_stage([state])
+        self.assertEqual(replay.results[-1][1], "FAIL")
+
+    def test_idle_replacement_still_succeeds_when_socket_has_gone(self):
+        (staged, _), evidence = self.run_stage([{}], expected_build="new", installed="new", label="idle path")
+        self.assertEqual(staged, {"phase": "replaced", "build": "new"})
+        self.assertTrue(all(row[1] == "PASS" for row in replay.results))
+        self.assertEqual(evidence["states"], [{}])
 
 
 if __name__ == "__main__":
