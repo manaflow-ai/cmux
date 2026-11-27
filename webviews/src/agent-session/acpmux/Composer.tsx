@@ -188,7 +188,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, dotSaysQueuePaused, statusDotMounts } from "./ComposerStatusDot";
+import { ComposerStatusFoot, statusDotMounts, dotSaysQueuePaused } from "./ComposerStatusDot";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -2965,6 +2965,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerGroups ? { peerGroups: snapshot.peerGroups } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(runMode ? { runMode } : {})}

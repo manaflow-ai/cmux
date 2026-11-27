@@ -11,6 +11,7 @@
 # Prints "BENCH-AT <sha>" then `BENCH baseline|duress n=… p50=…ns p99=…ns p999=…ns max=…ns` per SHA, and the load average.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+source scripts/measure/fetch-commit.sh
 pkg=Packages/macOS/CmuxNext
 src=$pkg/Sources/CmuxNextHangReports/HangReportCollector.swift
 bench=$pkg/Tests/CmuxNextHangReportsTests/NoteStallBench.swift
@@ -82,7 +83,7 @@ SWIFT
 ncpu=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 echo "host: $(uname -sm) ncpu=$ncpu"
 for sha in "$@"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q origin "$sha"
+  measure_fetch_commit . "$sha" || exit 1
   git show "$sha:$src" > "$src" || { echo "no $src at $sha" >&2; exit 1; }
   echo "BENCH-AT $(git rev-parse --short "$sha")"
   (cd "$pkg" && NOTE_STALL_BENCH=1 swift test -c release --filter NoteStallBench)

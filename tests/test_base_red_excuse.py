@@ -2763,6 +2763,40 @@ class CancelledRunWithPassedJobsSuperseded(unittest.TestCase):
             self.judge()
 
 
+class FastGatesJobRedIsThePRsOwn(unittest.TestCase):
+    """Retro rf214bf6c: cmux#46930's `post cmux-next/fast-gates` job hit the rate limit, so the head had no
+    FAST_GATES_STATUS and its `fast gates` red (three base errors plus its own SetupCard TS2307) was excused by job name
+    because the base's `fast gates` was red too. It landed and broke the nightly's web bundle. Either job's red is
+    refused as the PR's own, with or without the status."""
+
+    STEP = "Run the webviews checks"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+
+    def red(self, name):
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step=self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, name=name, step=self.STEP)}
+        self.gh.logs = {1: log(name, self.STEP, ISSUE), 2: log(name, self.STEP, ISSUE, OTHER)}
+
+    def test_the_same_red_on_another_job_is_still_excused_by_the_base(self):
+        self.red("cmux-next swift test")
+        self.assertIn("excused 'cmux-next swift test'",
+                      "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)))
+
+    def test_a_fast_gates_red_the_base_shares_is_refused_as_the_prs_own(self):
+        for name in ("fast gates", "pr pipeline / fast gates"):
+            with self.subTest(name=name):
+                self.red(name)
+                with self.assertRaisesRegex(excuse.Refused, r"pull request's own.*\(run 10\)|\(run 10\) is the pull"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_a_failed_post_job_asks_for_its_rerun(self):
+        self.red("post cmux-next/fast-gates")
+        with self.assertRaisesRegex(excuse.Refused, "re-run the failed job to post it"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""

@@ -85,8 +85,12 @@ apply() {
 }
 
 pack() {
-  if [[ ! -d "$target" || ! -f "$stamp" ]]; then
-    echo "cargo delta: no $target or no stamp $stamp (apply did not run); nothing packed"
+  if [[ ! -f "$stamp" ]]; then
+    echo "cargo delta: no stamp $stamp (apply did not run); nothing packed"
+    return 0
+  fi
+  if [[ ! -d "$target" ]]; then
+    echo "cargo delta: no $target$([[ ! -L "$target" ]] || echo " (a link to the missing $(readlink "$target"))"); nothing packed"
     return 0
   fi
   rm -rf -- "$out"
@@ -104,7 +108,7 @@ pack() {
   fi
   python3 -I "$mtimes" record "$repo" "$out/$manifest_name"
   git -C "$repo" rev-parse HEAD > "$out/$source_name" 2>/dev/null || true
-  echo "cargo delta: packed $(wc -l < "$files") files, $(du -sxh "$out" | cut -f1) (target $(du -sxh "$target" | cut -f1))"
+  echo "cargo delta: packed $(wc -l < "$files") files, $(du -sxh "$out" | cut -f1) (target $(du -sxh "$target/" | cut -f1))"
   rm -f -- "$files"
 }
 
