@@ -23,6 +23,11 @@ on:
         type: string
         default: ""
   workflow_dispatch:
+  # Register this dispatch-only reusable workflow on feat-cmux-next when the file lands.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/swift-checks.yml
 concurrency:
   # Keep protocol batches, ratchet runs and bisect probes isolated while cancelling superseded work.
   group: swift-checks-${{ inputs.check || 'acpmux' }}-${{ github.event.pull_request.number || github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:'))) && format('-edit-{0}', github.run_id) || '' }}
