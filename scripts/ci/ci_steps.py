@@ -16,7 +16,8 @@ setup or tool that fails fails the job. It exits 1 only when a step with `blocks
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
 step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order,
 and is skipped (a notice, not a failure) once a step with `blocks = true` has failed: the job is red
-already, and the re-run that fixes it runs the step anyway.
+already, and the re-run that fixes it runs the step anyway. `--alone-on-red` (or CI_RUN_ALONE_ON_RED=1) runs it all the same: the
+post-merge batch has no re-run, so a base that stays red would otherwise never run its alone steps.
 `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
 runs only those of the routed steps; empty means every routed step. A name the table does
@@ -570,7 +571,8 @@ def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT, pr_scope: bool = False, tools_only: bool = False) -> int:
+            root: Path = ROOT, pr_scope: bool = False, tools_only: bool = False,
+            alone_on_red: bool = False) -> int:
     names = route(table, paths, label, pr_scope).get(job, [])
     if pr_scope:
         deferred = [n for n in route(table, paths, label).get(job, []) if n not in names]
@@ -648,12 +650,13 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                 results += pool.map(run_and_print, [s for s in steps if not s.alone])
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
             # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
-            # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped.
+            # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped. `alone_on_red`
+            # (the post-merge batch, which nothing re-runs) runs it anyway: it is that commit's only run of it.
             for s in steps:
                 if not s.alone:
                     continue
                 failed = next((r.step.name for r in results if not r.ok and r.step.blocks), None)
-                if failed is None:
+                if failed is None or alone_on_red:
                     results.append(run_and_print(s))
                     continue
                 print(f"::notice title=Step table::step {s.name} skipped: blocking step {failed} failed", file=out)
@@ -710,6 +713,9 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--pr-scope", action="store_true",
                    help="a pull request's route: a step reached only by a whole-directory input or the pipeline's own "
                         "files is left to the post-merge batch")
+    x.add_argument("--alone-on-red", action="store_true", default=os.environ.get("CI_RUN_ALONE_ON_RED") == "1",
+                   help="run the `alone` steps even after a blocking step failed (the post-merge batch: no re-run); "
+                        "CI_RUN_ALONE_ON_RED=1 says the same")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
@@ -722,7 +728,7 @@ def main(argv: list[str] | None = None) -> int:
     store = None if args.label or args.tools_only else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
                    only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope,
-                   tools_only=args.tools_only)
+                   tools_only=args.tools_only, alone_on_red=args.alone_on_red)
 
 
 if __name__ == "__main__":
