@@ -8730,6 +8730,42 @@
         "nullable": true
       }
     },
+    "request:_acpmux/consent_account_set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_grantor_trust": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_remote_set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_remote_status": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_screen_auto": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_trust_refresh": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/context": {
       "/*untyped*": {
         "ty": "json",
@@ -13911,6 +13947,13 @@
         "nullable": true
       }
     },
+    "request:_acpmux/live": {
+      "/live": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/live_list": {},
     "request:_acpmux/mac_approver_set": {
       "/*untyped*": {
         "ty": "json",
@@ -33886,6 +33929,42 @@
         "nullable": true
       }
     },
+    "response:_acpmux/consent_account_set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_grantor_trust": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_remote_set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_remote_status": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_screen_auto": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_trust_refresh": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/context": {
       "/data/*untyped*": {
         "ty": "json",
@@ -34525,6 +34604,25 @@
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "response:_acpmux/live": {
+      "/data/live": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:_acpmux/live_list": {
+      "/data/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/people": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/people/*": {
+        "ty": "json"
       }
     },
     "response:_acpmux/mac_approver_set": {
