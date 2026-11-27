@@ -13,7 +13,7 @@ the person sends themselves, so a probe that stops at the notice files nothing. 
 defaults are opt-in), so the deliberate crash is sent nowhere.
 
 dialog_files is true when the report and log both show the restart and the notice was not read as
-missing. Last line: CRASH_NOTICE {json}.
+missing. Last line: CRASH_NOTICE {json}. Exit 0 notice offered, 1 not offered, 2 the rig could not tell.
 Run: cmux-ci run --class exclusive --label gui-session-v1 --script scripts/measure/crash-notice-nightly.py --ref SHA
 """
 from __future__ import annotations
@@ -238,7 +238,8 @@ def main() -> int:
         result["cleanup_ok"] = clean
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print("CRASH_NOTICE " + json.dumps(result, sort_keys=True), flush=True)
-    return 0 if result.get("dialog_files") else 1
+    # 0: the notice is there; 1: it is not (the finding); 2: the rig could not tell
+    return {True: 0, False: 1}.get(result.get("dialog_files"), 2)
 
 
 if __name__ == "__main__":
