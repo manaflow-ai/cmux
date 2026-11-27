@@ -904,6 +904,16 @@ def handle_prompt(rid, params):
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
         return
+    # "interim-then-final: A | B" says A, calls a tool, then ends the turn saying B: a turn whose
+    # interim text and final reply differ (durable_watch_lifecycle: a match on the final reply).
+    if text.startswith("interim-then-final: "):
+        interim, final = text[len("interim-then-final: "):].split(" | ", 1)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": interim}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "interim-1", "title": "Read file",
+                     "kind": "read", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": final}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
     # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).
     # "echo-fail: X" streams X as its reply, then fails with X, as a harness that streams its error.

@@ -111,8 +111,8 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12)[0], "skip")
 
     def test_every_merges_value(self) -> None:
-        self.assertEqual(pmb.every_merges(None), 10)
-        self.assertEqual(pmb.every_merges("bad"), 10)
+        self.assertEqual(pmb.every_merges(None), 100)
+        self.assertEqual(pmb.every_merges("bad"), 100)
         self.assertEqual(pmb.every_merges("0"), 0)
         self.assertEqual(pmb.every_merges("25"), 25)
 
@@ -142,8 +142,8 @@ class TickTest(unittest.TestCase):
         self.assertIn("inputs.mode != 'probe'", last["if"])
 
     def test_window_value(self) -> None:
-        self.assertEqual(pmb.window_minutes(""), 120)
-        self.assertEqual(pmb.window_minutes("bad"), 120)
+        self.assertEqual(pmb.window_minutes(""), 240)
+        self.assertEqual(pmb.window_minutes("bad"), 240)
         self.assertEqual(pmb.window_minutes("45"), 45)
 
 
@@ -971,6 +971,14 @@ class SkippedProbeTest(unittest.TestCase):
         probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
         self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "cancelled")}, probe), "")
         self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "success")}, probe), "skipped")
+
+    def test_a_matrix_leg_skipped_behind_a_lost_plan_is_no_verdict(self) -> None:
+        # Probe run 45969411338: plan lost its runner (failure), the leg is listed by its bare name as skipped.
+        probe = pmb.Probe("gallery-health", "gallery-health / health (0)", "health", "c6", "g", "c6", "1")
+        lost = {"gallery-health / plan": ("gallery-health", "failure"), "gallery-health / health": ("gallery-health", "skipped")}
+        self.assertEqual(pmb.probe_conclusion(lost, probe), "")
+        ran = {"gallery-health / plan": ("gallery-health", "success"), "gallery-health / health (0)": ("gallery-health", "failure")}
+        self.assertEqual(pmb.probe_conclusion(ran, probe), "failure")
 
 
 class FirstUnknownProbeTest(unittest.TestCase):
