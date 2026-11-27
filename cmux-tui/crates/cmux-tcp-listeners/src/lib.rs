@@ -32,7 +32,7 @@ pub struct Listener {
 
 /// A little-endian u32 at `at`.
 pub fn u32_at(data: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(data.get(at..at.checked_add(4)?)?.try_into().ok()?))
 }
 
 /// A socket's local address from its vflag and 16-byte address union
@@ -43,8 +43,8 @@ pub fn local_addr(vflag: u8, laddr: &[u8]) -> Option<IpAddr> {
         let v6 = Ipv6Addr::from(bytes);
         return Some(v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4));
     }
-    (vflag & INP_IPV4 != 0)
-        .then(|| IpAddr::V4(Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15])))
+    let [.., a, b, c, d] = bytes;
+    (vflag & INP_IPV4 != 0).then(|| IpAddr::V4(Ipv4Addr::new(a, b, c, d)))
 }
 
 /// The LISTEN sockets in a `net.inet.tcp.pcblist64` answer: an `xinpgen`
@@ -59,22 +59,25 @@ pub fn parse_pcblist64(data: &[u8]) -> Option<Vec<Listener>> {
     let mut out = Vec::new();
     let mut at = XINPGEN_SIZE;
     while at < trailer {
-        if u32_at(data, at)? as usize != XTCPCB64_SIZE || at + XTCPCB64_SIZE > trailer {
+        let end = at.checked_add(XTCPCB64_SIZE)?;
+        if u32_at(data, at)? as usize != XTCPCB64_SIZE || end > trailer {
             return None;
         }
-        let record = &data[at..at + XTCPCB64_SIZE];
-        at += XTCPCB64_SIZE;
-        let vflag = record[XT_VFLAG];
+        let record = data.get(at..end)?;
+        at = end;
+        let vflag = *record.get(XT_VFLAG)?;
         if u32_at(record, XT_STATE)? as i32 != TCPS_LISTEN {
             continue;
         }
-        let Some(addr) = local_addr(vflag, &record[XT_LADDR..XT_LADDR + 16]) else { continue };
+        let laddr = record.get(XT_LADDR..XT_LADDR.checked_add(16)?)?;
+        let Some(addr) = local_addr(vflag, laddr) else { continue };
         let flags = u32_at(record, XT_FLAGS)? as i32;
         let dual =
             vflag & INP_IPV6 != 0 && (vflag & INP_IPV4 != 0 || flags & IN6P_IPV6_V6ONLY == 0);
+        let port: [u8; 2] = record.get(XT_LPORT..XT_LPORT.checked_add(2)?)?.try_into().ok()?;
         out.push(Listener {
             addr,
-            port: u16::from_be_bytes([record[XT_LPORT], record[XT_LPORT + 1]]),
+            port: u16::from_be_bytes(port),
             uid: u32_at(record, XT_UID)?,
             v4_too: dual && addr.is_unspecified(),
         });
@@ -103,7 +106,8 @@ pub fn system_listeners() -> Option<Vec<Listener>> {
             return None;
         }
         // Room for sockets opened between the two calls.
-        let mut buffer = vec![0u8; len + len / 4 + 4096];
+        let room = len.checked_div(4)?.checked_add(4096)?;
+        let mut buffer = vec![0u8; len.checked_add(room)?];
         let mut filled = buffer.len();
         // SAFETY: the buffer is writable for `filled` bytes, which is passed.
         let read = unsafe {
