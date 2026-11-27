@@ -41,10 +41,6 @@ pub enum Change {
     Remove { path: String },
 }
 
-/// Each path's entry fields: kind, entry index, size, mtime, link target, content hash, origin.
-type ByPath<'a> =
-    BTreeMap<String, (Kind, u32, u64, i64, Option<&'a str>, Option<[u8; 32]>, Option<&'a str>)>;
-
 impl Change {
     #[must_use]
     pub fn path(&self) -> &str {
@@ -202,7 +198,7 @@ impl Manifest {
         Ok(next)
     }
 
-    fn by_path(&self) -> ByPath<'_> {
+    fn by_path(&self) -> BTreeMap<String, PathFacts<'_>> {
         (1..self.len() as u32)
             .filter_map(|index| {
                 let entry = self.entry(index)?;
@@ -222,6 +218,9 @@ impl Manifest {
             .collect()
     }
 }
+
+/// One entry's facts keyed by path: kind, mode, size, mtime, link target, content hash, kept-home reason.
+type PathFacts<'a> = (Kind, u32, u64, i64, Option<&'a str>, Option<[u8; 32]>, Option<&'a str>);
 
 fn put(listing: &Manifest, path: &str) -> Change {
     let index = listing.resolve(path);

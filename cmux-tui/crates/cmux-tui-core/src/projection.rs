@@ -483,10 +483,10 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
     let projected = match attach(first, &mut reader, roots) {
         Ok((projected, mut data)) => {
             // The Mac packs its answers (and writes binary lines) once it reads this.
-            if wants_wire(first)
-                && let Some(object) = data.as_object_mut()
-            {
-                object.insert("wire".into(), json!(WIRE));
+            if wants_wire(first) {
+                if let Some(object) = data.as_object_mut() {
+                    object.insert("wire".into(), json!(WIRE));
+                }
             }
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
                 return;
@@ -1168,10 +1168,10 @@ fn attach(
     let state = state_of(&line.name)?;
     let projected =
         mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
-    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
-        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
-    {
-        eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME")) {
+        if let Err(error) = git_stat::keep(dir, Path::new(&home), &at) {
+            eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+        }
     }
     let data = json!({
         "at": at,
@@ -1353,6 +1353,10 @@ fn mount(
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
+    // RFD 0065 piece 8: record this start's first reads and replay the last start's list.
+    // `CMUX_PROJECTION_REPLAY=0` keeps the folder read-ahead alone, as before.
+    let replay = std::env::var_os("CMUX_PROJECTION_REPLAY").is_none_or(|value| value != "0");
+    let overlay = if replay { overlay.with_replay("start") } else { overlay };
     let overlay = Arc::new(overlay);
     let named =
         cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
@@ -1374,6 +1378,27 @@ fn mount(
         let pinned = overlay.clone();
         let _ = std::thread::Builder::new().name("projection-pins".into()).spawn(move || {
             let _ = pinned.hydrate_pins();
+        });
+    }
+    // The last start's access list is fetched in the background, so its files are local before
+    // the agent asks (it stops at the first batch the Mac is away for).
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-replay".into()).spawn(move || {
+            let _ = replaying.replay_prefetch();
+        });
+    }
+    // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
+    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
+    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
+    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
+            cmux_projection::overlay::bulk::lower_priority();
+            let _ = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
         });
     }
     let projected = Arc::new(Projected {
@@ -1416,11 +1441,10 @@ fn mount(
     } else if let Some(barrier) = old_barrier.take() {
         let _ = barrier.complete();
     }
-    // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
-    // takes its objects from the remote (a blobless fetch the machine makes) and only what the
-    // Mac has unpushed over the link, then switches from projection to that repository. Opt-in
-    // until Bring Back reads the machine's repository after a swap.
-    if std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+    // RFD 0007, seed bundles: carry is on by default. The sender's live git probe adds a depth-1
+    // pack and base to the manifest, and the machine switches from projection to that repository.
+    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch.
+    if cmux_projection::git_swap::enabled() {
         let swapping = projected.clone();
         let (at, state) = (at.to_path_buf(), state.to_path_buf());
         let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {

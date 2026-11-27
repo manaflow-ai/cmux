@@ -117,7 +117,7 @@ import Testing
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: connection lost · Still retrying")
         #expect(view.statusLabel.banner?.showsMark == false)
     }
 
@@ -139,7 +139,7 @@ import Testing
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: the stream ended · Still retrying")
     }
 
     /// A daemon restart, a handoff or a drop puts no "Reconnecting…" mark on any pane, however long it lasts: the
@@ -189,7 +189,7 @@ import Testing
         #expect(view.statusText == nil)
         clock.advance(by: .milliseconds(100))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: the stream ended · Still retrying")
         #expect(view.statusLabel.banner?.showsMark == false)
     }
 
@@ -215,7 +215,7 @@ import Testing
         #expect(view.statusText == nil)
         clock.advance(by: .milliseconds(100))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: connection lost · Still retrying")
     }
 
     /// A state the app knows is final waits for nothing: the session ended (its shell exited, its host was
