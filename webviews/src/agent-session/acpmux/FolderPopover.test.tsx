@@ -115,3 +115,20 @@ test("a worktree count click holds the menu's height until the pointer leaves", 
   await act(async () => popup().dispatchEvent(new window.MouseEvent("pointerleave")));
   expect(held()).toBe("");
 });
+
+// #55182 drew every folder row of this Mac with a plain folder, while the chip above it drew the
+// project's own icon (ProjectBadge). A repository's row draws the same badge as the chip.
+test("a folder row of this Mac draws the project's badge, as the chip does", async () => {
+  const root = "/projects/cmux";
+  const { popup } = await openPicker(660, [
+    { id: root, label: "cmux", repo: { root, top: root, name: "cmux-workspace", branch: "main" } },
+    { id: "/projects/site", label: "site" },
+  ]);
+  const rows = [...popup().querySelectorAll<HTMLElement>(".acpmux-location-row[title]")];
+  expect(rows.map((row) => row.title)).toEqual([root, "/projects/site"]);
+  for (const row of rows) {
+    expect(row.querySelector(".acpmux-project-badge")).not.toBeNull();
+    expect(row.querySelector('[data-icon="folder"]')).toBeNull();
+  }
+  expect(rows[0]!.querySelector(".acpmux-menu-label")?.textContent).toBe("cmux-workspace");
+});

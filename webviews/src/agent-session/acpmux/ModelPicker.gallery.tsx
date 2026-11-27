@@ -430,6 +430,28 @@ const openAccountCard =
     );
   };
 
+/// A chat with no account route here, whose agent signs in on its own (cmux#63167: a chat on SR2):
+/// the card names the sign-in acpmux reports, in the flow over the lists, the checked model shown.
+const reportedSignIn: ModelPickerProps = {
+  ...quick,
+  quick: {
+    ...quick.quick!,
+    signIn: "SR2 token (sr2 claude)",
+    account: {
+      sessionId: "gallery-chat",
+      accounts: { list: async () => ({ accounts: [] }), set: async () => undefined },
+    },
+  },
+};
+
+const openSignInCard: Play = async (ctx) => {
+  await openColumns(ctx);
+  await ctx.click({ selector: ".acpmux-cols-profile" });
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".acpmux-cols-card .acpmux-cols-card-name")?.textContent === "SR2 token",
+  );
+};
+
 /// An OpenCode chat as Lawrence's screenshot showed it (2026-10-22: "spacing + needs search"): one
 /// model offered by several providers, each its own row.
 const openCode: ModelPickerProps["catalog"] = [
@@ -725,6 +747,8 @@ export default componentEntry<GalleryProps>({
     },
     // Its account card lists the signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": { props: startedFork, play: openAccountCard("Anthropic API key") },
+    // The account card on a chat whose sign-in acpmux reports (cmux#63167): a strip above the lists.
+    "quick-menu-reported-sign-in": { props: reportedSignIn, play: openSignInCard },
     // The columns as the model button opens them, and the same on a short harness list.
     "quick-menu": { props: quick, play: openColumns },
     // Lawrence 2026-11-19 (clip 3.37.01 PM): "why does the model disappear briefly". "opus 5.5 m" is
