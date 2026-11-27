@@ -5,6 +5,7 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 import WebKit
+import Network
 import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxTabsKit
@@ -41,6 +42,8 @@ public final class BrowserTabModel: BrowserTabState {
     @ObservationIgnored var loopbackPolicy: (@MainActor (URL) -> LoopbackForward)?
     /// Readies the page's port (forwarded to the Mac's loopback) before it loads.
     @ObservationIgnored var forwardLoopback: (@MainActor (URL) async -> LoopbackForward)?
+    /// Prepares an origin-preserving CONNECT route for a named private host.
+    @ObservationIgnored var preparePrivateHost: (@MainActor (URL) async -> LocalhostForwarder.ProxyRoute?)?
     /// The address this tab itself is loading (the address bar, Open on iPhone, a
     /// restored page): a navigation the person started, which may open a new port.
     @ObservationIgnored var ownLoad: URL?
@@ -55,9 +58,12 @@ public final class BrowserTabModel: BrowserTabState {
     /// The Mac file this page shows (its address bar reads it, not `about:blank`).
     @ObservationIgnored private(set) var macFile: URL?
     @ObservationIgnored private var macFileRead: Task<Void, Never>?
+    @ObservationIgnored private var forwardingLoad: Task<Void, Never>?
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
+    @ObservationIgnored private let websiteDataStore: WKWebsiteDataStore
+    @ObservationIgnored private var privateProxyRoutes: [LocalhostForwarder.Target: LocalhostForwarder.ProxyRoute] = [:]
 
     public struct Problem: Equatable {
         public var url: URL
@@ -80,10 +86,13 @@ public final class BrowserTabModel: BrowserTabState {
         case macOnly(detail: String?)
     }
 
-    public init(url: URL?, guardsMacAddresses: Bool = false) {
+    public init(url: URL?, guardsMacAddresses: Bool = false, storeIdentifier: UUID? = nil) {
         let configuration = WKWebViewConfiguration()
+        let store = storeIdentifier.map(WKWebsiteDataStore.init(forIdentifier:)) ?? .default()
+        configuration.websiteDataStore = store
         configuration.allowsInlineMediaPlayback = true
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 402, height: 874), configuration: configuration)
+        websiteDataStore = store
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
@@ -102,6 +111,8 @@ public final class BrowserTabModel: BrowserTabState {
     /// shows why instead.
     public func load(_ target: URL) {
         let reach = PhoneReach(target)
+        forwardingLoad?.cancel()
+        forwardingLoad = nil
         macFileRead?.cancel()
         macFileRead = nil
         if guardian != nil, BrowserPagePlacement.isMacHTMLFile(target), let read = readMacHTML {
@@ -119,6 +130,20 @@ public final class BrowserTabModel: BrowserTabState {
                 return
             }
             ownLoad = target
+        }
+        if guardian != nil, reach == .privateNetwork, preparePrivateHost != nil {
+            ownLoad = target
+            problem = nil
+            url = target
+            urlChanged?(target)
+            forwardingLoad = Task { @MainActor [weak self] in
+                guard let self, await self.preparePrivateHostRoute(target), !Task.isCancelled else {
+                    if let self, !Task.isCancelled { self.refuse(target) }
+                    return
+                }
+                self.webView.load(URLRequest(url: target))
+            }
+            return
         }
         problem = nil
         // The address bar shows where the page is going at once (as Safari's does).
@@ -172,10 +197,19 @@ public final class BrowserTabModel: BrowserTabState {
 
     public func clearProblem() { problem = nil }
 
+    /// Installs a named-host route while leaving the original URL request intact.
+    func preparePrivateHostRoute(_ target: URL) async -> Bool {
+        guard let preparePrivateHost, let route = await preparePrivateHost(target), !Task.isCancelled else { return false }
+        privateProxyRoutes[route.target] = route
+        websiteDataStore.proxyConfigurations = privateProxyRoutes.values.map(\.configuration)
+        return true
+    }
+
     /// Stops loading and media behind the mirror (the page stays for the next visit).
     func pause() {
         webView.stopLoading()
         webView.pauseAllMediaPlayback()
+        forwardingLoad?.cancel()
     }
 
     private func observe() {
@@ -306,6 +340,17 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
         if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
         let reach = PhoneReach(target)
+        if reach == .privateNetwork, let model, model.preparePrivateHost != nil {
+            Task { @MainActor in
+                guard await model.preparePrivateHostRoute(target) else {
+                    model.refuse(target, detail: String(localized: "This private host could not be reached through the Mac."))
+                    decisionHandler(.cancel)
+                    return
+                }
+                decisionHandler(.allow)
+            }
+            return
+        }
         if reach == .macLoopback, let model, let policy = model.loopbackPolicy, let forward = model.forwardLoopback {
             if case .macOnly(let detail) = policy(target) {
                 model.refuse(target, detail: detail)

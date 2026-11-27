@@ -29,10 +29,10 @@ public final class NativeBrowserTabs {
     private var nativeKeys: Set<String>
     @ObservationIgnored private var entries: [String: Entry]
     @ObservationIgnored private var models: [String: BrowserTabModel] = [:]
-    /// The `localhost` ports each tab opened: they stay forwarded until the tab
-    /// mirrors or closes (a sign-in round trip through another site comes back).
-    @ObservationIgnored private var tabPorts: [String: Set<UInt16>] = [:]
+    /// The forwarding targets each tab opened; they stay live until the tab mirrors or closes.
+    @ObservationIgnored private var tabTargets: [String: Set<LocalhostForwarder.Target>] = [:]
     @ObservationIgnored private let defaults: UserDefaults
+    private static let storeIDPrefix = "cmuxMobile.browser.nativeStore."
     static let defaultsKey = "cmuxMobile.browser.nativeTabs"
     /// Forwards a tab's `localhost:<port>` page to its Mac's loopback (nil: those
     /// pages stay on the Mac).
@@ -40,6 +40,9 @@ public final class NativeBrowserTabs {
     /// Whether a Mac serves `localhost` (its `version` says `localhost-forward-v1`).
     @ObservationIgnored public var macForwardsLocalhost: @MainActor (_ macID: String?) -> Bool = { _ in false }
     public static let forwardCapability = "localhost-forward-v1"
+    /// Whether a Mac's localhost service can resolve and connect to named private hosts.
+    @ObservationIgnored public var macForwardsPrivateHost: @MainActor (_ macID: String?) -> Bool = { _ in false }
+    public static let privateHostForwardCapability = "localhost-hosts-v1"
     /// Reads an HTML file on a Mac (`file:///…/report.html`) over its link's `file-preview`
     /// service, for a tab that shows it on this iPhone (nil: such pages stay on the Mac).
     @ObservationIgnored public var readMacHTML: (@MainActor (_ url: URL, _ macID: String?) async throws -> String)?
@@ -189,39 +192,44 @@ public final class NativeBrowserTabs {
     /// Whether `url` (a Mac `localhost:<port>` page) may load in the tab `key`.
     private func loopbackPolicy(_ url: URL, key: String) -> BrowserTabModel.LoopbackForward {
         let macID = Self.macID(ofKey: key)
-        guard forwarder != nil, let port = PhoneReach.port(url) else { return .macOnly(detail: nil) }
-        guard macForwardsLocalhost(macID) else {
+        guard let target = PhoneReach.forwardingTarget(url), let forwarder else { return .macOnly(detail: nil) }
+        let allowed = PhoneReach(url) == .macLoopback ? macForwardsLocalhost(macID) : macForwardsPrivateHost(macID)
+        guard allowed else {
             return .macOnly(detail: String(localized: "Update cmux on the Mac to open its localhost pages on this iPhone. The mirrored page can show it now."))
         }
         // One port, one Mac: the port forwards to another Mac whose tab on this iPhone
         // still shows it (a tab that was refused the port never holds it).
-        let owner = forwarder?.forwardsElsewhere(port, than: macID) == true
+        let owner = forwarder.forwardsElsewhere(host: target.host, port: target.port, than: macID)
         let shownThere = nativeKeys.contains { other in
             other != key && Self.macID(ofKey: other) != macID && models[other]?.problem == nil
-                && entries[other]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) == port
+                && entries[other]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.forwardingTarget) == target
         }
         if owner && shownThere {
-            return .macOnly(detail: String(localized: "Another Mac's tab on this iPhone shows localhost:\(port). Mirror this one, or close that tab first."))
+            return .macOnly(detail: String(localized: "Another Mac's tab on this iPhone shows \(target.host ?? "localhost"):\(target.port). Mirror this one, or close that tab first."))
         }
         return .forwarded
     }
 
     /// Readies `url`'s port on this iPhone, forwarded to the Mac of the tab `key`.
     private func forward(_ url: URL, key: String) async -> BrowserTabModel.LoopbackForward {
-        guard case .forwarded = loopbackPolicy(url, key: key), let forwarder, let port = PhoneReach.port(url) else {
+        guard case .forwarded = loopbackPolicy(url, key: key), let forwarder,
+              let target = PhoneReach.forwardingTarget(url) else {
             return loopbackPolicy(url, key: key)
         }
+        guard target.host == nil else { return .macOnly(detail: nil) }
         do throws(LocalhostForwarder.Failure) {
-            try await forwarder.forward(port: port, macID: Self.macID(ofKey: key))
+            try await forwarder.forward(port: target.port, host: target.host, macID: Self.macID(ofKey: key))
             // The tab closed or mirrored while the port was starting: nothing keeps it.
             guard nativeKeys.contains(key) else {
                 retainPorts()
                 return .forwarded
             }
-            tabPorts[key, default: []].insert(port)
+            tabTargets[key, default: []].insert(target)
             return .forwarded
         } catch .portInUse {
-            return .macOnly(detail: String(localized: "Another app on this iPhone uses port \(port), so the mirrored page has to show it."))
+            return .macOnly(detail: String(localized: "Another app on this iPhone uses port \(target.port), so the mirrored page has to show it."))
+        } catch .targetInUse {
+            return .macOnly(detail: String(localized: "Another Mac's tab on this iPhone uses port \(target.port) for a different host, so the mirrored page has to show it."))
         } catch {
             return .macOnly(detail: nil)
         }
@@ -230,9 +238,15 @@ public final class NativeBrowserTabs {
     /// Stops forwarding ports no tab on this iPhone shows any more.
     private func retainPorts() {
         guard let forwarder else { return }
-        tabPorts = tabPorts.filter { nativeKeys.contains($0.key) }
-        let shown = nativeKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) }
-        forwarder.retain(ports: Set(shown).union(tabPorts.values.joined()))
+        tabTargets = tabTargets.filter { nativeKeys.contains($0.key) }
+        let shown = nativeKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.forwardingTarget) }
+            .filter { $0.host == nil }
+        forwarder.retain(ports: Set(shown.map(\.port)).union(tabTargets.values.joined().filter { $0.host == nil }.map(\.port)))
+        let proxyTargets = tabTargets.compactMap { key, targets -> [LocalhostForwarder.ProxyTarget]? in
+            guard nativeKeys.contains(key) else { return nil }
+            return targets.filter { $0.host != nil }.map { .init(target: $0, macID: Self.macID(ofKey: key)) }
+        }.flatMap { $0 }
+        forwarder.retain(proxies: Set(proxyTargets))
     }
 
     public func isNative(tab: String, macID: String?) -> Bool {
@@ -303,7 +317,7 @@ public final class NativeBrowserTabs {
             let next = key.replacingOccurrences(of: old, with: new, options: [.anchored, .backwards])
             entries[next] = entries.removeValue(forKey: key)
             models[next] = models.removeValue(forKey: key)
-            tabPorts[next] = tabPorts.removeValue(forKey: key)
+            tabTargets[next] = tabTargets.removeValue(forKey: key)
             nativeKeys.remove(key)
             nativeKeys.insert(next)
             if let model = models[next] { observe(model, key: next) }
@@ -326,7 +340,7 @@ public final class NativeBrowserTabs {
     }
 
     private func makeModel(key: String, url: URL?) -> BrowserTabModel {
-        let model = BrowserTabModel(url: nil, guardsMacAddresses: true)
+        let model = BrowserTabModel(url: nil, guardsMacAddresses: true, storeIdentifier: storeIdentifier(for: key))
         observe(model, key: key)
         models[key] = model
         if let url { model.load(url) }
@@ -342,12 +356,16 @@ public final class NativeBrowserTabs {
         model.forwardLoopback = { [weak self] url in
             await self?.forward(url, key: key) ?? .macOnly(detail: nil)
         }
+        model.preparePrivateHost = { [weak self] url in
+            await self?.preparePrivateHost(url, key: key)
+        }
         model.loopbackIsOpen = { [weak self] url in
             guard let self, let port = PhoneReach.port(url) else { return false }
             return self.forwarder?.ports.contains(port) == true
         }
         model.loopbackRefusal = { [weak self] url in
-            PhoneReach.port(url).flatMap { self?.forwarder?.refusals[$0] }
+            guard let target = PhoneReach.forwardingTarget(url) else { return nil }
+            return self?.forwarder?.refusal(host: target.host, port: target.port)
         }
         if readMacHTML != nil {
             let macID = Self.macID(ofKey: key)
@@ -356,6 +374,31 @@ public final class NativeBrowserTabs {
                 return try await read(url, macID)
             }
         }
+    }
+
+    private func preparePrivateHost(_ url: URL, key: String) async -> LocalhostForwarder.ProxyRoute? {
+        guard PhoneReach(url) == .privateNetwork,
+              macForwardsPrivateHost(Self.macID(ofKey: key)),
+              let target = PhoneReach.forwardingTarget(url), let host = target.host, let forwarder else { return nil }
+        do {
+            let route = try await forwarder.proxy(host: host, port: target.port, macID: Self.macID(ofKey: key))
+            guard nativeKeys.contains(key) else {
+                retainPorts()
+                return nil
+            }
+            tabTargets[key, default: []].insert(target)
+            return route
+        } catch {
+            return nil
+        }
+    }
+
+    private func storeIdentifier(for key: String) -> UUID {
+        let defaultsKey = Self.storeIDPrefix + key
+        if let raw = defaults.string(forKey: defaultsKey), let id = UUID(uuidString: raw) { return id }
+        let id = UUID()
+        defaults.set(id.uuidString, forKey: defaultsKey)
+        return id
     }
 
     private func remember(_ url: URL, for key: String) {
@@ -402,6 +445,19 @@ enum PhoneReach: Equatable {
     /// The loopback port of a `localhost` page.
     static func port(_ url: URL) -> UInt16? {
         guard PhoneReach(url) == .macLoopback else { return nil }
+        return portForAddress(url)
+    }
+
+    /// The channel target for a loopback or named private host.
+    static func forwardingTarget(_ url: URL) -> LocalhostForwarder.Target? {
+        let reach = PhoneReach(url)
+        guard reach == .macLoopback || reach == .privateNetwork, let port = portForAddress(url) else { return nil }
+        let host = reach == .macLoopback ? nil : url.host(percentEncoded: false)
+        return LocalhostForwarder.Target(host: host, port: port)
+    }
+
+    static func portForAddress(_ url: URL) -> UInt16? {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         if let port = url.port { return port == 0 ? nil : UInt16(exactly: port) }
         return url.scheme?.lowercased() == "https" ? 443 : 80
     }

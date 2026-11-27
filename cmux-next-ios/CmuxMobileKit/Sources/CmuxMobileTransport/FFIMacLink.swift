@@ -223,8 +223,14 @@ extension FFIMacLink: BrowserStreamOpening {
         handle.warmMedia()
     }
 
+    func openLocalhost(port: UInt16, host: String?) async throws -> any LinkChannel {
+        var args = ["port": String(port)]
+        if let host, !host.isEmpty { args["host"] = host }
+        return try await openChannel(service: "localhost", args: args)
+    }
+
     func openLocalhost(port: UInt16) async throws -> any LinkChannel {
-        try await openChannel(service: "localhost", args: ["port": String(port)])
+        try await openLocalhost(port: port, host: nil)
     }
 
     func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
