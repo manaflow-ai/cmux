@@ -20,10 +20,9 @@ import { ROW_METRIC, ROW_METRIC_VARIANTS, type RowMetric } from "../src/agent-se
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/** The prose size "Worked for" keeps (chatDisplay.ts DEFAULT_CHAT_DISPLAY.fontSize). */
-const PROSE = 14;
-
 await requireBrowserLane("transcript-activity-row-density.test.ts", async () => {
+  /** The prose size "Worked for" keeps (chatDisplay.ts DEFAULT_CHAT_DISPLAY.fontSize). */
+  const PROSE = 14;
   setDefaultTimeout(300_000);
   const ENTRY = "agent-pane.activity-row-density";
   const MEASURED = ["expanded", "folded", "runs-open"];
@@ -194,7 +193,8 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
       const { words, toolLineHeights, chips, glyphs } = await of(variant);
       expect(words.length).toBeGreaterThan(0);
       // "Worked for" keeps the prose size (--cv-worked-font-size), not the row metric's.
-      for (const word of words) expect(word).toEqual({ cls: word.cls, size: word.cls === ".cv-worked__label" ? PROSE : ROW_METRIC.font });
+      for (const word of words)
+        expect(word).toEqual({ cls: word.cls, size: word.cls === ".cv-worked__label" ? PROSE : ROW_METRIC.font });
       expect(new Set(toolLineHeights)).toEqual(new Set([20]));
       for (const chip of chips) expect(chip).toBeCloseTo(ROW_METRIC.chip, 1);
       for (const glyph of glyphs) expect(glyph).toBeCloseTo(ROW_METRIC.glyph, 1);
