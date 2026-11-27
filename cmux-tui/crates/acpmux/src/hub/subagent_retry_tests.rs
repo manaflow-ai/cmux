@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::config::{Config, StoreMode};
+use crate::protocol::session::RetryReason;
 use crate::rpc::{Message, method};
 use std::path::Path;
 use tokio::sync::mpsc;
@@ -125,7 +126,7 @@ async fn a_429_storm_holds_twelve_helpers_and_resumes_the_same_agents() {
 #[tokio::test]
 async fn helper_retries_do_not_start_paid_parent_turns_while_parent_is_held() {
     for reason in [RetryReason::Capacity, RetryReason::RateLimit] {
-        let (hub, session, _conn) = chat(vec![1]);
+        let (hub, session, _conn) = chat(vec![1]).await;
         hub.wait_to_continue_for_test(
             &session,
             "parent-capacity",
@@ -135,12 +136,22 @@ async fn helper_retries_do_not_start_paid_parent_turns_while_parent_is_held() {
         let mut end = failed("s/held-parent");
         end["error"] =
             json!("API Error: 429 no non-exhausted claude accounts available; retry after 1s");
+        let mut events = hub.events.subscribe();
         hub.observe_subagents(&session, &[end]);
         // Capacity waits have a one-second minimum plus jitter. Read the scheduled deadline and
         // wait past it, so this cannot pass merely because the retry task has not woken yet.
-        let due = last_entry(&hub, &session, "s/held-parent").unwrap()["capacityWait"]["resumesAt"]
-            .as_u64()
-            .expect("capacity wait deadline");
+        let due = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(due) = last_entry(&hub, &session, "s/held-parent")
+                    .and_then(|e| e["capacityWait"]["resumesAt"].as_u64())
+                {
+                    break due;
+                }
+                events.recv().await.expect("retry schedule event");
+            }
+        })
+        .await
+        .expect("capacity wait was scheduled");
         let now = crate::store::now_ms();
         tokio::time::sleep(Duration::from_millis(due.saturating_sub(now) + 100)).await;
         assert!(crate::store::now_ms() >= due);

@@ -149,7 +149,11 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const agent = row.subagents?.[0];
   const now = useNow(agent ? ticking(agent) : false);
   if (!agent) return null;
-  const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
+  // The group's header owns the capacity countdown; its expanded helpers stay reachable and
+  // say Waiting without repeating the outage or presenting a diagnostic failure as an outcome.
+  const label = agent.capacityWait
+    ? "subagents.state.waiting"
+    : (STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed);
   const state = [
     // Running is the avatar's spinner, never a word (Leo, 2026-11-23): a bare shell step says nothing.
     running(agent) ? namedAction(t, agent.action, agent.actionShell) : t(label),

@@ -2,7 +2,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
-import { SubagentGroupHeader } from "./SubagentGroup";
+import { SubagentGroupHeader, SubagentListRow } from "./SubagentGroup";
+import { SubagentNavContext } from "./subagentGroupModel";
 import { SubagentStartedLine } from "./SubagentStartedLine";
 import { SubagentFold } from "./subagentFold";
 import { withSubagentRows } from "./subagentRows";
@@ -49,7 +50,25 @@ test("eleven capacity holds form one calm row in both layouts; real failures and
     renderToStaticMarkup(<SubagentGroupHeader row={row} expanded onToggle={() => {}} />);
   expect(markup(group())).toContain("11 helpers paused");
   expect(markup(group())).not.toContain('data-state="failed"');
-  expect(withSubagentRows([group()], new Set(["helpers"]))).toHaveLength(1);
+  expect(withSubagentRows([group()], new Set())).toHaveLength(1);
+  const expanded = withSubagentRows([group()], new Set(["helpers"]));
+  expect(expanded).toHaveLength(12);
+  const expandedMarkup = renderToStaticMarkup(
+    <SubagentNavContext.Provider value={() => {}}>
+      <SubagentGroupHeader row={expanded[0]!} expanded onToggle={() => {}} />
+      {expanded.slice(1).map((row) => (
+        <SubagentListRow key={row.id} row={row} />
+      ))}
+    </SubagentNavContext.Provider>,
+  );
+  for (const row of expanded.slice(1)) {
+    expect(expandedMarkup).toContain(`id="${row.id}"`);
+    expect(expandedMarkup).toContain(`aria-label="Open ${row.subagents![0]!.name}"`);
+  }
+  expect(expandedMarkup.match(/class="cv-subagent__state">Waiting</g)).toHaveLength(11);
+  expect(expandedMarkup.match(/Waiting for capacity/g)).toHaveLength(1);
+  expect(expandedMarkup).not.toContain('data-state="failed"');
+  expect(expandedMarkup).not.toContain("Agent terminated");
   const cache = new Map();
   const lines = withSubagentLines([group()], cache);
   expect(lines).toHaveLength(1);
@@ -63,7 +82,10 @@ test("eleven capacity holds form one calm row in both layouts; real failures and
   expect(mixed.filter((row) => row.kind === "subagentDone").map((row) => row.subagents?.[0]?.error)).toEqual([
     "401 unauthorized",
   ]);
-  expect(withSubagentRows([group()], new Set(["helpers"]))).toHaveLength(2);
+  const mixedRows = withSubagentRows([group()], new Set(["helpers"]));
+  expect(mixedRows).toHaveLength(12);
+  const failedRow = mixedRows.find((row) => row.kind === "subagent" && row.subagents?.[0]?.id === "helper-0")!;
+  expect(renderToStaticMarkup(<SubagentListRow row={failedRow} />)).toContain('data-state="failed"');
 
   for (let index = 1; index < 11; index += 1) {
     update(`helper-${index}`, { state: "running" });
