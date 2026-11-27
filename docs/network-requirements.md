@@ -29,6 +29,7 @@ Allow outbound connections to the hosts below. Where a host's addresses are not 
 | `cmux-platform-production.debussy.workers.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | cmux Cloud platform API |
 | `cmux.com` | backend | `tcp/443` HTTPS and WSS (TLS) | not fixed: allow the host name (2026-11-24 DNS: `216.150.1.1`) | cmux website and API: sign-in callback, downloads fallback, connectivity reports |
 | `cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | not fixed: allow the host name (2026-11-24 DNS: `216.150.1.1`) | cmux Cloud host name; machine and preview URLs under it |
+| `console.cmux.dev` | backend | `tcp/443` HTTPS (TLS) | not fixed: allow the host name | cmux console: the in-app GitHub connect completion page |
 | `preview.chatmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | not fixed: allow the host name | preview pages of a chatmux session (no DNS answer on 2026-11-24) |
 | `share.cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | shared workspace links |
 | `vm.cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | cmux Cloud machine API |
@@ -53,6 +54,7 @@ Allow outbound connections to the hosts below. Where a host's addresses are not 
 | `cmux-api-staging.debussy.workers.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | cmux API on staging |
 | `cmux-platform-development.debussy.workers.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | cmux Cloud platform API in development builds |
 | `cmux-platform-staging.debussy.workers.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | cmux Cloud platform API on staging |
+| `console-staging.cmux.dev` | backend | `tcp/443` HTTPS (TLS) | not fixed: allow the host name | cmux console (staging): the GitHub connect completion page for staging builds |
 | `share-dev.cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | shared workspace links in development builds |
 | `share-staging.cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | shared workspace links on staging |
 | `vm-staging.cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | cmux Cloud machine API on staging |

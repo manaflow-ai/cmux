@@ -202,7 +202,7 @@ if "needs.published-build.outputs.comment == 'true'" not in str(JOBS.get("publis
 report = JOBS.get("report-nightly-failure", {})
 if "published-build" not in needs("report-nightly-failure") or "dispatch-published-in" not in needs("report-nightly-failure"):
     failures.append("report-nightly-failure must see the tail jobs and a failed dispatch")
-if "results['published-build']?.outputs?.run_tail === 'true'" not in job_text("report-nightly-failure"):
+if "results['published-build']?.outputs?.run_tail === 'true'" not in (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text():
     failures.append("report-nightly-failure must count skipped notes only in the run that ran the tail (run_tail)")
 if "needs.published-build.result == 'success'" not in str(JOBS.get("close-nightly-failure-issue", {}).get("if", "")):
     failures.append("close-nightly-failure-issue must close only in the run that ran the tail")
@@ -221,7 +221,7 @@ report = JOBS.get("report-nightly-failure") or {}
 report_if = str(report.get("if", ""))
 if "inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure'" not in report_if:
     failures.append("report-nightly-failure must report a failed published-build in the dispatched run")
-report_env = (report.get("steps") or [{}])[0].get("env") or {}
+report_env = next(s for s in report["steps"] if s.get("name") == "Open or update the nightly failure issue").get("env") or {}
 for key in ("CHANNEL_RELEASE_TAG", "TRACK"):
     if "'nightly-next'" not in str(report_env.get(key, "")):
         failures.append(f"report-nightly-failure's {key} must fall back to nightly-next when the dispatched run has no record")
