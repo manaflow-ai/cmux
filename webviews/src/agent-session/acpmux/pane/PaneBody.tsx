@@ -105,6 +105,7 @@ import type { EvacuateState } from "../place/placeModel";
 import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
+import { SpareRehearsal } from "../spareRehearsal";
 import { LiveTreePill } from "../header/LiveTreePill";
 import { readFolderStatus } from "./hostBindings";
 import { chatMenuHasRows } from "./chatMenu";
@@ -1727,6 +1728,8 @@ export function drawPaneBody({
               </div>
             </Activity>
           )}
+          {/* The spare's warm-up: the hidden chat view above has no rows to run the row code on (spareRehearsal.tsx). */}
+          {premountsChatView && !showsChatView && <SpareRehearsal />}
         </div>
         {!harnessesOpen &&
           !showNewTab &&
