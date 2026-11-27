@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""The cosmic-gray wedge, reproduced: an acpmux daemon with ~200 peer links under CPU load, and
+"""The 11-27 daemon wedge on Leo's Mac, reproduced: an acpmux daemon with ~200 peer links under CPU load, and
 what a chat's inbox read costs while it lasts.
 
-Why (2026-11-27 15:37Z, Leo's Mac): load 187 on 15 CPUs, the daemon at 143% CPU, 2.1 GB, 143 tokio
+Why (2026-11-27 15:37Z, his Mac): load 187 on 15 CPUs, the daemon at 143% CPU, 2.1 GB, 143 tokio
 workers and ~200 peers; `acpmux session inbox <id>` hung 60 s+; "prompt admission lease lapsed"
 388x, "std mutex held long" on `remote_sessions` 1646x, ~6k peer disconnects. Leo: "mango has been
 "thinking" for an inordinate amount of time. i think they're bugged and we need to fix this bug".
@@ -42,7 +42,8 @@ and from its log, per minute: "prompt admission lease lapsed", "std mutex held l
 drops, punch attempts and silence-budget ends. One line `WEDGE-SUMMARY {...}`, `result.json` and
 `summary.md` go to `--out`.
 
-Refuses to run on a host whose name contains `cosmic-gray` (never load Leo's Mac).
+Refuses to run outside CI (`$FAST_CHECKS_OUT` unset) unless `ACPMUX_WEDGE_HERE=1`: it loads the
+host it runs on, so never a person's machine.
 
 Exit: 0 it ran (numbers only, no gate); 4 the harness could not run.
 """
@@ -74,7 +75,7 @@ LOG_COUNTERS = {
     "leaseLapsed": re.compile(r"prompt admission lease lapsed"),
     "mutexHeldLong": re.compile(r"std mutex held long"),
     "remoteSessionsHeldLong": re.compile(r"std mutex held long.*remote_sessions|remote_sessions.*held long"),
-    "peerDrops": re.compile(r"peer stopped answering|peer link (?:dropped|closed|lost)|disconnected from peer|link down", re.I),
+    "peerDrops": re.compile(r"peer disconnected|peer stopped answering|peer link (?:dropped|closed|lost)|disconnected from peer|link down", re.I),
     "punch": re.compile(r"punch", re.I),
     "silenceBudget": re.compile(r"silence budget", re.I),
     "slowRequest": re.compile(r"slow request|request took|stalled", re.I),
@@ -218,6 +219,12 @@ def ps_row(pid: int) -> dict:
 
 
 def cpu_seconds(pid: int) -> float | None:
+    """The daemon's user+system CPU seconds: /proc (Linux, clock ticks) or ps (whole seconds)."""
+    try:
+        f = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        return (int(f[11]) + int(f[12])) / os.sysconf("SC_CLK_TCK")
+    except (OSError, IndexError, ValueError):
+        pass
     r = subprocess.run(["ps", "-o", "time=", "-p", str(pid)], capture_output=True, text=True)
     t = r.stdout.strip()
     if not t:
@@ -296,6 +303,10 @@ class Wedge:
         self.peer_acpmux = str(Path(a.peer_acpmux or a.acpmux).resolve())
         self.state = Path(tempfile.mkdtemp(prefix="acpmux-wedge-"))
         self.env = ds.clean_env(out, self.state, self.acpmux)
+        if not a.lazy_peers:
+            # Saved peers wait to be used before they dial (peer_demand.rs); Leo's daemon had its
+            # ~200 links up (chats in use, deliveries, wants). Dial them all, as that state.
+            self.env["ACPMUX_PEER_DIAL_AT_START"] = "1"
         self.procs: list[subprocess.Popen] = []
         self.proxies: list[Proxy] = []
         self.hub = ds.FakeHub(out / "hub.ndjson", random.Random(a.seed + 1))
@@ -320,6 +331,7 @@ class Wedge:
     def start_peer_daemon(self, i: int) -> tuple[int, str, str] | None:
         st = self.state / f"peer-{i}"
         home = st / "acpmux-home"
+        private(st)
         for d in ("home", "run", "tmp"):
             private(st / d)
         private(home)
@@ -451,8 +463,10 @@ class Wedge:
         stack_files: list[Path] = []
         tool = None
         deadline = time.monotonic() + secs
+        gap = secs / max(1, self.a.reads)  # reads spread over the phase, not bunched at its start
         i = 0
         while i < self.a.reads or time.monotonic() < deadline:
+            t_read = time.monotonic()
             name_, sid = self.sessions[i % len(self.sessions)]
             sampler = None
             if name == "duress" and len(stack_files) < self.a.samples and i % 3 == 1:
@@ -472,6 +486,9 @@ class Wedge:
                 break
             if i >= self.a.reads * 4:
                 break
+            rest = gap - (time.monotonic() - t_read)
+            if rest > 0 and time.monotonic() + rest < deadline:
+                time.sleep(rest)
         dt = time.monotonic() - t0
         cpu1 = cpu_seconds(pid)
         logc = count_log(self.daemon_log, log_start, self.daemon_log.stat().st_size)
@@ -481,6 +498,7 @@ class Wedge:
                "threadsMax": max((r.get("threads", 0) for r in ps_rows), default=None),
                "rssMBMax": max((r.get("rssMB", 0) for r in ps_rows), default=None),
                "log": logc, "logPerMin": {k: round(v / mins, 1) for k, v in logc.items()},
+               "linksUp": self.links_up(),
                "proxyAccepts": sum(p.accepted for p in self.proxies), "proxyCuts": sum(p.cuts for p in self.proxies),
                "hub": dict(self.hub.counts)}
         for k, rs in reads.items():
@@ -496,6 +514,20 @@ class Wedge:
             f"byName {row['byName']['p50']}/{row['byName']['p95']}/{row['byName']['max']} ms, "
             f"cpu {row['daemonCpuPct']}%, log/min {row['logPerMin']}")
         return row
+
+    def links_up(self) -> dict:
+        """Peer link states as the daemon reports them (`acpmux --json machine ls`), counted."""
+        try:
+            r = self.run([self.acpmux, "--json", "machine", "ls"], 30)
+            v = json.loads(r.stdout)
+        except (subprocess.TimeoutExpired, ValueError):
+            return {"error": "peers did not answer"}
+        rows = v if isinstance(v, list) else v.get("peers", [])
+        counts: dict = {}
+        for p in rows:
+            st = str(p.get("state") or p.get("connection") or p.get("status") or p.get("link") or "?")
+            counts[st] = counts.get(st, 0) + 1
+        return counts
 
     def go(self) -> int:
         a = self.a
@@ -523,7 +555,7 @@ class Wedge:
             "peers": peers,
         }
         (self.out / "agent-wrapper.py").write_text(ds.WRAPPER)
-        (self.state / "acpmux-home" / "config.json").write_text(json.dumps(cfg, indent=1))
+        private(self.state / "acpmux-home" / "config.json", json.dumps(cfg, indent=1))
         version = self.run([self.acpmux, "--version"]).stdout.strip()
         log("acpmux", version, f"{a.peers} peers ({n_stall} stalled) over {a.peer_daemons} peer daemons")
         if not self.start_daemon():
@@ -620,6 +652,7 @@ def compare(dirs: list[str]) -> int:
 
 
 def main() -> int:
+    os.umask(0o077)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--acpmux", help="the daemon binary under test")
     ap.add_argument("--peer-acpmux", help="the peer daemons' binary (default: --acpmux)")
@@ -640,14 +673,18 @@ def main() -> int:
     ap.add_argument("--read-timeout", type=float, default=90)
     ap.add_argument("--samples", type=int, default=3)
     ap.add_argument("--log", default="info")
+    ap.add_argument("--lazy-peers", action="store_true",
+                    help="leave saved peers parked until used (the default dials all, as Leo's daemon had them up)")
     ap.add_argument("--seed", type=int, default=7)
     a = ap.parse_args()
     if a.compare:
         return compare(a.compare)
     if not a.acpmux or not a.out:
         ap.error("--acpmux and --out are required")
-    if "cosmic-gray" in socket.gethostname().lower():
-        print("refused: never load Leo's Mac (cosmic-gray); run on a fleet host", file=sys.stderr)
+    if not os.environ.get("FAST_CHECKS_OUT") and os.environ.get("ACPMUX_WEDGE_HERE") != "1":
+        print("refused: this loads the host it runs on (CPU x cores, 200 links), so it runs in CI "
+              "(cmux-ci test) or where ACPMUX_WEDGE_HERE=1 says this host may take it; never a person's Mac",
+              file=sys.stderr)
         return 4
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
