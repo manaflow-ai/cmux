@@ -142,6 +142,7 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
           # A full-ci or ready-to-land label on a head that only merges the base onto a head whose full run passed
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
