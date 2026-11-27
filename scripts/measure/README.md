@@ -339,6 +339,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `workspace-factory.sh` | Throwaway per-job workspace from a read-only seed vs today's step workspaces, one real SwiftPM prebuild (bench workspace-factory). | hq RFD 0005 | 2026-11-17 | active |
 | `workspace-factory` | `wsfactory`, the std-only Rust factory the script builds: seed publish/verify, create, destroy, reconcile. | hq RFD 0005 | 2026-11-17 | active |
+| `ci140-unmapped` | `unmapped.py`: PR job minutes the ci140 reuse measurement could not map to a head SHA, by reason, workflow, job and event, plus a minutes-weighted API sample of their real head SHAs: new head vs the same input as an earlier green. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 | `quiet-host.sh` | Runs one measurement on a quiet host and records other CPU use. | - | 2026-10-31 | active |
 | `require-chromium.sh` | Sourced by an entry that builds its app: the build requires the Chromium engine unless `--allow-no-chromium`. Measures nothing. | - | 2026-11-16 | active |
 | `bench-ab` | Interleaved A/B driver for fleet benches with A/A self-test and intervals. | - | 2026-11-06 | active |
@@ -369,6 +370,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `projection.sh` | Projection window of a published build: shows a change within 5 s. | hq#7149 L10 | 2026-11-05 | active |
 | `closed-kit-census.py` | Per webviews directory: the closed kit's doors left open (raw elements, `style`, `className` in product .tsx) and raw px, hex and rgb(a) literals, fewest doors first: which directory closes next. | RFD 0040 | 2026-11-24 | active |
 | `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
+| `ci140-heads-per-pr` | Runner minutes per merged PR on cmux PR heads, from the timing feed: (a) heads that ran CI per merged PR, (b) minutes by PR state (merged, closed unmerged, draft, open), (c) minutes after a newer head was pushed and not cancelled, (d) minutes on same-tree, empty or wip heads. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.
 
