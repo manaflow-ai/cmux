@@ -89,6 +89,7 @@ const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | Quot
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
   if (error.status === 409) return conflict("No capacity is available for a new VM right now; retry later");
+  if (error.kind === "capacity_overloaded") return unavailable(error);
   if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" });
   return unavailable(error);
 };
