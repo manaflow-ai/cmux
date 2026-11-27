@@ -1,6 +1,19 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "terminal.composer.cancelSending": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel sending" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Senden abbrechen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Annuler l’envoi" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إلغاء الإرسال" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Cancelar envío" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取消傳送" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "取消发送" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "보내기 취소" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信をキャンセル" } }
+      }
+    },
     "recovery.retry": {
       "localizations": {
         "en": {
