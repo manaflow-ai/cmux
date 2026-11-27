@@ -137,12 +137,11 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
-    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
     /// beside Discard.
     public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
-    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
+    /// Said only when voice mode's prompt did not reach the Mac's terminal: its words are not in the
+    /// composer to come back. A composer send that did not go says nothing (its draft comes back).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
     /// came (the link failed after it went out): its text stays out of the composer, so a second
@@ -309,6 +308,12 @@ public protocol TerminalSession: AnyObject {
     /// Drops the keys held for the attach (``TerminalSessionEvent/inputHeld(bytes:)``), at the
     /// person's word: none is sent. Sessions that hold no keys ignore it.
     func discardHeldInput()
+    /// Keeps the terminal submission waiting for attachment bytes subject to the same
+    /// disconnect hold as typed input. Expiry does not cancel the file transfer.
+    func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID
+    /// Rechecks the hold synchronously before submission, then releases its registration.
+    /// False means the submission expired; the caller must keep the draft unsent.
+    @discardableResult func endAttachmentSubmission(_ id: UUID) -> Bool
 }
 
 /// A full-screen app's transcript (Leo, 2026-11-24: "where's us simply
@@ -332,6 +337,9 @@ public struct TerminalTUITranscript: Equatable, Sendable {
 }
 
 extension TerminalSession {
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID { UUID() }
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool { true }
+
     /// Sessions that never hold keys send a reply as they send keys.
     public func sendReply(_ bytes: Data) { send(bytes) }
 
