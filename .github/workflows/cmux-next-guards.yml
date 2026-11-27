@@ -476,7 +476,13 @@ jobs:
     needs: [coalesce, fast-check-route]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') }}
+    # full-ci no longer starts it on a pull request into feat-cmux-next either (land's full-ci pulse put it on
+    # every landing pull request): in the timing feed of 11-22T18Z..11-26T18Z it ran 1,644 times, 28,593 runner-min,
+    # 707 min/h at 14-18Z, and 1,258 of its 1,400 pull request verdicts were red, red on the base too (base verdict
+    # read 403, so the base re-ran every red step; a step flagged new only by a memory address in its failure text).
+    # In no hour did most of its pull request runs pass. The push still runs it at every tip, and the merge gate
+    # judges a skipped job as no red. The repository variable CI_GUARD_GROUP_ON_FULL_CI=1 restores it.
+    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || vars.CI_GUARD_GROUP_ON_FULL_CI == '1') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Temporary 35 (was 25) until the head pass is short again: green p50 rose from about 15 min to 20-23 min on
     # 11-20 12Z, and a third of runs were cancelled at 25 with no verdict, then re-run (hq docs/ci/ci-cut-ledger.md).
@@ -1213,6 +1219,85 @@ jobs:
   # every base move. scripts/ci/generated_files_guard.py reads its rules (scripts/ci/generated-files.json and its
   # baseline) from the base, so a change cannot loosen them for itself; a generated file the base already tracks
   # uncovered is a note, not this change's red.
+  # A workflow file GitHub cannot parse starts 0 jobs; when pr-router.yml calls it, every pull request's router run
+  # fails with no check run and no log (cmux#55346, 2026-11-25: one duplicated key, 300 router runs in two hours).
+  # Feat pull requests skip the CI guard group's "Lint every workflow", so this runs actionlint (no shellcheck or
+  # pyflakes, seconds) on the merge commit and its first parent, and fails only on a finding the change adds
+  # (scripts/ci/workflow_start_lint.py). It never waits on fast-check-route: a feat pull request without full-ci skips
+  # that router, and a lint steered by its outputs would skip exactly the pull requests it guards (cmux#56527's first
+  # head). A change that touches no workflow and not the lint ends after the checkout, at its own first step.
+  workflow-start-lint:
+    name: workflow start lint (a change that stops a workflow starting)
+    if: ${{ github.event.action != 'ready_for_review' }}
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - name: Checkout the workflows and the lint
+        timeout-minutes: 5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /scripts/ci/install-actionlint.sh
+            /scripts/ci/workflow_start_lint.py
+
+      - name: Does this change touch a workflow or the lint
+        id: touched
+        timeout-minutes: 1
+        run: |
+          if git diff --name-only HEAD^1 HEAD | grep -qE '^(\.github/|scripts/ci/install-actionlint\.sh$|scripts/ci/workflow_start_lint\.py$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no workflow and not the lint changed: nothing can stop a workflow starting"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install actionlint
+        if: steps.touched.outputs.run == 'true'
+        timeout-minutes: 2
+        env:
+          ACTIONLINT_VERSION: "1.7.12-manaflow.1"
+          ACTIONLINT_SHA256: "9446e75901c9bc4447fa6cc1706b7b1b0c1af77fac1586a7c227170c902ecc25"
+          ACTIONLINT_ASSET_ID: "656977422"
+        run: ./scripts/ci/install-actionlint.sh
+
+      - name: Fail on a workflow finding this change adds
+        if: steps.touched.outputs.run == 'true'
+        timeout-minutes: 3
+        run: python3 -I scripts/ci/workflow_start_lint.py --actionlint "$RUNNER_TEMP/actionlint" --base HEAD^1
+
   own-change-checks:
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A pull request that touches none of these checks' trees, adds no file and touches no generated path or
@@ -1792,7 +1877,10 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
 
-
+      - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
+        id: tt-swift-cloud-http-tests
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http-tests ')) }}
+        run: python3 -I tests/test_swift_cloud_http.py
 
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
