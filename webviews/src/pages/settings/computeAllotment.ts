@@ -7,14 +7,7 @@
 // worded with the Cloud page's spend-cap formatter (pages/cloud/spendCap.ts).
 import { day, usd } from "../cloud/spendCap";
 import { intl } from "../../ui/intl";
-import type {
-  AllotmentPosition,
-  AllotmentReason,
-  AllotmentView,
-  ChiefTier,
-  MemberUse,
-  PersonHoldSeconds,
-} from "./ops";
+import type { AllotmentPosition, AllotmentReason, AllotmentView, ChiefTier, MemberUse, PersonHoldSeconds } from "./ops";
 
 /** The Labs switch that mounts the card in Settings > Cloud (schemas/settings/source/labs.json);
  * off, the card draws nothing and reads nothing. */
