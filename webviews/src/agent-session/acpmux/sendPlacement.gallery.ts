@@ -22,10 +22,12 @@ function sendPlacement(top: boolean, history: boolean) {
     setChatDisplay({ "agentPane.display.sendScrollsToTop": top });
     await ctx.type(PROMPT, { selector: COMPOSER_EDITOR });
     await pause(600);
-    const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
+    // An empty chat mounts its transcript only after the first send.
+    const beforeScroller = doc.querySelector<HTMLElement>(".acpmux-scroll");
+    if (history && !beforeScroller) throw new Error("The seeded transcript never appeared");
     const before = {
-      top: scroller.scrollTop,
-      overflow: scroller.scrollHeight - scroller.clientHeight,
+      top: beforeScroller?.scrollTop ?? 0,
+      overflow: beforeScroller ? beforeScroller.scrollHeight - beforeScroller.clientHeight : 0,
     };
     // Keep the agent's reply outside the measurement; its growth is a separate motion.
     Object.assign(win, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 5000 });
@@ -39,6 +41,8 @@ function sendPlacement(top: boolean, history: boolean) {
       row.textContent?.includes(PROMPT),
     );
     if (!prompt) throw new Error("The measured send never appeared");
+    const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll");
+    if (!scroller) throw new Error("The sent prompt has no transcript scroller");
     doc.documentElement.dataset.sendPlacement = JSON.stringify({
       top,
       history,
