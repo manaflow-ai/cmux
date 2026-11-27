@@ -38,8 +38,9 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    # Two cold debug builds (acpmux --features tailnet, then cmux-tui) took 52 min in run 45715050700.
-    timeout-minutes: 100
+    # Two cold debug builds (acpmux --features tailnet, then cmux-tui) took 52 min in run 45715050700
+    # and 68 min on a freestyle runner in run 45830130860, whose move then hit a 100-min cap mid-step.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

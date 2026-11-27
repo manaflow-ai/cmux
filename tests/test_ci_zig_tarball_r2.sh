@@ -68,10 +68,19 @@ while read -r name ns; do
   : > "$TMP/bucket/v1/$ns/objects/$(key_of "$name").tar.gz"
 done < <(awk '$1 !~ /^#/ && NF == 2 { n = $2; sub(/\.tar\.xz$/, "", n); split(n, p, "-");
   os = p[3] == "macos" ? "macOS" : "Linux"; arch = p[2] == "aarch64" ? "ARM64" : "X64"; print n, os "-" arch }' "$PINS")
-out="$(env -u AWS_ACCESS_KEY_ID bash "$SCRIPT" seed)" || fail "seed failed with every key held: $out"
-[[ "$(grep -c "already holds" <<<"$out")" == "$(awk '$1 !~ /^#/ && NF == 2' "$PINS" | wc -l | tr -d ' ')" ]] \
+# ... and this runner's patched tree, when this checkout has one (install-zig-ci.sh's zig_tree_key).
+tree_key="$(ZIG_PRINT_TREE_KEY=1 ZIG_FORCE_LOCAL_INSTALL=1 bash "$ROOT/scripts/install-zig-ci.sh" 2>/dev/null || true)"
+host_ns="$(uname -s)-$(uname -m)"; host_ns="${host_ns/Darwin/macOS}"; host_ns="${host_ns/arm64/ARM64}"
+host_ns="${host_ns/aarch64/ARM64}"; host_ns="${host_ns/x86_64/X64}"
+if [[ -n "$tree_key" ]]; then
+  mkdir -p "$TMP/bucket/v1/$host_ns/objects"
+  : > "$TMP/bucket/v1/$host_ns/objects/$tree_key.tar.gz"
+fi
+out="$(env -u AWS_ACCESS_KEY_ID RUNNER_OS= RUNNER_ARCH= bash "$SCRIPT" seed)" || fail "seed failed with every key held: $out"
+[[ "$(grep -c "already holds .*/zig-tarball-v2-" <<<"$out")" == "$(awk '$1 !~ /^#/ && NF == 2' "$PINS" | wc -l | tr -d ' ')" ]] \
   || fail "seed did not check every pinned tarball: $out"
 grep -q "already holds macOS-ARM64/$(key_of "$mac")" <<<"$out" || fail "seed did not check the Mac tarball: $out"
+[[ -z "$tree_key" ]] || grep -q "already holds $host_ns/$tree_key" <<<"$out" || fail "seed did not check the patched tree: $out"
 
 # install-zig-ci.sh reads the bucket before the mirrors, only for a pinned tarball.
 installer="$ROOT/scripts/install-zig-ci.sh"

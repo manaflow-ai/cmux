@@ -151,7 +151,9 @@ jobs:
       # any runner reads our copy before the third-party mirrors (scripts/ci/zig-tarball-r2.sh). The first
       # version saved only this Linux x64 runner's own Zig, so a Mac or arm64 runner always missed: the
       # NIGHTLY signer's job 138863767001 spent its whole budget on the mirrors. A key the bucket holds costs
-      # one HEAD request.
+      # one HEAD request. It also saves this runner's unpacked, std-fixed tree, which install-zig-ci.sh restores
+      # first: a sick Freestyle VM spent 31 min unpacking the .tar.xz in fast tier (cargo) on 2026-11-25. The
+      # Zig version is ghostty-next's, so its work tree comes first (from the git directory saved just above).
       - name: Save the verified Zig tarballs
         # A failed seed is only a miss for the readers; it never reds this workflow.
         continue-on-error: true
