@@ -675,10 +675,10 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--untouched-is-base", "--diff-base", self.base]])
         self.assertIn("files this change does not touch, so the base", result.stdout)
 
-    def test_compare_base_lints_only_the_crates_still_red_at_the_base(self) -> None:
-        # 2026-11-27: the base lint re-checked every selected package (dependents such as cmux-tui too), 1.5-2.8 min,
-        # though only a crate the untouched pass still names red reads the base run. pkg-c and pkg-d are judged as
-        # that pass judged them (--untouched-is-base stays on the final judge).
+    def test_compare_base_preserves_feature_unification_when_only_one_crate_is_red(self) -> None:
+        # PR #56762: dependents enabled acpmux features that added 28 existing lint sites. Narrowing
+        # only the base to the red crate compared 816 HEAD hits against 788 base hits, falsely red.
+        # Retain dependents and targets even when the untouched pass names just pkg-a.
         self.change("cmux-tui/crates/a/src/lib.rs")
         head = self.git("rev-parse", "HEAD").strip()
         heads = self.tmp / "heads.log"
@@ -689,14 +689,13 @@ class ClippyChangedTests(unittest.TestCase):
                                            "  pkg-a: clippy::unwrap_used 2 > baseline 1\n      crates/a/src/lib.rs:7:5\n"})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
-        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--lib", "--bins", *PANIC]
-        self.assertEqual(self.calls(), [lint, base_lint])
+        self.assertEqual(self.calls(), [lint, lint])
         self.assertEqual(heads.read_text().split(), [head, self.base])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
         base_out = out.with_name(out.name + ".base")
         strict = self.judged(out)
         untouched = [*strict, "--untouched-is-base", "--diff-base", self.base]
-        self.assertEqual(self.ratchet_calls(), [strict, untouched, [*untouched, "--base-clippy-json", str(base_out)]])
+        self.assertEqual(self.ratchet_calls(), [strict, untouched, [*strict, "--base-clippy-json", str(base_out)]])
 
     def test_compare_base_lints_every_package_when_a_red_crate_was_not_selected(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")

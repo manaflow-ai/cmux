@@ -527,10 +527,15 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
 /// first and falls back to a hidden prediction fork while Codex answers it
 /// -32601 (cmux-codex-acp `src/translator/suggestions.rs`).
 pub fn translator() -> Arc<Translator> {
-    translator_with(crate::claude_stdio::prompt_suggestions::enabled_in_settings())
+    translator_for_person(true)
 }
 
-fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
+/// Only a person-facing start reads the global suggestion switch.
+pub fn translator_for_person(for_person: bool) -> Arc<Translator> {
+    translator_with(for_person && crate::claude_stdio::prompt_suggestions::enabled_in_settings())
+}
+
+pub(crate) fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
     Arc::new(Translator {
         inner: cmux_codex_acp::Translator::new(Options {
             client_name: "acpmux".into(),

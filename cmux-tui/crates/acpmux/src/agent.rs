@@ -1153,13 +1153,39 @@ impl ChildAgent {
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
+        Self::spawn_with_codex(
+            name,
+            profile,
+            cwd,
+            inbound,
+            tap,
+            command_line,
+            translator,
+            session,
+            false,
+        )
+        .await
+    }
+
+    /// Spawn with the person/agent choice for a direct Codex bridge.
+    pub async fn spawn_with_codex(
+        name: &str,
+        profile: &HarnessProfile,
+        cwd: &std::path::Path,
+        inbound: mpsc::Sender<Inbound>,
+        tap: Tap,
+        command_line: Option<(String, Vec<String>)>,
+        translator: Option<Arc<crate::claude_stdio::Translator>>,
+        session: Option<(&str, &str)>,
+        codex_for_person: bool,
+    ) -> Result<Arc<Self>> {
         // The build-session kill switch: no agent process at all (cx-9ettq).
         crate::launch_policy::refuse_if_disabled()?;
         let codex = (translator.is_none()
             && command_line.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv))
         .then(|| CodexLink {
-            tr: crate::codex_app_server::translator(),
+            tr: crate::codex_app_server::translator_for_person(codex_for_person),
             inbound: inbound.clone(),
             order: Mutex::new(()),
         });

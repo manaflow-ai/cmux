@@ -807,7 +807,7 @@ impl Started {
             tr
         });
         let codex = (spec.translator.is_none() && spec.codex_bridge)
-            .then(crate::codex_app_server::translator);
+            .then(|| crate::codex_app_server::translator_with(spec.codex_prompt_suggestions));
         let resumed_at = holder.as_ref().and_then(|h| h.adopt.as_ref());
         let (start_h, start_out_id) = resumed_at.map_or((0, 0), |a| (a.last_h, a.max_out_id));
         let mut state = State {

@@ -46,8 +46,7 @@ fn advertises_audio(user_agent: &str) -> bool {
 
 /// A Codex chat after one completed turn, with the global switch `on`: its
 /// session options, and what the app-server was asked after the turn.
-fn chat_after_a_turn(on: bool) -> (Value, Vec<Value>) {
-    let tr = translator_with(on);
+fn chat_after_a_turn(tr: Arc<Translator>) -> (Value, Vec<Value>) {
     let start = split(tr.start());
     let init = start.server[0]["id"].clone();
     let list = split(tr.from_server(
@@ -159,11 +158,18 @@ fn the_global_switch_gives_codex_chats_prompt_suggestions() {
             .iter()
             .any(|o| o["id"] == crate::claude_stdio::prompt_suggestions::OPTION)
     };
-    let (options, asked) = chat_after_a_turn(true);
+    let (options, asked) = chat_after_a_turn(translator_with(true));
     assert!(has_option(&options), "{options}");
     assert!(asked.iter().any(|m| m["method"] == "thread/prediction/request"), "{asked:?}");
-    let (options, asked) = chat_after_a_turn(false);
+    let (options, asked) = chat_after_a_turn(translator_with(false));
     assert!(!has_option(&options));
+    assert!(asked.iter().all(|m| m["method"] != "thread/prediction/request"), "{asked:?}");
+}
+
+#[test]
+fn an_agent_codex_bridge_starts_without_prompt_suggestions() {
+    let (options, asked) = chat_after_a_turn(translator_for_person(false));
+    assert!(!options.as_array().unwrap().iter().any(|o| o["id"] == "prompt-suggestions"));
     assert!(asked.iter().all(|m| m["method"] != "thread/prediction/request"), "{asked:?}");
 }
 

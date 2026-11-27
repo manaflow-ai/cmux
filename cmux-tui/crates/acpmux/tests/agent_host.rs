@@ -62,6 +62,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         cwd: dir.to_path_buf(),
         translator: None,
         codex_bridge: false,
+        codex_prompt_suggestions: false,
         socket: agent_host::socket_path(&hosts, session),
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,

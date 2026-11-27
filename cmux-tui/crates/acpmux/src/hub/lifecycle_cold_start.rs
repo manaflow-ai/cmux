@@ -346,7 +346,7 @@ impl Hub {
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
         } else {
-            ChildAgent::spawn_with(
+            ChildAgent::spawn_with_codex(
                 &meta.harness,
                 profile,
                 &meta.cwd,
@@ -355,6 +355,7 @@ impl Hub {
                 None,
                 None,
                 Some((&session.id, &meta.name)),
+                self.for_a_person(session),
             )
             .await
             .map_err(|e| {
