@@ -82,3 +82,6 @@ pub use store::{
 };
 pub use theme_file::{ThemeDiagnostic, ThemeDiagnosticKind, ThemeFile};
 pub use watch::{Watcher, watch_store};
+
+#[doc(hidden)]
+pub fn __cftm_probe() -> u32 { 7 }
