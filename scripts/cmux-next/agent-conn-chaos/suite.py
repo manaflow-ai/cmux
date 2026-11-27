@@ -29,7 +29,7 @@ PR: a failure prints XFAIL (waits on cmux#N) and does not fail the suite; a pass
 comes off the day the fix lands. The judgment itself is never relaxed for a marked case. Exit status: 0 only when every
 case passed or failed as marked; result JSON to --out.
 
-Fleet Macs only (scripts/measure/agent-conn-chaos.sh): never cosmic-gray, air-blue, huge-blue or big-red.
+Fleet Macs only (scripts/cmux-next/agent-conn-chaos/fleet.sh): never cosmic-gray, air-blue, huge-blue or big-red.
 """
 from __future__ import annotations
 
