@@ -72,14 +72,23 @@ fn shipped(relative: &str, kind: &'static str) -> Response {
     ("200 OK", body.into_bytes(), kind)
 }
 
+/// Suffix of a chunk the app build stores raw-deflated (CMUX-570, app size):
+/// scripts/cmux-next/pack-webviews-chunks.py replaces the app copy's
+/// `chunks/<name>` by `chunks/<name>.deflate`.
+const PACKED_SUFFIX: &str = ".deflate";
+/// The largest a packed chunk may inflate to (the read limit of a plain file).
+const MAX_ASSET_BYTES: u64 = 32 * 1024 * 1024;
+
 async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {
     let Ok(root) = tokio::fs::canonicalize(root).await else { return missing() };
-    let Ok(file) = tokio::fs::canonicalize(root.join(relative)).await else { return missing() };
+    let Ok(file) = tokio::fs::canonicalize(root.join(relative)).await else {
+        return read_packed(&root, relative, kind).await;
+    };
     if !file.starts_with(&root) {
         return missing();
     }
     let Ok(meta) = tokio::fs::metadata(&file).await else { return missing() };
-    if !meta.is_file() || meta.len() > 32 * 1024 * 1024 {
+    if !meta.is_file() || meta.len() > MAX_ASSET_BYTES {
         return missing();
     }
     let Ok(mut body) = tokio::fs::read(file).await else { return missing() };
@@ -88,6 +97,35 @@ async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {
         // The native resource remains unchanged. Only the browser's copy may
         // connect to its own listener; it gets no arbitrary network access.
         body = html.replace("connect-src 'none'", "connect-src 'self'").into_bytes();
+    }
+    ("200 OK", body, kind)
+}
+
+/// A file the folder holds only packed (`<relative>.deflate` beside where it
+/// would be), inflated in memory. The packed copy must be a regular file below
+/// `root` whose real name is the file's name plus the suffix, as for a plain
+/// file; one that does not inflate within the limit is a 404.
+async fn read_packed(root: &Path, relative: &str, kind: &'static str) -> Response {
+    let wanted = root.join(format!("{relative}{PACKED_SUFFIX}"));
+    let Ok(packed) = tokio::fs::canonicalize(&wanted).await else { return missing() };
+    if !packed.starts_with(root) || packed.file_name() != wanted.file_name() {
+        return missing();
+    }
+    let Ok(meta) = tokio::fs::metadata(&packed).await else { return missing() };
+    if !meta.is_file() || meta.len() > MAX_ASSET_BYTES {
+        return missing();
+    }
+    let Ok(stored) = tokio::fs::read(packed).await else { return missing() };
+    let mut body = Vec::new();
+    let inflated = std::io::Read::read_to_end(
+        &mut std::io::Read::take(
+            flate2::read::DeflateDecoder::new(stored.as_slice()),
+            MAX_ASSET_BYTES + 1,
+        ),
+        &mut body,
+    );
+    if inflated.is_err() || body.len() as u64 > MAX_ASSET_BYTES {
+        return missing();
     }
     ("200 OK", body, kind)
 }
