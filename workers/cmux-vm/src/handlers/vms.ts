@@ -51,7 +51,7 @@ import {
   unavailable,
   vmNotFound,
   type BadRequest,
-  type Conflict,
+  Conflict,
   type ServiceUnavailable,
 } from "../errors.ts";
 import { newSnapshotId, newVmId, parseMeshId, parseSnapshotId, parseVmId, TenantId, type MeshId, type SnapshotId } from "../lib/ids.ts";
@@ -77,6 +77,11 @@ const onRead = (error: UpstreamError): NotFound | ServiceUnavailable => (error.s
 
 /** Provider failures on a create. */
 const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | QuotaExceeded | ServiceUnavailable => {
+  // The key's ledger refused the create intent for good: a 503 here was retried by the platform until create_overdue
+  // (staging 2026-11-27, ask-6b8661d57a). The same key can never get past it, so the answer says so, once.
+  const refused = finalCreateRefusal(error.operation);
+  if (refused !== undefined)
+    return new Conflict({ message: `This VM creation's record refuses this attempt (${refused}); retrying this Idempotency-Key never creates it`, code: "creation.intent_refused" });
   // The source snapshot expired upstream after it was recorded.
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
@@ -297,7 +302,10 @@ const createRecordedTimed = <C, S, M>(
           ...(proofs.network === undefined ? {} : { initialNetwork: vmNetworkEvidenceOf(proofs.network).receipt }),
         }, probe, floors: spec.size ?? {}, createdAt: createdAt.toISOString() };
         return limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, intent, ...(dispatch === undefined ? {} : { dispatch }), ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
-          Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
+          // Name the ledger's refusal (claim expired, intent changed, reservation expired, ...): an anonymous
+          // "persistCreateIntent (no response)" 503 left staging creates retrying blind until create_overdue.
+          Effect.tapError((e) => Effect.logWarning("create_intent_refused", { vmId: cmuxId, reason: createIntentRefusal(e) })),
+          Effect.mapError((e) => new UpstreamError({ operation: `persistCreateIntent: ${createIntentRefusal(e)}`, status: null })),
         );
       },
     };
@@ -1013,3 +1021,30 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     )
     .handle("deleteVm", ({ path }) => deleteVmById(path.vmId))
 );
+
+/** The ledger's reason for refusing a create-intent write, from LimitsUnavailable's cause. */
+const createIntentRefusal = (e: { readonly cause: unknown }): string => {
+  const cause = e.cause;
+  const text = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "unknown";
+  return text.replace(/[^a-z0-9 .:_-]/gi, "").slice(0, 80) || "unknown";
+};
+
+/**
+ * The ledger refusals (limits/ledger.ts advance) that hold for every later attempt under the same key. "idempotency
+ * claim expired" is not one: the next begin re-leases the claim, so that refusal stays a retryable 503.
+ */
+const FINAL_CREATE_REFUSALS: ReadonlyArray<string> = [
+  "allocation intent changed",
+  "allocation intent cannot be replaced",
+  "a completed idempotency record cannot change",
+  "creation cancellation is fenced",
+  "allocation reservation expired",
+  "fork capture intent changed",
+  "fork destination identity changed",
+];
+export const finalCreateRefusal = (operation: string): string | undefined => {
+  const prefix = "persistCreateIntent: ";
+  if (!operation.startsWith(prefix)) return undefined;
+  const reason = operation.slice(prefix.length);
+  return FINAL_CREATE_REFUSALS.includes(reason) ? reason : undefined;
+};
