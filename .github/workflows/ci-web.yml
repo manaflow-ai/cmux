@@ -143,7 +143,7 @@ jobs:
       # im asking for 99% fewer minutes of ci time, period."
       - name: Look up a green marker for the React inputs
         id: react-green
-        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.react_key != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.react_key != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -153,7 +153,7 @@ jobs:
 
       - name: Look up a green marker for the agent pane inputs
         id: agent-green
-        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.agent_key != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.agent_key != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -275,7 +275,7 @@ jobs:
           # 12 against about 1000 s at 8, runs 43338660731 to 43342364793); the split is timing-based, so the count is
           # the only knob. scripts/ci/react-apps-check-fleet.sh --count and tests/test_web_validation.py move with it.
           REACT_APPS_SHARDS: "12"
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
           # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
           CI_WEBVIEWS_PR_BASE: ${{ github.base_ref }}
@@ -287,7 +287,7 @@ jobs:
           # Where react-apps-check runs (scripts/ci/react_apps_fleet.py): a feat-cmux-next pull request whose pick
           # runs only touched tests runs it on the fleet (ci/steps.toml's react-apps-check, pr-pipeline.yml).
           CI_PR_BASE_REF: ${{ github.base_ref }}
-          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
           CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
@@ -521,7 +521,7 @@ jobs:
     needs: web-subarea-scope
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'cmux-linux' }}
     # The merge's type check, and on a red the base's (a worktree of the merge parent).
     timeout-minutes: 15
@@ -1103,7 +1103,7 @@ jobs:
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     # react-apps-base-check and webviews-test-durations skip with it; react-apps-check and Web status still report.
-    if: ${{ !cancelled() && needs.web-subarea-scope.result == 'success' && (github.event_name != 'pull_request' || needs.react-apps-head-bundles.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    if: ${{ !cancelled() && needs.web-subarea-scope.result == 'success' && (github.event_name != 'pull_request' || needs.react-apps-head-bundles.result == 'success') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -1199,7 +1199,7 @@ jobs:
       # median shard 1 job ran no test file. Any doubt (no file, no entry, an unreadable map) installs them as before.
       - name: Does this shard run a test file
         id: shard-tests
-        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         env:
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
         run: |
@@ -1232,11 +1232,11 @@ jobs:
       # Same-repository pull requests only; any error fails open and the shard runs in full. A push always runs.
       - name: Key this shard's same-input receipt
         id: receipt-key
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_REACT_SHARD_RECEIPT != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_REACT_SHARD_RECEIPT || '1') != '0' }}
         continue-on-error: true
         env:
           RECEIPT_SHARD: ${{ matrix.shard }}
-          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), contains(github.event.pull_request.labels.*.name, 'full-ci'), github.base_ref, runner.os, runner.arch) }}
+          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')), github.base_ref, runner.os, runner.arch) }}
           # The key hashes the files whose change runs this check (web_subareas.is_react_input), not every file, so a
           # push that touches none of them hits the receipt of the same inputs; 0 keys the whole trees as before.
           RECEIPT_INPUT_SCOPE: ${{ vars.CI_REACT_RECEIPT_INPUT_SCOPE || '1' }}
@@ -1395,6 +1395,7 @@ jobs:
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Download the head bundles without OIDC
+        id: web-bundle-github
         continue-on-error: true
         if: ${{ steps.receipt.outputs.hit != 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport == 'github' }}
         timeout-minutes: 3
@@ -1698,7 +1699,7 @@ jobs:
         # A full-ci head whose pick ran (react_class sampled or fast) runs the pick's files as any pull request does
         # (Test webviews), so it reuses the same way: over 11-26 04Z to 11-27 05Z a full-ci branch's second and later
         # heads ran 9,818 react-apps-check minutes with nothing reused.
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (!contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.web-subarea-scope.outputs.react_class == 'sampled' || needs.web-subarea-scope.outputs.react_class == 'fast') }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || needs.web-subarea-scope.outputs.react_class == 'sampled' || needs.web-subarea-scope.outputs.react_class == 'fast') }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -1764,7 +1765,7 @@ jobs:
           CMUX_WEB_TEST_ALONE_RETRY_BUDGET: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_ALONE_RETRY_BUDGET || '300') || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
           # Every failed or timed-out file gets its alone retry before it counts
@@ -1974,6 +1975,7 @@ jobs:
           BUNDLES: ${{ steps.bundles.outcome }}
           WEB_BUNDLE_KEY: ${{ steps.web-bundle-key.outcome }}
           WEB_BUNDLE_CACHE: ${{ steps.web-bundle-cache.outcome }}
+          WEB_BUNDLE_GITHUB: ${{ steps.web-bundle-github.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
@@ -2012,7 +2014,7 @@ jobs:
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
           fi
-          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ]; then
+          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ] || [ "$WEB_BUNDLE_GITHUB" = failure ]; then
             echo "::warning::The web bundles' cached build was not looked up; Build the web bundles built them."
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
@@ -2129,7 +2131,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    if: ${{ !cancelled() && (needs.react-apps-base-bundles.result == 'success' || (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.result == 'success')) && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ !cancelled() && (needs.react-apps-base-bundles.result == 'success' || (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.result == 'success')) && github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
@@ -2187,7 +2189,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ matrix.shard_count }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
         run: |
           runner="$RUNNER_TEMP/base-early/runner"
@@ -2917,7 +2919,7 @@ jobs:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (the shards' land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
@@ -3423,7 +3425,7 @@ jobs:
           WEB_BASE_REF: ${{ github.base_ref }}
           WEB_WORKFLOW: ${{ github.workflow }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (webviews-typecheck's land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
