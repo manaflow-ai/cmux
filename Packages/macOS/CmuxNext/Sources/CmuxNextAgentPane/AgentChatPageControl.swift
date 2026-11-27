@@ -208,7 +208,7 @@ public struct AgentChatPageControl: Sendable {
         context.draw(image, in: full)
         let scaleX = Double(width) / mask.width
         let scaleY = Double(height) / mask.height
-        context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        context.setFillColor(CGColor(gray: 0.5, alpha: 1)) // colour-allow: the masked screenshot's redaction fill, painted into a picture file, not the app's UI, so no theme ink applies
         for rect in mask.rects {
             // CSS y grows down; the bitmap's grows up.
             let cut = CGRect(x: rect.minX * scaleX, y: Double(height) - rect.maxY * scaleY,
