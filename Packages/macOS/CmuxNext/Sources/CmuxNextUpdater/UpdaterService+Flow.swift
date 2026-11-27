@@ -300,7 +300,7 @@ extension UpdaterService {
                           installWhenIdleMinutes: TimeInterval? = nil) {
         // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
         let paused = pausesAutomaticUpdates
-        let checkAutomatically = checkAutomatically && !paused
+        let checkAutomatically = checkAutomatically && !paused && !preservesSharedAutomaticChecksOptOut
         let downloadAutomatically = downloadAutomatically && !paused
         let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
         if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }

@@ -14,7 +14,7 @@ the app by itself. The check then reads, from the updated app, what the person h
   - the windows: as many, the same workspace in each, each still visible;
   - the workspaces by name, and the terminal's process still alive with its output;
   - every setting changed before the update reads the same value after it;
-  - the updated build pauses the automatic updater (its log says so, Sparkle's automatic check is off).
+  - the updated build applies its resolved automatic-update setting before Sparkle starts.
 
 report.json has relaunch_s (click to the new build's socket answering) and windows_back_s (click to every
 window back), the two numbers a stopwatch on the film reads.
@@ -295,12 +295,16 @@ def main():
         settled = wait(lambda: len(windows_seen(topology())) >= len(before["topology_windows"]) and topology(), 60, 0.5)
         report["windows_back_s"] = round(time.time() - clicked, 1)
         # Leo, 2026-11-24: "so pasuse the auto updateer for now". The updated build itself, not the PR: its
-        # updater logs the pause at start and keeps Sparkle's own automatic check off (AutomaticUpdatePause).
+        # The upgraded build's resolved NEXT setting must be the value Sparkle starts with.
         status = rpc("updates.status")
         checks = run("defaults", "read", BUNDLE_ID, "SUEnableAutomaticChecks").stdout.strip()
-        report["pause"] = {"logged": "automatic updates paused" in json.dumps(status), "SUEnableAutomaticChecks": checks}
-        record("the updated build pauses the automatic updater", report["pause"]["logged"] and checks in ("0", "false"),
-               json.dumps(report["pause"]))
+        automatic = setting("updates.automatic")
+        expected = automatic != "off"
+        report["resolved_updates"] = {"automatic": automatic, "SUEnableAutomaticChecks": checks,
+                                      "statusAutomaticChecks": status.get("automaticChecks")}
+        record("the updated build applies its resolved automatic-check setting",
+               checks in (("1", "true") if expected else ("0", "false")) and status.get("automaticChecks") == expected,
+               json.dumps(report["resolved_updates"]))
         time.sleep(3)
         topo = topology()
         after = {"topology_windows": windows_seen(topo), "workspaces": workspace_names(topo),
