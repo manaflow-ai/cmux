@@ -379,7 +379,12 @@ mod tests {
             viewer_id: "v1".into(),
             view_only: true,
             stun: vec!["stun.example:3478".into()],
-            turn: vec![Turn { addr: "t:3478".into(), username: "u".into(), password: "p".into() }],
+            turn: vec![Turn {
+                addr: "t:3478".into(),
+                username: "u".into(),
+                password: "p".into(),
+                transport: Default::default(),
+            }],
         }
     }
 
