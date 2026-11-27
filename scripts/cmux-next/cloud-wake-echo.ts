@@ -30,6 +30,9 @@ export const PROBE_SOURCE = () => readFileSync(new URL("./wake-echo-probe.py", i
 
 export type Exec = (command: string, timeoutMs?: number) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+export type PauseAnswer = { status: number; body: any };
+export type PauseResult = number | { pausedMs: number; warnings?: string[] };
+
 export type GuestMarks = {
   prev_wall?: number; resumed_wall?: number; wall_gap?: number; mono_gap?: number;
   net_up_at?: number; dns_at?: number; conn_at?: number; pty_attach_at?: number; input_at?: number; echo_at?: number; echo_any_at?: number;
@@ -203,7 +206,7 @@ export type WakeEchoDeps = {
   netHost: string;
   netPort: number;
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
-  pause: () => Promise<number>;
+  pause: () => Promise<PauseResult>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
   wake: (recordAttempt?: (attempt: StartAttempt) => void) => Promise<void | string[]>;
   status: () => Promise<string>;
@@ -220,6 +223,33 @@ export type WakeEchoDeps = {
 
 const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const short = (s: string) => s.replace(/\s+/g, " ").slice(0, 300);
+
+/**
+ * Reconcile a pause whose accepted request has no terminal answer by reading the same machine until it is paused.
+ * A non-200 answer, including an HTTP 503, remains a failed pause because acceptance was not established.
+ */
+export async function pauseWithReconciliation(
+  request: () => Promise<PauseAnswer>,
+  status: () => Promise<string>,
+  startedAt: number,
+  deadlineMs: number,
+  now: () => number = Date.now,
+  wait: (ms: number) => Promise<void> = sleepMs,
+): Promise<{ pausedMs: number; warnings?: string[] }> {
+  const answer = await request();
+  const accepted = answer.status === 200 && answer.body?.ok === true;
+  const indeterminate = answer.status === 200 && answer.body?.ok !== true
+    && answer.body?.error?.code === "mutation.indeterminate"
+    && answer.body?.error?.retryable === true;
+  if (!accepted && !indeterminate) {
+    const detail = short(JSON.stringify(answer.body?.error ?? answer.body));
+    throw new Error(`cloud.machine.pause: HTTP ${answer.status} ${detail}`);
+  }
+  const pausedMs = await awaitPaused(status, startedAt, deadlineMs, now, wait);
+  return indeterminate
+    ? { pausedMs, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] }
+    : { pausedMs };
+}
 
 /** Writes the probe to the guest and runs its setup (daemon socket, terminal, dry run). Returns the setup JSON. */
 export async function setupProbe(d: Pick<WakeEchoDeps, "exec" | "guest" | "netHost" | "netPort" | "log">): Promise<Record<string, any>> {
@@ -328,7 +358,12 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${Math.max(0, d.holdMs - 500)}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
-      c.paused_ms = await d.pause();
+      const pause = await d.pause();
+      if (typeof pause === "number") c.paused_ms = pause;
+      else {
+        c.paused_ms = pause.pausedMs;
+        c.warnings.push(...(pause.warnings ?? []));
+      }
       await sleep(d.holdMs);
       const wakeAt = Date.now();
       const retries = await d.wake((attempt) => (c.start_attempts ??= []).push(attempt));

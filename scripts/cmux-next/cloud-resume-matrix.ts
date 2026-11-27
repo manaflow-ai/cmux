@@ -246,9 +246,11 @@ export async function awaitPaused(
 ): Promise<number> {
   let last = "unread";
   for (;;) {
-    last = await read().catch((e: Error) => `unread (${e.message})`);
-    if (last === "paused") return now() - startedAt;
     if (now() - startedAt >= deadlineMs) throw new Error(`pause did not land: the machine read ${last} ${Math.round(deadlineMs / 1000)} s after the pause call`);
+    last = await read().catch((e: Error) => `unread (${e.message})`);
+    const elapsed = now() - startedAt;
+    if (last === "paused" && elapsed < deadlineMs) return elapsed;
+    if (elapsed >= deadlineMs) throw new Error(`pause did not land: the machine read ${last} ${Math.round(deadlineMs / 1000)} s after the pause call`);
     await wait(pollMs);
   }
 }

@@ -131,7 +131,7 @@ import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
+import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
@@ -6032,8 +6032,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           pause: async () => {
             await resignIfOld();
             const t0 = Date.now();
-            await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
-            return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
+            const deadlineAt = t0 + 180_000;
+            const key = `${tag}-we-pause-${k++}`;
+            return pauseWithReconciliation(
+              () => api.raw("POST", "/v1/ops", { op: "cloud.machine.pause", params: { machine: created.id }, idempotency_key: key }, Math.max(1, deadlineAt - Date.now())),
+              async () => String((await row())?.status ?? "unread"),
+              t0,
+              180_000,
+            );
           },
           wake: (recordAttempt) => startWithRetry(
             async (key) => {
