@@ -488,6 +488,9 @@ pub(in crate::server) struct LinkShares {
     loaded_at: AtomicU64,
     /// Shares (`None`) and guests that ended since the last `settle`, whose connections close.
     ended: Mutex<Vec<(String, Option<String>)>>,
+    /// Live guests whose role changed since the last `settle` (`<share_id>.<guest_id>`): their
+    /// connections close, and each binds again with its new role's author.
+    rebound: Mutex<Vec<String>>,
     /// Room DELETE workers currently dispatched, one per share. Expiry can race a worker that is
     /// still waiting for the room's response; do not start a second worker for the same record.
     room_deletes: Mutex<HashSet<String>>,
@@ -999,22 +1002,30 @@ impl LinkShares {
         seen.insert(key.to_owned(), now);
     }
 
-    /// Queues what was live in `start` and is not in `now`.
+    /// Queues what was live in `start` and is not in `now`, and the live guests whose role
+    /// changed (their bound author no longer matches it).
     fn note_ended(&self, start: &[LinkShare], now: &[LinkShare]) {
         let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
+        let mut rebound = self.rebound.lock().unwrap_or_else(|e| e.into_inner());
         for was in start.iter().filter(|s| s.live().is_ok()) {
-            let is = now.iter().find(|s| s.share_id == was.share_id);
-            if is.is_none_or(|s| s.live().is_err()) {
+            let Some(is) = now.iter().find(|s| s.share_id == was.share_id && s.live().is_ok())
+            else {
                 ended.push((was.share_id.clone(), None));
                 continue;
-            }
+            };
             for guest in was.guests.iter().filter(|g| g.state == GuestState::Active) {
                 let still = is
-                    .into_iter()
-                    .flat_map(|s| &s.guests)
-                    .any(|g| g.guest_id == guest.guest_id && g.state == GuestState::Active);
-                if !still {
-                    ended.push((was.share_id.clone(), Some(guest.guest_id.clone())));
+                    .guests
+                    .iter()
+                    .find(|g| g.guest_id == guest.guest_id && g.state == GuestState::Active);
+                match still {
+                    None => ended.push((was.share_id.clone(), Some(guest.guest_id.clone()))),
+                    Some(still)
+                        if role_of(still, &is.invitees) != role_of(guest, &was.invitees) =>
+                    {
+                        rebound.push(format!("{}.{}", was.share_id, guest.guest_id));
+                    }
+                    Some(_) => {}
                 }
             }
         }
@@ -1040,6 +1051,13 @@ impl LinkShares {
     /// Closes the connections of every share and guest that ended, then arms the next expiry.
     /// Called after every verb, bind and guest frame, and by the timer.
     pub(in crate::server) fn settle(&self, mux: &Mux) {
+        let rebound = std::mem::take(&mut *self.rebound.lock().unwrap_or_else(|e| e.into_inner()));
+        if !rebound.is_empty() {
+            // Still guests: the room is told nothing, and a relay binds again (`room.rs`).
+            close(mux, |id| {
+                id.strip_prefix(GUEST_PREFIX).is_some_and(|key| rebound.iter().any(|r| r == key))
+            });
+        }
         let ended = std::mem::take(&mut *self.ended.lock().unwrap_or_else(|e| e.into_inner()));
         if !ended.is_empty() {
             room::ended(self, &ended);
@@ -1254,9 +1272,10 @@ impl LinkShares {
         })
     }
 
-    /// Invites an account to a share (defaults to `talk`). Inviting it again with the
-    /// same role changes nothing; with another role it is refused (`share.invited`: uninvite
-    /// first, so no bound guest keeps an author its role no longer matches). A removed account
+    /// Invites an account to a share (defaults to `talk`; `drive` is named-account-only). Inviting it again with the
+    /// same role changes nothing; with another role it changes the invite's role in place (the
+    /// account keeps its access throughout), and its joined guests take that role: their
+    /// connections close, so each binds again with the new role's author. A removed account
     /// invited again joins anew; its earlier guests stay removed.
     pub(super) fn invite(
         &self,

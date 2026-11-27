@@ -529,10 +529,12 @@ impl Drop for DeleteGuard {
         let shares = shares(&mux);
         shares.release_room_delete(&self.share_id);
         shares.rearm();
-        // A late PUT that found this worker in flight wrote its host token after the worker's
-        // last read: the queued `DELETE` runs now with it, not at the share's expiry.
+        // A late PUT or the expiry timer may have tried to start cleanup while this worker
+        // still held the claim. Check both after releasing it.
         if self.tokenless
-            && view(&mux, &self.share_id).is_some_and(|v| v.delete && v.host_token.is_some())
+            && view(&mux, &self.share_id).is_some_and(|v| {
+                v.delete && (v.host_token.is_some() || shares.now() >= v.expires_at)
+            })
         {
             delete(&mux, &self.share_id, None);
         }
