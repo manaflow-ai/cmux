@@ -2,17 +2,17 @@ import { useT } from "../i18n";
 import type { RowProps } from "../rows/rowProps";
 import "./SubagentEmptyRow.css";
 
-/// A child with no rows to draw: loading while its pane reads its own records
-/// (subagentOwnLog.ts, `status: "loading"`), then empty. The two keep one shape, so the swap moves
-/// nothing; only the first line's words change. Never a working indicator for the agent itself.
+/// A child with no rows to draw: nothing while its pane reads its own records
+/// (subagentOwnLog.ts, `status: "loading"`), then one line saying it has none. No loading words and
+/// no line explaining what would appear (Leo, 2026-11-27: "unnecesssary message and these take way
+/// too long to load"). Both keep one line's height, so the swap moves nothing. Never a working
+/// indicator for the agent itself.
 export function SubagentEmptyRow({ row }: Pick<RowProps, "row">) {
   const t = useT();
-  const loading = row.status === "loading";
-  const title = loading ? t("subagents.loading.title") : t("subagents.empty.title");
+  if (row.status === "loading") return <section className="cv-subagent-empty" aria-busy="true" />;
   return (
-    <section className="cv-subagent-empty" aria-label={title} aria-busy={loading || undefined}>
-      <h3>{title}</h3>
-      <p>{t("subagents.empty.detail")}</p>
+    <section className="cv-subagent-empty">
+      <h3>{t("subagents.empty.title")}</h3>
     </section>
   );
 }

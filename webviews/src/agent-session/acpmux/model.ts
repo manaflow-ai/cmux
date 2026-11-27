@@ -3151,8 +3151,8 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // Empty child copy is measured on mount; start with two body lines.
-  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
+  // Empty child copy (blank while loading, one line after) is one body line.
+  if (row.kind === SUBAGENT_EMPTY) return finish(metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
   // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
