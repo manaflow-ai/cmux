@@ -103,7 +103,6 @@ cmux-tui/crates/cmux-rd-host/src/webrtc_child.rs	com.cmuxterm.appx	1	move	lane A
 cmux-tui/crates/cmux-remote/src/identity.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-remote/src/secrets/files.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-server-core/src/layout.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tailnet-front/src/tsnet.rs	join("cmux")	1	keep	test: the tailnet node dir named cmux under the tailnet-front root, not a Classic path
 cmux-tui/crates/cmux-tasks/src/owner.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/computer_use_host/config.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/mux/unowned_hosts.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -475,7 +474,6 @@ cmux-tui/crates/cmux-config/src/managed/manifest.rs	com.cmuxterm.app	1	keep	MDM 
 cmux-tui/crates/cmux-config/src/managed/policy.rs	com.cmuxterm.app	2	keep	MDM forced prefs from the legacy domain
 cmux-tui/crates/cmux-config/src/managed/status.rs	com.cmuxterm.app	1	keep	MDM forced prefs from the legacy domain (which file the legacy domain reads)
 cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app	1	keep	RELEASE_BUNDLE_ID: names the release channel's bundle id to pick its auth/keychain service; no read or write under it
-scripts/cmux-next/restart-to-update-migration.py	.config/cmux	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/restart-to-update-migration.py	/tmp/cmux-{channel}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/titlebar-hover-reveal.py	/tmp/cmux-debug-{o.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-card-resize-drag.py	/tmp/cmux-debug-{o.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)

@@ -54,6 +54,7 @@ LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-c
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf", "published-build",
                    "check-nightly-webviews", "early-nightly-webviews"}
+# report-nightly-shelf-red holds issues: write, so it takes the nightly mini like the other nightly report jobs.
 # RFD 0021: the essential ones (test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS) take the nightly's reserved Linux
 # label on a first push, schedule or dispatch attempt, and cmux-linux on a rerun or loop retry, in this mode too.
 PINNED_LINUX = "cmux-gcp-nightly-x64"
