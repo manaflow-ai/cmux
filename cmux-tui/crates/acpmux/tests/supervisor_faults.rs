@@ -654,10 +654,11 @@ fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
             seen.borrow_mut().push(l);
         }
         panic!(
-            "the installed build did not take over; old alive {}, adopted {adopted:?}, status {:?}, old daemon said:\n{}",
+            "the installed build did not take over; old alive {}, adopted {adopted:?}, status {:?}, old daemon said:\n{}\ndaemon.log:\n{}",
             unsafe { libc::kill(old_pid as i32, 0) } == 0,
             status(&dir),
-            seen.borrow().join("\n")
+            seen.borrow().join("\n"),
+            fs::read_to_string(dir.join("daemon.log")).unwrap_or_default()
         );
     };
     eprintln!(
