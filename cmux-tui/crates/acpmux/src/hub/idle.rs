@@ -167,7 +167,13 @@ impl Hub {
             // blocker would make a required quiet handoff wait for its own retry forever.
             && (session.queued() == 0
                 || sleeps_held
-                || (firing_retry && session.queue().iter().all(|q| q.aside())))
+                || (firing_retry && {
+                    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+                    // The count also reserves prompts waiting for the turn lock, before
+                    // they have an entry. Only exempt fully accounted-for held entries;
+                    // an empty (or partly held) snapshot must not hide an arriving prompt.
+                    queue.len() as u64 == session.queued() && queue.iter().all(|q| q.aside())
+                }))
             && session.pending_permissions().is_empty()
             && !self.holds_work_below(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).

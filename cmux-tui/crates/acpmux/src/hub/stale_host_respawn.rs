@@ -403,6 +403,38 @@ mod tests {
         hub.shutdown_all().await;
     }
 
+    #[tokio::test]
+    async fn automatic_restart_retry_preserves_held_prompts_but_waits_for_admission() {
+        let (hub, session) = live_chat().await;
+        hub.append(
+            &session,
+            "mux",
+            "queued",
+            json!({"promptId": "held", "turnId": "held-turn", "text": "after retry", "client": "test"}),
+        );
+        hub.append(&session, "mux", "queue_paused", json!({"held": ["held"]}));
+        hub.restore_queue(&session);
+        assert_eq!(session.queued(), 1);
+        assert!(session.queue()[0].held);
+        assert!(!hub.end_quiet_stale(&session, "test", None).await);
+
+        // A second prompt has reserved its count but is not in the durable queue yet.
+        session.queued.fetch_add(1, Ordering::SeqCst);
+        assert!(!hub.end_quiet_stale(&session, "test", Some(0)).await);
+        assert!(session.child.lock().await.is_some());
+        session.queued.fetch_sub(1, Ordering::SeqCst);
+
+        // Once admission ends, the retry can replace its agent without releasing or losing
+        // the failed turn's held prompt. That prompt still waits for the continuation.
+        assert!(hub.end_quiet_stale(&session, "test", Some(0)).await);
+        assert!(session.child.lock().await.is_none());
+        assert_eq!(session.queued(), 1);
+        let queue = session.queue();
+        assert_eq!(queue[0].prompt_id, "held");
+        assert!(queue[0].held);
+        hub.shutdown_all().await;
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn automatic_restart_censuses_unreported_work_before_ending_a_stale_agent() {
