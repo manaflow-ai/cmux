@@ -258,5 +258,65 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                 lines = out.read_text().splitlines()
                 self.assertIn(f"ios_placeholder={want}", lines)
 
+    def test_app_store_shelf_runs_only_where_the_diff_reaches_its_inputs(self):
+        # ci-runner-min-per-day-100k (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time,
+        # period."): app-store-shelf-pr took a cmux-linux runner on every pull request event for a full checkout and a
+        # diff, then skipped (2026-11-27 14-18Z: 1,138 runs, 3,000 runner-min). workflow-start-lint's route step says
+        # whether the diff reaches a shelf input; a miss skips the job before it takes a runner.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        shelf = jobs["app-store-shelf-pr"]
+        self.assertIn("workflow-start-lint", shelf["needs"])
+        self.assertIn("(needs.workflow-start-lint.outputs.app_store_shelf != 'false' || "
+                      "vars.APP_STORE_SHELF_EVERY_HEAD == '1')", shelf["if"])
+        self.assertIn("!cancelled()", shelf["if"])
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["app_store_shelf"], "${{ steps.touched.outputs.app_store_shelf }}")
+        # The lint's list and the job's own "Changed shelf inputs" list must agree on every shelf input.
+        inner = next(s for s in shelf["steps"] if s.get("id") == "inputs")["run"]
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        cases = [
+            ("pull_request", "first-party-apps/notes/manifest.json", "true"),
+            ("pull_request", "samples/apps/hello/app.json", "true"),
+            ("pull_request", "scripts/ci/app-store-shelf-check.sh", "true"),
+            ("pull_request", "scripts/cmux-next/store-package-sign.py", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-app-host/src/lib.rs", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-app-manifest/src/lib.rs", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-tui-core/src/apps/store.rs", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge.rs", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs", "true"),
+            ("pull_request", ".github/workflows/app-store-shelf.yml", "true"),
+            ("pull_request", ".github/workflows/cmux-next-guards.yml", "true"),
+            ("pull_request", "cmux-tui/crates/acpmux/src/lib.rs", "false"),
+            ("pull_request", ".github/workflows/ci.yml", "false"),
+            ("pull_request", "docs/apps.md", "false"),
+            ("push", "cmux-tui/crates/acpmux/src/lib.rs", "true"),
+        ]
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "base.txt").write_text("base\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                self.assertIn(f"app_store_shelf={want}", out.read_text().splitlines())
+                if event == "pull_request" and want == "true" and not changed.endswith("cmux-next-guards.yml"):
+                    # Every path the lint routes in, the job's own gate also runs on (no input the job then skips).
+                    pattern = inner.split("pattern='", 1)[1].split("'", 1)[0]
+                    self.assertEqual(subprocess.run(["grep", "-qE", pattern], input=changed + "\n", text=True).returncode,
+                                     0, changed)
+
 if __name__ == "__main__":
     unittest.main()

@@ -1271,11 +1271,17 @@ jobs:
   # pipeline job was skipped by the land tier), and the nightly's App Store shelf job went red on it for hours
   # (cmux#61127 fixed it; the nightly feed stood still). This runs the same script the nightly runs
   # (scripts/ci/app-store-shelf-check.sh) at the pull request's own head, draft or ready
-  # (tests/test_head_tier.py KEEP_ON_EVERY_HEAD). A change that reaches no shelf input ends after a checkout and a diff.
+  # (tests/test_head_tier.py KEEP_ON_EVERY_HEAD).
+  # Runs where its verdict can change: workflow-start-lint's `app_store_shelf`, read off the depth-2 checkout it already
+  # takes, skips a pull request whose diff reaches no shelf input before this job takes a runner. Before, every pull
+  # request event took a cmux-linux runner for a full checkout and a diff, then skipped: 2026-11-27 14-18Z, 1,138 runs,
+  # 3,000 runner-min (2.6 min each, ~18k/day; goal ci-runner-min-per-day-100k). A skipped check run is a pass for
+  # land-judge and GitHub's required checks. An unread diff and vars.APP_STORE_SHELF_EVERY_HEAD == '1' run it as before;
+  # the in-job diff below stays as the second gate. tests/test_cmux_next_guards_route.py.
   app-store-shelf-pr:
-    needs: coalesce
+    needs: [coalesce, workflow-start-lint]
     name: cmux-next App Store shelf (every listing installs and shows something)
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
@@ -1451,12 +1457,14 @@ jobs:
   #
   # A label other than full-ci or ready-to-land changes no file: that event's run judged a head the opened or
   # synchronize run already judged, so it skips, as the jobs judging the head do (the label guard).
-  # Its route step also says whether the diff reaches ios-placeholder-bounds' inputs (outputs.ios_placeholder).
+  # Its route step also says whether the diff reaches ios-placeholder-bounds' inputs (outputs.ios_placeholder) and
+  # app-store-shelf-pr's (outputs.app_store_shelf).
   workflow-start-lint:
     name: workflow start lint (a change that stops a workflow starting)
     if: ${{ github.event.action != 'ready_for_review' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     outputs:
       ios_placeholder: ${{ steps.touched.outputs.ios_placeholder }}
+      app_store_shelf: ${{ steps.touched.outputs.app_store_shelf }}
     # A fork pull request runs on a hosted runner. The local workflow lint is
     # a control-plane check, so own-branch runs use the 2-vCPU pool rather than
     # occupying a larger cmux-linux host.
@@ -1518,6 +1526,15 @@ jobs:
           else
             echo "no iOS app, placeholder check or guards workflow file changed: ios-placeholder-bounds skips"
             echo "ios_placeholder=false" >> "$GITHUB_OUTPUT"
+          fi
+          # app-store-shelf-pr's inputs (the same list as its "Changed shelf inputs" step, plus this workflow).
+          if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --name-only HEAD^1 HEAD); then
+            echo "app_store_shelf=true" >> "$GITHUB_OUTPUT"
+          elif grep -qE '^(\.github/workflows/app-store-shelf\.yml$|\.github/workflows/cmux-next-guards\.yml$|first-party-apps/|samples/apps/|scripts/cmux-next/sync-app-runtime\.sh$|scripts/cmux-next/store-package-sign\.py$|scripts/ci/app-store-shelf-check\.sh$|cmux-tui/crates/cmux-tui-core/src/apps/|cmux-tui/crates/cmux-app-host/|cmux-tui/crates/cmux-app-manifest/|cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge|cmux-tui/crates/cmux-tui/tests/cli/apps_store\.rs$)' <<<"$changed"; then
+            echo "app_store_shelf=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no App Store shelf input changed: app-store-shelf-pr skips"
+            echo "app_store_shelf=false" >> "$GITHUB_OUTPUT"
           fi
           if git diff --name-only HEAD^1 HEAD | grep -qE '^(\.github/|scripts/ci/install-actionlint\.sh$|scripts/ci/workflow_start_lint\.py$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"

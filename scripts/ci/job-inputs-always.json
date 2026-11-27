@@ -420,7 +420,7 @@
         "suggested_inputs_more": 677
       },
       "app-store-shelf-pr": {
-        "why": "runs on every pull request head on purpose: a head that reaches no shelf input ends after a checkout and a diff, so a skipped land tier cannot let a shelf break merge (cmux#46903)",
+        "why": "runs on every pull request head on purpose, not behind the land tier, so a skipped land tier cannot let a shelf break merge (cmux#46903): it runs when the diff reaches a shelf input (or this workflow), read by workflow-start-lint's route step, and reports skipped (a pass) otherwise",
         "suggested_inputs": [
           "first-party-apps/",
           "scripts/ci/app-store-shelf-check.sh",
