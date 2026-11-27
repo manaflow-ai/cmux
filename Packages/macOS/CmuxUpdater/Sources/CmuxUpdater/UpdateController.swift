@@ -26,9 +26,9 @@ public final class UpdateController {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
-    /// Hosts that share Sparkle's defaults domain with another cmux app leave this true only
-    /// when they own that domain. cmux NEXT keeps Sparkle's silent-install preference intact and
-    /// lets ``UpdateDriver`` intercept the silent callback instead.
+    /// Hosts that still permit Sparkle's silent driver leave this true so the app-owned driver can
+    /// replace its staged installer. NEXT release bundles set `SUAllowsAutomaticUpdates=false`,
+    /// so Sparkle never starts that silent path and this preference stays untouched.
     public var disablesSparkleSilentStagingPreference = true
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
     /// the public release appcast. See ``UpdateFeedResolver/isDevLikeBundleIdentifier(_:)``.

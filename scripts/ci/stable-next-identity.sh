@@ -69,7 +69,9 @@ plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist_get "$next_app" CFBundleIdentifier)" == "$NEXT_ID" ]] || { echo "input is not $NEXT_NAME ($NEXT_ID)" >&2; exit 1; }
 [[ "$(plist_get "$next_app" CFBundleVersion)" == "$BUILD" ]] || { echo "input is not build $BUILD" >&2; exit 1; }
 [[ "$(plist_get "$next_app" SUPublicEDKey)" == "$EXPECTED_SPARKLE_PUBLIC_KEY" ]] || { echo "input SUPublicEDKey is not the track key" >&2; exit 1; }
-[[ "$(plist_get "$next_app" SUAllowsAutomaticUpdates)" == false ]] || { echo "input allows Sparkle automatic downloads" >&2; exit 1; }
+if automatic_downloads="$(plist_get "$next_app" SUAllowsAutomaticUpdates 2>/dev/null)"; then
+  [[ "$automatic_downloads" == false ]] || { echo "input allows Sparkle automatic downloads" >&2; exit 1; }
+fi
 commit="$(plist_get "$next_app" CMUXCommit)"
 [[ "$commit" =~ ^[0-9a-f]{7,40}$ && "$EXPECTED_COMMIT" == "$commit"* ]] \
   || { echo "input was built from CMUXCommit '$commit', not the gated commit $EXPECTED_COMMIT" >&2; exit 1; }
@@ -96,7 +98,8 @@ pb "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 $STABLE_SCHEME"
 pb "Set :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME $STABLE_SCHEME" >/dev/null 2>&1 \
   || pb "Add :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME string $STABLE_SCHEME"
 pb "Set :SUFeedURL $STABLE_FEED_URL"
-pb "Set :SUAllowsAutomaticUpdates false"
+pb "Set :SUAllowsAutomaticUpdates false" >/dev/null 2>&1 \
+  || pb "Add :SUAllowsAutomaticUpdates bool false"
 
 # The regular cmux icon. The nightly's asset catalog holds only AppIcon-Nightly, so the icon comes
 # from AppIcon.icns: with no AppIcon in Assets.car, macOS falls back to CFBundleIconFile.

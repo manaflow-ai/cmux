@@ -37,7 +37,8 @@ prepare_variant() {
     # NEXT owns update downloads in CmuxUpdater. Keep Sparkle's shared automatic-update
     # preference available to classic cmux while preventing SPUAutomaticUpdateDriver from
     # bypassing the app-owned policy when this bundle starts.
-    /usr/libexec/PlistBuddy -c "Set :SUAllowsAutomaticUpdates false" "$app_plist"
+    /usr/libexec/PlistBuddy -c "Set :SUAllowsAutomaticUpdates false" "$app_plist" >/dev/null 2>&1 \
+      || /usr/libexec/PlistBuddy -c "Add :SUAllowsAutomaticUpdates bool false" "$app_plist"
     if [ "$(/usr/libexec/PlistBuddy -c "Print :SUAllowsAutomaticUpdates" "$app_plist")" != false ]; then
       echo "NEXT bundle must disable Sparkle automatic downloads" >&2
       exit 1
