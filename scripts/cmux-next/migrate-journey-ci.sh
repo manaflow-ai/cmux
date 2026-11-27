@@ -11,6 +11,13 @@
 # A failed apply runs once more (the ledger resumes it: nothing made twice). Writes a table of
 # repo, source, result and ms to the job summary and $out/results.json.
 #
+# The cases run at once, each in its own subshell with its own HOME (so its own ledger), and the table is
+# written in case order once all have ended. One after another they took 36-40 min on 2026-11-25 and then
+# passed the job's 50 min bound: 35 of the 41 cancelled runs of the 60 before 2026-11-27 01:45Z ran 50-59 min
+# and ended with no verdict, each case alone being 5-10 min of staging waits (ci-min-per-pr-14, Leo
+# 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period"). MIGRATE_SERIAL=1 runs them
+# one after another, as before.
+#
 # Leo, 2026-11-24: "we ought to be able to have good migration capabilities all around for people of all
 # stages any and all levels of technical sophistication and teams and organizations of any size and demand to
 # move to autocloud"
@@ -49,8 +56,7 @@ run_case() {
       result=red
     fi
   fi
-  [ "$result" = pass ] || status=1
-  python3 -I - "$out/$name.plan.json" "$HOME/.cmux/migrate/ledger.json" "$label" "$name" "$result" "$out/results.jsonl" >> "$summary" <<'PY'
+  python3 -I - "$out/$name.plan.json" "$HOME/.cmux/migrate/ledger.json" "$label" "$name" "$result" "$out/$name.result.jsonl" > "$out/$name.row" <<'PY'
 import json, sys
 plan_p, ledger_p, url, name, result, results = sys.argv[1:7]
 try:
@@ -71,6 +77,28 @@ print(f"| {url} | {source} | {result} | {ms if ms is not None else '-'} |")
 with open(results, "a") as f:
     f.write(json.dumps({"repo": url, "source": source, "result": result, "first_chat_ms": ms}) + "\n")
 PY
+  [ "$result" = pass ]
+}
+# Starts one case in the background (or runs it here with MIGRATE_SERIAL=1); its subshell keeps the HOME and
+# environment of the moment it starts. finish_cases waits for every one, then writes the rows in start order.
+cases=() pids=()
+start_case() {
+  cases+=("$3")
+  if [ "${MIGRATE_SERIAL:-0}" = 1 ]; then
+    ( run_case "$@" ) || status=1
+    pids+=("")
+  else
+    ( run_case "$@" ) &
+    pids+=("$!")
+  fi
+}
+finish_cases() {
+  local i
+  for i in "${!cases[@]}"; do
+    if [ -n "${pids[$i]}" ]; then wait "${pids[$i]}" || status=1; fi
+    cat "$out/${cases[$i]}.row" >> "$summary" 2>/dev/null || { echo "| ${cases[$i]} | ? | red (no row) | - |" >> "$summary"; status=1; }
+    cat "$out/${cases[$i]}.result.jsonl" >> "$out/results.jsonl" 2>/dev/null || true
+  done
 }
 for url in "${repos[@]}"; do
   name="$(basename "$url")"
@@ -78,7 +106,7 @@ for url in "${repos[@]}"; do
   export HOME="$out/home-$name"   # each repo's own ledger (~/.cmux/migrate): every entry in it is this repo's
   mkdir -p "$HOME"
   git clone --depth 1 --quiet "$url" "$dir"
-  run_case "$url" "$dir" "$name"
+  start_case "$url" "$dir" "$name"
 done
 # A T3 Code workspace (cmuxterm-hq#23822, the switch kit; CMUX_SWITCH_KIT=1 turns the source on): a T3 home
 # whose statev2.sqlite lists one project (a public checkout) and one thread run in a git worktree of it, with
@@ -121,11 +149,7 @@ os.makedirs(f"{home}/.claude/projects/{slug}", exist_ok=True)
 open(f"{home}/.claude/projects/{slug}/{native}.jsonl", "w").write('{"type":"user","message":{"role":"user","content":"docs pass"}}\n')
 PY
 export CMUX_SWITCH_KIT=1
-run_case "t3code ($t3_url)" "t3code:$HOME/.t3" t3code
-if grep -q CANARY23822 "$out/t3code.plan.json"; then
-  echo "::error title=Switch kit leaked a canary::the t3code plan carries the auth or script canary"
-  status=1
-fi
+start_case "t3code ($t3_url)" "t3code:$HOME/.t3" t3code
 unset CMUX_SWITCH_KIT
 export HOME="$runner_home"   # later cases start from the runner's HOME, not the T3 fixture's
 # An existing server over SSH: the workflow starts a throwaway sshd on 127.0.0.1 whose own HOME holds one
@@ -134,8 +158,13 @@ export HOME="$runner_home"   # later cases start from the runner's HOME, not the
 if [ -n "${MIGRATE_SSH_HOST:-}" ]; then
   export HOME="${MIGRATE_SSH_HOME:-$out/home-ssh-host}"
   mkdir -p "$HOME"
-  run_case "ssh:$MIGRATE_SSH_HOST${MIGRATE_SSH_REPO:+ ($MIGRATE_SSH_REPO)}" "ssh:$MIGRATE_SSH_HOST" ssh-host
+  start_case "ssh:$MIGRATE_SSH_HOST${MIGRATE_SSH_REPO:+ ($MIGRATE_SSH_REPO)}" "ssh:$MIGRATE_SSH_HOST" ssh-host
 else
   echo "::notice title=Migrate journey: no SSH host::MIGRATE_SSH_HOST is unset; the ssh_host case did not run"
+fi
+finish_cases
+if grep -q CANARY23822 "$out/t3code.plan.json"; then
+  echo "::error title=Switch kit leaked a canary::the t3code plan carries the auth or script canary"
+  status=1
 fi
 exit "$status"
