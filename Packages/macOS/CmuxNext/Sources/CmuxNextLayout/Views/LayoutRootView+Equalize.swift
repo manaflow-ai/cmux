@@ -3,7 +3,8 @@ extension LayoutRootView {
     /// a dock's width is a share of that width, so it equalizes only while the screen has one.
     @discardableResult
     public func equalize(screen id: ScreenID) -> LayoutModel.EqualizeResult {
-        let width = screenViews[id].map(\.baseGeometry.viewport.width).flatMap { $0 > 0 ? $0 : nil }
-        return model.equalize(screen: id, viewportWidth: width)
+        let geometry = screenViews[id]?.baseGeometry
+        let width = geometry.map(\.viewport.width).flatMap { $0 > 0 ? $0 : nil }
+        return model.equalize(screen: id, viewportWidth: width, geometry: geometry)
     }
 }

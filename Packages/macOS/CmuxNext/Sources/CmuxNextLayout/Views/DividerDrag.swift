@@ -101,13 +101,14 @@ struct DividerDrag {
     private func doubleClick(_ kind: DividerHandleView.Kind) {
         switch kind {
         case let .split(id):
-            model.equalizeSplit(id)
+            // Sized for the chain's container as laid out now, so a cell clamped to its minimum leaves the others even.
+            model.equalizeSplit(id, geometry: screen.baseGeometry)
         case let .columnEdge(id):
             guard let column = screen.layout.columns.first(where: { $0.id == id }) else { return }
             model.setColumnWidth(id, width: ColumnWidthPreset.next(after: column.width).rawValue, transaction: .make(), phase: .ended)
-        case .rowEdge:
-            // Equalize Rows (Z3) is a later surfaces step.
-            return
+        case let .rowEdge(column, _):
+            // The line between two rows is a divider too: its double-click evens the column's rows (#57175).
+            model.equalizeRows(column, stack: screen.baseGeometry.rowStacks[column])
         }
     }
 

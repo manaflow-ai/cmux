@@ -1,3 +1,5 @@
+public import CoreGraphics
+
 /// Ratios that give every pane along a split axis an equal share after a
 /// split (`layout.splitSizing` = even, plans/cmux-next/column-sizing.md).
 public nonisolated enum EvenSplitRatios {
@@ -27,11 +29,74 @@ public nonisolated enum EvenSplitRatios {
     /// Perpendicular subtrees count as one cell and keep their own ratios. Unchanged splits are left out; empty when
     /// `split` is not in `root`.
     public static func changes(equalizingChainOf split: SplitID, in root: SplitNode) -> [SplitRatioChange] {
+        guard let top = chainTop(of: split, in: root), case let .split(_, axis, _, _, _) = top else { return [] }
+        return changes(equalizing: top, axis: axis)
+    }
+
+    /// The highest split of the same-axis chain holding `split`: the highest ancestor reached through splits of
+    /// `split`'s axis alone (`split` itself when its parent splits across). Nil when `split` is not in `root`.
+    public static func chainTop(of split: SplitID, in root: SplitNode) -> SplitNode? {
         var path: [SplitNode] = []
-        guard splitPath(to: split, in: root, path: &path), case let .split(_, axis, _, _, _)? = path.last else { return [] }
+        guard splitPath(to: split, in: root, path: &path), case let .split(_, axis, _, _, _)? = path.last else { return nil }
         var top = path.removeLast()
         while case let .split(_, parentAxis, _, _, _)? = path.last, parentAxis == axis { top = path.removeLast() }
-        return changes(equalizing: top, axis: axis)
+        return top
+    }
+
+    /// The ratio changes that give every cell of the same-axis chain under `top` an equal extent on screen, `extent`
+    /// points along `top`'s axis (the container `SplitGeometry` lays `top` out in). Leaf counts alone (the overload
+    /// above) are even only while every cell fits its even share: a cell whose panes need more (a perpendicular
+    /// stack holding a row of panes, `SplitGeometry.minimumSize`) is clamped to its minimum by the layout and its
+    /// sibling alone gave up the difference, so the other cells ended uneven (#57175). Here a cell that needs more
+    /// than an even share keeps its minimum and every other cell shares the rest equally; the dividers inside the
+    /// chain are counted too. Falls back to leaf counts when the panes cannot all fit (the layout then shares by
+    /// minimums). A change that moves no divider by a quarter point or more is left out.
+    public static func changes(equalizing top: SplitNode, extent: CGFloat, style: LayoutStyle) -> [SplitRatioChange] {
+        guard case let .split(_, axis, _, _, _) = top else { return [] }
+        let cells = chainCells(top, axis: axis)
+        let divider = style.dividerThickness
+        let content = extent - divider * CGFloat(cells.count - 1)
+        let minimums = cells.map { SplitGeometry.minimumSize(of: $0, style: style).extent(along: axis) }
+        guard content > 0, minimums.reduce(0, +) <= content + 0.5 else { return changes(equalizing: top, axis: axis) }
+        var sizes = evenShares(of: content, minimums: minimums)[...]
+        var result: [SplitRatioChange] = []
+        _ = place(top, axis: axis, divider: divider, sizes: &sizes, into: &result)
+        return result
+    }
+
+    /// `total` shared as evenly as `minimums` allow: a share under a minimum is raised to it and the others share what
+    /// is left equally (water filling). The minimums must fit in `total`.
+    static func evenShares(of total: CGFloat, minimums: [CGFloat]) -> [CGFloat] {
+        var held = Array(repeating: false, count: minimums.count)
+        while true {
+            let free = minimums.indices.filter { !held[$0] }
+            guard !free.isEmpty else { return minimums }
+            let share = (total - minimums.indices.filter { held[$0] }.reduce(0) { $0 + minimums[$1] }) / CGFloat(free.count)
+            let raised = free.filter { minimums[$0] > share }
+            if raised.isEmpty { return minimums.indices.map { held[$0] ? minimums[$0] : share } }
+            for index in raised { held[index] = true }
+        }
+    }
+
+    /// The cells of the same-axis chain under `node`, leading first: its leaves and perpendicular subtrees.
+    private static func chainCells(_ node: SplitNode, axis: SplitAxis) -> [SplitNode] {
+        guard case let .split(_, nodeAxis, _, a, b) = node, nodeAxis == axis else { return [node] }
+        return chainCells(a, axis: axis) + chainCells(b, axis: axis)
+    }
+
+    /// Lays the chain under `node` out from its cells' `sizes` (taken leading first) and returns its extent: each
+    /// split's ratio is its leading side's extent over both sides' (`SplitGeometry` gives `ratio` of the extent less
+    /// the divider to side a).
+    private static func place(_ node: SplitNode, axis: SplitAxis, divider: CGFloat, sizes: inout ArraySlice<CGFloat>,
+                              into result: inout [SplitRatioChange]) -> CGFloat {
+        guard case let .split(id, nodeAxis, ratio, a, b) = node, nodeAxis == axis else { return sizes.popFirst() ?? 0 }
+        let first = place(a, axis: axis, divider: divider, sizes: &sizes, into: &result)
+        let second = place(b, axis: axis, divider: divider, sizes: &sizes, into: &result)
+        let available = first + second
+        guard available > 0 else { return divider }
+        let even = Double(first / available)
+        if abs(even - ratio) * Double(available) >= 0.25 { result.append(SplitRatioChange(split: id, ratio: even)) }
+        return available + divider
     }
 
     /// Fills `path` with the split nodes from `node` down to `split` itself.

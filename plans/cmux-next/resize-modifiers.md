@@ -52,7 +52,10 @@ those defaults; they never invent a third model.
   ("⌥ Push: the column grows and moves the columns after it"); it names only modes that apply to the
   handle and goes on release. While Shift is held, the snap haptic (`.alignment`) plays when the snap (or
   preset width) the release would land on changes, on split dividers and column edges.
-- Double-click stays: a split divider evens its chain, a column edge steps to the next preset.
+- Double-click stays: a split divider evens its whole same-axis chain, sized for the chain's container (a cell
+  whose panes need more than an even share keeps its minimum and the others share the rest equally); a row
+  edge evens its column's rows so they fit (`SetRowHeights` with `fit`); a column edge steps to the next
+  preset (https://github.com/manaflow-ai/cmux/issues/57175).
 - Row edges ignore the modifiers (their own fit-and-scroll rules, rows.md Z1).
 - Option on a vertical divider, a `splits` screen or a docked column has nothing to push: the drag is
   a plain one and no hint shows.
