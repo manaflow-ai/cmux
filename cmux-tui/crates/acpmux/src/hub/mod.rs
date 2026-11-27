@@ -457,6 +457,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
+mod turn_checkpoint;
 mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;

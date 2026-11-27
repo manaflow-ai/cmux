@@ -32,7 +32,7 @@ fn ref_name(session_id: &str) -> Option<String> {
 }
 
 /// Runs git in `dir`; its trimmed stdout when it succeeds.
-fn git(dir: &Path, index: Option<&Path>, args: &[&str]) -> Option<String> {
+pub(super) fn git(dir: &Path, index: Option<&Path>, args: &[&str]) -> Option<String> {
     let mut command = Command::new("git");
     command
         .arg("-C")
