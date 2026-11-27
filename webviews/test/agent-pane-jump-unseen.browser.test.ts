@@ -353,6 +353,29 @@ await requireBrowserLane("agent-pane-jump-unseen.browser.test.ts", async () => {
           await settleSeen(page);
           expect(chat.readThrough!).toBeGreaterThanOrEqual(replies[0]!.seq);
           expect((await read(page)).jump).not.toBe("up");
+          // Catch up explicitly, then step away again. That press skips only what was there
+          // while attending; it must not suppress Jump up for a later unattended screenful.
+          await page.click('.acpmux-jump-latest[data-jump="latest"]');
+          await page.waitForFunction(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2;
+          });
+          await settleSeen(page);
+          const caughtThrough = chat.readThrough!;
+          expect(caughtThrough).toBeGreaterThanOrEqual(replies.at(-1)!.seq);
+          await focus(page, false);
+          liveTurns(5, "Unseen after catch-up");
+          await page.getByText("Unseen after catch-up 5:").waitFor();
+          await frames(page, 8);
+          await settleSeen(page);
+          expect(chat.readThrough).toBe(caughtThrough);
+          await upShown(page);
+          const caughtRequests = chat.seen.length;
+          await focus(page, true);
+          await settleSeen(page);
+          expect(chat.readThrough).toBe(caughtThrough);
+          expect(chat.seen.slice(caughtRequests)).toEqual([]);
+          expect((await read(page)).jump).toBe("up");
         } finally {
           await page.close();
         }

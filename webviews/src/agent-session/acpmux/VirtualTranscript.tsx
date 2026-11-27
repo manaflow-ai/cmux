@@ -203,6 +203,7 @@ import { noteSendFromLatest } from "./conversation/sendMorph";
 import { sinceDone } from "./conversation/SinceDivider";
 import { noteUnreadNews, noteUnreadCount } from "./conversation/unreadState";
 import { readThroughOf, subscribeReadThrough } from "./conversation/readThroughState";
+import { pageAttention } from "./attention";
 import { sinceNews, sinceCount, type HeldSpan, SinceTurnHold } from "./conversation/sinceNews";
 import {
   countsUnseen,
@@ -298,7 +299,7 @@ export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
 export { heldReaderPlace } from "./transcript/scrollAnchors";
 export type { ScrollAnchor } from "./transcript/scrollAnchors";
-export { JumpToLatest, JumpUp } from "./transcript/JumpButtons";
+export { JumpToLatest } from "./transcript/JumpButtons";
 import { JumpToLatest } from "./transcript/JumpButtons";
 
 /// How soon after the last width step's work finished a new width counts as the same live resize,
@@ -1186,8 +1187,22 @@ function TranscriptView({
   /// The reader asked for the latest message (Jump to latest, End, a send): the rows they skipped on
   /// the way are theirs to have passed, so what is in view counts as seen whatever lies above, and
   /// the control never comes back up at the bottom (Leo, 2026-11-12: "it appears again", #42032).
-  /// Their next move up lets go of it.
+  /// Their next move up or absence lets go of it: a later unattended turn is new again.
   const caughtUp = useRef(false);
+  useLayoutEffect(() => {
+    const attention = pageAttention();
+    const doc = ref.current?.ownerDocument ?? document;
+    const clearWhenAway = () => {
+      if (doc.visibilityState === "hidden" || attention?.present() === false) caughtUp.current = false;
+    };
+    const unsubscribe = attention?.subscribe(clearWhenAway);
+    doc.addEventListener("visibilitychange", clearWhenAway);
+    clearWhenAway();
+    return () => {
+      unsubscribe?.();
+      doc.removeEventListener("visibilitychange", clearWhenAway);
+    };
+  }, []);
   /// The turns the unread line holds back (sinceNews.ts `SinceTurnHold`).
   const [sinceHold] = useState(() => new SinceTurnHold());
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
