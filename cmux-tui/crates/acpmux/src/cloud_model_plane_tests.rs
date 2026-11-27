@@ -133,3 +133,42 @@ fn a_no_is_reused_for_a_burst_only_so_a_name_that_starts_resolving_routes_the_ne
     assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(9)), Some(false));
     assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(11)), None);
 }
+
+#[test]
+fn a_spawn_waits_for_a_name_that_starts_resolving_but_a_streak_pays_the_wait_once() {
+    use std::cell::Cell;
+    // Production 2026-11-26 23:49 UTC: agents started while the platform kicked the guest's
+    // resolver kept no model route for their whole life.
+    let start = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let clock = Cell::new(start);
+    let asked = Cell::new(0);
+    let mut streak = None;
+    let until = Streak::wait_until(&mut streak, start);
+    assert_eq!(until, start + EDGE_WAIT);
+    // The name starts resolving on the third lookup, 3 s in: this spawn gets the route.
+    let routed = wait_for_name(
+        || {
+            asked.set(asked.get() + 1);
+            asked.get() >= 3
+        },
+        || clock.get(),
+        |d| clock.set(clock.get() + d),
+        until,
+    );
+    assert!(routed);
+    assert_eq!(clock.get(), start + Duration::from_secs(3));
+
+    // A name that never resolves: the wait ends at its bound...
+    let never = wait_for_name(|| false, || clock.get(), |d| clock.set(clock.get() + d), until);
+    assert!(!never);
+    assert_eq!(clock.get(), until);
+    // ...and later spawns in the same streak do not wait again.
+    let later = start + Duration::from_secs(120);
+    assert_eq!(Streak::wait_until(&mut streak, later), until);
+    let none =
+        wait_for_name(|| panic!("no lookup after the streak's wait"), || later, |_| {}, until);
+    assert!(!none);
+    // A spare paused and claimed past the span waits again.
+    let resumed = later + STREAK_SPAN;
+    assert_eq!(Streak::wait_until(&mut streak, resumed), resumed + EDGE_WAIT);
+}

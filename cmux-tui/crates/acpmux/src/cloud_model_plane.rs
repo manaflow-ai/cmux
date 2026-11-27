@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::net::ToSocketAddrs as _;
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Where the image keeps the model route.
 pub const PLANE_FILE: &str = "/etc/cmux/model-plane.env";
@@ -139,7 +139,7 @@ pub fn machine_plane() -> BTreeMap<String, String> {
         return BTreeMap::new();
     }
     let plane = read_at(Path::new(PLANE_FILE), true).unwrap_or_default();
-    where_resolves(plane, plane_host_resolves)
+    where_resolves(plane, spawn_host_resolves)
 }
 
 /// `plane` whole when every host its base URLs name resolves (`resolves`, asked once per host),
@@ -228,6 +228,90 @@ pub(crate) fn plane_host_resolves(host: &str) -> bool {
     let ok = answer.resolves;
     *cache() = Some(answer);
     ok
+}
+
+/// How long a spawn waits for the edge's name to start resolving before it starts without the
+/// route. The platform checks the name after every bind and claim and resets and kicks the guest's
+/// resolver when it does not answer (cmux-platform NeverBoundProbe.ts edgeDnsCheckCommand: its
+/// lookups, flush and restart fit in about 25 s), and an agent started before that keeps no route
+/// for its whole life: production 2026-11-26 23:49 UTC, cloud-chat-pro-no-relogin and
+/// cloud-chat-replies-production failed "Claude has no model route" while later starts on the
+/// same kind of machine were routed.
+const EDGE_WAIT: Duration = Duration::from_secs(25);
+/// How often a waiting spawn asks again (the "no" cache, [`NO_REUSE`], spaces the real lookups).
+const EDGE_POLL: Duration = Duration::from_secs(1);
+/// A run of "does not resolve" answers with no gap this long is one streak, and only its first
+/// [`EDGE_WAIT`] is waited: a machine whose name never resolves (no edge rule) pays the wait once,
+/// not on every spawn. Wall-clock time, so a spare paused and claimed later waits again.
+const STREAK_SPAN: Duration = Duration::from_secs(600);
+
+/// The current run of "does not resolve" answers for the plane's host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Streak {
+    /// Spawns wait for the name until this.
+    wait_until: SystemTime,
+    /// The last "does not resolve" answer.
+    last_no: SystemTime,
+}
+
+impl Streak {
+    /// Until when a spawn that just read "does not resolve" at `now` waits: the current streak's
+    /// end, or a fresh [`EDGE_WAIT`] when there is none or its last "no" is [`STREAK_SPAN`] old.
+    fn wait_until(streak: &mut Option<Streak>, now: SystemTime) -> SystemTime {
+        match streak {
+            Some(s) if now.duration_since(s.last_no).map_or(true, |gap| gap < STREAK_SPAN) => {
+                s.last_no = now;
+                s.wait_until
+            }
+            _ => {
+                let fresh = Streak { wait_until: now + EDGE_WAIT, last_no: now };
+                *streak = Some(fresh);
+                fresh.wait_until
+            }
+        }
+    }
+}
+
+/// Asks `ask` every [`EDGE_POLL`] until it says the name resolves or `now` reaches `until`.
+fn wait_for_name(
+    mut ask: impl FnMut() -> bool,
+    mut now: impl FnMut() -> SystemTime,
+    mut sleep: impl FnMut(Duration),
+    until: SystemTime,
+) -> bool {
+    loop {
+        let Ok(left) = until.duration_since(now()) else { return false };
+        if left.is_zero() {
+            return false;
+        }
+        sleep(left.min(EDGE_POLL));
+        if ask() {
+            return true;
+        }
+    }
+}
+
+/// [`plane_host_resolves`] for a spawn: a name that does not resolve yet is waited for, once per
+/// [`Streak`], so an agent started while the platform kicks the guest's resolver still gets the
+/// route.
+fn spawn_host_resolves(host: &str) -> bool {
+    static STREAK: Mutex<Option<Streak>> = Mutex::new(None);
+    let streak = || STREAK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if plane_host_resolves(host) {
+        *streak() = None;
+        return true;
+    }
+    // Read before the wait, so the lock is not held while it sleeps.
+    let until = Streak::wait_until(&mut streak(), SystemTime::now());
+    let routed =
+        wait_for_name(|| plane_host_resolves(host), SystemTime::now, std::thread::sleep, until);
+    let mut streak = streak();
+    if routed {
+        *streak = None;
+    } else if let Some(s) = streak.as_mut() {
+        s.last_no = SystemTime::now();
+    }
+    routed
 }
 
 /// The `plane` variables for each name `present` says the child does not have yet.
