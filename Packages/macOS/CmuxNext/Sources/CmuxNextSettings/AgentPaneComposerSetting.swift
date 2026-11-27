@@ -79,9 +79,6 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
     public var composerPlaceholder = Self.composerPlaceholderDefault
     public var followUpMode = Self.followUpModeDefault
-    /// `developerTools.overloadNotice` (``HostOverloadNoticeSetting``, Settings > Advanced >
-    /// Developer Tools; off by default): the chat's "This Mac is overloaded" banner.
-    public var showOverloadNotice = HostOverloadNoticeSetting.fallback
     /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
     /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
     public var savedPrompts = Self.savedPromptsDefault
@@ -94,7 +91,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, composerPlaceholder, followUpMode, showOverloadNotice, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, composerPlaceholder, followUpMode, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -113,7 +110,6 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
             "composerPlaceholder": .string(composerPlaceholder),
             "followUpMode": .string(followUpMode.rawValue),
-            "showOverloadNotice": .bool(showOverloadNotice),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
