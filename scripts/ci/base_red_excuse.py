@@ -4869,14 +4869,13 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # feat-cmux-next pushes of cmux-tui artifacts reuse a published tree and run no Mac build at all; 51 of them landed
 # between 22:08Z and 00:00Z on 2026-11-12, so 'build / build x86_64-apple-darwin', red at the head and red in base run
 # 43317021662, was refused as "no feat-cmux-next run of its workflow has a verdict for it to compare with". And an
-# agent host's GitHub broker refuses a `nodes` root field, so there every suite read failed and every run was read over REST:
-# when `nodes` is refused, the suites are asked by their commits under `repository` (SUITE_COMMITS_QUERY) instead.
+# agent host's GitHub broker refuses a `nodes` root field (a node ID can name any repo), so the suites are asked by
+# their commits under `repository` (SUITE_COMMITS_QUERY), the call's repo. A `nodes(ids:)` read was sent first until
+# 2026-11-27: on a lane VM its refusal came back as Unread, which rate_limit_aware raises as UnreadRead (no Refused),
+# so the fallback never ran and main exited 3 quoting the broker's refusal: land-judge's tool_error, and the land
+# stopped (cmux#58090 at 05:39Z).
 SUITES_PER_QUERY = 25
-SUITE_CHECKS_QUERY = ("query($name: String!) {{ nodes(ids: [{ids}]) {{ ... on CheckSuite {{ id checkRuns(first: 100, "
-                      "filterBy: {{checkType: ALL, checkName: $name}}) {{ nodes {{ conclusion }} pageInfo "
-                      "{{ hasNextPage }} }} }} }} }}")
-# The same answer read by commit: every check suite of each commit (a cmux commit has about 50), with its check runs
-# of the name. $name is the repo's name here, as the broker reads it; the check's name is $check.
+# Every check suite of each commit (a cmux commit has about 50), with its check runs of the name. $name is the repo's name here, as the broker reads it; the check's name is $check.
 SUITE_COMMITS_QUERY = ("query($owner: String!, $name: String!, $check: String!) {{ repository(owner: $owner, "
                        "name: $name) {{ {commits} }} }}")
 SUITE_COMMIT = ("c{n}: object(oid: {sha}) {{ ... on Commit {{ checkSuites(first: 100) {{ pageInfo {{ hasNextPage }} "
@@ -4892,7 +4891,6 @@ class SuiteChecks:
     def __init__(self, github, repo: str = ""):
         self.github, self.repo = github, repo
         self.known: dict[tuple[str, str], frozenset[str] | None] = {}
-        self.rooted = False  # `nodes` was refused: suites are read by commit (SUITE_COMMITS_QUERY)
 
     def conclusions(self, runs: list[dict], index: int, name: str) -> frozenset[str] | None:
         """The conclusions ('' for one not finished) of every check run named NAME in RUNS[INDEX]'s check suite, or
@@ -4913,28 +4911,12 @@ class SuiteChecks:
 
     def read(self, suites: dict[str, str], name: str) -> None:
         self.known.update(((suite, name), None) for suite in suites)
-        if not self.rooted:
-            # Suite IDs name no repository: gh must use their repository even in a judge started from another
-            # checkout. On cmuxterm-hq#22832 the unscoped read spent the jobs budget on twelve empty base runs.
-            query = SUITE_CHECKS_QUERY.format(ids=", ".join(json.dumps(suite) for suite in suites))
-            try:
-                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
-                                                   repo=self.repo))
-            except Refused as why:
-                if "root field nodes is refused" not in str(why):
-                    return  # read over REST instead, as before
-                self.rooted = True
-            except ValueError:
-                return
-            else:
-                if isinstance(found, dict) and not found.get("errors") and isinstance(found.get("data"), dict):
-                    self.keep(found["data"].get("nodes") or [], set(suites), name)
-                return
         self.read_by_commit(suites, name)
 
     def read_by_commit(self, suites: dict[str, str], name: str) -> None:
         """read() under `repository`, by the commits SUITES' runs tested: a suite missing from its commit's whole
-        list (no next page) has no check run of NAME."""
+        list (no next page) has no check run of NAME. Scoped to the repo (GH_REPO) as well as naming it, so a judge
+        started from another checkout reads the same repo (cmuxterm-hq#22832)."""
         owner, _, repo = self.repo.partition("/")
         shas = sorted({sha for sha in suites.values() if COMMIT_SHA.fullmatch(sha)})
         if not owner or not repo or not shas:
@@ -4943,7 +4925,7 @@ class SuiteChecks:
                                                             for n, sha in enumerate(shas)))
         try:
             found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-                                                "-f", f"name={repo}", "-f", f"check={name}"]))
+                                                "-f", f"name={repo}", "-f", f"check={name}"], repo=self.repo))
         except (Refused, ValueError):
             return
         data = found.get("data") if isinstance(found, dict) and not found.get("errors") else None

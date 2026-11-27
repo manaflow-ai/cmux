@@ -10400,6 +10400,36 @@ class TreeReuseGitHub(FakeGitHub):
                       if route.endswith("/jobs?filter=latest&per_page=100"))
 
 
+class SuiteReadsStayUnderRepository(unittest.TestCase):
+    """SuiteChecks reads check suites under `repository` only. Its `nodes(ids:)` read was refused by the lane broker,
+    and through the real reader that refusal is an Unread, which rate_limit_aware raises as UnreadRead, no Refused:
+    the fallback never ran and main exited 3 quoting the refusal, land-judge's tool_error (cmux#58090, 2026-11-27)."""
+
+    def test_a_suite_read_through_the_real_wrapper_sends_no_root_nodes(self):
+        sent = []
+        sha = "a" * 40
+
+        class Broker:
+            def run(self, args, *, repo=None):
+                query = next(arg for arg in args if arg.startswith("query="))
+                sent.append((query, repo))
+                if "nodes(ids:" in query:
+                    raise excuse.Unread("GitHub evidence request failed: gh api graphql: gh: lane-gh call graphql "
+                                        "manaflow-ai/cmux: refused: graphql: root field nodes is refused")
+                return json.dumps({"data": {"repository": {"c0": {"checkSuites": {
+                    "pageInfo": {"hasNextPage": False},
+                    "nodes": [{"id": "CS_1", "checkRuns": {"pageInfo": {"hasNextPage": False},
+                                                         "nodes": [{"conclusion": "FAILURE"}]}}]}}}}})
+
+        suites = excuse.SuiteChecks(excuse.rate_limit_aware(Broker()), REPO)
+        runs = [{"check_suite_node_id": "CS_1", "head_sha": sha}, {"check_suite_node_id": "CS_2", "head_sha": sha}]
+        self.assertEqual(suites.conclusions(runs, 0, "build"), frozenset({"failure"}))
+        self.assertEqual(suites.conclusions(runs, 1, "build"), frozenset())  # not in its commit's whole list
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(all("repository(owner: $owner" in query and repo == REPO for query, repo in sent), sent)
+        self.assertFalse(any("nodes(ids:" in query for query, _ in sent), sent)
+
+
 class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     """A base run whose check suite has no verdict for a job costs no job read and is not counted toward
     BASE_JOB_READS, so runs that never build a job do not push the one that did out of the window (cmux#42047)."""
