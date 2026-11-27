@@ -58,6 +58,12 @@ fn customize_tool_arguments_become_the_cli_words() {
     assert!(w("customize_keep", json!({"minutes": 5})).is_err());
     assert_eq!(w("customize_doctor", json!({})).unwrap(), ["doctor"]);
     assert!(w("customize_doctor", json!({"id": "broken:settings.json"})).is_err());
-    assert_eq!(names.len(), 18);
+    assert_eq!(w("customize_docs", json!({})).unwrap(), ["docs"]);
+    assert_eq!(w("customize_docs", json!({"surface": "pane"})).unwrap(), ["docs", "pane"]);
+    assert_eq!(
+        w("customize_prompts", json!({"name": "add-animation"})).unwrap(),
+        ["prompts", "add-animation"]
+    );
+    assert_eq!(names.len(), 20);
     assert!(names.iter().all(|name| name.starts_with("customize_")));
 }
