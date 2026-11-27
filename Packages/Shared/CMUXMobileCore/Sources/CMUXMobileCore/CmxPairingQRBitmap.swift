@@ -1,4 +1,3 @@
-#if canImport(CoreImage)
 import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -50,4 +49,3 @@ public struct CmxPairingQRBitmap: Sendable {
         return CIContext().createCGImage(composited, from: paddedRect)
     }
 }
-#endif

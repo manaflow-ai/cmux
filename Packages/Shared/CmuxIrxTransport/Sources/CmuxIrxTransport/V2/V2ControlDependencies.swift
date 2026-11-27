@@ -1,7 +1,4 @@
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// External effects required by the shared control owner.
 public struct V2ControlDependencies: Sendable {
@@ -31,7 +28,9 @@ public struct V2ControlDependencies: Sendable {
         stackAccessToken: @escaping @Sendable (Bool) async throws -> String,
         sign: @escaping @Sendable (Data) async throws -> Data,
         now: @escaping @Sendable () -> Date = { Date() },
-        sleep: (@Sendable (TimeInterval) async throws -> Void)? = nil,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+            try await Task.sleep(for: .seconds(max(0, seconds)))
+        },
         jitter: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
         journal: IrxJournal? = nil
     ) {
@@ -40,12 +39,7 @@ public struct V2ControlDependencies: Sendable {
         self.stackAccessToken = stackAccessToken
         self.sign = sign
         self.now = now
-        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
-        self.sleep = sleep ?? { seconds in
-            // Duration.seconds traps for NaN and past Int64 seconds; a delay past
-            // 2^31 s (68 years) is clamped there. NaN sleeps 0.
-            try await Task.sleep(for: .seconds(seconds.isNaN ? 0 : min(max(0, seconds), 2_147_483_648)))
-        }
+        self.sleep = sleep
         self.jitter = jitter
         self.journal = journal
     }

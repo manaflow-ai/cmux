@@ -20,6 +20,21 @@ on:
         required: true
         default: "25"
         type: string
+      superseded:
+        description: "Instead, cancel queued pull_request runs whose PR is open at a newer head"
+        required: false
+        default: false
+        type: boolean
+      dead_queued:
+        description: "Instead, cancel queued pull_request runs nobody will read: superseded, closed or merged PR, older same-SHA duplicates, draft heads unstarted 24 h"
+        required: false
+        default: false
+        type: boolean
+      max_superseded:
+        description: "Maximum superseded-head (or dead_queued) runs to cancel (1-500)"
+        required: false
+        default: "200"
+        type: string
 
 permissions: {}
 
@@ -40,18 +55,32 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }} # ephemeral-required: trusted Actions control-plane token
     timeout-minutes: 15
     steps:
       - name: Check out trusted workflow code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
+      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/job_token_floor.py ci-stale-run-janitor/janitor
+
       - name: Report or clean stale runs
+        if: steps.job-floor.outputs.held != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           CLEANUP: ${{ inputs.cleanup || 'false' }}
           MIN_AGE_MINUTES: ${{ inputs.min_age_minutes || '1440' }}
           MAX_ACTIONS: ${{ inputs.max_actions || '25' }}
+          SUPERSEDED: ${{ inputs.superseded || 'false' }}
+          DEAD_QUEUED: ${{ inputs.dead_queued || 'false' }}
+          MAX_SUPERSEDED: ${{ inputs.max_superseded || '200' }}
         run: python3 scripts/ci/cleanup-stale-runs.py

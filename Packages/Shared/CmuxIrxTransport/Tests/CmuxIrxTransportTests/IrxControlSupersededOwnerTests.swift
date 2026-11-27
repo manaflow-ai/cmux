@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -79,4 +78,3 @@ private actor PendingDial {
         return started
     }
 }
-#endif

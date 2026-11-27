@@ -25,6 +25,10 @@ on:
         required: false
         default: both
         type: string
+    secrets:
+      GLAEDA_ROUTE_APP_KEY:
+        required: true
+
 permissions: {}
 
 env:
@@ -33,15 +37,9 @@ env:
 
 jobs:
   probe:
-    environment:
-      name: ci-routing-agent
-      deployment: false
     permissions:
       contents: write
-    # Called only by nightly.yml, so a nightly job: never Blacksmith. It holds contents: write and OIDC, so it
-    # takes a one-job JIT VM, an ephemeral runner, not a reused mini: the nightly's own label under nightly.yml,
-    # the repair label under any other caller. GitHub-hosted Ubuntu starts nothing in manaflow-ai.
-    runs-on: ${{ contains(github.workflow_ref, '/.github/workflows/nightly.yml@') && 'cmux-gcp-nightly-jit-x64' || 'cmux-gcp-repair-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target

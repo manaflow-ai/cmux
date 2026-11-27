@@ -1,72 +1,11 @@
 name: Web validation
 
 on:
-  # The changes job owns routing; no separate fallback may report success. A
-  # docs-only pull request starts no run: web-validation is no longer a required
-  # check (tests/test_ci_docs_only_prs.py), and a mixed one still runs it.
-  #
-  # A pull request run only publishes the web-validation status (ci-status owns the validation, see
-  # below), so a feat-cmux-next pull request no longer starts this at all: pr-router.yml dropped its
-  # caller (0 catches in 563 router runs, 2026-11-21..26, cmuxterm-hq ccv-pr-router findings). Into
-  # main it starts on its own as before.
+  # Always create the required status, including mixed and docs-only PRs.
+  # The changes job owns routing; no separate fallback may report success.
   pull_request:
-    branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
-    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "!docs/**/*.png"
-      - "!docs/**/*.jpg"
-      - "!docs/**/*.gif"
-      - "!docs/**/*.webp"
-      - "!plans/**/*.png"
-      - "!plans/**/*.jpg"
-      - "!plans/**/*.gif"
-      - "!plans/**/*.webp"
-      - "**/AGENTS.md"
-      - "**/CLAUDE.md"
-      - "**/SKILL.md"
-      - ".github/**"
-      - "**/skills/**"
-      - "**/references/**"
-      - "**/templates/**"
-      - "**/Resources/**"
-      - "**/fixtures/**"
-      - "**/testdata/**"
-      - "**/test/**"
-      - "**/tests/**"
-      - "CHANGELOG.md"
-      - "THIRD_PARTY_LICENSES.md"
-      - "release-notes/**"
-      - "docs/agent-hooks.md"
-      - "docs/chief-setup-prompts.md"
-      - "docs/configuration.md"
-      - "docs/ci/node-product-cache-maintenance.md"
-      - "plans/cmux-next/actions.md"
-      - "docs/mdm/managed-preferences.md"
-      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
-      - "docs/ci/health-report.md"
-      - "docs/privacy.md"
-      - "docs/network-requirements.md"
-      - "**/notices/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
-      - "cmux-tui/README.md"
-      - "docs/remote-agents-and-cloud.md"
-      - "docs/cmux-next/customize-recipes.md"
-      - "cmux-tui/crates/acpmux/README.md"
-      - "cmux-tui/crates/acpmux/docs/**"
-      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
-      - "cmux-tui/crates/cmux-extension-sdk/README.md"
-      - "cmux-tui/vendor/terminput-crossterm/README.md"
-      - "mux/packages/brain/conformance/README.md"
-      - "Native/OptChat/chief-kernel/src/turn_checks.md"
-    # docs-only paths: END
-  # docs-only-fallback.yml calls this in a pull request's own context (into main) when the docs-only `paths:` above could
-  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
-  workflow_call:
-  # Neither web-validation nor ci-status is a required check (repository rules,
-  # 2026-11-19: main requires the CLA checks and backend migrations). CI owns the production build,
+  # Both web-validation and ci-status are required. CI owns the production build,
   # tests, and database checks on PRs/merge groups, where its Linux preflight gates
   # the Mac workers. This workflow runs the full standalone suite on main/manual.
   merge_group:
@@ -88,8 +27,11 @@ env:
 jobs:
   changes:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # The pool runner's job-start script alone took 3m47s on main runs 45142100636 and
+    # 45151665841, so 5 minutes ran out mid-checkout and Web validation went red unrun.
+    # The job reads only the routing script, its test and the workflows.
+    timeout-minutes: 15
     outputs:
       required: ${{ steps.route.outputs.required }}
     steps:
@@ -97,12 +39,12 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+          sparse-checkout: |
+            .github/workflows
+            scripts/ci
+            tests
       - name: Test routing and result enforcement
         run: python3 tests/test_web_validation.py
-      - name: Validate the per-file webviews test runner
-        run: python3 tests/test_webviews_tests_per_file.py
-      - name: Validate the webviews new-reds comparison
-        run: python3 tests/test_webviews_tests_new_reds.py
       - name: Select web validation
         id: route
         env:
@@ -115,7 +57,7 @@ jobs:
     name: web-build
     needs: changes
     if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -124,15 +66,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Vercel production build
         env:
@@ -151,7 +88,7 @@ jobs:
     name: web-tests
     needs: changes
     if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     defaults:
       run:
@@ -160,50 +97,30 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      # The type check reports its red and keeps going, so the tests and builds after it still run on a
-      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
-      # necessarily have to fail and like give up").
-      - name: Typecheck
-        id: typecheck
-        continue-on-error: true
-        run: bun run typecheck
+      - run: bun run typecheck
       - run: bun run test
-      - name: Cache Playwright's apt packages
-        uses: ./.github/actions/playwright-apt-cache
-        with:
-          engines: chromium
-      - run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+      - run: bunx playwright install --with-deps chromium
       - run: bun run test:instant
         env:
           CMUX_INSTANT_SKIP_TYPECHECK: "1"
-      - name: Fail on the type check
-        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
-        run: |
-          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
-          exit 1
 
   database:
     name: web-database-tests
     needs: changes
     if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
       run:
         working-directory: web
     services:
       postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: postgres:16-alpine
         env:
           POSTGRES_DB: cmux_test
           POSTGRES_PASSWORD: cmux
@@ -220,15 +137,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Apply migrations, including an idempotent second pass
         run: |
@@ -240,7 +152,7 @@ jobs:
     name: web-validation
     needs: [changes, build, tests, database]
     if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Accept CI-owned pull-request validation

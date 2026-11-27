@@ -37,16 +37,15 @@ env:
 jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # A job holding secrets runs where no variable can move it (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 75
-    environment:
-      name: cmux-next-cloud-journey
-      deployment: false
+    environment: cmux-next-cloud-journey
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           sparse-checkout: |
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
@@ -54,7 +53,6 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Cloud chat matrix (Claude, production)
         timeout-minutes: 70
         env:
@@ -77,4 +75,4 @@ jobs:
           name: cloud-claude-matrix
           path: ${{ runner.temp }}/cloud-claude-matrix
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 7

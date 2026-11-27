@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 @preconcurrency import CryptoKit
-#else
-@preconcurrency import Crypto
-#endif
 import CMUXMobileCore
 import Foundation
 import Testing

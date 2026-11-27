@@ -31,12 +31,12 @@ public actor CmxIrohServerSession {
         streamHeaderClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         streamHeaderTimeout: TimeInterval = 5
     ) throws {
+        precondition(streamHeaderTimeout > 0)
         self.connection = connection
         self.authorizer = authorizer
         self.protocolConfiguration = protocolConfiguration
         self.streamHeaderClock = streamHeaderClock
-        // A timeout that is not positive takes the 5 s default instead of trapping.
-        self.streamHeaderTimeout = streamHeaderTimeout > 0 ? streamHeaderTimeout : 5
+        self.streamHeaderTimeout = streamHeaderTimeout
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 

@@ -1,29 +1,17 @@
-#if canImport(AVFoundation)
 import AVFoundation
-#endif
-#if canImport(CoreGraphics)
 import CoreGraphics
-#endif
 import Foundation
-#if canImport(ImageIO)
 import ImageIO
-#endif
-#if canImport(os)
 import os
-#endif
 import Testing
 import CmuxHomeCoreTestSupport
-#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
-#endif
 @testable import CmuxHomeCore
 
 // Regression tests for the second attachment review.
 
 // MARK: Fixtures
 
-#if canImport(ImageIO) && canImport(AVFoundation)
-// Real media, read and written by ImageIO and AVFoundation: Apple platforms only.
 /// Location found anywhere in a movie: asset or track metadata items, or a
 /// timed metadata track.
 struct MovieLocation: Equatable {
@@ -157,6 +145,32 @@ func makeJPEGWithXMPLocation() throws -> Data {
     return data as Data
 }
 
+/// A 1x1 lossless WebP (with an alpha channel) whose EXIF holds a GPS
+/// position. ImageIO reads WebP but cannot write it, so the EXIF block is
+/// taken from a JPEG and wrapped in RIFF chunks by hand.
+func makeWebPWithLocation(orientation: Int = 6) throws -> Data {
+    let jpeg = [UInt8](try makeJPEGWithLocation(width: 4, height: 4, orientation: orientation))
+    var index = 2
+    var tiff: [UInt8] = []
+    while index + 4 < jpeg.count {
+        let length = Int(jpeg[index + 2]) << 8 | Int(jpeg[index + 3])
+        if jpeg[index + 1] == 0xE1, jpeg[(index + 4)..<(index + 10)].elementsEqual(Array("Exif\0\0".utf8)) {
+            tiff = Array(jpeg[(index + 10)..<(index + 2 + length)])
+            break
+        }
+        index += 2 + length
+    }
+    #expect(!tiff.isEmpty)
+    func le32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
+    func chunk(_ tag: String, _ payload: [UInt8]) -> [UInt8] {
+        Array(tag.utf8) + le32(payload.count) + payload + (payload.count % 2 == 1 ? [0] : [])
+    }
+    let vp8l: [UInt8] = [0x2f, 0x00, 0x00, 0x00, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07]
+    let vp8x: [UInt8] = [0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0] // alpha + EXIF, 1x1 canvas
+    let body = Array("WEBP".utf8) + chunk("VP8X", vp8x) + chunk("VP8L", vp8l) + chunk("EXIF", tiff)
+    return Data(Array("RIFF".utf8) + le32(body.count) + body)
+}
+
 /// A `width` x `height` PNG whose left half is fully transparent.
 func makeTransparentPNG(width: Int, height: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -186,63 +200,10 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
     }
     return stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }.min() ?? 255
 }
-#endif
-
-/// A 1x1 lossless WebP (with an alpha channel) whose EXIF holds a GPS
-/// position. ImageIO reads WebP but cannot write it, so the EXIF block is
-/// taken from a JPEG and wrapped in RIFF chunks by hand.
-func makeWebPWithLocation(orientation: Int = 6) throws -> Data {
-    #if canImport(ImageIO) && canImport(AVFoundation)
-    let jpeg = [UInt8](try makeJPEGWithLocation(width: 4, height: 4, orientation: orientation))
-    var index = 2
-    var tiff: [UInt8] = []
-    while index + 4 < jpeg.count {
-        let length = Int(jpeg[index + 2]) << 8 | Int(jpeg[index + 3])
-        if jpeg[index + 1] == 0xE1, jpeg[(index + 4)..<(index + 10)].elementsEqual(Array("Exif\0\0".utf8)) {
-            tiff = Array(jpeg[(index + 10)..<(index + 2 + length)])
-            break
-        }
-        index += 2 + length
-    }
-    #expect(!tiff.isEmpty)
-    #else
-    let tiff = exifWithLocation(orientation: orientation)
-    #endif
-    func le32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
-    func chunk(_ tag: String, _ payload: [UInt8]) -> [UInt8] {
-        Array(tag.utf8) + le32(payload.count) + payload + (payload.count % 2 == 1 ? [0] : [])
-    }
-    let vp8l: [UInt8] = [0x2f, 0x00, 0x00, 0x00, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07]
-    let vp8x: [UInt8] = [0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0] // alpha + EXIF, 1x1 canvas
-    let body = Array("WEBP".utf8) + chunk("VP8X", vp8x) + chunk("VP8L", vp8l) + chunk("EXIF", tiff)
-    return Data(Array("RIFF".utf8) + le32(body.count) + body)
-}
-
-#if !(canImport(ImageIO) && canImport(AVFoundation))
-/// No ImageIO on the Linux package lane to write a JPEG: an EXIF block (little-endian
-/// TIFF) built by hand, IFD0 with the orientation and a GPS IFD holding a latitude
-/// reference. Only the WebP chunk tests read it, as bytes.
-func exifWithLocation(orientation: Int) -> [UInt8] {
-    func le16(_ value: Int) -> [UInt8] { [UInt8(value & 0xff), UInt8(value >> 8 & 0xff)] }
-    func le32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
-    let gpsOffset = 8 + 2 + 2 * 12 + 4
-    var bytes: [UInt8] = Array("II".utf8) + le16(42) + le32(8)
-    bytes += le16(2) // IFD0: orientation, then the GPS IFD's offset
-    bytes += le16(0x0112) + le16(3) + le32(1) + le16(orientation) + le16(0)
-    bytes += le16(0x8825) + le16(4) + le32(1) + le32(gpsOffset)
-    bytes += le32(0)
-    bytes += le16(1) // GPS IFD: GPSLatitudeRef "N"
-    bytes += le16(0x0001) + le16(2) + le32(2) + [UInt8(ascii: "N"), 0, 0, 0]
-    bytes += le32(0)
-    return bytes
-}
-#endif
-
 
 // MARK: Preparation
 
 @Suite(.timeLimit(.minutes(3))) struct AttachmentRoundTwoPreparationTests {
-#if canImport(ImageIO) && canImport(AVFoundation)
     /// Finding 2 (Lawrence's decision): an image with transparency gets no
     /// preview (a JPEG would turn the transparent areas black, and the
     /// owner keeps the first preview for good); readers load the original.
@@ -268,9 +229,7 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
                                                        typeIdentifier: UTType.jpeg.identifier)
         #expect(opaque.ref.preview != nil)
     }
-#endif
 
-#if canImport(ImageIO) && canImport(AVFoundation)
     /// Finding 3: location an M4A carries is removed like a video's.
     @MainActor @Test func audioLocationIsStrippedUnlessKept() async throws {
         let root = try temporaryDirectory()
@@ -285,7 +244,7 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         #expect(stripped.ref.name == "memo.m4a")
         #expect(stripped.ref.hash == sha256Hex(try Data(contentsOf: stripped.fileURL)))
         let duration = try #require(stripped.ref.durationMs)
-        #expect(abs(duration - 1000) <= 100)
+        #expect((900...1100).contains(duration), "the one-second fixture encodes to about 1000 ms")
 
         let pasted = try await store.prepareAttachment(data: try Data(contentsOf: audio), typeIdentifier: UTType.mpeg4Audio.identifier)
         #expect(try await movieLocation(pasted.fileURL) == MovieLocation())
@@ -293,9 +252,7 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         let kept = try await store.prepareAttachment(fileURL: audio, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: audio)))
     }
-#endif
 
-#if canImport(ImageIO) && canImport(AVFoundation)
     /// Finding 3: track-level location items, a timed metadata track of
     /// positions, and a place name without coordinates are all removed.
     @MainActor @Test func movieTrackTimedAndNamedLocationsAreStripped() async throws {
@@ -325,9 +282,7 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         let kept = try await store.prepareAttachment(fileURL: timed, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: timed)))
     }
-#endif
 
-#if canImport(ImageIO) && canImport(AVFoundation)
     /// Finding 3: a photo whose location is IPTC text or XMP (no EXIF GPS
     /// dictionary) is stripped too; other metadata and orientation stay.
     @MainActor @Test func photoIPTCAndXMPLocationsAreStripped() async throws {
@@ -356,9 +311,7 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         let kept = try await store.prepareAttachment(data: iptc, typeIdentifier: UTType.jpeg.identifier, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(iptc))
     }
-#endif
 
-#if canImport(ImageIO) && canImport(AVFoundation)
     /// Finding 4: ImageIO cannot write WebP, so a WebP with GPS is
     /// converted (PNG, since it has alpha) without its location instead of
     /// being refused.
@@ -389,7 +342,6 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         #expect(kept.ref.mimeType == "image/webp")
         #expect(kept.ref.hash == sha256Hex(webp))
     }
-#endif
 
     /// Finding 10: the owner trims names with JS `trim()`, which also
     /// removes U+FEFF; a name of only that character is blank.
@@ -461,41 +413,6 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         clock.advance(by: HomeStore.blobCachePruneInterval)
         for _ in 0..<200_000 where fm.fileExists(atPath: stale.path) { await Task.yield() }
         #expect(!fm.fileExists(atPath: stale.path))
-    }
-
-    /// A store that names no folder (every test's, a fixture's) gets a temporary one of its own, never the app's
-    /// `Caches/cmux-home-blobs`: its prune keeps none of that folder's blobs, so a test run would delete the
-    /// Home attachments of the Mac it runs on.
-    @MainActor @Test func aStoreThatNamesNoFolderNeverPrunesTheAppsCaches() throws {
-        let caches = try #require(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first).standardizedFileURL.path
-        let first = HomeStore(source: MockHomeSource(options: .immediate))
-        let second = HomeStore(source: MockHomeSource(options: .immediate))
-        for store in [first, second] {
-            #expect(!store.blobCacheDirectory.standardizedFileURL.path.hasPrefix(caches + "/"), "\(store.blobCacheDirectory.path)")
-            #expect(store.blobCacheDirectory != HomeStore.defaultBlobCacheDirectory)
-        }
-        #expect(first.blobCacheDirectory != second.blobCacheDirectory)
-    }
-
-    /// A store over a local conversation of its own (New Message's blank page, a bare launch's message box) shares
-    /// the folder but keeps none of its blobs: it never prunes, so the owning store's draft and pending-send blobs
-    /// stay, at its start and after a prune interval.
-    @MainActor @Test func aStoreThatDoesNotPruneLeavesTheSharedCache() async throws {
-        let root = try temporaryDirectory()
-        let fm = FileManager.default
-        let stale = root.appendingPathComponent("someone-elses-draft", isDirectory: true)
-        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
-        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
-        let clock = ManualClock()
-        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock,
-                              prunesBlobCache: false)
-        store.start()
-        defer { store.stop() }
-        for _ in 0..<1_000 { await Task.yield() }
-        #expect(clock.pendingSleepers == 0, "no prune loop waits on the clock")
-        clock.advance(by: HomeStore.blobCachePruneInterval)
-        for _ in 0..<1_000 { await Task.yield() }
-        #expect(fm.fileExists(atPath: stale.path))
     }
 }
 
@@ -609,7 +526,6 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         #expect(photoSeq < textSeq)
     }
 
-#if canImport(ImageIO) && canImport(AVFoundation)
     /// Finding 7: the owner kept another device's poster, so the pending
     /// row's part names a poster hash this client does not have; the row
     /// is not committed, so the source cannot fetch it either. The local
@@ -642,7 +558,6 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         send.cancel()
         store.stop()
     }
-#endif
 
     /// Finding 8: `stop()` (sign-out) cancels uploads in flight.
     @Test func stopCancelsUploadsInFlight() async throws {

@@ -1,6 +1,26 @@
 name: Cloud VM DB migration
 
+# Vercel deploys cmux.com from every push to main, so a push that adds a
+# migration applies it here on the same push: staging, then production. The
+# production build waits for it (web/tools/migration-deploy-gate.mjs) and does
+# not go live until production has every migration the code ships; the
+# previous deployment keeps serving meanwhile. Migrations therefore must be
+# expand-only (the live code must keep working once they apply). Before a push
+# run applies anything, each target's pending migrations (by its ledger, so a
+# held migration stays held on later pushes) are checked; a drop, rename, type
+# change, new constraint or SET NOT NULL stops the run for a person to dispatch
+# target=production (web/scripts/cloud-vm/contract-migrations.mjs). Incident 2026-11-18: #42784
+# and #44965 shipped readers of apple_subscriptions.carried_* while the last
+# production run was 2026-10-29.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "web/db/migrations/**"
+      - "web/db/no-transaction-migrations.json"
+  # GitHub matches `paths` against the first 300 changed files only. A larger
+  # push that adds a migration may not start this run; the deploy gate then
+  # fails closed and someone dispatches target=production.
   workflow_dispatch:
     inputs:
       target:
@@ -19,9 +39,13 @@ permissions:
   contents: read
 
 concurrency:
-  # Production also migrates staging. One group prevents two runs from
-  # applying to the same database at once.
-  group: cloud-vm-migrate
+  # Production also migrates staging. apply-migrations.mjs holds a Postgres
+  # advisory lock, so runs never apply to one database at once. Push runs get
+  # their own group so a manual dispatch (say target=staging) cannot replace a
+  # pending push run and leave production unmigrated. A newer push run that
+  # replaces a pending one migrates a later commit of main: a superset, and the
+  # contract check reads the ledger, not the push's diff.
+  group: cloud-vm-migrate-${{ github.event_name == 'push' && 'push' || 'dispatch' }}
   cancel-in-progress: false
 
 env:
@@ -32,8 +56,7 @@ jobs:
   preflight:
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 15
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     defaults:
       run:
         working-directory: web
@@ -41,20 +64,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          # A push migrates the commit it pushed; a production dispatch takes main's tip.
+          ref: ${{ github.event_name != 'push' && inputs.target == 'production' && 'refs/heads/main' || github.sha }}
       - name: Pin migration source
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Cloud VM migration preflight
@@ -64,9 +83,9 @@ jobs:
         run: bun run cloud-vm:preflight -- .
 
   migrate-staging:
-    if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 60
+    # A push has no inputs and migrates staging, then production.
+    if: ${{ github.event_name == 'push' || inputs.target == 'staging' || inputs.target == 'production' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -81,16 +100,11 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.preflight.outputs.source_sha }}
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Validate PlanetScale credentials
@@ -106,6 +120,9 @@ jobs:
           esac
       - name: Verify staging PlanetScale connection (read only)
         run: bun run cloud-vm:migrate -- staging --check
+      - name: Hold contract migrations pending on staging for a person
+        if: ${{ github.event_name == 'push' }}
+        run: bun scripts/cloud-vm/contract-migrations.mjs staging
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
       - name: Clean up staging Iroh challenges
@@ -113,9 +130,8 @@ jobs:
         run: bun run cloud-vm:cleanup-iroh -- staging --apply
 
   migrate-production:
-    if: ${{ inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 60
+    if: ${{ github.event_name == 'push' || inputs.target == 'production' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:
@@ -130,16 +146,11 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.preflight.outputs.source_sha }}
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Validate PlanetScale credentials
@@ -155,6 +166,9 @@ jobs:
           esac
       - name: Verify production PlanetScale connection (read only)
         run: bun run cloud-vm:migrate -- production --check
+      - name: Hold contract migrations pending on production for a person
+        if: ${{ github.event_name == 'push' }}
+        run: bun scripts/cloud-vm/contract-migrations.mjs production
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
       - name: Clean up production Iroh challenges

@@ -2,7 +2,6 @@ name: Relay TLS system trust
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - tests/relay_tls/**
       - Packages/Shared/CmuxIrohTransport/**
@@ -13,7 +12,7 @@ on:
 # A new push cancels the previous run for the same pull request. Other events
 # key on the run id, so they never cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -25,8 +24,7 @@ env:
 
 jobs:
   diagnostic-presentation:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -38,29 +36,21 @@ jobs:
       - name: Verify diagnostic presentation against the published framework
         run: |
           swift test --package-path Packages/Shared/CMUXMobileCore --filter CmxIrohConnectionCheckReportTests
-          # Every CmuxIrohTransport suite that compiles only with IrohLib or dnssd: swift-linux-packages.yml runs the
-          # rest on Linux, and no other job runs these on a Mac (tests/test_ci_iroh_apple_suites_have_mac_home.py).
-          # CmxIrohCustomRelayLiveTests skips itself without CMUX_IROH_CUSTOM_RELAY_LIVE and a relay's URL and token.
-          swift test --package-path Packages/Shared/CmuxIrohTransport --filter 'CmxIroh(RelayDiagnosticObserver|ConnectionDiagnosticRecorder|ConnectionPathDiagnostics|CustomRelayLive|DiagnosticFailure|DirectTransportGate|LibEndpointCancellation|LibEndpoint|PrivatePathTransportGate|SystemBonjourBrowser)Tests'
+          swift test --package-path Packages/Shared/CmuxIrohTransport --filter CmxIrohRelayDiagnosticObserverTests
           swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxEndpointDiagnosticTests
 
   system-keychain:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    # A one-job Mac, never an owned mini: the test adds a trust root to the System keychain as root, which an owned
-    # mini's runner user may not do, and which must not outlive the job on a shared machine
-    # (tests/test_ci_owned_mac_jobs_no_sudo.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }} # ephemeral-required: adds a System keychain trust root as root
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 15
-    env:
-      # Swift 6 without `sudo xcode-select`: every xcrun, swift and xcodebuild call reads DEVELOPER_DIR.
-      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Select Swift 6
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
       - name: Verify the app's pinned native relay TLS verifier
         run: python3 tests/relay_tls/system_keychain.py --allow-system-keychain --diagnostics --output relay-tls-results
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
+          retention-days: 1
           name: relay-tls-results
-          retention-days: 3
           path: relay-tls-results

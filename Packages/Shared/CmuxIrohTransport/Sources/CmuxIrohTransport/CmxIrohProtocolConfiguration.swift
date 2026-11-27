@@ -36,13 +36,14 @@ public struct CmxIrohProtocolConfiguration: Equatable, Sendable {
         maximumConcurrentClientApplicationLaneCount: UInt64 = 0,
         allowsNATTraversalAfterAdmission: Bool = true
     ) {
+        precondition(
+            maximumConcurrentClientApplicationLaneCount
+                <= Self.maximumClientApplicationLaneCount
+        )
         self.alpn = alpn
         self.maximumHeaderByteCount = maximumHeaderByteCount
-        // A lane count above the protocol ceiling is lowered to it.
-        self.maximumConcurrentClientApplicationLaneCount = min(
-            maximumConcurrentClientApplicationLaneCount,
-            Self.maximumClientApplicationLaneCount
-        )
+        self.maximumConcurrentClientApplicationLaneCount =
+            maximumConcurrentClientApplicationLaneCount
         self.allowsNATTraversalAfterAdmission = allowsNATTraversalAfterAdmission
     }
 

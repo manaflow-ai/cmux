@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/chats.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Chats.generated.swift",
-  "type": "ChatSettingsSchema",
-  "lists": {
-    "chats": ["descriptors", "ChatSettings"]
-  }
-}

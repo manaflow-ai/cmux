@@ -1,5 +1,0 @@
-image:
-  repository: ghcr.io/example/acpmux
-  tag: "0.1.0"
-join:
-  token: cmj_test_only

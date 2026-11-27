@@ -1,7 +1,0 @@
-.output/
-.vercel/
-.nitro/
-.tanstack/
-dist/
-.vercel
-.env*

@@ -1,9 +1,0 @@
-{
-  "title": "Settings > Keyboard: Key Style and Keyboard Layout, first card",
-  "steps": [
-    {"title": "Launch", "wait": 2, "shot": false},
-    {"title": "Settings > Keyboard opens on Key Style", "cmux": ["action", "run", "openSettings", "--setting", "app.keyStyle"], "wait": 3},
-    {"title": "Key Style: Vim", "cmux": ["settings", "set", "app.keyStyle", "vim"], "wait": 1.5},
-    {"title": "Keyboard Layout: Keep QWERTY Positions", "cmux": ["settings", "set", "app.shortcutLayout", "qwertyPositions"], "wait": 1.5}
-  ]
-}

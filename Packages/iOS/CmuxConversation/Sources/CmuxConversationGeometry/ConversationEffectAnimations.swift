@@ -1,9 +1,4 @@
-#if canImport(QuartzCore)  // Core Animation: Apple only (the Linux CI package build skips this file)
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Foundation
 import QuartzCore
 #if canImport(UIKit)
@@ -682,4 +677,3 @@ public enum EffectImages {
         }
     }
 }
-#endif

@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/agent-pane-edited-files.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPaneEditedFiles.generated.swift",
-  "type": "AgentPaneEditedFilesSettingsSchema",
-  "lists": {
-    "editedFiles": ["descriptors", "AgentPaneEditedFilesSetting"]
-  }
-}

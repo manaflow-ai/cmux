@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 extension V2ControlService {
     func openHTTP(run: UUID) async throws {
@@ -26,7 +23,7 @@ extension V2ControlService {
         try checkCooldown(schema)
         guard data.count <= 16 * 1024 else { throw V2ControlFailure.capacityExceeded }
         let unsigned = V2SocketSetup(device: descriptor, haveRevision: cache.directory?.revision, proof: nil, requestID: requestID, schemaID: .sessionOpenV1)
-        let issuedAt = unixSeconds
+        let issuedAt = Int(dependencies.now().timeIntervalSince1970)
         let nonce = codec.newProofNonce()
         let signature = try await dependencies.sign(codec.httpRequest(device: descriptor, setup: unsigned, issuedAt: issuedAt, request: data, nonce: nonce))
         try assertCurrent(run)

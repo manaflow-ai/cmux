@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -706,4 +705,3 @@ struct IrxLiveQUICTests {
         try? await client.close()
     }
 }
-#endif

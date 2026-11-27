@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/labs.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift",
-  "type": "LabsSettingsSchema",
-  "lists": {
-    "labs": ["descriptors", "CmuxConfigSnapshot"]
-  }
-}

@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Foundation
 
 /// One thread row's trip into the reply thread or back, stepped once per

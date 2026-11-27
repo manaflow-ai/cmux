@@ -50,7 +50,7 @@ public actor CmxIrohCustomRelayCredentialStore {
         await acquire(account)
         defer { release(account) }
         var credentials = try await storedCredentials(account: account)
-        credentials.updateValue(StaticCredential(token: token, relayURL: relayURL), forKey: relayID)
+        credentials[relayID] = StaticCredential(token: token, relayURL: relayURL)
         try await write(credentials, account: account)
     }
 

@@ -679,11 +679,12 @@ extension CmxIrohHostRuntime {
     }
 
     static func seconds(_ date: Date) -> Int64? {
-        // Int64(exactly:) is nil for NaN, infinity and 2^63 (TimeInterval(Int64.max)
-        // rounds up to 2^63, which the old range check let through to a trap).
-        guard let seconds = Int64(exactly: date.timeIntervalSince1970.rounded(.down)) else {
+        let value = date.timeIntervalSince1970
+        guard value.isFinite,
+              value >= TimeInterval(Int64.min),
+              value <= TimeInterval(Int64.max) else {
             return nil
         }
-        return seconds
+        return Int64(value.rounded(.down))
     }
 }

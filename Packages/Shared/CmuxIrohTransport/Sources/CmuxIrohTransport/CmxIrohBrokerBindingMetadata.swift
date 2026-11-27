@@ -71,7 +71,7 @@ public struct CmxIrohBrokerBindingMetadata: Codable, Equatable, Sendable {
               Self.isCanonicalUUID(appInstanceID),
               cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
               cmxIrohIsSafeToken(tag),
-              identityGeneration.isValidIdentityGeneration else {
+              (1 ... Int(Int32.max)).contains(identityGeneration) else {
             throw CmxIrohBrokerCredentialRepositoryError.invalidBinding
         }
         self.bindingID = bindingID

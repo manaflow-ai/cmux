@@ -1,4 +1,3 @@
-#if canImport(dnssd)
 import Foundation
 import dnssd
 @testable import CmuxIrohTransport
@@ -307,4 +306,3 @@ actor TestBonjourClockState {
         idleWaiters.removeValue(forKey: id)?.resume()
     }
 }
-#endif

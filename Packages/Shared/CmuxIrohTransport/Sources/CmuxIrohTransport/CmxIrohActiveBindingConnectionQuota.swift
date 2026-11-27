@@ -14,8 +14,8 @@ public struct CmxIrohActiveBindingConnectionQuota: Sendable {
         maximumActiveConnectionsPerBinding: Int = Self
             .recommendedMaximumActiveConnectionsPerBinding
     ) {
-        // A limit below one becomes one, so a binding always keeps one session.
-        self.maximumActiveConnectionsPerBinding = max(1, maximumActiveConnectionsPerBinding)
+        precondition(maximumActiveConnectionsPerBinding > 0)
+        self.maximumActiveConnectionsPerBinding = maximumActiveConnectionsPerBinding
     }
 
     /// Returns whether one more session for `bindingID` fits within the quota.

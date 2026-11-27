@@ -11,9 +11,7 @@ extension MessageCell {
         quoteLabel.font = t.quoteFont
         footerLabel.font = t.footerFont
         editedLabel.font = t.editedFont
-        // "N Replies" is semibold like "Delivered" (simulator Messages 27.0).
-        repliesLabel.font = t.footerFont
-        quoteRepliesLabel.font = t.footerFont
+        repliesLabel.font = t.editedFont
         timeLabel.font = t.timestampDrawerFont
     }
 }

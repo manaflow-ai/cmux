@@ -1,23 +1,21 @@
 public import CMUXMobileCore
 import CmuxIrohTransport
 public import Foundation
-#if canImport(IrohLib)
 public import IrohLib
-#endif
 
 /// Serialized writer for one QUIC send stream: concurrent senders cannot
 /// interleave bytes mid-frame.
 public actor IrxStreamWriter {
-    private let stream: any IrxQUICSendStream
+    private let stream: SendStream
     private var finished = false
 
-    init(_ stream: any IrxQUICSendStream) {
+    init(_ stream: SendStream) {
         self.stream = stream
     }
 
     public func write(_ data: Data) async throws {
         guard !finished else { throw IrxFrameCodecError.unexpectedEOF }
-        try await stream.writeAll(data)
+        try await stream.writeAll(buf: data)
     }
 
     public func writeControlFrame(_ value: some Encodable) async throws {
@@ -25,7 +23,7 @@ public actor IrxStreamWriter {
     }
 
     public func setPriority(_ priority: Int32) async throws {
-        try await stream.setPriority(priority)
+        try await stream.setPriority(p: priority)
     }
 
     public func finish() async {
@@ -82,12 +80,12 @@ public enum IrxConnectionSilenceEvidence: Equatable, Sendable {
 /// component owns each reader (the field bug this kills: a second drain loop
 /// starves the real consumer frame by frame).
 public actor IrxStreamReader {
-    private let stream: any IrxQUICRecvStream
+    private let stream: RecvStream
     private let activity: IrxInboundActivityClock?
     private var buffer = Data()
     private var eof = false
 
-    init(_ stream: any IrxQUICRecvStream, activity: IrxInboundActivityClock? = nil) {
+    init(_ stream: RecvStream, activity: IrxInboundActivityClock? = nil) {
         self.stream = stream
         self.activity = activity
     }
@@ -95,7 +93,17 @@ public actor IrxStreamReader {
     /// One length-prefixed control frame body, or nil on EOF.
     public func readControlFrameBody() async throws -> Data? {
         while true {
-            if let body = try takeControlFrameBody() { return body }
+            if buffer.count >= 4 {
+                let length = buffer.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+                guard length <= IrxProtocol().maximumControlFrameByteCount else {
+                    throw IrxFrameCodecError.frameTooLarge(length)
+                }
+                if buffer.count >= 4 + length {
+                    let body = Data(buffer.dropFirst(4).prefix(length))
+                    buffer.removeFirst(4 + length)
+                    return body
+                }
+            }
             guard !eof else { return nil }
             let chunk = try await stream.read(sizeLimit: 1 << 16)
             if chunk.isEmpty {
@@ -105,21 +113,6 @@ public actor IrxStreamReader {
             activity?.record()
             buffer.append(chunk)
         }
-    }
-
-    /// The first whole frame's body, removed from `buffer`; nil until one is
-    /// complete. Synchronous, so the frame reader lives on the thread stack,
-    /// not across the read loop's suspension points.
-    private func takeControlFrameBody() throws -> Data? {
-        var frame = WireByteReader(buffer)
-        guard let header = frame.bigEndian(UInt32.self) else { return nil }
-        let length = Int(clamping: header)
-        guard length <= IrxProtocol().maximumControlFrameByteCount else {
-            throw IrxFrameCodecError.frameTooLarge(length)
-        }
-        guard let body = frame.bytes(length) else { return nil }
-        buffer = frame.remaining
-        return body
     }
 
     public func readControlFrame<T: Decodable>(_ type: T.Type) async throws -> T? {
@@ -142,7 +135,7 @@ public actor IrxStreamReader {
             return Data(drained)
         }
         guard !eof else { return nil }
-        let chunk = try await stream.read(sizeLimit: UInt32(clamping: min(bound, 1 << 16)))
+        let chunk = try await stream.read(sizeLimit: UInt32(min(bound, 1 << 16)))
         if chunk.isEmpty {
             eof = true
             return nil
@@ -190,14 +183,12 @@ public actor IrxConnection {
     nonisolated public let remoteEndpointIDHex: String
     /// Application bytes received on any stream of this connection.
     nonisolated public let inboundActivity = IrxInboundActivityClock()
-    private let connection: any IrxQUICConnection
+    private let connection: Connection
     /// Instant of the most recent keepalive pong; nil before the first pong.
     /// This is diagnostic history; age alone never proves the peer is dead.
     public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
-    #if canImport(IrohLib)
     private var pathDiagnostics: CmxIrohConnectionPathDiagnostics?
-    #endif
     private var closedFlag = false
     private var nativeClosureObserved = false
     private var localTermination: IrxTermination?
@@ -217,38 +208,21 @@ public actor IrxConnection {
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
-    #if canImport(IrohLib)
-    /// The iroh connection under this one.
-    public nonisolated let underlying: Connection
-
     public init(
         connection: Connection, role: Role, journal: IrxJournal,
         diagnosticLog: DiagnosticLog? = nil
     ) {
-        underlying = connection
-        self.connection = IrxIrohLibQUICConnection(native: connection)
+        self.connection = connection
         self.role = role
         self.journal = journal
         pathDiagnostics = diagnosticLog.map {
             CmxIrohConnectionPathDiagnostics(connection: connection, diagnosticLog: $0)
         }
-        remoteEndpointIDHex = Self.hex(self.connection.remoteEndpointID())
-    }
-    #else
-    public init(connection: any IrxQUICConnection, role: Role, journal: IrxJournal) {
-        self.connection = connection
-        self.role = role
-        self.journal = journal
-        remoteEndpointIDHex = Self.hex(connection.remoteEndpointID())
-    }
-    #endif
-
-    private static func hex(_ bytes: Data) -> String {
-        bytes.map { String(format: "%02x", $0) }.joined()
+        remoteEndpointIDHex = connection.remoteId().toBytes()
+            .map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Stable identity of the QUIC connection across path changes.
-    public nonisolated func continuityID() -> UInt64 { connection.stableID() }
+    public nonisolated var underlying: Connection { connection }
 
     public var isClosed: Bool {
         closedFlag || nativeClosureObserved || connection.closeReason() != nil
@@ -345,15 +319,15 @@ public actor IrxConnection {
     /// server right after admission (lanes) and by the client for the
     /// server-opened events lane.
     public func raiseRemoteStreamCredit(bi: UInt64, uni: UInt64) {
-        try? connection.setMaxConcurrentBiStreams(bi)
-        try? connection.setMaxConcurrentUniStreams(uni)
+        try? connection.setMaxConcurrentBiStreams(count: bi)
+        try? connection.setMaxConcurrentUniStreams(count: uni)
     }
 
     /// Opens a bidirectional lane and sends its descriptor.
     public func openLane(_ descriptor: IrxLaneDescriptor) async throws -> IrxLaneStream {
         let stream = try await connection.openBi()
-        let writer = IrxStreamWriter(stream.send)
-        let reader = IrxStreamReader(stream.recv, activity: inboundActivity)
+        let writer = IrxStreamWriter(stream.send())
+        let reader = IrxStreamReader(stream.recv(), activity: inboundActivity)
         try await writer.writeControlFrame(descriptor)
         return IrxLaneStream(descriptor: descriptor, writer: writer, reader: reader)
     }
@@ -372,8 +346,8 @@ public actor IrxConnection {
         while !Task.isCancelled {
             do {
                 let stream = try await connection.acceptBi()
-                let reader = IrxStreamReader(stream.recv, activity: inboundActivity)
-                let writer = IrxStreamWriter(stream.send)
+                let reader = IrxStreamReader(stream.recv(), activity: inboundActivity)
+                let writer = IrxStreamWriter(stream.send())
                 do {
                     if let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self) {
                         return IrxLaneStream(descriptor: descriptor, writer: writer, reader: reader)
@@ -394,19 +368,20 @@ public actor IrxConnection {
     /// descriptor or stream EOF as complete-connection closure.
     public func acceptUniLane() async throws -> (IrxLaneDescriptor, IrxStreamReader)? {
         while !Task.isCancelled {
-            // The tuple is built outside every do/catch: Swift -O drops tuple elements returned
-            // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
-            let stream: any IrxQUICRecvStream
-            do { stream = try await connection.acceptUni() } catch { return nil }
-            let reader = IrxStreamReader(stream, activity: inboundActivity)
-            var descriptor: IrxLaneDescriptor?
             do {
-                descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self)
+                let stream = try await connection.acceptUni()
+                let reader = IrxStreamReader(stream, activity: inboundActivity)
+                do {
+                    if let descriptor = try await reader.readControlFrame(IrxLaneDescriptor.self) {
+                        return (descriptor, reader)
+                    }
+                } catch {
+                    // A later event stream may repair this optional feature.
+                }
+                await reader.stop(errorCode: 2)
             } catch {
-                // A later event stream may repair this optional feature.
+                return nil
             }
-            if let descriptor { return (descriptor, reader) }
-            await reader.stop(errorCode: 2)
         }
         return nil
     }
@@ -419,7 +394,7 @@ public actor IrxConnection {
         guard let selected = paths.first(where: { $0.isSelected }) else {
             return nil
         }
-        return (selected.isRelay, selected.remoteAddress)
+        return (selected.isRelay, "\(selected.remoteAddr)")
     }
 
     /// The selected QUIC path right now, for relay attribution evidence.
@@ -428,7 +403,7 @@ public actor IrxConnection {
         guard let selected = paths.first(where: { $0.isSelected }) ?? paths.first else {
             return "none"
         }
-        return "\(selected.isRelay ? "relay" : "direct"):\(selected.remoteAddress)"
+        return "\(selected.isRelay ? "relay" : "direct"):\(selected.remoteAddr)"
     }
 
     /// Samples application round-trip latency on an optional lane.
@@ -628,9 +603,7 @@ public actor IrxConnection {
         keepaliveTask?.cancel()
         keepaliveTask = nil
         keepaliveSettings = nil
-        #if canImport(IrohLib)
         pathDiagnostics = nil
-        #endif
         cancelProbe()
         try? connection.close(errorCode: 1, reason: code.reasonData)
         journal.record(

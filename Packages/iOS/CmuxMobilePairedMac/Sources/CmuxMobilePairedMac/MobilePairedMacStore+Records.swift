@@ -1,9 +1,7 @@
 import CMUXMobileCore
 import Foundation
 import SQLite3
-#if canImport(os)
 import os
-#endif
 
 extension MobilePairedMacStore {
     struct MacRow {

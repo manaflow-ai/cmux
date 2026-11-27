@@ -13,7 +13,6 @@ public struct CmxIrohCustomRelayProbe: Sendable {
     private let clock: any CmxIrohRelayClock
 
     /// Creates an isolated custom relay probe.
-    #if canImport(IrohLib)
     public init(
         factory: any CmxIrohEndpointFactory = CmxIrohLibEndpointFactory(),
         randomness: any CmxIrohRandomByteGenerating = CmxIrohSystemRandomByteGenerator(),
@@ -23,19 +22,6 @@ public struct CmxIrohCustomRelayProbe: Sendable {
         self.randomness = randomness
         self.clock = clock
     }
-    #else
-    /// Creates an isolated custom relay probe. Without IrohLib there is no
-    /// native endpoint, so the caller supplies the factory.
-    public init(
-        factory: any CmxIrohEndpointFactory,
-        randomness: any CmxIrohRandomByteGenerating = CmxIrohSystemRandomByteGenerator(),
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
-    ) {
-        self.factory = factory
-        self.randomness = randomness
-        self.clock = clock
-    }
-    #endif
 
     /// Binds a temporary endpoint and waits for one allowed custom relay.
     ///

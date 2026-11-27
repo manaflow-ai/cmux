@@ -44,20 +44,6 @@ on:
         required: false
         default: remote
         type: string
-      # Callers measure or ship what they build (frame pacing), so they keep
-      # the full release profile unless they ask.
-      acpmux_profile:
-        required: false
-        default: release
-        type: string
-      release:
-        required: false
-        default: false
-        type: boolean
-      publish:
-        required: false
-        default: false
-        type: boolean
   workflow_dispatch:
     inputs:
       tag:
@@ -104,28 +90,6 @@ on:
         options:
           - remote
           - local
-      release:
-        description: "macOS only: build the Release configuration for this Mac's architecture (reload.sh --config release --native-arch) instead of Debug, with its own DerivedData cache entries"
-        required: false
-        default: false
-        type: boolean
-      publish:
-        description: "macOS release builds only: also publish the app to files.cmux.com/cmux-tui/<commit>/ (mac-app-release.zip and its signed mac-app.json) for `cmux app try`, with no GitHub token on the installing Mac"
-        required: false
-        default: false
-        type: boolean
-      acpmux_profile:
-        description: >-
-          acpmux Cargo profile. devbuild (the default for a tagged reload) is
-          tools/devbuild's: no LTO, 16 codegen units, incremental, cached apart
-          from release builds. release is the shipped profile. The release
-          input always builds acpmux with release.
-        required: false
-        default: devbuild
-        type: choice
-        options:
-          - devbuild
-          - release
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -159,7 +123,7 @@ jobs:
     # re-run), then Blacksmith. iOS builds stay on Blacksmith: the side runners
     # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
     # Any other label is honored.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) || startsWith(inputs.runner, 'depot-')) && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.resolve-ref.outputs.trusted_ref != 'true' && fromJSON(vars.RUNNER_POOLS).macos_26 || (inputs.platform == 'macos' || vars.CI_BLACKSMITH_MACOS != 'on') && (vars.CI_OVERFLOW_MAC || 'cmux-mac') || fromJSON(vars.RUNNER_POOLS).macos_26) || inputs.runner }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) || startsWith(inputs.runner, 'depot-')) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && (vars.CI_OVERFLOW_MAC || 'cmux-mac') || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
@@ -198,11 +162,7 @@ jobs:
       # files behind, so make the ref boundary explicit before building.
       - name: Remove stale checkout files
         shell: bash
-        # build-acpmux.sh leaves Go's module cache in .build/go-path, read-only (a toolchain switch,
-        # or a clone from before tailnet-go.sh set -modcacherw), and git clean fails on it.
-        run: |
-          chmod -R u+w .build/go-path 2>/dev/null || true
-          git clean -ffdx
+        run: git clean -ffdx
 
       - name: Start timer
         id: t0
@@ -217,66 +177,25 @@ jobs:
           pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
           CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
 
-      # The webviews app's `vp build` must run on node: on bun it emits
-      # different bytes (build-web-bundles.sh).
-      - name: Restore pinned Node 24.22.1 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
-
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
-
-      # reload.sh builds the cmux-next web bundles (build-web-bundles.sh) with
-      # the bun webviews/package.json devEngines pins; check-webviews-bun-version.sh
-      # refuses an older one (cx-vn5).
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
 
-      # cmux-next's agent pane starts the in-tree acpmux daemon from the app
-      # bundle. Build it on the fleet before reload.sh; local reloads use the
-      # same commit-addressed cache when one has already been provisioned.
-      - name: Build in-tree acpmux (macOS)
-        if: ${{ inputs.platform == 'macos' && hashFiles('scripts/cmux-next/build-acpmux.sh') != '' }}
-        env:
-          ACPMUX_PROFILE: ${{ inputs.release != true && inputs.acpmux_profile || 'release' }}
+      # The macOS app build compiles the bundled cmux-cua (Rust) in a copy-
+      # resources phase via scripts/build-cmux-cua.sh, so the runner needs a
+      # toolchain. Guarded so source refs that predate cmux-cua are a no-op
+      # (scripts come from inputs.ref); install-rust-ci.sh is idempotent.
+      - name: Provision Rust for bundled cmux-cua (macOS)
+        if: ${{ inputs.platform == 'macos' }}
         run: |
           set -euo pipefail
-          # tools/devbuild's profile: a one-file change relinks in seconds
-          # instead of the full profile's LTO pass. build-acpmux.sh names these
-          # overrides in its cache and target-dir keys, so a release-profile
-          # build never reuses this binary.
-          if [[ "$ACPMUX_PROFILE" == devbuild ]]; then
-            export CARGO_PROFILE_RELEASE_LTO=off
-            export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
+          if [ -f scripts/build-cmux-cua.sh ] && [ -f scripts/install-rust-ci.sh ]; then
+            ./scripts/install-rust-ci.sh
+          else
+            echo "cmux-cua build script absent in source ref; skipping Rust provisioning"
           fi
-          acpmux_started=$SECONDS
-          ./scripts/install-rust-ci.sh
-          # ghostty-vt-sys runs `zig build` in ghostty-next with ghostty-next's
-          # own Zig (as cloud-chat-proof.yml does); without it the build stops at
-          # "failed to run `zig build` ... No such file or directory".
-          if [[ -z "${ZIG:-}" ]]; then
-            GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
-            vt_zig="$(sed -n 's/^CMUX_VT_ZIG=//p' "$GITHUB_ENV" | tail -1)"
-            [[ -x "$vt_zig" ]] || { echo "::error::ghostty-next Zig not installed" >&2; exit 1; }
-            export ZIG="$vt_zig"
-          fi
-          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
-          build_started=$SECONDS
-          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
-          echo "::notice::acpmux ($ACPMUX_PROFILE profile) built in $((SECONDS - build_started)) s; step $((SECONDS - acpmux_started)) s"
-          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       # Reuse an immutable client built from the exact cmux-tui/Ghostty inputs.
       # App-only changes do not require recompiling cmux-tui on a Mac.
@@ -291,40 +210,18 @@ jobs:
         run: |
           set -euo pipefail
           client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
-          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
+          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"
-          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" --arch native \
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
             --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
             --expected-commit "$client_commit" --require-capability wireguard-hub \
             --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
-          # bin/cmux is the cmux-tui binary; bin/cmux-tui and bin/acpmux link to it.
-          client="$client_bundle/Contents/Resources/bin/cmux"
+          client="$client_bundle/Contents/Resources/bin/cmux-tui"
           probe="$($client remote-probe --json)"
           version="$($client --version)"
-          # Packaged clients stamp the libghostty-vt source: ghostty-next where
-          # the tree has it, else ghostty (older trees).
-          ghostty_source=ghostty
-          if git rev-parse --verify -q HEAD:ghostty-next >/dev/null; then
-            ghostty_source=ghostty-next
-          fi
-          ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
-          # The commit path is an alias of a tree-addressed build: the client under
-          # cmux-tui/<client_commit>/ may have been built at another commit with the
-          # same cmux-tui and Ghostty trees, and it reports that commit (run
-          # 43685975924: 1c111e8b439's client is 45ad74a874d's build). Such a build is
-          # this tree's client; any other identity is still refused below.
-          identity="$(printf '%s' "$probe" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("build_identity") or "")')"
-          expected_identity="$client_commit"
-          if [[ "$identity" != "$client_commit" && "$identity" =~ ^[0-9a-f]{40}$ ]]; then
-            git cat-file -e "$identity^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$identity" || true
-            if git cat-file -e "$identity^{commit}" 2>/dev/null \
-              && git diff --quiet "$identity" HEAD -- cmux-tui ghostty ghostty-next; then
-              echo "The cmux-tui client published for $client_commit was built at $identity, with the same cmux-tui and Ghostty trees."
-              expected_identity="$identity"
-            fi
-          fi
-          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$expected_identity" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
+          ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$client_commit" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
           import json
           import os
 
@@ -342,7 +239,6 @@ jobs:
         env:
           DISPATCH_REF: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
         run: |
           set -euo pipefail
           # actions/cache scopes entries to the run's dispatch ref: a run may
@@ -378,8 +274,7 @@ jobs:
           spm_prefix="reload-build-macos-spm-v2-${xcode_key}-${workspace_key}-"
           # DerivedData contains ONLY_ACTIVE_ARCH products and object files;
           # never restore those across OS/architecture changes.
-          # A Release build keeps its own entries, outside the Debug prefix: its objects never stand in for a Debug run's.
-          derived_prefix="reload-build-macos-deriveddata-${RELEASE_BUILD:+release-}v3-${xcode_key}-${runner_key}-${workspace_key}-"
+          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${runner_key}-${workspace_key}-"
           if [ -f "$resolved_file" ]; then
             resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
             spm_cache_enabled=true
@@ -678,7 +573,6 @@ jobs:
         env:
           BUILD_TAG: ${{ inputs.tag }}
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
-          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
           CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
           DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
@@ -702,8 +596,7 @@ jobs:
             ./scripts/reload.sh \
               --tag "$BUILD_TAG" \
               --derived-data "$derived_data" \
-              --swift-frontend-workaround \
-              ${RELEASE_BUILD:+--config release --native-arch}
+              --swift-frontend-workaround
           }
 
           set +e
@@ -738,6 +631,11 @@ jobs:
           app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
+          if [ -f tests/test_cli_vm_create_name.py ]; then
+            CMUX_CLI_BIN="$app_path/Contents/Resources/bin/cmux" \
+              DYLD_FRAMEWORK_PATH="$app_path/Contents/Frameworks:$derived_data/Build/Products/Debug" \
+              python3 tests/test_cli_vm_create_name.py
+          fi
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
 
@@ -808,7 +706,7 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             -archivePath "$archive" \
-            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/cmux-ios-dd}" \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
             CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
             CMUX_HOST_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
@@ -839,7 +737,7 @@ jobs:
             -scheme cmux-ios \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/cmux-ios-dd}" \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
@@ -860,7 +758,7 @@ jobs:
             SWIFT_COMPILATION_MODE=wholemodule \
             GCC_OPTIMIZATION_LEVEL=s \
             "${swift_workaround_args[@]}"
-          sim_app="${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/cmux-ios-dd}/Build/Products/Debug-iphonesimulator/cmux.app"
+          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
 
           mkdir -p artifact
@@ -895,7 +793,7 @@ jobs:
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Save SPM SourcePackages cache
-        if: ${{ (success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true')) && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
         id: save_spm
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1125,118 +1023,3 @@ jobs:
           path: artifact/
           retention-days: 1
           if-no-files-found: error
-
-  # `cmux app try <PR|branch|sha>` installs this build in place on anyone's NIGHTLY with no GitHub token
-  # (cmuxterm-hq docs/design/cmux-next-hot-swap-layers.md, "Move the full-app step into the app's CLI"): the
-  # app zip of cmux-tui/<commit>/mac-app-release.zip and the signed cmux-tui/<commit>/mac-app.json that names
-  # its sha256 (scripts/ci/cmux-machine-channel.py --purpose mac-app, written once, never a channel pointer).
-  # The build job runs the built ref's own scripts, so it never holds the signing key or R2 credentials; this
-  # job does, and runs only the WORKFLOW's own scripts (this run's checkout, never inputs.ref), reading the
-  # build's artifact as data: the zip's bytes are hashed and signed, and its Info.plist is read with plistlib.
-  # Not on a pull_request event, where the workflow's own checkout is the PR's merge ref. The `artifacts`
-  # environment admits every branch (cmux-tui-artifacts.yml publish: "allows every branch", cx-r2is), so a
-  # dispatch from a lane branch publishes.
-  publish-mac-app:
-    name: publish the Mac app build
-    needs: [resolve-ref, build]
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name != 'pull_request' && inputs.platform == 'macos' && inputs.release == true && inputs.publish == true }}
-    environment:
-      name: artifacts
-      deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    env:
-      COMMIT: ${{ needs.resolve-ref.outputs.sha }}
-    steps:
-      # The workflow's own ref, sparse: the signer, the uploader, the pointer tool and the trusted keys.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          sparse-checkout: |
-            /scripts/ci/
-            /scripts/cmux-next/web-ota-pointer.py
-            /Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
-            /.gitmodules
-          sparse-checkout-cone-mode: false
-
-      - name: Repair a reused self-hosted checkout
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
-            if git rev-parse --git-dir >/dev/null 2>&1; then
-              git reset -q --hard HEAD
-            fi
-          fi
-
-      # One signed file per commit, written once: a rerun of a published commit keeps it (a rebuild's bytes
-      # differ, and the file names its zip's sha256).
-      - name: Look for an earlier publication of this commit
-        id: once
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::$COMMIT is not a full commit sha"; exit 1; }
-          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "https://files.cmux.com/cmux-tui/$COMMIT/mac-app.json?once=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" || true)"
-          case "$code" in
-            200) echo "exists=true" >> "$GITHUB_OUTPUT"
-                 echo "::notice::cmux-tui/$COMMIT/mac-app.json is already published; keeping it." ;;
-            404) echo "exists=false" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::cmux-tui/$COMMIT/mac-app.json could not be read (HTTP $code)"; exit 1 ;;
-          esac
-
-      - name: Download the build's app
-        if: steps.once.outputs.exists != 'true'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: reload-${{ inputs.tag }}-${{ inputs.platform }}
-          path: ${{ runner.temp }}/mac-app-artifact
-
-      - name: Check the app's commit
-        if: steps.once.outputs.exists != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          zip="$RUNNER_TEMP/mac-app-artifact/app.zip"
-          [[ -f "$zip" ]] || { echo "::error::the build artifact has no app.zip"; exit 1; }
-          python3 -I - "$zip" "$COMMIT" <<'PY'
-          import plistlib, re, sys, zipfile
-
-          path, commit = sys.argv[1:3]
-          with zipfile.ZipFile(path) as z:
-              plists = [n for n in z.namelist() if re.fullmatch(r"[^/]+\.app/Contents/Info\.plist", n)]
-              if len(plists) != 1:
-                  raise SystemExit(f"::error::{path} holds {len(plists)} top-level apps, not one")
-              info = plistlib.loads(z.read(plists[0]))
-          built = info.get("CMUXCommit")
-          if not isinstance(built, str) or not re.fullmatch(r"[0-9a-f]{7,40}", built) or not commit.startswith(built):
-              raise SystemExit(f"::error::the app's CMUXCommit is {built!r}, not {commit}: it is not this commit's build")
-          print(f"{plists[0]} CMUXCommit {built} matches {commit}")
-          PY
-
-      - name: Publish and sign the Mac app build
-        if: steps.once.outputs.exists != 'true'
-        shell: bash
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          zip="$RUNNER_TEMP/mac-app-artifact/app.zip"
-          work="$RUNNER_TEMP/mac-app"
-          mkdir -p "$work" && chmod 700 "$work"
-          # The zip first, so the signed file never names bytes that are not there. A zip already there is kept
-          # only if it is these bytes (an earlier attempt that died before signing); other bytes are an error.
-          timeout 600 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-            --cache-control "public, max-age=31536000, immutable" --file "$zip" \
-            --key "cmux-tui/$COMMIT/mac-app-release.zip" --content-type application/zip --write-once
-          python3 scripts/ci/cmux-machine-channel.py payload --purpose mac-app --commit "$COMMIT" --zip "$zip" \
-            --url "https://files.cmux.com/cmux-tui/$COMMIT/mac-app-release.zip" --run-id "$GITHUB_RUN_ID" \
-            --out "$work/payload.json"
-          timeout 300 scripts/ci/cmux-machine-channel-point.sh "$work/payload.json" "$work" --commit-only

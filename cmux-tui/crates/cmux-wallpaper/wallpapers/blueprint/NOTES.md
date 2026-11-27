@@ -1,7 +1,0 @@
-# Blueprint
-
-- Moves: the grid breathes. Two slow travelling waves (time rates 0.091 and 0.053 rad/s, incommensurate, slowest period ~2 min) swell line weight and brightness across the sheet; construction-circle dashes creep around their rings. Grain and paper mottling are static, as on a print.
-- Pointer: an accent crosshair (gap, ring, short arms, hairlines that fade out ~110 units away), the nearest major intersection gets a marker and its two major lines light up for a short run, and two drafting dimension lines (extension lines, slash terminators) run from the pointer to it, labelled in tenths of a cell with 3x5 pixel glyphs. Both rulers carry an accent tick, a caret and the pointer's coordinate. Everything scales by `presence.x`, so it eases out when the pointer leaves.
-- Labels: digits are a 15-bit 3x5 bitmap per glyph (switch lookup, no font, no loop); ruler labels every major, in cells.
-- Params: cell size, cells per major, breathing speed, circle density, grain, line weight. Variants: Drafting (10/5), Fine survey (6/10, calm, sparse circles), Workshop (16/4, heavy lines, many circles, coarse grain).
-- Cost: ~200-260 ALU ops per pixel in the common path. Loops: one fixed 3x3 neighbourhood (9 iterations) for construction circles, each ~15 ops plus an atan2 only on ring pixels. One value-noise octave (4 hashes) + 3 per-pixel hashes. Ruler and pointer branches run only in the 18-unit edge bands and when `presence.x > 0`; the pointer block is ~120 ops, no loops. No sin-heavy noise: 2 sin per pixel for breathing.

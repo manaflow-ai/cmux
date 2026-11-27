@@ -1,7 +1,7 @@
 name: Prune PR media
 
-# scripts/pr-media.py (and the retired pr-media.yml) add screenshots and GIFs
-# to the pr-media branch, and every default clone fetches that
+# pr-media.yml and scripts/pr-media.py add screenshots and GIFs to the
+# pr-media branch on every app push, and every default clone fetches that
 # branch. This bounds unreferenced open-PR revisions and drops folders of PRs closed over 30 days ago, then
 # squashes the branch to one commit so their files leave history too (see
 # scripts/ci/prune_pr_media.py). It is a dry run unless a dispatch asks to
@@ -31,7 +31,7 @@ jobs:
   prune:
     name: Prune obsolete pull request media
     if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: write

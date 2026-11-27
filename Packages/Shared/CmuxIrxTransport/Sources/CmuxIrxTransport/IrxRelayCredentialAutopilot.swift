@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
 public import Foundation
 
@@ -103,7 +102,7 @@ public actor IrxRelayCredentialAutopilot {
                 let wait = soonest.timeIntervalSince(now)
                 journal.record(
                     "credential-autopilot", "sleeping",
-                    ["until_refresh_s": wait.journalInteger]
+                    ["until_refresh_s": String(Int(wait))]
                 )
                 try? await Task.sleep(for: .seconds(wait))
                 if Task.isCancelled || generation != loopGeneration { return }
@@ -148,4 +147,3 @@ public actor IrxRelayCredentialAutopilot {
         }
     }
 }
-#endif

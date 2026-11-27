@@ -358,7 +358,7 @@ final class MacPinnedTileView: MacFlippedView, NSDraggingSource {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        NSMenu.systemFree(id.flatMap { menuProvider?($0) })
+        id.flatMap { menuProvider?($0) }
     }
 
     override func accessibilityPerformPress() -> Bool {

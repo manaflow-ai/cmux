@@ -1,12 +1,8 @@
 public import CMUXMobileCore
 internal import CmuxMobileShellModel
-#if canImport(CmuxMobileSupport)
 internal import CmuxMobileSupport
-#endif
 public import Foundation
-#if canImport(os)
 internal import os
-#endif
 
 /// Controls whether a request carries the connection's attach-ticket context.
 /// Stack account authorization is always sent for authorized bearer requests.
@@ -517,7 +513,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             throw MobileShellConnectionError.authorizationFailed(
                 L10n.string(
                     "mobile.pairing.stackAuthTokenUnavailable",
-                    // retry-prompt-ok: sign-in on the computer needs the person
                     defaultValue: "Sign in on your computer with the same account, then try again."
                 )
             )
@@ -645,7 +640,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(
                         "mobile.pairing.stackAuthTokenUnavailable",
-                        // retry-prompt-ok: sign-in on the computer needs the person
                         defaultValue: "Sign in on your computer with the same account, then try again."
                     )
                 )

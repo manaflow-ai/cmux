@@ -1,6 +1,4 @@
-#if canImport(AuthenticationServices)
 import AuthenticationServices
-#endif
 import CMUXAuthCore
 import Foundation
 @testable import CmuxAuthRuntime
@@ -33,16 +31,10 @@ actor FakeAuthClient: AuthClient {
     private(set) var lastSelectedTeamID: String?
     var serverSelectedTeamID: String?
     var nextCreatedTeamID = "team-created"
-    /// Invitations addressed to the user, by id, each naming the team it joins.
-    var receivedInvitations: [String: CMUXAuthTeam] = [:]
     private(set) var teamSelectionCount = 0
     private(set) var teamCreateCount = 0
     private var nextTeamSelectionGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
-    private var nextSelectedTeamReadGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
-    private var nextTeamDeleteGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
-    private var nextTeamAcceptGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
-    private var nextTeamListGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
@@ -77,39 +69,13 @@ actor FakeAuthClient: AuthClient {
     func setMintedAccessToken(_ token: String?) { mintedAccessToken = token }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
-    func setServerSelectedTeamID(_ id: String?) { serverSelectedTeamID = id }
-    func setReceivedInvitations(_ invitations: [String: CMUXAuthTeam]) { receivedInvitations = invitations }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
     func holdNextTeamSelection(started: TestPhaseSignal, release: TestContinuationBlocker) {
         nextTeamSelectionGate = (started, release)
     }
-    /// Holds the next ``selectedTeamID()`` read after it has read the server's
-    /// value, so the read answers a selection that may have changed meanwhile.
-    func holdNextSelectedTeamRead(started: TestPhaseSignal, release: TestContinuationBlocker) {
-        nextSelectedTeamReadGate = (started, release)
-    }
     func holdNextTeamCreate(started: TestPhaseSignal, release: TestContinuationBlocker) {
         nextTeamCreateGate = (started, release)
-    }
-    func holdNextTeamDelete(started: TestPhaseSignal, release: TestContinuationBlocker) {
-        nextTeamDeleteGate = (started, release)
-    }
-    func takeTeamDeleteGate() -> (started: TestPhaseSignal, release: TestContinuationBlocker)? {
-        defer { nextTeamDeleteGate = nil }
-        return nextTeamDeleteGate
-    }
-    func holdNextTeamAccept(started: TestPhaseSignal, release: TestContinuationBlocker) {
-        nextTeamAcceptGate = (started, release)
-    }
-    func takeTeamAcceptGate() -> (started: TestPhaseSignal, release: TestContinuationBlocker)? {
-        defer { nextTeamAcceptGate = nil }
-        return nextTeamAcceptGate
-    }
-    /// Holds the next ``listTeams()`` after it has read the teams, so the read
-    /// answers a membership that may have changed meanwhile.
-    func holdNextTeamList(started: TestPhaseSignal, release: TestContinuationBlocker) {
-        nextTeamListGate = (started, release)
     }
 
     /// Mirrors the live SDK store: a fresh stored access token is returned
@@ -147,24 +113,10 @@ actor FakeAuthClient: AuthClient {
 
     func listTeams() async throws -> [CMUXAuthTeam] {
         if let throwOnListTeams { throw throwOnListTeams }
-        let read = teams
-        if let gate = nextTeamListGate {
-            nextTeamListGate = nil
-            await gate.started.markStarted()
-            await gate.release.wait()
-        }
-        return read
+        return teams
     }
 
-    func selectedTeamID() async throws -> String? {
-        let read = serverSelectedTeamID
-        if let gate = nextSelectedTeamReadGate {
-            nextSelectedTeamReadGate = nil
-            await gate.started.markStarted()
-            await gate.release.wait()
-        }
-        return read
-    }
+    func selectedTeamID() async throws -> String? { serverSelectedTeamID }
 
     func setSelectedTeam(id: String?) async throws {
         teamSelectionCount += 1
@@ -240,7 +192,6 @@ actor FakeAuthClient: AuthClient {
 
 /// A no-op presentation anchor for OAuth flows in tests.
 final class FakeAnchor: NSObject, AuthPresentationAnchoring {
-#if canImport(AuthenticationServices)
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
@@ -248,7 +199,6 @@ final class FakeAnchor: NSObject, AuthPresentationAnchoring {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
-#endif
 }
 
 /// A sign-out hook latch for asserting the injected `onSignedOut` ran.
@@ -276,14 +226,11 @@ actor TeardownOutcomeProbe {
 }
 
 extension AuthLaunchOptions {
-    static func plain(
-        includesDevAuth: Bool = false,
-        environment: [String: String] = [:]
-    ) -> AuthLaunchOptions {
+    static func plain(includesDevAuth: Bool = false) -> AuthLaunchOptions {
         AuthLaunchOptions(
             clearAuthRequested: false,
             mockDataEnabled: false,
-            environment: environment,
+            environment: [:],
             includesDevAuth: includesDevAuth
         )
     }

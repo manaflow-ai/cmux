@@ -1,120 +1,29 @@
 name: Cloud harness start matrix (staging, on dispatch)
 
-# scripts/cmux-next/cloud-chat-matrix.ts's `start` cells against staging: for each harness the Cloud chat picker
-# offers, a fresh machine whose agent is started the way the app starts it (`agent-session-start` over the carrier
-# dial, cloud-journey.ts --start-via app). A cell passes on a started session, or on exactly
-# `agent_session.sign_in_required` naming that harness (the app then offers that agent's own sign-in); a bare refusal,
-# a hang or another harness's name fails. Each cell is one journey on its own new machine, deleted by exact id; cells
-# run one after another.
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
 #
-# Leo, 2026-11-15: "so does cloud work? on our thing? just automatically? or switching environments? claude and codex
-# alike, through gui? and other harnesses/etc too? and alternatively can pick enviornments?" (hq#11225)
+#   gh workflow run cloud-harness-matrix.yml -R manaflow-ai/cmux --ref feat-cmux-next
 #
-# Dispatch only, never a pull request check. Same trust rule as cloud-claude-matrix.yml and cloud-journey-prod.yml's
-# staging preclaim: only a dispatch of main or feat-cmux-next runs, and the scripts and the cmux CLI it builds always
-# come from feat-cmux-next, never a pull request's head, since the job holds the staging test account. Secrets: the
-# staging test account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-vm-image-dev environment) and the
-# repository's CLAUDE_CODE_OAUTH_TOKEN for the journey's Claude login copy. The machine runs its image's own cmux-tui
-# and acpmux: a change to the start path shows here once an image with it is rolled to staging.
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
 on:
   workflow_dispatch:
     inputs:
       cells:
         description: comma-separated cells (cloud-chat-matrix.ts --list); default every app-start cell
-        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start,antigravity-app-start
-  # A lane that cannot dispatch runs it by landing a change to this file on feat-cmux-next: its last line is the cells.
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - .github/cloud-harness-matrix/request
+        required: false
+        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start
+        type: string
 
-permissions:
-  contents: read
-
-concurrency:
-  group: cloud-harness-matrix
-  cancel-in-progress: false
+permissions: {}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  matrix:
-    if: github.repository_owner == 'manaflow-ai' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 90
-    environment:
-      name: cmux-next-vm-image-dev
-      deployment: false
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: refs/heads/feat-cmux-next
-          submodules: recursive
-      - name: Install Linux cmux-tui build dependencies
-        run: |
-          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
-          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then echo "clang libclang-dev pkg-config: already installed"; else sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config; fi
-      - name: Set up cmux-tui Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
-          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
-          use-cache: false
-      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
-        uses: ./.github/actions/zig-global-cache
-      - name: Build the Linux cmux CLI
-        id: build-cmux-tui
-        working-directory: cmux-tui
-        env:
-          CARGO_NET_RETRY: "10"
-          CARGO_HTTP_TIMEOUT: "120"
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-          CMUX_GHOSTTY_SRC: ""
-        run: |
-          cargo build -p cmux-tui --bin cmux-tui --locked
-          test -x target/debug/cmux-tui
-          echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
-      - name: Cloud harness start matrix (staging)
-        timeout-minutes: 80
-        env:
-          CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          CMUX_BIN: ${{ steps.build-cmux-tui.outputs.path }}
-          CELLS: ${{ inputs.cells }}
-        run: |
-          set -uo pipefail
-          if [ -z "$CELLS" ] && [ -f .github/cloud-harness-matrix/request ]; then
-            CELLS=$(grep -v '^[[:space:]]*#' .github/cloud-harness-matrix/request | grep -v '^[[:space:]]*$' | tail -n 1 | tr -d '[:space:]')
-          fi
-          if [ -z "$CELLS" ]; then echo "no cells: give the cells input or a cells line in .github/cloud-harness-matrix/request" >&2; exit 2; fi
-          out="$RUNNER_TEMP/cloud-harness-matrix"
-          bun scripts/cmux-next/cloud-chat-matrix.ts --backend staging --cells "$CELLS" --out "$out"
-          code=$?
-          cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no matrix written)" >> "$GITHUB_STEP_SUMMARY"
-          exit "$code"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: cloud-harness-matrix
-          path: ${{ runner.temp }}/cloud-harness-matrix
-          if-no-files-found: ignore
-          retention-days: 3
+      - run: echo "The Cloud harness start matrix is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

@@ -1,9 +1,5 @@
-import CmuxEgress
 import CMUXMobileCore
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// Persisted control-plane sync position: the highest account route revision
 /// this device has fully received. Sent as `haveRev` on reconnect so the
@@ -22,10 +18,6 @@ struct IrxControlPlaneCursor: Codable, Equatable, Sendable {
 /// loop with capped jittered backoff, `kick()` is the foreground reset (iOS
 /// suspension kills the socket silently; that is expected), `stop()` ends it.
 public actor IrxControlPlaneClient {
-    /// A server Retry-After past 2^31 s (68 years) waits that long: a deadline
-    /// near Int.max seconds traps when the clock converts it.
-    static let maximumServerRetryAfterSeconds = 2_147_483_648
-
     public struct Configuration: Sendable {
         public var socketURL: URL
         public var endpointIDHex: String
@@ -175,10 +167,7 @@ public actor IrxControlPlaneClient {
                     throw ReceiveTimeout()
                 }
                 defer { group.cancelAll() }
-                // Both children either return or throw, so an empty group cannot happen;
-                // treat it as a closed connection rather than trapping.
-                guard let message = try await group.next() else { throw IrxConnectionError.closed(nil) }
-                return message
+                return try await group.next()!
             }
         } catch is ReceiveTimeout {
             task.cancel(with: .goingAway, reason: nil)
@@ -312,7 +301,7 @@ public actor IrxControlPlaneClient {
             }
             if Task.isCancelled || generation != loopGeneration { return }
             let jitter = Duration.milliseconds(Int.random(in: 0...500))
-            let serverFloor = Duration.seconds(min(max(0, retryAfterSeconds ?? 0), Self.maximumServerRetryAfterSeconds))
+            let serverFloor = Duration.seconds(Int64(max(0, retryAfterSeconds ?? 0)))
             let delay = max(backoff + jitter, serverFloor)
             backoff = min(backoff * 2, Self.maxBackoff)
             journal.record(
@@ -343,7 +332,7 @@ public actor IrxControlPlaneClient {
         if let namespace = configuration.clientNamespace {
             request.setValue(namespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
         }
-        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxIrxTransport.IrxControlPlaneClient"), with: request, site: "CmuxIrxTransport.IrxControlPlaneClient")
+        let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         lastAckedRev = nil
         lastActivityAt = nil

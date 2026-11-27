@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 @testable import CmuxIrohTransport
 
 final class BrokerRedirectURLProtocol: URLProtocol, @unchecked Sendable {

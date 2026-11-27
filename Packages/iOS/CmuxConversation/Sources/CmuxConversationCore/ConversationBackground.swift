@@ -1,10 +1,6 @@
 import Foundation
 #if canImport(CoreGraphics)
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 #endif
 
 /// A conversation background, as iOS 26 and macOS 26 Messages share it with

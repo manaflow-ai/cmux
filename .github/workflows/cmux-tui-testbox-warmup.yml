@@ -28,20 +28,14 @@ concurrency:
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
-  # libghostty-vt always builds from the ghostty-next gitlink: an empty
-  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
-  # as unset).
-  CMUX_GHOSTTY_SRC: ""
 
 jobs:
   cmux-tui-rust:
-    env:
-      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: cmux-tui Rust setup
     # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
     # elsewhere rather than queue forever for a runner a fork cannot have.
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: blacksmith-32vcpu-ubuntu-2404
     environment:
       # The environments API shows (2026-10-06): one custom deployment
       # protection rule, the cmux-ci-testbox-approver App; no required
@@ -124,10 +118,6 @@ jobs:
           # demand from the public origin.
           fetch-depth: 0
           filter: blob:none
-          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
-          sparse-checkout: |
-            /*
-            !/cmux-next-ios/verify/
           persist-credentials: false
           ref: ${{ github.sha }}
 
@@ -148,62 +138,48 @@ jobs:
             exit 1
           }
           source_tree_sha="$(git rev-parse 'HEAD^{tree}')"
-          ghostty_next_entry="$(git ls-tree HEAD ghostty-next)"
-          [[ "$ghostty_next_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty-next$ ]] || {
-            echo "::error::HEAD:ghostty-next is not a gitlink" >&2
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+            echo "::error::HEAD:ghostty is not a gitlink" >&2
             exit 1
           }
-          ghostty_next_gitlink_sha="$(git rev-parse 'HEAD:ghostty-next')"
-          printf 'source_sha=%s\nsource_tree_sha=%s\nghostty_next_gitlink_sha=%s\n' \
-            "$actual_sha" "$source_tree_sha" "$ghostty_next_gitlink_sha"
+          ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
+          printf 'source_sha=%s\nsource_tree_sha=%s\nghostty_gitlink_sha=%s\n' \
+            "$actual_sha" "$source_tree_sha" "$ghostty_gitlink_sha"
 
-      # cmux-tui builds libghostty-vt from the ghostty-next gitlink only; the
-      # classic ghostty submodule is not an input of the Testbox build.
-      - name: Initialize ghostty-next source submodule
+      - name: Initialize Ghostty source submodule
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/ci/init-submodule.sh ghostty-next
-          [[ "$(git -C ghostty-next rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty-next" ]] || {
-            echo "::error::ghostty-next did not initialize as its own submodule checkout" >&2
+          bash scripts/ci/init-submodule.sh ghostty
+          [[ "$(git -C ghostty rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty" ]] || {
+            echo "::error::ghostty did not initialize as its own submodule checkout" >&2
             exit 1
           }
-          ghostty_next_entry="$(git ls-tree HEAD ghostty-next)"
-          [[ "$ghostty_next_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty-next$ ]] || {
-            echo "::error::HEAD:ghostty-next is not a gitlink" >&2
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+            echo "::error::HEAD:ghostty is not a gitlink" >&2
             exit 1
           }
-          expected_ghostty_next_sha="$(git rev-parse HEAD:ghostty-next)"
-          actual_ghostty_next_sha="$(git -C ghostty-next rev-parse HEAD)"
-          [[ "$actual_ghostty_next_sha" == "$expected_ghostty_next_sha" ]] || {
-            echo "::error::ghostty-next checkout $actual_ghostty_next_sha does not match gitlink $expected_ghostty_next_sha" >&2
+          expected_ghostty_sha="$(git rev-parse HEAD:ghostty)"
+          actual_ghostty_sha="$(git -C ghostty rev-parse HEAD)"
+          [[ "$actual_ghostty_sha" == "$expected_ghostty_sha" ]] || {
+            echo "::error::Ghostty checkout $actual_ghostty_sha does not match gitlink $expected_ghostty_sha" >&2
             exit 1
           }
-          [[ -z "$(git -C ghostty-next status --porcelain=v1 --untracked-files=normal)" ]] || {
-            echo "::error::ghostty-next submodule is dirty after initialization" >&2
-            git -C ghostty-next status --short >&2
+          [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::Ghostty submodule is dirty after initialization" >&2
+            git -C ghostty status --short >&2
             exit 1
           }
-          test -f ghostty-next/build.zig.zon
-          test -f ghostty-next/include/ghostty/vt/snapshot.h || {
-            echo "::error::ghostty-next submodule is missing or empty" >&2
-            exit 1
-          }
+          test -f ghostty/build.zig.zon
 
       - name: Install Linux build dependencies
         shell: bash
         run: |
           set -euo pipefail
-          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
-          if dpkg -s clang libclang-dev pkg-config gcc-mingw-w64-x86-64 >/dev/null 2>&1; then
-            echo "clang libclang-dev pkg-config gcc-mingw-w64-x86-64: already installed"
-          else
-            sudo apt-get update
-            # gcc-mingw-w64-x86-64 links the Windows GNU check that every
-            # cmux-tui-core or cmux-tui landing runs on the box:
-            # cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui
-            sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
-          fi
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
 
       # No Zig or Cargo download cache: the hq Blacksmith pilot (2026-10-12)
       # measured no gain. A cold target built in 102.8 s with the Zig cache
@@ -211,44 +187,18 @@ jobs:
       # CARGO_HOME takes 2.2 s.
       - name: Install repository-pinned Zig
         shell: bash
-        run: |
-          set -euo pipefail
-          source scripts/ghostty-zig-version.sh
-          want="$(GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
-          install_root="/opt/zig-$want"
-          have="$("$install_root/zig" version 2>/dev/null)" || have=""
-          if [ "$have" != "$want" ]; then
-            GHOSTTY_ZIG_SOURCE=ghostty-next \
-              ZIG_REQUIRED="$want" \
-              ZIG_FORCE_LOCAL_INSTALL=1 \
-              ZIG_INSTALL_ROOT="$install_root" \
-              ./scripts/install-zig-ci.sh
-          fi
-          zig_path="$(find "$install_root" -mindepth 2 -maxdepth 2 -type f -name zig -perm -111 -print -quit)"
-          test -n "$zig_path"
-          test "$("$zig_path" version)" = "$want"
-          zig_lib_dir="$(dirname "$zig_path")/lib"
-          cat > "$install_root/zig" <<EOF
-          #!/usr/bin/env bash
-          export ZIG_LIB_DIR=$(printf '%q' "$zig_lib_dir")
-          exec $(printf '%q' "$zig_path") "\$@"
-          EOF
-          chmod 0755 "$install_root/zig"
-          test "$("$install_root/zig" version)" = "$want"
-          echo "CMUX_ZIG=$install_root/zig" >> "$GITHUB_ENV"
+        run: ./scripts/install-zig-ci.sh
 
       - name: Fetch Ghostty Zig dependencies without compiling
+        working-directory: ghostty
         shell: bash
-        # From our mirror, with bounded retries; `--fetch=all` hydrates the
-        # package cache and exits before a build.
-        run: ZIG="$CMUX_ZIG" bash scripts/cmux-next/zig-fetch-all.sh ghostty-next
+        run: |
+          set -euo pipefail
+          # `--fetch` hydrates the package cache and exits before a build.
+          "$CMUX_ZIG" build --fetch
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Install the Windows GNU Rust target
-        shell: bash
-        run: rustup target add x86_64-pc-windows-gnu
 
       # Rust gates on the box run `cargo nextest run`: one process per test,
       # and the cmux-tui workspace suite ran in 72 s against 137 s under
@@ -332,19 +282,19 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref }}
           TESTBOX_ID: ${{ inputs.testbox_id }}
-          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+          RUNNER_LABEL: blacksmith-32vcpu-ubuntu-2404
         shell: bash
         run: |
           set -euo pipefail
           source_tree_sha="$(git rev-parse 'HEAD^{tree}')"
-          ghostty_next_entry="$(git ls-tree HEAD ghostty-next)"
-          [[ "$ghostty_next_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty-next$ ]] || exit 1
-          ghostty_next_gitlink_sha="$(git rev-parse 'HEAD:ghostty-next')"
-          ghostty_next_head_sha="$(git -C ghostty-next rev-parse HEAD)"
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || exit 1
+          ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
+          ghostty_head_sha="$(git -C ghostty rev-parse HEAD)"
           [[ "$SOURCE_SHA" == "$(git rev-parse HEAD)" ]] || exit 1
-          [[ "$ghostty_next_gitlink_sha" == "$ghostty_next_head_sha" ]] || exit 1
+          [[ "$ghostty_gitlink_sha" == "$ghostty_head_sha" ]] || exit 1
           [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]] || exit 1
-          [[ -z "$(git -C ghostty-next status --porcelain=v1 --untracked-files=normal)" ]] || exit 1
+          [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]] || exit 1
           pushd cmux-tui >/dev/null
           cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/cmux-tui-cargo-metadata.json"
           test -s "$RUNNER_TEMP/cmux-tui-cargo-metadata.json"
@@ -354,8 +304,8 @@ jobs:
           popd >/dev/null
           mkdir -p testbox-benchmark
           SOURCE_TREE_SHA="$source_tree_sha"
-          GHOSTTY_NEXT_GITLINK_SHA="$ghostty_next_gitlink_sha"
-          GHOSTTY_NEXT_HEAD_SHA="$ghostty_next_head_sha"
+          GHOSTTY_GITLINK_SHA="$ghostty_gitlink_sha"
+          GHOSTTY_HEAD_SHA="$ghostty_head_sha"
           ZIG_VERSION="$("$CMUX_ZIG" version)"
           ZIG_PATH="$CMUX_ZIG"
           RUNNER_UNAME="$(uname -a)"
@@ -367,24 +317,21 @@ jobs:
           CARGO_METADATA_SHA256="$(sha256sum "$RUNNER_TEMP/cmux-tui-cargo-metadata.json" | cut -d ' ' -f 1)"
           RUST_TOOLCHAIN_FILE_SHA256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
           CARGO_LOCK_SHA256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"
-          GHOSTTY_NEXT_ZON_SHA256="$(sha256sum ghostty-next/build.zig.zon | cut -d ' ' -f 1)"
-          export SOURCE_TREE_SHA GHOSTTY_NEXT_GITLINK_SHA GHOSTTY_NEXT_HEAD_SHA RUST_TOOLCHAIN RUSTC_VERSION CARGO_VERSION ZIG_VERSION ZIG_PATH RUNNER_UNAME RUNNER_CPU_COUNT CARGO_METADATA_SHA256 RUST_TOOLCHAIN_FILE_SHA256 CARGO_LOCK_SHA256 GHOSTTY_NEXT_ZON_SHA256
+          GHOSTTY_ZON_SHA256="$(sha256sum ghostty/build.zig.zon | cut -d ' ' -f 1)"
+          export SOURCE_TREE_SHA GHOSTTY_GITLINK_SHA GHOSTTY_HEAD_SHA RUST_TOOLCHAIN RUSTC_VERSION CARGO_VERSION ZIG_VERSION ZIG_PATH RUNNER_UNAME RUNNER_CPU_COUNT CARGO_METADATA_SHA256 RUST_TOOLCHAIN_FILE_SHA256 CARGO_LOCK_SHA256 GHOSTTY_ZON_SHA256
           python3 - <<'PY' > testbox-benchmark/setup-identity.json
           import json
           import os
           import platform
 
           print(json.dumps({
-              # schema 4: the Ghostty source is the ghostty-next gitlink. Stages
-              # still read a schema 3 marker (classic ghostty_gitlink_sha) from a
-              # broker that predates the switch.
-              "schema": 4,
+              "schema": 3,
               "source": {
                   "ref": os.environ["SOURCE_REF"],
                   "commit_sha": os.environ["SOURCE_SHA"],
                   "tree_sha": os.environ["SOURCE_TREE_SHA"],
-                  "ghostty_next_gitlink_sha": os.environ["GHOSTTY_NEXT_GITLINK_SHA"],
-                  "ghostty_next_head_sha": os.environ["GHOSTTY_NEXT_HEAD_SHA"],
+                  "ghostty_gitlink_sha": os.environ["GHOSTTY_GITLINK_SHA"],
+                  "ghostty_head_sha": os.environ["GHOSTTY_HEAD_SHA"],
               },
               "broker": {
                   "workflow_ref": os.environ["GITHUB_REF"],
@@ -412,7 +359,7 @@ jobs:
                   "cargo_metadata_sha256": os.environ["CARGO_METADATA_SHA256"],
                   "zig_path": os.environ["ZIG_PATH"],
                   "zig": os.environ["ZIG_VERSION"],
-                  "ghostty_next_build_zig_zon_sha256": os.environ["GHOSTTY_NEXT_ZON_SHA256"],
+                  "ghostty_build_zig_zon_sha256": os.environ["GHOSTTY_ZON_SHA256"],
               },
           }, sort_keys=True, indent=2))
           PY
@@ -428,9 +375,9 @@ jobs:
             git status --short >&2
             exit 1
           }
-          [[ -z "$(git -C ghostty-next status --porcelain=v1 --untracked-files=normal)" ]] || {
-            echo "::error::ghostty-next became dirty during hydration" >&2
-            git -C ghostty-next status --short >&2
+          [[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::Ghostty became dirty during hydration" >&2
+            git -C ghostty status --short >&2
             exit 1
           }
 
@@ -441,7 +388,7 @@ jobs:
           name: cmux-tui-testbox-setup-${{ github.run_id }}
           path: testbox-benchmark/setup-identity.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 14
 
       # Missing `/tmp/.testbox` means begin-testbox could not register the VM.
       # No auth token or API URL exists, so neither this workflow nor the pinned

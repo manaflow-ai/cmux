@@ -15,27 +15,14 @@ name: nightly-next rollback
 #     -f reason="what is broken"            # pulls the newest build
 #     -f bad_build=3917159104301            # or: pull this build and everything newer
 #     -f to_build=3917061587901             # or: serve this build again
-#     -f if_newest=3917159104301            # pull nothing unless this is the newest build
 #     -f dry_run=true                       # print the plan, write nothing
-# nightly-next-canary.yml dispatches it with bad_build when the canary
-# enforces and the build it launched failed.
-#
-# Every real pull then starts the fix-forward (job fix-forward,
-# scripts/ci/nightly_next_fix_forward.py): a train with the pulled build's
-# newest change quarantined (nightly-next-train.yml, once it can fix forward),
-# or else one `nightly-next fix-forward needed` issue naming that change and
-# its owner. Only a higher build moves the Macs already on the pulled one.
-# Beside it, job pulled-json lists the pulled builds in pulled.json, the
-# app's pulled-build banner; the run is red until that list is written.
-#
-# The weekly rollback drill (nightly-next-rollback-drill.yml) calls these same
-# jobs with drill true: they read and write the drill folder,
-# nightly-next/drill/ (its appcast and its pulled.json), which no app reads
-# unless pointed there, and the fix-forward never runs. nightly-next-guard.py
-# keeps a drill run inside that folder and every other run out of it.
+# nightly-next-canary.yml dispatches it with bad_build when
+# NIGHTLY_NEXT_CANARY=enforce and the build it launched failed.
 #
 # GitHub registers a dispatch workflow only from the default branch, so this
-# file is on main too; a run there does nothing.
+# file is on main too; a run there does nothing. Its workflow_call trigger is
+# here only so main's copy of nightly-next-rollback-drill.yml, which calls it,
+# is a valid workflow; nightly-next's copy has the drill folder's paths.
 on:
   workflow_call:
     inputs:
@@ -55,8 +42,7 @@ on:
         required: false
         default: false
         type: boolean
-    # Named, never inherited: the caller passes only the feed's R2 token, and every job here
-    # that reads it names environment release-next, whose branch policy still bounds it.
+    # Named, never inherited, as on nightly-next: the caller passes only the feed's R2 token.
     secrets:
       NIGHTLY_NEXT_R2_ACCESS_KEY_ID:
         required: false
@@ -80,11 +66,6 @@ on:
         required: false
         default: ''
         type: string
-      if_newest:
-        description: Pull nothing unless this build (digits) is the feed's newest. The launch smoke sets it to its bad_build.
-        required: false
-        default: ''
-        type: string
       dry_run:
         description: Print the plan and write nothing.
         required: false
@@ -93,25 +74,21 @@ on:
 
 permissions: {}
 
-# A drill has a group of its own, so a queued drill never takes the place of a
-# queued real rollback. It differs from the calling drill run's own group, which
-# shares github.run_id, so the call never waits on its caller.
+# One group per run: a shared group let a newer request replace a waiting one,
+# so a pulled build could stay on the feed. Two rollbacks never overwrite each
+# other: the feed write is a compare-and-swap on the bytes the plan read
+# (--replace-sha256), and the loser writes nothing and says to run again.
 concurrency:
-  group: ${{ inputs.drill && format('nightly-next-rollback-drill-call-{0}', github.run_id) || 'nightly-next-rollback' }}
+  group: nightly-next-rollback-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # The same values as nightly.yml; nightly-next-guard.py checks every write against them.
-  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
-  NIGHTLY_NEXT_R2_PREFIX: nightly-next/
-  # pulled.json stays in the verdicts' folder (nightly.yml NIGHTLY_NEXT_VERDICTS_BASE), where
-  # the Channels view reads it; PulledBuildWatch reads it there for the cmux NIGHTLY feed too.
-  NIGHTLY_NEXT_PULLED_PREFIX: ${{ inputs.drill && 'nightly-next/drill/' || 'nightly-next/next/' }}
-  # The appcast's folder under the feed base and the R2 prefix: empty for the users' feed.
-  NIGHTLY_FEED_DIR: ${{ inputs.drill && 'drill/' || '' }}
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
   NIGHTLY_APPCAST: appcast-arm64.xml
 
 jobs:
@@ -123,13 +100,8 @@ jobs:
     permissions:
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
-    outputs:
-      changed: ${{ steps.plan.outputs.changed }}
-      serving: ${{ steps.plan.outputs.serving }}
-      pulled: ${{ steps.plan.outputs.pulled }}
-      record: ${{ steps.plan.outputs.record }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -140,16 +112,14 @@ jobs:
         env:
           BAD_BUILD: ${{ inputs.bad_build }}
           TO_BUILD: ${{ inputs.to_build }}
-          IF_NEWEST: ${{ inputs.if_newest }}
         run: |
           set -euo pipefail
           mkdir -p rollback
           curl -fsSL --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
-            -o rollback/live.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_FEED_DIR}${NIGHTLY_APPCAST}?rollback=${GITHUB_RUN_ID}"
+            -o rollback/live.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_APPCAST}?rollback=${GITHUB_RUN_ID}"
           args=()
           [ -z "$BAD_BUILD" ] || args+=(--bad "$BAD_BUILD")
           [ -z "$TO_BUILD" ] || args+=(--to "$TO_BUILD")
-          [ -z "$IF_NEWEST" ] || args+=(--if-newest "$IF_NEWEST")
           summary="$(python3 scripts/ci/nightly_next_feed_rollback.py plan --feed rollback/live.xml \
             --out "rollback/$NIGHTLY_APPCAST" "${args[@]}")"
           echo "$summary"
@@ -160,8 +130,6 @@ jobs:
           print(f"serving={s['serving']}")
           print(f"serving_url={s['serving_url']}")
           print(f"pulled={' '.join(s['pulled'])}")
-          print(f"record={' '.join(s['record'])}")
-          print(f"record_complete={'true' if s['record_complete'] else 'false'}")
           PY
 
       - name: Check the build it falls back to
@@ -171,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/nightly-next-guard.py appcast "rollback/$NIGHTLY_APPCAST"
-          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_FEED_DIR}${NIGHTLY_APPCAST}"
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_APPCAST}"
           # The previous build's DMG must still be on the release.
           curl -fsSL --retry 3 -o /dev/null -r 0-0 "$SERVING_URL"
           echo "ok: $SERVING_URL is downloadable"
@@ -194,7 +162,7 @@ jobs:
             --file "rollback/$NIGHTLY_APPCAST" \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
-            --key "${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_FEED_DIR}${NIGHTLY_APPCAST}" \
+            --key "${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_APPCAST}" \
             --content-type "application/xml" \
             --cache-control "no-cache, no-store, must-revalidate" \
             --replace-sha256 "$planned" --conflict-exit-code 3 || status=$?
@@ -210,7 +178,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
-            -o rollback/after.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_FEED_DIR}${NIGHTLY_APPCAST}?after=${GITHUB_RUN_ID}"
+            -o rollback/after.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_APPCAST}?after=${GITHUB_RUN_ID}"
           cmp -s "rollback/$NIGHTLY_APPCAST" rollback/after.xml || { echo "the public feed does not serve the pulled appcast yet" >&2; exit 1; }
           echo "ok: the feed serves build $SERVING"
 
@@ -221,8 +189,6 @@ jobs:
           CHANGED: ${{ steps.plan.outputs.changed }}
           SERVING: ${{ steps.plan.outputs.serving }}
           PULLED: ${{ steps.plan.outputs.pulled }}
-          RECORD: ${{ steps.plan.outputs.record }}
-          RECORD_COMPLETE: ${{ steps.plan.outputs.record_complete }}
           DRY_RUN: ${{ inputs.dry_run }}
           JOB_STATUS: ${{ job.status }}
         run: |
@@ -235,130 +201,13 @@ jobs:
               echo "Failed before a plan: nothing was written."
             elif [ "$CHANGED" != true ]; then
               echo "Nothing to pull: the feed serves build ${SERVING:-unknown}."
-              if [ -n "$RECORD" ] && [ "$DRY_RUN" != true ]; then
-                echo ""
-                echo "Build $RECORD is already off the feed; job pulled-json makes sure pulled.json lists it."
-              fi
-              if [ "$RECORD_COMPLETE" != true ]; then
-                echo ""
-                echo "If an earlier run pulled builds above ${RECORD:-the named build} and its pulled-json job failed, this run cannot name them: open that run and use Re-run failed jobs, which writes pulled.json from its own list."
-              fi
             elif [ "$DRY_RUN" = true ] && [ "$JOB_STATUS" = success ]; then
               echo "Dry run: would pull $PULLED and serve $SERVING."
             elif [ "$JOB_STATUS" = success ]; then
               echo "Pulled $PULLED. The feed serves $SERVING."
               echo ""
-              echo "Macs on a pulled build keep it until a newer build is published. Job pulled-json lists it in pulled.json, so the app offers its kept build (Roll Back to Previous Version) or waiting for the fix."
+              echo "Macs on a pulled build keep it until a newer build is published, or roll back to the build they kept (updates.rollback)."
             else
               echo "Failed before the pull of $PULLED was confirmed; check the feed."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-
-  # pulled.json, the list the app reads next to the appcast with each update
-  # check: a Mac on a listed build offers its kept build ("Roll Back to ...")
-  # or waiting for the fix-forward build. Its own job, beside the fix-forward,
-  # which never waits on it. A write that still fails after the retries leaves
-  # the run red, and "Re-run failed jobs" runs only this job again, with the
-  # rollback's outputs. A run that pulls nothing because the named build is
-  # already off the feed still reconciles it: the condition reads `record`,
-  # never `changed`. A list that already has every build is not written again.
-  pulled-json:
-    needs: rollback
-    if: needs.rollback.result == 'success' && needs.rollback.outputs.record != '' && !inputs.dry_run
-    # The feed's R2 token, as in job rollback.
-    environment: release-next
-    permissions:
-      contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-
-      - name: Record the pulled builds (pulled.json)
-        id: record
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          REASON: ${{ inputs.reason }}
-          RECORD: ${{ needs.rollback.outputs.record }}
-          SERVING: ${{ needs.rollback.outputs.serving }}
-        run: |
-          set -euo pipefail
-          key="${NIGHTLY_NEXT_PULLED_PREFIX}pulled.json"
-          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-          mkdir -p rollback
-          # Read straight from R2, merge, write only while the object still holds what was read;
-          # a concurrent write or an HTTP error reads again and retries (5 attempts).
-          python3 scripts/ci/nightly_next_feed_rollback.py reconcile --record "$RECORD" --serve "$SERVING" \
-            --reason "$REASON" --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --endpoint-url "$R2_ENDPOINT" --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --work rollback
-
-      - name: Summary
-        if: always()
-        env:
-          OUTCOME: ${{ steps.record.outcome }}
-          RECORD: ${{ needs.rollback.outputs.record }}
-        run: |
-          if [ "$OUTCOME" != success ]; then
-            echo "::error title=nightly-next rollback::pulled.json does not list $RECORD; Macs on it show no pulled-build banner. Re-run failed jobs."
-          fi
-          {
-            echo "### cmux NEXT pulled.json"
-            echo ""
-            if [ "$OUTCOME" = success ]; then
-              echo "pulled.json lists $RECORD: Macs on it see the pulled-build banner."
-            else
-              echo "pulled.json was NOT written ($OUTCOME): Macs on $RECORD show no pulled-build banner. The feed pull and the fix-forward do not depend on it. Re-run failed jobs: this job reads pulled.json again and writes it."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  # No secrets and no environment: it reads runs and commits, dispatches the
-  # train, or writes one issue.
-  fix-forward:
-    needs: rollback
-    if: needs.rollback.result == 'success' && needs.rollback.outputs.changed == 'true' && !inputs.dry_run && !inputs.drill
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
-    permissions:
-      actions: write # dispatch nightly-next-train.yml
-      contents: read
-      issues: write # the nightly-next fix-forward needed issue
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/nightly_next_fix_forward.py
-            .gitmodules
-          sparse-checkout-cone-mode: false
-
-      - name: Start the fix-forward
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PULLED: ${{ needs.rollback.outputs.pulled }}
-          SERVING: ${{ needs.rollback.outputs.serving }}
-          REASON: ${{ inputs.reason }}
-          TRAIN_REF: ${{ vars.NIGHTLY_NEXT_TRAIN_REF || 'feat-cmux-next' }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          plan="$(python3 scripts/ci/nightly_next_fix_forward.py run --repo "$GITHUB_REPOSITORY" \
-            --pulled "$PULLED" --serving "$SERVING" --reason "$REASON" \
-            --train-ref "$TRAIN_REF" --run-url "$RUN_URL")"
-          echo "$plan"
-          python3 - "$plan" >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import json, sys
-          p = json.loads(sys.argv[1])
-          a, s = p["action"], p.get("suspect") or {}
-          car = f"#{s['pr']}" if s.get("pr") else s.get("sha", "unknown")[:12]
-          print("### cmux NEXT fix-forward\n")
-          print(f"First pulled build {p['pulled_build']}; the feed serves {p['good_build']}. Suspect: {car} (owner {s.get('owner') or 'unknown'}).\n")
-          if "dispatch" in a:
-              print(f"Started {a['dispatch']} on {a['ref']} with {json.dumps(a['inputs'])}.")
-          else:
-              print(f"No train ({a['why']}); wrote issue #{a.get('number')}: {a['issue']}.")
-          PY

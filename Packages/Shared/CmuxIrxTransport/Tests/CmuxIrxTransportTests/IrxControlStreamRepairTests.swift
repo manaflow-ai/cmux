@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
 import Foundation
 import IrohLib
@@ -281,4 +280,3 @@ private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async 
     }
     #expect(reached == true, "Expected the transport to reach the awaited state before the deadline")
 }
-#endif

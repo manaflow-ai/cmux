@@ -45,7 +45,7 @@ public struct CmxIrohTerminalOutputEnvelope: Equatable, Sendable {
             throw ValidationError.invalidSequenceRange
         }
         let expectedPayloadLength = currentSequence - sequence
-        guard expectedPayloadLength == UInt64(exactly: payload.count) else {
+        guard expectedPayloadLength == UInt64(payload.count) else {
             throw ValidationError.payloadLengthMismatch(
                 expected: expectedPayloadLength,
                 actual: payload.count
@@ -77,7 +77,7 @@ public struct CmxIrohTerminalOutputEnvelope: Equatable, Sendable {
         kind = .inputAcknowledgement
         retainedBaseSequence = 0
         sequence = 0
-        currentSequence = UInt64(exactly: payload.count) ?? 0
+        currentSequence = UInt64(payload.count)
         self.payload = payload
     }
 

@@ -29,9 +29,7 @@ import Testing
         let (store, source, me) = try await started()
         let first = binding(store, me: me)
         let second = binding(store, me: me)
-        // The read's return, not a non-empty transcript: the open draws the inbox's newest message at once
-        // (1aa00a05c21), before the read has even started.
-        try await until { source.journal.contains(.readReturned(id)) && !store.transcript(for: id).isEmpty }
+        try await until { !store.transcript(for: id).isEmpty }
         #expect(store.viewers[id] == 2)
         #expect(source.snapshots == [id], "two views of one conversation read it twice")
         first.stop()

@@ -1,4 +1,3 @@
-#if canImport(Security)
 public import Foundation
 import Security
 
@@ -39,14 +38,12 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         return legacy
     }
 
-    // Every Keychain call here carries a no-prompt context: one that would ask throws
-    // errSecInteractionNotAllowed instead.
     private func read(service: String, account: String) throws -> Data? {
-        var query: [String: Any] = baseQuery(service: service, account: account)
+        var query = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: query) as CFDictionary, &result)
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
             return nil
         }
@@ -62,9 +59,9 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     }
 
     private func writeStored(_ data: Data, account: String) throws {
-        let query: [String: Any] = baseQuery(service: service, account: account)
+        let query = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
-            KeychainNoPromptContext.applied(to: query) as CFDictionary,
+            query as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
         if updateStatus == errSecSuccess {
@@ -73,10 +70,10 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         guard updateStatus == errSecItemNotFound else {
             throw CmxIrohKeychainIdentityStoreError(status: updateStatus)
         }
-        var insert: [String: Any] = query
+        var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(KeychainNoPromptContext.applied(to: insert) as CFDictionary, nil)
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw CmxIrohKeychainIdentityStoreError(status: addStatus)
         }
@@ -103,8 +100,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         let count = 32
         var data = Data(count: count)
         let status = data.withUnsafeMutableBytes { bytes in
-            guard let base = bytes.baseAddress else { return errSecAllocate }
-            return SecRandomCopyBytes(kSecRandomDefault, count, base)
+            SecRandomCopyBytes(kSecRandomDefault, count, bytes.baseAddress!)
         }
         guard status == errSecSuccess else {
             throw CmxIrohIdentityRepositoryError.randomGenerationFailed(status)
@@ -132,10 +128,9 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     }
 
     private func delete(query: [String: Any]) throws {
-        let status = SecItemDelete(KeychainNoPromptContext.applied(to: query) as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw CmxIrohKeychainIdentityStoreError(status: status)
         }
     }
 }
-#endif

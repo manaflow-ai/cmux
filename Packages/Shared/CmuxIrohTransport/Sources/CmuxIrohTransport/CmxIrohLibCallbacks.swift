@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import IrohLib
 
 final class CmxIrohLibAddressChangeCallback: AddrChangeCallback, Sendable {
@@ -12,4 +11,3 @@ final class CmxIrohLibAddressChangeCallback: AddrChangeCallback, Sendable {
         await handler(addr)
     }
 }
-#endif

@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import Foundation
 
 /// Reconciles stable Iroh identity with reinstall and account-switch policy.
@@ -59,7 +55,7 @@ public actor CmxIrohIdentityRepository {
         let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
         let current = try await secureStore.read(account: scope).map(Self.decode)
         let generation = try current.map { material in
-            guard material.generation < Int32.max else {
+            guard material.generation < Int(Int32.max) else {
                 throw CmxIrohIdentityRepositoryError.invalidGeneration
             }
             return material.generation + 1
@@ -155,29 +151,33 @@ public actor CmxIrohIdentityRepository {
         return SHA256.hash(data: transcript).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func encode(_ material: CmxIrohIdentityMaterial) throws -> Data {
-        guard let generation = UInt32(exactly: material.generation) else {
-            throw CmxIrohIdentityRepositoryError.invalidGeneration
-        }
-        var bytes = Data([recordVersion])
-        withUnsafeBytes(of: generation.bigEndian) { bytes.append(contentsOf: $0) }
+    private static func encode(_ material: CmxIrohIdentityMaterial) -> Data {
+        var bytes = [recordVersion]
+        let generation = UInt32(material.generation)
+        bytes.append(UInt8((generation >> 24) & 0xff))
+        bytes.append(UInt8((generation >> 16) & 0xff))
+        bytes.append(UInt8((generation >> 8) & 0xff))
+        bytes.append(UInt8(generation & 0xff))
         bytes.append(contentsOf: material.secretKey.bytes)
-        return bytes
+        return Data(bytes)
     }
 
     private static func decode(_ data: Data) throws -> CmxIrohIdentityMaterial {
-        var reader = WireByteReader(data)
-        guard data.count == 37,
-              reader.byte() == recordVersion,
-              let rawGeneration = reader.bigEndian(UInt32.self),
-              let generation = Int(exactly: rawGeneration),
-              generation > 0, generation <= Int32.max else {
+        let bytes = [UInt8](data)
+        guard bytes.count == 37, bytes[0] == recordVersion else {
             throw CmxIrohIdentityRepositoryError.corruptRecord
         }
-        let secretKey = try CmxIrohSecretKey(bytes: reader.remaining)
+        let generation = UInt32(bytes[1]) << 24
+            | UInt32(bytes[2]) << 16
+            | UInt32(bytes[3]) << 8
+            | UInt32(bytes[4])
+        guard generation > 0, generation <= UInt32(Int32.max) else {
+            throw CmxIrohIdentityRepositoryError.corruptRecord
+        }
+        let secretKey = try CmxIrohSecretKey(bytes: Data(bytes[5...]))
         return try CmxIrohIdentityMaterial(
             secretKey: secretKey,
-            generation: generation
+            generation: Int(generation)
         )
     }
 }

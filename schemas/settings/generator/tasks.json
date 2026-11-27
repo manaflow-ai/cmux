@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/tasks.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tasks.generated.swift",
-  "type": "TaskSettingsSchema",
-  "lists": {
-    "tasks": ["descriptors", "TasksLayoutSetting"]
-  }
-}

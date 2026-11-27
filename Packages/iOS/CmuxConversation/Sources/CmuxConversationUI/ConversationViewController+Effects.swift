@@ -85,7 +85,7 @@ extension ConversationViewController: ConversationEffectReplayHandling {
             }
         }
         picker.onCancel = { close {} }
-        ConversationHaptics.impact(.medium)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         host.present(picker, animated: true)
     }
 
@@ -156,10 +156,7 @@ extension ConversationViewController: ConversationEffectReplayHandling {
     func shakeNeighbors(of source: MessageCell?) {
         guard let source else { return }
         let sourceY = source.frame.midY
-        // Reduce Motion: no jolt (the slam itself is a fade then, and its
-        // impact hook doesn't fire); the haptic stays.
-        let neighbors = UIView.reducesMotion ? [] : collectionView.visibleCells
-        for cell in neighbors where cell !== source {
+        for cell in collectionView.visibleCells where cell !== source {
             let direction: CGFloat = cell.frame.midY < sourceY ? -1 : 1
             let distance = abs(cell.frame.midY - sourceY)
             let amplitude = max(1.5, 8 - distance / 70) * direction
@@ -170,7 +167,7 @@ extension ConversationViewController: ConversationEffectReplayHandling {
             shake.isAdditive = true
             cell.layer.add(shake, forKey: "effect.slamShake")
         }
-        ConversationHaptics.impact(.heavy)
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
     }
 }
 

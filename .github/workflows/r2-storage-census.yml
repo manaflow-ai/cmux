@@ -24,11 +24,9 @@ jobs:
   binaries:
     name: Census (binaries)
     if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
-    environment:
-      name: artifacts
-      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+    environment: artifacts
     permissions:
       contents: read
     steps:
@@ -55,13 +53,12 @@ jobs:
           name: r2-census-binaries
           path: ${{ runner.temp }}/r2-census-binaries.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 30
 
   cef:
-    environment: ci-cache-writer
     name: Census (cef)
     if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -89,12 +86,12 @@ jobs:
           name: r2-census-cef
           path: ${{ runner.temp }}/r2-census-cef.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 30
 
   ci-cache:
     name: Census (ci-cache)
     if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
@@ -123,4 +120,4 @@ jobs:
           name: r2-census-ci-cache
           path: ${{ runner.temp }}/r2-census-ci-cache.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 30

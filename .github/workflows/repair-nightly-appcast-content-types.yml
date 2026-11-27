@@ -1,8 +1,12 @@
 name: Repair nightly appcast Content-Type
 
-# A pull request runs the unit test as the ci/steps.toml step `repair-nightly-appcast` (the
-# pr-pipeline linux job); this workflow is the dispatch that repairs the feeds.
 on:
+  pull_request:
+    paths:
+      - .github/workflows/repair-nightly-appcast-content-types.yml
+      - scripts/ci/repair-nightly-appcast-content-types.py
+      - scripts/ci/upload-r2-object.py
+      - tests/test_repair_nightly_appcast_content_types.py
   workflow_dispatch:
     inputs:
       execute:
@@ -14,9 +18,11 @@ permissions:
   contents: read
   actions: read
 
+# One group per run: every write is conditional, so runs never need to wait
+# for each other, and a shared group let a pull request run replace a waiting
+# repair.
 concurrency:
-  # A dispatch writes nightly R2 objects: one shared group, never cancelled, so two repairs serialise.
-  group: repair-nightly-appcast-content-types
+  group: repair-nightly-appcast-content-types-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -25,7 +31,7 @@ env:
 
 jobs:
   test:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -37,7 +43,7 @@ jobs:
     environment: release
     if: github.event_name == 'workflow_dispatch'
     needs: test
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 /// `ConversationBackend` for `services/conversation-sim` (see its PROTOCOL.md):
 /// JSON-RPC 2.0 over a WebSocket, media over HTTP. Reconnects with capped

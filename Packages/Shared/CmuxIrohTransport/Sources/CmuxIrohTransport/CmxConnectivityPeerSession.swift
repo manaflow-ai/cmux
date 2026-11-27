@@ -608,7 +608,7 @@ actor CmxConnectivityPeerSession {
                 } else if expiredRetiredDialWaiters.remove(waiterID) != nil {
                     continuation.resume()
                 } else {
-                    retiredDialWaiters.updateValue(continuation, forKey: waiterID)
+                    retiredDialWaiters[waiterID] = continuation
                 }
             }
         } onCancel: {
@@ -840,7 +840,7 @@ actor CmxConnectivityPeerSession {
             .transportSessionLifecycle,
             surface: peerAlias,
             a: kind.rawValue,
-            b: Int(clamping: purpose.rawValue),
+            b: Int(purpose.rawValue),
             c: sessionID
         ))
     }

@@ -20,9 +20,29 @@ jobs:
     permissions:
       contents: read
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 25
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -34,6 +54,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const fs = require('fs');
             const { owner, repo } = context.repo;
             const label = 'feature-flag-review-drift';
