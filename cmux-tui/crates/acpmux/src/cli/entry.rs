@@ -127,6 +127,11 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
         std::process::exit(i32::from(code));
     }
+    // The held pipes' host (`hub_carrier_pipe_host.rs`): its own runtime, no daemon start.
+    #[cfg(all(unix, feature = "hub-carrier"))]
+    if args.first().is_some_and(|a| a == crate::hub_carrier_pipe_host::PIPE_HOST_ARG) {
+        return crate::hub_carrier_pipe_host::main(&args[1..]);
+    }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
         return crate::codex_repo_gate::main();
