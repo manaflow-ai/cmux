@@ -1178,6 +1178,18 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.backgroundReady" : {
+      "default" : "off",
+      "description" : "After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory. Warm at Login keeps nothing running: at login, a small reader loads cmux’s code into memory and exits, so the first open after a restart is faster.",
+      "enum" : [
+        "off",
+        "warmAtLogin",
+        "afterQuit",
+        "afterQuitAndLogin"
+      ],
+      "title" : "Stay Ready in the Background",
+      "type" : "string"
+    },
     "app.captureScreenshotGlobalHotKey" : {
       "default" : false,
       "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",

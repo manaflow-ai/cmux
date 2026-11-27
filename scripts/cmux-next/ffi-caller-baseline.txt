@@ -40,14 +40,6 @@ cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_age
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_new
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_observe
-# Held until its Swift caller lands (step B): cmux#54274 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_at_launch
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_exits_for_update
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_hidden_plan
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_mode_parse
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_on_quit
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_login_item
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_starts_chromium_warmup
 # Held until its Swift caller lands (step B): cmux#50601 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-app-ffi/include/cmux_files_lister.h	cmux_files_lister_abi_version
 # Held until its Swift caller lands (step B): cmux#53142 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.

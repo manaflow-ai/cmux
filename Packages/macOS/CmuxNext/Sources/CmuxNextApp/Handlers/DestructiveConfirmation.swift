@@ -6,6 +6,7 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
+import CmuxNextQuit
 import CmuxNextSettings
 import CmuxNextUpdater
 import CmuxNextWindowRules

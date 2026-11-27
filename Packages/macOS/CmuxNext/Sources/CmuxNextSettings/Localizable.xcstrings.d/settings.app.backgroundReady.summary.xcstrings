@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.backgroundReady.summary" : {
+      "comment" : "Summary under Stay Ready in the Background on the Settings page.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعمل مخفيًا بعد الإنهاء ليُفتح فورًا، مقابل استهلاك ذاكرة أكبر"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radi skriven nakon izlaza da bi se odmah otvorio, uz veću potrošnju memorije"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kører skjult efter Afslut for at åbne med det samme, på bekostning af hukommelse"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Läuft nach dem Beenden verborgen weiter und öffnet sich sofort, braucht aber mehr Speicher"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runs hidden after Quit to open instantly, at a memory cost"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se ejecuta oculto tras salir para abrirse al instante, a costa de más memoria"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "S’exécute en arrière-plan après Quitter pour s’ouvrir instantanément, au prix de plus de mémoire"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Resta nascosto dopo Esci per aprirsi subito, usando più memoria"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "終了後も非表示で動作し、すぐに開きます（メモリを多く使用）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការដោយលាក់បន្ទាប់ពីចាកចេញ ដើម្បីបើកភ្លាមៗ ដោយប្រើអង្គចងចាំច្រើនជាង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "종료 후 숨겨진 채 실행되어 바로 열림, 메모리 사용 증가"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjører skjult etter Avslutt for å åpnes med en gang, på bekostning av minne"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Działa w ukryciu po zakończeniu, by otwierać się natychmiast, kosztem pamięci"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Roda oculto depois de Encerrar para abrir na hora, usando mais memória"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Работает скрыто после завершения и открывается мгновенно, ценой памяти"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำงานแบบซ่อนหลังจากออกเพื่อเปิดได้ทันที แลกกับการใช้หน่วยความจำ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çıkıştan sonra gizli çalışır ve anında açılır, daha fazla bellek pahasına"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Працює приховано після завершення, щоб відкриватися миттєво, ціною пам’яті"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chạy ẩn sau khi Thoát để mở ngay lập tức, đổi lại tốn thêm bộ nhớ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "退出后在隐藏状态下运行，可立即打开，但会占用更多内存"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "結束後在隱藏狀態下執行，可立即開啟，但會使用更多記憶體"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

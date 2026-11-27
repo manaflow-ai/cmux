@@ -35,6 +35,9 @@ struct BoundActionCatalogTests {
         // Set My Picture…, Make This Agent a Chief and Show Last Line in Sidebar (step B) bind before
         // the re-pin carries their step A rows (#50757): until then they do nothing.
         "home.setMyAvatar", "agentPane.adoptAsChief", "terminal.pinTail",
+        // Quit Completely (`app.backgroundReady`, ask-b2b0f899c1): its Rust catalog row rides the
+        // cmux-background-ready re-pin.
+        "quitCompletely",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
