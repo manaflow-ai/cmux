@@ -43,10 +43,10 @@ struct DriveRun {
         hover["x"] = .number(x)
         hover["y"] = .number(y)
         // Armed (above) before the move: a release that runs while the move is in flight still gives the
-        // hover back. One that already started (the person, a trigger) means no hover is made at all.
+        // hover back. One that already started (the person, a trigger, the backstop) means no hover is made at all.
         guard release.mayHover else {
             hover["reason"] = "released"
-            interrupted = release.triggered ?? "person"
+            interrupted = release.interruption ?? "person"
             return
         }
         guard await input.move(to: point) else {
@@ -66,8 +66,9 @@ struct DriveRun {
             let before = try await Self.scrollTop(view)
             let stopped = try await wheelTicks(wheel, at: point, view: view, input: input, person: person, release: release,
                                                started: started, stop: stop)
-            // The page's own scroll, once WebKit has handled what was sent: what the ticks really moved.
-            await input.settle()
+            // The page's own scroll, once WebKit has handled what was sent: what the ticks really moved. The wait
+            // ends at `stop` too (an occluded window would run both its bounds); with none left, the page is read as is.
+            await input.settle(before: stop)
             if let before, let after = try await Self.scrollTop(view) { scrolled = after - before }
             if stopped { return }
         }
@@ -92,12 +93,13 @@ struct DriveRun {
                 return true
             }
             guard !release.isDone, ContinuousClock.now < stop else { break }
-            if await input.wheel(at: point, deltaY: Double(wheel.delta)) { sent += 1 }
+            // A tick's waits for WebKit end at `stop` too: on a covered window each would run its whole bound.
+            if await input.wheel(at: point, deltaY: Double(wheel.delta), before: stop) { sent += 1 }
             if tick + 1 < wheel.ticks {
-                // Between two ticks (up to 200 ms apart) the person, the window and the app are watched every
-                // DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
+                // Between two ticks (up to 200 ms apart, never past `stop`) the person, the window and the app
+                // are watched every DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
                 let surroundings = surroundings
-                _ = try await DriveWatch.watch(until: ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), isUsing: {
+                _ = try await DriveWatch.watch(until: min(ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), stop), isUsing: {
                     Self.outside(surroundings, release) != nil || person.isUsing(since: started)
                 })
             }
