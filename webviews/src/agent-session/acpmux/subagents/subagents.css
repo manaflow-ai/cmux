@@ -2740,8 +2740,25 @@ button.cv-subagent > :last-child {
 .acpmux-hat-count__strip {
   display: flex;
   flex-direction: column;
-  transform: translateY(calc(var(--acpmux-hat-digit, 0) * -1 * var(--text-caption--line-height)));
-  transition: transform var(--agent-motion-move) var(--agent-ease-out);
+}
+/* Going up, the strip holds [old, new] and rests on the new cell; going down, [new, old] and rests on
+   the first. Either way the move is one cell. */
+.acpmux-hat-count__strip[data-dir="up"] {
+  transform: translateY(calc(-1 * var(--text-caption--line-height)));
+  animation: acpmux-hat-count-turn-up var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-hat-count__strip[data-dir="down"] {
+  animation: acpmux-hat-count-turn-down var(--agent-motion-move) var(--agent-ease-out);
+}
+@keyframes acpmux-hat-count-turn-up {
+  from {
+    transform: translateY(0);
+  }
+}
+@keyframes acpmux-hat-count-turn-down {
+  from {
+    transform: translateY(calc(-1 * var(--text-caption--line-height)));
+  }
 }
 .acpmux-hat-count__strip > span {
   height: var(--text-caption--line-height);

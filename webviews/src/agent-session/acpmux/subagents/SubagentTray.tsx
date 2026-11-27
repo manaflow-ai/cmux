@@ -1344,7 +1344,12 @@ export const SubagentTray = memo(function SubagentTray({
         <>
           {menu(
             <AgentLine
-              name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
+              // Its owner's name leads the line only where the owner has no line of its own in the tray: beside
+              // its own row the same name twice read as a duplicate (Leo, 2026-11-27, "acpmux delivery wedged +
+              // channel stuck" as a terminal row and an agent row: "this isn't great").
+              name={
+                item.owner && !agentsById.has(item.owner.id) ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named
+              }
               latest={showLatest ? trimRawCommand(item.command.command, ROW_WIDTH) : undefined}
               latestAt={latestPlacement}
               latestCode
