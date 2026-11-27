@@ -7,7 +7,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
+import { railFrame, withRail } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -217,16 +217,18 @@ test("older turns arriving above keep focus on the focused prompt's tick", async
   const document = dom.window.document;
   const root = createRoot(document.getElementById("root")!);
   const show = (rows: AcpmuxRow[]) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="long-prepend"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId="long-prepend"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   try {
     await show(span(300, 2000));
     const latest = document.querySelector<HTMLElement>(`[data-tick="${2000 - 300 - 1}"]`)!;
@@ -251,16 +253,18 @@ test("a rail scrolled to the end of a long chat shows every tick of a short one 
   const document = dom.window.document;
   const root = createRoot(document.getElementById("root")!);
   const show = (rows: AcpmuxRow[], sessionId: string) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId={sessionId}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId={sessionId}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   try {
     await show(span(0, 2000), "long-switch-a");
     // It opens at the latest message, the list scrolled to its end.
@@ -366,16 +370,18 @@ test("after earlier turns go, streaming does no search of the ticks, and the car
     return findIndex.apply(this, args);
   } as typeof findIndex;
   const show = (rows: AcpmuxRow[]) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="long-shrink"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId="long-shrink"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   try {
     const chat = span(0, 2000);
     await show(chat);
@@ -413,16 +419,18 @@ test("a focused tick that goes away with its chat is not held drawn when the cha
   const document = dom.window.document;
   const root = createRoot(document.getElementById("root")!);
   const show = (rows: AcpmuxRow[], sessionId: string) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId={sessionId}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId={sessionId}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   try {
     const long = span(0, 2000);
     await show(long, "long-away-a");
@@ -452,16 +460,18 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
   const document = dom.window.document;
   const root = createRoot(document.getElementById("root")!);
   const show = (rows: AcpmuxRow[]) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="long-hide"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId="long-hide"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
@@ -494,16 +504,18 @@ test("a keyboard-focused tick whose rail hides comes back with no tick held and 
   const document = dom.window.document;
   const root = createRoot(document.getElementById("root")!);
   const show = (rows: AcpmuxRow[]) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="long-hide-key"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId="long-hide-key"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;

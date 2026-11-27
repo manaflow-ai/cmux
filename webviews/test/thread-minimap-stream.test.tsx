@@ -11,7 +11,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
+import { railFrame, withRail } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -137,16 +137,18 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
   const render = (reply: string) => {
     const rows = base.slice();
     rows[at] = { ...base[at]!, text: reply, version: reply.length };
-    return act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="minimap-stream"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    return withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId="minimap-stream"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   };
   try {
     let reply = "Streaming";
@@ -193,16 +195,18 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
   const root = createRoot(host);
   const rows = chat("Done");
   const render = (list: AcpmuxRow[]) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(list, new Set())}
-          sessionId="minimap-stream-prompt"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(list, new Set())}
+            sessionId="minimap-stream-prompt"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   try {
     await render(rows);
     const ticks = () =>
@@ -406,16 +410,18 @@ test("through the transcript: another chat, then the same chat replaced and cut,
       row(`t${index}-answer`, "assistant", `Answer ${index}.`),
     ]).flat();
   const render = (rows: AcpmuxRow[], sessionId: string) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId={sessionId}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            sessionId={sessionId}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
-    ).then(railFrame);
+    );
   const expected = (prefix: string, count: number) =>
     Array.from({ length: count }, (_, index) => `Message ${index + 1} of ${count}: ${prefix} ${index}`);
   try {
