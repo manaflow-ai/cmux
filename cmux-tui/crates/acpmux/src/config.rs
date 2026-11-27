@@ -1814,6 +1814,12 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<SendRelay>,
+    /// `sendHop`: `true` lets a paired peer daemon hand this daemon a send for a host this
+    /// daemon peers and that peer does not (one hop, `server/send_hop.rs`); the far chat names
+    /// the true sender (`fromRelay`). Unset (the default): such a hop is refused, and a peer
+    /// never selects another peer through this daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_hop: Option<bool>,
     /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
     /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
     /// default): such a start is refused as before.
