@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.tokens.help" : {
+      "comment" : "Settings > Developer: what API tokens are for",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Call cmux from scripts, CI and your own tools. A token can do only what its scopes allow, and it can never read your vault."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "استدعِ cmux من السكربتات وCI وأدواتك الخاصة. لا يمكن للرمز أن يفعل إلا ما تسمح به نطاقاته، ولا يمكنه قراءة خزنتك أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozivajte cmux iz skripti, CI-ja i vlastitih alata. Token može raditi samo ono što mu opsezi dozvoljavaju i nikad ne može čitati vaš trezor."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kald cmux fra scripts, CI og dine egne værktøjer. Et token kan kun det, dets omfang tillader, og det kan aldrig læse din boks."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rufe cmux aus Skripten, CI und eigenen Tools auf. Ein Token kann nur, was seine Bereiche erlauben, und deinen Tresor nie lesen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usa cmux desde scripts, CI y tus propias herramientas. Un token solo puede hacer lo que permiten sus ámbitos y nunca puede leer tu bóveda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Appelez cmux depuis des scripts, la CI et vos propres outils. Un jeton ne peut faire que ce que ses portées autorisent et ne peut jamais lire votre coffre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usa cmux da script, CI e strumenti tuoi. Un token può fare solo ciò che consentono i suoi ambiti e non può mai leggere la tua cassaforte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スクリプト、CI、独自のツールから cmux を呼び出せます。トークンはスコープで許可された操作しかできず、保管庫を読み取ることはできません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ហៅ cmux ពីស្គ្រីប CI និងឧបករណ៍ផ្ទាល់ខ្លួនរបស់អ្នក។ ថូខឹនអាចធ្វើបានតែអ្វីដែលវិសាលភាពរបស់វាអនុញ្ញាត ហើយវាមិនអាចអានឃ្លាំងសម្ងាត់របស់អ្នកបានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스크립트, CI 및 직접 만든 도구에서 cmux를 호출하세요. 토큰은 범위에서 허용한 작업만 할 수 있으며 보관함은 절대 읽을 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kall cmux fra skript, CI og dine egne verktøy. Et token kan bare gjøre det omfanget tillater, og det kan aldri lese hvelvet ditt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wywołuj cmux ze skryptów, CI i własnych narzędzi. Token może tylko to, na co pozwalają jego zakresy, i nigdy nie odczyta Twojego sejfu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chame o cmux a partir de scripts, CI e suas próprias ferramentas. Um token só pode fazer o que seus escopos permitem e nunca pode ler seu cofre."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вызывайте cmux из скриптов, CI и своих инструментов. Токен может делать только то, что разрешают его области, и никогда не может читать ваше хранилище."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เรียกใช้ cmux จากสคริปต์ CI และเครื่องมือของคุณเอง โทเค็นทำได้เฉพาะสิ่งที่ขอบเขตอนุญาต และไม่สามารถอ่านห้องนิรภัยของคุณได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux’u betiklerden, CI’dan ve kendi araçlarınızdan çağırın. Bir belirteç yalnızca kapsamlarının izin verdiğini yapabilir ve kasanızı asla okuyamaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Викликайте cmux зі скриптів, CI і власних інструментів. Токен може робити лише те, що дозволяють його області, і ніколи не може читати ваше сховище."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gọi cmux từ script, CI và công cụ của riêng bạn. Token chỉ làm được những gì phạm vi của nó cho phép và không bao giờ đọc được kho bảo mật của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从脚本、CI 和你自己的工具调用 cmux。令牌只能执行其范围允许的操作，且永远无法读取你的保险库。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從腳本、CI 和你自己的工具呼叫 cmux。權杖只能執行其範圍允許的操作，且永遠無法讀取你的保險庫。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

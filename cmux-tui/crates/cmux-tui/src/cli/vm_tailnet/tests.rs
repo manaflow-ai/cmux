@@ -124,6 +124,84 @@ fn a_joined_vm_is_not_copied_until_it_leaves() {
     assert!(refusal.contains("cmux vm tailnet leave vm_1"), "{refusal}");
 }
 
+const NODE_JSON: &str = "{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"leo-cmux.tail1.ts.net.\",\"TailscaleIPs\":[\"100.64.0.2\"],\"Tags\":[\"tag:cmux\"],\"Online\":true}}";
+
+fn fake(answers: Vec<ExecAnswer>) -> FakeGuest {
+    FakeGuest { answers: answers.into(), writes: Vec::new(), commands: Vec::new() }
+}
+
+#[test]
+fn move_words_parse() {
+    let (from, to, timeout) = parse_move(&words("vm_a vm_b --timeout 30")).unwrap();
+    assert_eq!((from.as_str(), to.as_str(), timeout), ("vm_a", "vm_b", Duration::from_secs(30)));
+    assert!(parse_move(&words("vm_a")).is_err());
+    assert!(parse_move(&words("vm_a vm_a")).is_err());
+    assert!(parse_move(&words("vm_a vm_b --key x")).is_err());
+}
+
+#[test]
+fn a_move_stops_the_old_holder_first_hands_the_state_0600_and_forgets_it() {
+    let mut from = fake(vec![
+        said("cmux-tailnet-stopped-at 1000\ncmux-tailnet-state c3RhdGU=\ncmux-tailnet-released\n"),
+        said("cmux-tailnet-forgot\n"),
+    ]);
+    let mut to = fake(vec![
+        said("prepared\n"),
+        said("started\n"),
+        said("rc=\n"),
+        said(&format!(
+            "rc=0\ncmux-tailnet-online-at 1800\ncmux-tailnet-joined {NODE_JSON}\ncmux-tailnet-stderr\n"
+        )),
+    ]);
+    let node = move_node(&mut from, &mut to, Duration::from_secs(60)).unwrap();
+    assert_eq!(node["dnsName"], "leo-cmux.tail1.ts.net");
+    assert_eq!(node["gapMs"], 800);
+    assert_eq!(node["oldCopyDeleted"], true);
+    // The adopt script is in place before the old holder stops; the state goes 0600.
+    assert_eq!(to.writes[0].0, SCRIPT_FILE);
+    let state =
+        to.writes.iter().find(|w| w.0 == cmux_tailnet_join::handoff::STAGED_STATE_FILE).unwrap();
+    assert_eq!((state.1.as_slice(), state.2), (&b"c3RhdGU=\n"[..], 0o600));
+    assert!(from.commands[0].contains("pkill -x tailscaled"));
+    assert!(from.commands[1].contains("cmux-tailnet-forgot"));
+    // The state never shows in the result.
+    assert!(!node.to_string().contains("c3RhdGU="));
+}
+
+#[test]
+fn a_failed_adopt_restarts_the_node_on_the_old_holder() {
+    let mut from = fake(vec![
+        said("cmux-tailnet-state c3RhdGU=\ncmux-tailnet-released\n"),
+        said("cmux-tailnet-restored\n"),
+    ]);
+    let mut to = fake(vec![
+        said("prepared\n"),
+        said("started\n"),
+        said(
+            "rc=3\ncmux-tailnet-stderr\ncmux-tailnet: the node did not come online on this machine\n",
+        ),
+    ]);
+    let error = move_node(&mut from, &mut to, Duration::from_secs(60)).unwrap_err();
+    assert!(error.contains("did not come online"), "{error}");
+    assert!(error.contains("back on the old VM"), "{error}");
+    assert!(from.commands[1].contains("cmux-tailnet-restored"));
+    assert!(!from.commands.iter().any(|c| c.contains("cmux-tailnet-forgot")));
+}
+
+#[test]
+fn a_move_from_a_vm_with_no_node_changes_nothing() {
+    let mut from = fake(vec![ExecAnswer {
+        exit_code: 3,
+        stdout: String::new(),
+        stderr: "cmux-tailnet: no node state on this machine".to_owned(),
+    }]);
+    let mut to = fake(vec![said("prepared\n")]);
+    let error = move_node(&mut from, &mut to, Duration::from_secs(60)).unwrap_err();
+    assert!(error.contains("no node state"), "{error}");
+    assert_eq!(from.commands.len(), 1);
+    assert!(!to.commands.iter().any(|c| c.contains("started")));
+}
+
 #[test]
 fn an_oauth_client_is_traded_on_the_mac_and_only_the_minted_key_goes_to_the_vm() {
     let args = parse_join(&words("vm_1 --key-stdin --oauth --tag cmux --ephemeral")).unwrap();

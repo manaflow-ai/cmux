@@ -43,7 +43,6 @@ class FakeSmoke:
         return []
 
     def forget_apps(self, *_):
-        # The real one unregisters the run's copies from Launch Services; the fake made none.
         pass
 
 

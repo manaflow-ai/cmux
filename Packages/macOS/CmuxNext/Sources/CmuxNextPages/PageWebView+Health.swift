@@ -47,10 +47,13 @@ extension PageWebView {
     }
 
     /// Whether the person can see the page now: in a window that is on screen (not occluded, not in
-    /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
-    /// document is hidden), so health never times it.
+    /// the Dock), under no hidden ancestor, and not told it is hidden in Chromium (a clear ancestor, the
+    /// off-screen parking: ``setChromiumVisibility(_:)``). A page that cannot be seen stops its heartbeat
+    /// (the document is hidden), so health never times it. A Chromium page told it is hidden was timed
+    /// here, read as silent and reloaded every 10 s at idle (cmux20-bench, 2026-11-25).
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway,
+              chromiumSession?.toldHidden != true else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 

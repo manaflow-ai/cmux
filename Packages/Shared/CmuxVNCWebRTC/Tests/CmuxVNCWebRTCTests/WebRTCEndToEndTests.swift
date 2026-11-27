@@ -9,7 +9,7 @@ import Testing
 struct WebRTCEndToEndTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_VNC_WEBRTC_LIVE"] == "1"), .timeLimit(.minutes(2)))
     func viewerStreamsThroughTheHost() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 640, height: 400, password: "hunter2"))
+        let server = VNCDemoServer(configuration: .init(width: 640, height: 400, password: "hunter2", rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let pairing = VNCPairing.generate(name: "test")
@@ -21,7 +21,7 @@ struct WebRTCEndToEndTests {
 
         let started = ContinuousClock.now
         let client = VNCClient(endpoint: VNCEndpoint(host: "webrtc", port: 1),
-                               options: VNCSessionOptions(credentials: VNCCredentials(password: "hunter2")),
+                               options: VNCSessionOptions(credentials: VNCCredentials(password: "hunter2"), rules: .fixture),
                                transport: WebRTCRFBTransport(pairing: pairing))
         await client.connect()
         var events = client.events.makeAsyncIterator()

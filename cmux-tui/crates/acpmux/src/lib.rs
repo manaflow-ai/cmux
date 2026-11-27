@@ -39,6 +39,7 @@ pub mod attach;
 pub mod author;
 /// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
 pub mod auto_session;
+pub mod autocloud_enroll;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -123,6 +124,7 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_budget;
 #[cfg(unix)]
 pub mod github_lane_mint;
 #[cfg(unix)]
@@ -170,6 +172,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -196,6 +199,7 @@ pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
+pub mod lane_death_watch;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -444,6 +448,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

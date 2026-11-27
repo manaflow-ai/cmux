@@ -45,6 +45,9 @@ export interface FilesSnapshot {
   selected?: string;
 }
 
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((value) => b.has(value));
+
 export const joinPath = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
 export const parentPath = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
 
@@ -242,14 +245,18 @@ export class FilesStore {
   }
 
   private emit(): void {
+    // A selection or a notice keeps the rows and the open folders as they were: only a listing or an
+    // expansion walks every row again, so a key press costs the same at any folder size.
+    const previous = this.snapshot;
+    const same = previous.folders === this.folders && sameSet(previous.expanded, this.expanded);
     this.snapshot = {
       root: this.root,
       failed: this.failed,
       unavailable: this.unavailable,
       notice: this.notice,
-      rows: this.rows(),
+      rows: same ? previous.rows : this.rows(),
       folders: this.folders,
-      expanded: new Set(this.expanded),
+      expanded: same ? previous.expanded : new Set(this.expanded),
       selected: this.selected,
     };
     for (const listener of this.listeners) listener();
