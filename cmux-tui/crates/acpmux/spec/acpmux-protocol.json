@@ -937,6 +937,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_hop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mesh_control",
       "params": true,
       "result": true
@@ -2862,18 +2868,6 @@
     {
       "kind": "request",
       "name": "_acpmux/attachments_held",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/spans",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/status",
       "params": true,
       "result": true
     },
