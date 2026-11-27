@@ -17,8 +17,10 @@
 //!   under the target's home as its top folder (`Folder::Bundle`), with no remote; uncommitted
 //!   changes go as for any branch.
 //! - Any other folder under this machine's home maps to the same path under the target's home
-//!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files do
-//!   not move. A folder outside the home is refused: pass `--cwd`.
+//!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files go
+//!   with it, packed by `cli/run/session_move_files.rs` (secrets and heavy folders stay and are
+//!   named; a folder over 64 MiB packed is refused, naming `--cwd`), unless `--cwd` names the
+//!   folder there. A folder outside the home is refused: pass `--cwd`.
 //! - A checkout on a shared default branch (`main`, `master`, or the branch `origin/HEAD` names)
 //!   never pushes that branch: other people's work lands there, and a move that pushed it would
 //!   either fail (origin moved on) or publish this machine's unpushed commits to everyone. Its
