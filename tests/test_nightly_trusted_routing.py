@@ -100,6 +100,7 @@ OWNED_SECRET_JOBS = {
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
     'find-nightly-next-recovery': 'reads the routing App key (ci-routing-agent) to pick the recovery signer; a credentialed control',
     'route-visual-gate-nightly': 'reads the routing App key (ci-routing-agent) to pick the visual gate mini; a credentialed control',
+    'visual-gate-nightly': 'native GUI build on the selected fleet Mac; main-only ci-cache-writer environment',
     'pick-nightly-next-signer': 'reads the glaeda-route App key for a read-only token to pick the signer Mac; a credentialed control',
     'await-release-surface-ack': "retired (if: false); its environment is the release-surface ack, on the nightly-only pool",
     'promote-nightly-next': 'a main dispatch the signer refuses; ends on the nightly slot (test_no_signing_job_reads_an_owned_runner_variable)',
@@ -632,8 +633,11 @@ class NightlyTrustedRouting(unittest.TestCase):
                                         **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), JIT_LABEL)
         self.assertGreater(checked, 20)
 
-    def test_visual_gate_only_reads_public_cache_on_the_session_runner(self):
-        self.assertFalse(workflow_jobs.secret_names(DOC['jobs']['visual-gate-nightly']))
+    def test_visual_gate_keeps_its_main_only_cache_environment_on_the_native_runner(self):
+        job = DOC['jobs']['visual-gate-nightly']
+        self.assertFalse(workflow_jobs.secret_names(job))
+        self.assertEqual(job['environment'], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertEqual(job['runs-on'], '${{ needs.route-visual-gate-nightly.outputs.runs_on }}')
 
     def test_every_secret_job_is_hosted_or_named_owned(self):
         # HOSTED_SECRET_JOBS is a route choice, so a new secret job must be named in it or in OWNED_SECRET_JOBS
