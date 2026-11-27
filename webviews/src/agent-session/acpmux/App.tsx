@@ -2771,7 +2771,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
   );
-  const pastTurns = useRef(
+  const leftChatTurns = useRef(
     new Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>(),
   );
   const supersededReplyIds = useMemo(
@@ -2790,7 +2790,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         doneLines,
         workflowLabsEnabled,
         lastTurns,
-        pastTurns,
+        pastTurns: leftChatTurns,
         shownSessionId,
         heldCalls,
         callRelease,
