@@ -533,6 +533,8 @@ jobs:
           REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
           STATES: ${{ inputs.states }}
           GALLERY_REDS_DIR: ${{ runner.temp }}/gallery-reds
+          # 0: a new red's bisect does not probe its last green commit first (post_merge_batch.py good_anchor_on).
+          POST_MERGE_GOOD_ANCHOR: ${{ vars.POST_MERGE_GOOD_ANCHOR }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \

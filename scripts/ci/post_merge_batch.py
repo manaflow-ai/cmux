@@ -905,10 +905,29 @@ def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: s
     return Probe(suite, name, only, mid, good, bad, origin, step=step, states=states)
 
 
+def good_anchor_on() -> bool:
+    """POST_MERGE_GOOD_ANCHOR (vars, default on; "0" turns it off): a new red's bisect probes its last green commit
+    once, right after the red repeats on the batch's own commit, and stops there when that commit is red too.
+
+    Every probe of such a chain fails, so the bisect walks down to the commit just after good and its confirm round
+    finds the parent (good itself) red as well: a flake, no revert, after log2(range) probes plus 4 confirm runs. In
+    the 24 h to 11-27 23:30Z, 13 of the round's 30 confirm rounds ended that way (web / web-typecheck 0fe79faf/53f2fbcb,
+    the culprit of revert #61383; web / agent-pane-real-acpmux 342ec4bc/2046780d and 4dbaa78f/e8f78400; web /
+    web-tests b96ecd92/178d0814; rust-workspaces 2e2604dc/5cab8f04 twice, ...). The anchor costs one probe on a
+    real red's chain and saves the rest of the walk and the round on such a chain."""
+    return os.environ.get("POST_MERGE_GOOD_ANCHOR", "").strip() != "0"
+
+
+def is_anchor(probe: Probe) -> bool:
+    """The good-anchor probe: a bisect probe (not a confirm run) at its own last green commit."""
+    return bool(probe.bad) and not probe.confirm and probe.sha == probe.good
+
+
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
-    ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
-    confirming probe), oldest first."""
+    ('flake', None), ('lost', None), ('anchored', None) or ('retry', Probe). commits: good..bad (or good..sha for the
+    confirming probe), oldest first. 'anchored': the good-anchor probe (good_anchor_on) failed, so the red is on the
+    last green commit too and no commit in good..bad is its cause."""
     if conclusion == "skipped":
         # The job's own condition skipped it at this commit (probe_conclusion reads a skip behind a lost or red
         # job as no verdict): the same inputs skip it again. Probes 716208d2c92 and d98c77aec8a (compile-fleet,
@@ -919,12 +938,22 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1, "reuse": ""})  # no verdict to reuse: run it
         return "lost", None
     good, bad = probe.good, probe.bad
+    if is_anchor(probe):
+        if conclusion == "failure":
+            return "anchored", None
+        span = commits_between(commits, good, bad)
+        if len(span) <= 1:
+            return "culprit", bad
+        mid = span[(len(span) - 1) // 2]
+        return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin, step=probe.step, states=probe.states)
     if bad and probe.sha == bad and conclusion == "success":  # a stuck red's one-commit range, re-confirmed: it passed
         return "flake", None
     if not bad:  # the confirming probe, on the batch's own commit
         if conclusion == "success":
             return "flake", None
         bad = probe.sha
+        if good_anchor_on() and len(commits_between(commits, good, bad)) >= 2:
+            return "probe", Probe(probe.suite, probe.job, probe.only, good, good, bad, probe.origin, step=probe.step, states=probe.states)
     elif conclusion == "failure":
         bad = probe.sha
     else:
@@ -980,6 +1009,8 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
             return f"confirm `{probe.confirm}` probe's sha `{probe.sha[:11]}` is not its culprit or parent"
         return ""
     for label, sha in (("sha", probe.sha), ("bad", probe.bad)):
+        if label == "sha" and is_anchor(probe) and sha == green:
+            continue  # the good-anchor probe runs at the last green itself (good_anchor_on)
         if (sha or label == "sha") and sha not in span:
             return f"{label} `{sha[:11]}` is not in the commits origin run {origin.get('id')} covered (`{green[:11]}`..`{head[:11]}`)"
     if probe.good != green and probe.good not in span:
@@ -1413,6 +1444,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
             out.update(culprit=value, job=probe.job, good=parent, origin=probe.origin)
     elif step == "flake":
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
+    elif step == "anchored":
+        summary(args.summary, f"`{probe.job}` is red at its last green `{probe.sha[:11]}` too: no commit in "
+                              f"`{probe.good[:11]}`..`{probe.bad[:11]}` turned it red (a red of the probe's run, not a commit's); no bisect, no revert.")
     elif conclusion == "skipped":
         summary(args.summary, f"`{probe.job}` was skipped at `{probe.sha[:11]}` (its own condition; the same probe would skip again): the bisect stops here.")
     else:
