@@ -2165,9 +2165,17 @@ root="$PWD"
 (cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
 cd cmux-tui
 # The last feat-cmux-next push's daemon-tests build (read only; a miss builds cold): its dependencies are acpmux's.
-../scripts/ci/cmux-tui-test-target.sh restore
+set -o pipefail
+restore_log="$(mktemp)" cargo_log="$(mktemp)"
+../scripts/ci/cmux-tui-test-target.sh restore | tee "$restore_log"
 # No incremental state: it only fills the disk (No space left writing dep-graph.part.bin, #53426).
-CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
+CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux 2>&1 | tee "$cargo_log"
+# A hit should leave third-party crates fresh (a registry crate's Compiling line names no path). Many of them
+# rebuilding means the saved target was built with other features than this build's (cmux-tui-test-target.sh save).
+rebuilt="$(grep -cE '^ +Compiling [^ ]+ v[^ ]+$' "$cargo_log" || true)"
+if grep -q 'test target: hit' "$restore_log" && ((rebuilt > 20)); then
+  echo "::warning title=acpmux cache hit rebuilt third-party crates::$rebuilt registry crates compiled after a cmux-tui test target hit; the saved build's dependency features no longer match -p acpmux (scripts/ci/cmux-tui-test-target.sh save)"
+fi
 # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 export ACPMUX_BIN="$target_dir/debug/acpmux"
@@ -2512,6 +2520,38 @@ rm -rf "$home" "$log"
 [ "$status" -ne 0 ] || python3 ../scripts/ci/crate_results.py post "$crates" || true
 rm -f "$crates"
 exit "$status"
+'''
+
+# The settings-keys half of the cmux_next_ daemon tests above, on the pull request itself. That step's inputs are
+# whole-directory globs (`cmux-tui/**`, `schemas/settings/**`), so --pr-scope leaves it to the post-merge batch and
+# cmux-tui-artifacts.yml (which a lane/** push does not run): a pull request that added a settings row without its
+# published-keys.txt line merged green and failed the channel's gate after the merge. From 2026-11-25 21:43Z to
+# 2026-11-26 21:26Z every feat-cmux-next artifacts run failed that gate (the last cause: 36 live rows missing from
+# published-keys.txt, fixed by #59554), and the channel held every merged daemon fix meanwhile. This step names the
+# files a settings row lives in, so a pull request that touches one runs the one test, cmux-config's published_keys:
+# about 150 s cold on a 32-vCPU host (2m29s compile, the test 0.05 s), nothing on a pull request that touches none.
+[step.settings-published-keys]
+job = "linux"
+timeout = 360
+title = "Settings keys are published or retired"
+about = "every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
+needs = ["rust"]
+inputs = [
+  "schemas/settings/settings-schema.json",
+  "schemas/settings/published-keys.txt",
+  "schemas/settings/retired-keys.json",
+  "schemas/settings/source/*.json",
+  "schemas/settings/source/*/*.json",
+  "cmux-tui/crates/cmux-config/tests/published_keys.rs",
+  "cmux-tui/crates/cmux-config/src/schema/*.rs",
+  "cmux-tui/crates/cmux-config/Cargo.toml",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+cargo test -p cmux-config --locked --test published_keys cmux_next_
 '''
 
 # Six more checks whose feat-cmux-next pull request runs each took a Linux job: risk-tier-tests.yml's tests,

@@ -454,6 +454,71 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # cas/1 (RFD 0166, cmuxterm-hq docs/rfd/0166-own-cdn.md): the same tree cut into content-defined
+  # chunks, as one manifest, one pack and its index, so an app holding an older web update can move
+  # only the chunks it lacks (`cmux app web-cas fetch`) instead of the whole archive. This job builds
+  # this checkout's Rust, so it holds no secret: it hands the objects on and the publish job uploads
+  # them. It never holds the archive or the pointer back: when it fails, the pointer has no `cas`.
+  cas:
+    needs: build
+    if: needs.build.outputs.published != 'true' && !inputs.pr && !inputs.ref
+    name: cut the web bundles into cas/1 objects
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/setup-cmux-tui-rust/
+            /cmux-tui/
+            /scripts/cmux-next/
+            /.gitmodules
+
+      - uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build cas-publish
+        working-directory: cmux-tui
+        run: cargo build --locked --release -p cmux-cas --bin cas-publish
+
+      - name: Download the archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-web-bundles
+          path: ${{ runner.temp }}/web-bundles-publish
+
+      # The tree the app unpacks from the archive, so the fetched tree is the archive's, file for file.
+      - name: Cut the unpacked archive into cas/1 objects
+        env:
+          KEY: ${{ needs.build.outputs.key }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/web-bundles-publish"
+          archive="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2]; print(m["archive"])' "$dir/manifest.json" "$KEY")"
+          python3 scripts/cmux-next/web-bundle-archive.py unpack "$dir/$archive" "$RUNNER_TEMP/web-tree"
+          out="$RUNNER_TEMP/web-cas"
+          cmux-tui/target/release/cas-publish "$RUNNER_TEMP/web-tree" "$out/objects" > "$out.json"
+          mv "$out.json" "$out/cas.json"
+          cat "$out/cas.json"
+          python3 - "$out/cas.json" <<'PY'
+          import json, sys
+          c = json.load(open(sys.argv[1]))
+          print(f"cas/1: tree {c['tree_bytes']:,} B, pack {c['pack_bytes']:,} B, manifest {c['manifest'][:12]}")
+          PY
+
+      - name: Hand the cas/1 objects to the publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-web-cas
+          path: ${{ runner.temp }}/web-cas
+          if-no-files-found: error
+          retention-days: 3
+
   # Publishes the archive and, on a push, signs the web update pointer in the same job: one
   # runner hop instead of two (each hop was a pickup, a checkout and a runner hook, about 1.5
   # min, and up to 7 min more on a runner whose job hook stalled). The web update channels
@@ -468,7 +533,9 @@ jobs:
   # (web-ota-pointer.py newer), and the write is a compare-and-swap, so overlapping runs keep
   # the newest commit.
   publish:
-    needs: build
+    needs: [build, cas]
+    # cas is skipped for a published key or a layer, and never fails this job (continue-on-error).
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     name: publish the web bundles to files.cmux.com and sign the web update pointer
     environment:
       name: artifacts
@@ -492,7 +559,7 @@ jobs:
 
       - name: Download the archive
         if: needs.build.outputs.published != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-web-bundles
           path: ${{ runner.temp }}/web-bundles-publish
@@ -516,6 +583,38 @@ jobs:
                    --cache-control "public, max-age=31536000, immutable" --file "$1" --key "cmux-next-web/$KEY/$2" --content-type "$3"; }
           up "$dir/$archive" "$archive" application/gzip
           up "$dir/manifest.json" manifest.json application/json || published b
+
+      - name: Download the cas/1 objects
+        if: needs.cas.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-web-cas
+          path: ${{ runner.temp }}/web-cas
+
+      # Objects first, then <key>/cas.json: its presence means every object it names is there,
+      # and the pointer step reads it to add the pointer's `cas` field. A failure here leaves
+      # the pointer as it was (archive only).
+      - name: Upload the cas/1 objects to R2
+        if: needs.cas.result == 'success'
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ needs.build.outputs.key }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/web-cas"
+          read -r manifest pack < <(python3 -c 'import json,re,sys; c=json.load(open(sys.argv[1])); ids=[c["manifest"],c["pack"]]; assert all(re.fullmatch("[0-9a-f]{64}", i) for i in ids); print(*ids)' "$dir/cas.json")
+          up() { python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+                   --cache-control "public, max-age=31536000, immutable" --file "$1" --key "$2" --content-type "$3"; }
+          up "$dir/objects/p/$pack.pack" "cmux-next-web/cas/p/$pack.pack" application/octet-stream
+          up "$dir/objects/p/$pack.idx" "cmux-next-web/cas/p/$pack.idx" application/json
+          up "$dir/objects/m/$manifest" "cmux-next-web/cas/m/$manifest" application/octet-stream
+          up "$dir/cas.json" "cmux-next-web/$KEY/cas.json" application/json
+          echo "cas/1 for $KEY: manifest $manifest, pack $pack ($(stat -c %s "$dir/objects/p/$pack.pack") B)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the publication with the fetch helper
         env:
@@ -549,11 +648,16 @@ jobs:
           trap 'rm -f "$dir/key.pem"' EXIT
           (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
           curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?pointer=$GITHUB_RUN_ID"
+          # The key's cas/1 objects, when they were published: the pointer names them too (RFD 0166).
+          cas=()
+          if curl -fsS --retry 3 --max-time 60 -o "$dir/cas.json" "https://files.cmux.com/cmux-next-web/$KEY/cas.json?pointer=$GITHUB_RUN_ID"; then
+            cas=(--cas "$dir/cas.json")
+          fi
           # Any payload failure, including a missing outputs digest, fails production
           # publication. Exit 3 is only meaningful for the newer-pointer no-op below.
           rc=0
           python3 "$ptr" payload --manifest "$dir/manifest.json" --abi-file webviews/src/web-abi.json --channel "$CHANNEL" \
-            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json" || rc=$?
+            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json" "${cas[@]}" || rc=$?
           [[ $rc == 0 ]] || exit "$rc"
           python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/$CHANNEL.json"
           rm -f "$dir/key.pem"
@@ -590,7 +694,7 @@ jobs:
 
       - name: Download the PR layer pointer
         if: inputs.pr || inputs.ref || needs.build.outputs.merged_pr
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-web-pr-layer
           path: ${{ runner.temp }}/pr-layer
