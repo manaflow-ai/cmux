@@ -204,7 +204,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
             // Its own window being key ends it, so the ask runs once.
             if pageFocus.page === page {
-                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                if anotherPageWindowIsKey(than: page, in: window) || NSApp.keyWindow === window { pageFocus.refocus(page) }
                 return
             }
             // One key change (#24913): the old page blurs without this window taking the keys
