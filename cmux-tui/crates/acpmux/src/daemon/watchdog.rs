@@ -18,6 +18,15 @@
 //! - Its resident memory over [`rss_bound`] for [`RSS_STRIKES`] checks in a row sends the daemon
 //!   SIGTERM, the restart handoff a supervisor uses (`daemon.rs`), so it stops as an update does.
 //!
+//! - A pause holds it ([`hold`], `acpmux daemon watchdog-hold`, which the platform runs just
+//!   before it pauses the VM): `WATCHDOG_USEC=0` stops systemd's timer, so a pause of any length
+//!   cannot trip it. On 2026-11-27 a 60 s pause came back to `Watchdog timeout (limit 3min)!` and
+//!   a SIGTERM to the daemon before this thread could ping: systemd's timer ran across the pause.
+//!   The hello goes on while held; a daemon that stops answering during a hold restarts itself
+//!   through the SIGTERM handoff. The hold ends, and [`LIMIT`] is armed again with a ping, once
+//!   this thread sees the machine resumed (a clock gap well past its interval, [`resumed`]), or
+//!   after [`HOLD_BOUND`] with no gap.
+//!
 //! It runs on its own OS thread, off the daemon's runtime: a runtime that stops scheduling stops
 //! the pings too. Every decision is one log line; the stop is a counted self-stop
 //! (`supervision.rs`). Linux only; without systemd's watchdog (a daemon a client started) it
@@ -27,7 +36,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixDatagram, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 
 use cmux_deadline::Deadline;
 use cmux_supervise_core::StopCause;
@@ -51,6 +61,127 @@ pub(crate) const RSS_STRIKES: u32 = 3;
 /// The watchdog limit this daemon arms when its unit set none: a hung daemon is restarted within
 /// three minutes.
 pub(crate) const LIMIT: Duration = Duration::from_secs(180);
+
+/// How long a hold lasts when no resume shows: a pause the platform asked for but never made (or
+/// one this thread could not see) leaves systemd's watchdog off no longer than this.
+pub(crate) const HOLD_BOUND: Duration = Duration::from_secs(15 * 60);
+
+/// This daemon's watchdog, once [`start`] armed it: what [`hold`] stops.
+static ARMED: OnceLock<Arc<Hold>> = OnceLock::new();
+
+/// Holds this daemon's systemd watchdog until the machine resumes: false when systemd armed none
+/// (a daemon a client started, or not under the unit).
+pub(crate) fn hold() -> bool {
+    ARMED.get().is_some_and(|held| {
+        held.take();
+        true
+    })
+}
+
+/// A hold of one watchdog: its notify socket, the limit it re-arms, and since when it is held.
+pub(crate) struct Hold {
+    notify: String,
+    limit: Duration,
+    since: Mutex<Option<Instant>>,
+}
+
+impl Hold {
+    pub(crate) fn new(notify: &str, limit: Duration) -> Self {
+        Self { notify: notify.to_owned(), limit, since: Mutex::new(None) }
+    }
+
+    /// Stops systemd's timer (`WATCHDOG_USEC=0`; systemd 255 stops the watchdog for a zero
+    /// override). A hold while held starts its bound again.
+    pub(crate) fn take(&self) {
+        let mut since = self.since.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        notify_line(&self.notify, "WATCHDOG_USEC=0");
+        *since = Some(Instant::now());
+        tracing::info!(
+            bound_s = HOLD_BOUND.as_secs(),
+            "self-check: holding the systemd watchdog for a pause, until the machine resumes"
+        );
+    }
+
+    /// Since when it is held, if it is.
+    pub(crate) fn since(&self) -> Option<Instant> {
+        *self.since.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Ends the hold: arms the limit again and pings, so systemd counts from now. How long it was
+    /// held, or None when it was not.
+    pub(crate) fn release(&self) -> Option<Duration> {
+        let mut since = self.since.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let held = since.take()?.elapsed();
+        notify_line(&self.notify, &format!("WATCHDOG_USEC={}", self.limit.as_micros()));
+        ping(&self.notify);
+        Some(held)
+    }
+}
+
+/// The time this thread did not run across a wait it planned as `planned`: how far the monotonic
+/// clock ran past the plan, or the wall clock past the monotonic one (a pause the monotonic clock
+/// does not count), when that is at least `slack`. On the 2026-11-27 provider both clocks moved
+/// across a 5 min pause, so the monotonic lateness alone shows it there.
+pub(crate) fn resumed(
+    planned: Duration,
+    mono: Duration,
+    wall: Duration,
+    slack: Duration,
+) -> Option<Duration> {
+    let gap = mono.saturating_sub(planned).max(wall.saturating_sub(mono));
+    (gap >= slack).then_some(gap)
+}
+
+/// Both clocks now, to measure one wait with [`resumed`].
+#[derive(Clone, Copy)]
+struct Clocks {
+    mono: Instant,
+    wall: SystemTime,
+}
+
+impl Clocks {
+    fn now() -> Self {
+        Self { mono: Instant::now(), wall: SystemTime::now() }
+    }
+
+    /// The gap across a wait planned as `planned` since these clocks.
+    fn gap(&self, planned: Duration, slack: Duration) -> Option<Duration> {
+        let mono = self.mono.elapsed();
+        // A wall clock set back reads 0: no pause.
+        let wall = SystemTime::now().duration_since(self.wall).unwrap_or_default();
+        resumed(planned, mono, wall, slack)
+    }
+}
+
+/// What the hold does after one check.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum HoldStep {
+    /// Not held, or held and nothing ended it: as before.
+    Keep,
+    /// The machine resumed, or the hold ran its bound: arm the limit again.
+    Release,
+    /// Held, and the daemon stopped answering: arm it again and restart through the handoff.
+    Restart,
+}
+
+/// The hold's decision: held since `since` (None: not held), at `now`, whether this check saw a
+/// resume, and the check's verdict.
+pub(crate) fn hold_step(
+    since: Option<Instant>,
+    now: Instant,
+    resumed: bool,
+    verdict: &Verdict,
+    bound: Duration,
+) -> HoldStep {
+    let Some(since) = since else { return HoldStep::Keep };
+    if *verdict == Verdict::Hung {
+        HoldStep::Restart
+    } else if resumed || now.saturating_duration_since(since) >= bound {
+        HoldStep::Release
+    } else {
+        HoldStep::Keep
+    }
+}
 
 /// The watchdog for this process: systemd's notify socket (the unit's `NotifyAccess=main`), with
 /// the unit's `WATCHDOG_USEC` when it set one, else [`LIMIT`], which [`start`] arms itself
@@ -81,6 +212,8 @@ pub(crate) struct Plan {
     pub(crate) grace: Duration,
     pub(crate) reserve: Duration,
     pub(crate) floor: Duration,
+    /// How long a hold lasts with no resume seen ([`HOLD_BOUND`]).
+    pub(crate) hold: Duration,
 }
 
 impl Plan {
@@ -91,7 +224,14 @@ impl Plan {
             grace: STARTUP_GRACE,
             reserve: PING_RESERVE.min(limit / 6),
             floor: HELLO_BOUND.min(limit / 3),
+            hold: HOLD_BOUND,
         }
+    }
+
+    /// The lateness past a planned wait that reads as a resume: half a check interval, so a
+    /// total wait half again past its plan. Scheduling noise is far under it.
+    pub(crate) fn resumed(&self) -> Duration {
+        self.every / 2
     }
 
     /// How long a hello asked at `now` waits: until systemd's limit counted from `last_ping`, less
@@ -123,8 +263,9 @@ pub(crate) fn start(socket: PathBuf) {
         rss_bound = bound,
         "self-check: pinging the systemd watchdog while the daemon answers its own hello"
     );
+    let held = ARMED.get_or_init(|| Arc::new(Hold::new(&notify, limit))).clone();
     let _ = std::thread::Builder::new().name("acpmux-watchdog".into()).spawn(move || {
-        watch(&socket, &notify, Plan::for_limit(limit), bound, &AtomicBool::new(false))
+        watch(&socket, &notify, Plan::for_limit(limit), bound, &held, &AtomicBool::new(false))
     });
 }
 
@@ -186,6 +327,7 @@ pub(crate) fn watch(
     notify: &str,
     plan: Plan,
     bound: Option<u64>,
+    held: &Hold,
     stop: &AtomicBool,
 ) {
     let born = Instant::now();
@@ -193,10 +335,36 @@ pub(crate) fn watch(
     let mut last_ping = born;
     let mut check = Check::new(plan.grace);
     let mut restarting = false;
+    // The wait before this check (the sleep), to see a pause across it.
+    let mut slept: Option<(Clocks, Duration)> = None;
     while !stop.load(Ordering::Relaxed) {
+        let mut gap = slept.and_then(|(at, planned)| at.gap(planned, plan.resumed()));
         let asked = Instant::now();
-        let answered = hello(socket, plan.hello_wait(last_ping, asked));
+        let before = Clocks::now();
+        let wait = plan.hello_wait(last_ping, asked);
+        let answered = hello(socket, wait);
         let took = asked.elapsed();
+        // A hello that spanned the pause timed out on a deadline the pause used up: not hung.
+        let across = before.gap(wait, plan.resumed());
+        if answered.is_err() && across.is_some() {
+            gap = gap.max(across);
+            if let Some(gap) = gap {
+                tracing::warn!(
+                    gap_ms = u64::try_from(gap.as_millis()).unwrap_or(u64::MAX),
+                    "self-check: the machine resumed during the hello; asking again, not judging it"
+                );
+            }
+            if held.release().is_some() {
+                tracing::info!(
+                    "self-check: the machine resumed; the systemd watchdog is armed again"
+                );
+            } else {
+                ping(notify);
+            }
+            last_ping = Instant::now();
+            slept = None;
+            continue;
+        }
         if answered.is_ok() && took > plan.floor {
             tracing::warn!(
                 took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
@@ -205,7 +373,48 @@ pub(crate) fn watch(
         }
         let rss = rss_bytes();
         let mut pinged = true;
-        match check.judge(answered.is_ok(), born.elapsed(), rss, bound) {
+        let verdict = check.judge(answered.is_ok(), born.elapsed(), rss, bound);
+        match hold_step(held.since(), Instant::now(), gap.is_some(), &verdict, plan.hold) {
+            HoldStep::Keep => {}
+            HoldStep::Release => {
+                let was = held.release();
+                tracing::info!(
+                    held_s = was.map(|d| d.as_secs()),
+                    gap_ms = gap.map(|g| u64::try_from(g.as_millis()).unwrap_or(u64::MAX)),
+                    "self-check: {}; the systemd watchdog is armed again at {}s",
+                    if gap.is_some() {
+                        "the machine resumed"
+                    } else {
+                        "the hold ran its bound with no resume seen"
+                    },
+                    limit.as_secs()
+                );
+            }
+            HoldStep::Restart => {
+                let why = answered.as_ref().err().cloned().unwrap_or_default();
+                held.release();
+                tracing::error!(
+                    error = %why,
+                    "self-check: the daemon stopped answering its own hello while its watchdog was held; restarting it through its SIGTERM handoff, agents kept"
+                );
+                if !restarting {
+                    restarting = true;
+                    super::supervision::stopping(StopCause::SelfStop(format!(
+                        "watchdog: no answer to its own hello while held ({why})"
+                    )));
+                    // SAFETY: kill(2) on this process's own pid with a signal the daemon handles.
+                    unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+                }
+                // The watchdog is armed again and not pinged: a handoff that hangs is ended by
+                // systemd within its limit.
+                slept = Some((Clocks::now(), plan.every.saturating_sub(asked.elapsed())));
+                std::thread::sleep(plan.every.saturating_sub(asked.elapsed()));
+                continue;
+            }
+        }
+        match verdict {
+            // Held: systemd's timer is stopped, nothing to ping.
+            Verdict::Ping if held.since().is_some() => {}
             Verdict::Ping => ping(notify),
             Verdict::Hung => {
                 let why = answered.err().unwrap_or_default();
@@ -224,6 +433,7 @@ pub(crate) fn watch(
             }
             Verdict::Restart if !restarting => {
                 restarting = true;
+                held.release();
                 tracing::error!(
                     rss,
                     bound,
@@ -246,7 +456,9 @@ pub(crate) fn watch(
         if pinged {
             last_ping = Instant::now();
         }
-        std::thread::sleep(plan.every.saturating_sub(asked.elapsed()));
+        let nap = plan.every.saturating_sub(asked.elapsed());
+        slept = Some((Clocks::now(), nap));
+        std::thread::sleep(nap);
     }
 }
 
