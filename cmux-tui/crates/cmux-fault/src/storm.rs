@@ -17,7 +17,6 @@
 //! ```
 
 use std::collections::BTreeMap;
-use std::future::Future;
 use std::time::{Duration, Instant};
 
 use crate::clock::WallClock;
@@ -125,17 +124,13 @@ impl<'a> Storm<'a> {
     /// `ticks` ticks, `every` apart (tokio time: on a paused clock a tick costs no real time).
     /// After each tick's faults, `step(tick)` runs one step of the scenario; its first `Err`
     /// ends the storm with that error and the tick. Every fault is healed before this returns.
-    pub async fn run<F, Fut>(
+    pub async fn run(
         mut self,
         name: &str,
         ticks: u64,
         every: Duration,
-        mut step: F,
-    ) -> Result<Report, String>
-    where
-        F: FnMut(u64) -> Fut,
-        Fut: Future<Output = Result<(), String>>,
-    {
+        mut step: impl AsyncFnMut(u64) -> Result<(), String>,
+    ) -> Result<Report, String> {
         self.trace.note(format!("storm {name}: {ticks} ticks every {} ms", every.as_millis()));
         let started = Instant::now();
         let mut worst_step = Duration::ZERO;

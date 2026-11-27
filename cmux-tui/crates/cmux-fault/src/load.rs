@@ -169,7 +169,7 @@ impl RamLoad {
 
     /// The share of the ceiling, in percent.
     pub fn set_percent(&mut self, percent: u32) {
-        self.set(self.ceiling / 100 * u64::from(percent.min(100)));
+        self.set(self.ceiling.saturating_mul(u64::from(percent.min(100))) / 100);
     }
 }
 
