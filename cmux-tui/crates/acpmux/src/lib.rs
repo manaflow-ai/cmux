@@ -209,6 +209,10 @@ pub mod link_v2;
 pub(crate) mod linux_sandbox;
 pub mod list_bytes;
 pub mod listener_record;
+/// Calls this machine runs for the person's other machines, over the hub carrier
+/// (`machine_call_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod listening_ports;
 pub mod live_models;
 pub mod local_stream;
 pub mod log_keep;
@@ -218,9 +222,6 @@ pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
 pub mod mac_lock;
-/// Calls this machine runs for the person's other machines, over the hub carrier
-/// (`machine_call_service.rs`).
-#[cfg(feature = "hub-carrier")]
 pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;

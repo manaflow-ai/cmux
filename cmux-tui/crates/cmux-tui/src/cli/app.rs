@@ -45,6 +45,7 @@ mod join;
 mod keybinding;
 mod launch_times;
 mod live;
+mod machine_ports;
 mod nightly;
 mod open;
 mod open_link;
@@ -236,6 +237,8 @@ pub(super) enum AppCommand {
     Record(record::Request),
     /// `cmux app health`: chat, model picker and terminal checks (cli/app/health.rs).
     Health(health::Command),
+    /// `cmux machine NAME ports`: another machine's listening ports (app/machine_ports.rs).
+    MachinePorts(machine_ports::Command),
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
@@ -287,6 +290,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         "nightly" => return nightly::parse(tail).map(|command| Some(AppCommand::Nightly(command))),
         "live" => return live::parse(tail).map(|command| Some(AppCommand::Live(command))),
         _ => {}
+    }
+    if let Some(command) = machine_ports::parse(args) {
+        return command.map(Some);
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -971,6 +977,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         // Its own connections, one per capture in flight.
         AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
+        AppCommand::MachinePorts(command) => return Ran::Done(machine_ports::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
         AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
@@ -1125,6 +1132,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
+        AppCommand::MachinePorts(command) => {
+            return Ran::Done(machine_ports::run(global, &command));
+        }
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
         AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {

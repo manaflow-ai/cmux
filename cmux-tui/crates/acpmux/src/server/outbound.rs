@@ -104,6 +104,7 @@ pub(crate) fn is_tool_read(method: &str) -> bool {
             | method::MUX_WHO_ELSE
             | method::MUX_MACHINE_INFO
             | method::MUX_MACHINE_FILES_CALL
+            | method::MUX_MACHINE_PORTS_CALL
             | method::MUX_COMPUTER_USE_STATE
             | method::MUX_BG_OUTPUT
             | method::MUX_BG_LIST

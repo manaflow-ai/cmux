@@ -117,6 +117,7 @@ members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-tcp-listeners",
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-files-host",
@@ -307,6 +308,7 @@ default-members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-tcp-listeners",
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
@@ -465,6 +467,7 @@ cmux-git-cache = { path = "crates/cmux-git-cache" }
 cmux-transport-rewrite = { path = "crates/cmux-transport-rewrite" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-tcp-listeners = { path = "crates/cmux-tcp-listeners" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }

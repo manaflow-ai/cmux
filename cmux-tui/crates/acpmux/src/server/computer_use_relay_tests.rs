@@ -72,6 +72,7 @@ fn a_call_for_a_machine_is_never_forwarded_by_its_session() {
         method::MUX_COMPUTER_USE_MACHINES,
         method::MUX_COMPUTER_USE_STATE,
         method::MUX_MACHINE_FILES_CALL,
+        method::MUX_MACHINE_PORTS_CALL,
         method::MUX_KEYS_MINT,
     ] {
         assert!(!super::super::peer_forward::names_a_session(m), "{m}");

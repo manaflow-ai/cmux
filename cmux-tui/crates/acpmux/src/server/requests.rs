@@ -1788,6 +1788,10 @@ async fn dispatch_request_with_identity(
         method::MUX_MACHINE_FILES_CALL => {
             super::machine_files_relay::call(hub, conn, &params).await
         }
+        // The listening ports of another of the person's machines (`machine_ports_relay.rs`).
+        method::MUX_MACHINE_PORTS_CALL => {
+            super::machine_ports_relay::call(hub, conn, &params).await
+        }
         // A scoped key from the machine that keeps its provider's bootstrap (`keys_relay.rs`).
         method::MUX_KEYS_MINT => super::keys_relay::mint(hub, conn, &params).await,
         method::SESSION_NEW => {

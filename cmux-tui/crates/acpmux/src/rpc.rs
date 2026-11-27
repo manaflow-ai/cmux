@@ -673,6 +673,9 @@ pub mod method {
     /// One file or command action on another of the person's machines, from this machine's
     /// own socket only (`server/machine_files_relay.rs`).
     pub const MUX_MACHINE_FILES_CALL: &str = "_acpmux/machine_files_call";
+    /// The TCP ports listening on another of the person's machines, from this machine's own
+    /// socket only (`server/machine_ports_relay.rs`).
+    pub const MUX_MACHINE_PORTS_CALL: &str = "_acpmux/machine_ports_call";
     /// A scoped key minted by another of the person's machines, which keeps the provider's
     /// bootstrap token (`server/keys_relay.rs`).
     pub const MUX_KEYS_MINT: &str = "_acpmux/keys_mint";

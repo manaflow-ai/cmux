@@ -143,6 +143,7 @@ pub(crate) mod machine_enroll;
 mod machine_files_relay;
 pub(crate) mod machine_health;
 mod machine_join_ssh;
+mod machine_ports_relay;
 #[cfg(feature = "hub-carrier")]
 mod machine_routes;
 mod machine_tunnel;

@@ -110,8 +110,13 @@ impl Hub {
             repo_root,
             branch: self.git_branch_now(&meta),
             background_jobs,
-            // acpmux has no listener inventory or preview-forwarding state yet.
-            ports: None,
+            // The listening ports here (`listening_ports.rs`); no preview forwarding yet.
+            ports: crate::listening_ports::here().map(|ports| {
+                ports
+                    .into_iter()
+                    .map(|port| crate::machine_info::Port { port, preview_url: None })
+                    .collect()
+            }),
             browser_available,
             display_available,
             preview_urls: None,

@@ -88,6 +88,7 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
+ "cmux-tcp-listeners",
  "cmux-transport",
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
@@ -1564,6 +1565,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-process",
+ "cmux-tcp-listeners",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -3305,6 +3307,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-tcp-listeners"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

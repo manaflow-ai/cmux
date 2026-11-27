@@ -120,6 +120,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_COMPUTER_USE_MACHINES,
     method::MUX_COMPUTER_USE_STATE,
     method::MUX_MACHINE_FILES_CALL,
+    method::MUX_MACHINE_PORTS_CALL,
     method::MUX_KEYS_MINT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
@@ -170,6 +171,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_COMPUTER_USE_MACHINES,
     method::MUX_COMPUTER_USE_STATE,
     method::MUX_MACHINE_FILES_CALL,
+    method::MUX_MACHINE_PORTS_CALL,
 ];
 
 /// The requests a chat that moved to a peer still takes here, forwarded to its copy there

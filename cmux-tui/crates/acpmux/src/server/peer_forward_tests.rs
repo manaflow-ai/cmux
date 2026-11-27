@@ -100,6 +100,7 @@ fn a_machine_call_is_never_forwarded_as_a_chat_request() {
         method::MUX_COMPUTER_USE_MACHINES,
         method::MUX_COMPUTER_USE_STATE,
         method::MUX_MACHINE_FILES_CALL,
+        method::MUX_MACHINE_PORTS_CALL,
     ] {
         assert!(!names_a_session(m), "{m}");
     }

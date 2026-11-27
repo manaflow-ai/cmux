@@ -489,6 +489,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_COMPUTER_USE_MACHINES, Request),
         untyped(method::MUX_COMPUTER_USE_STATE, Request),
         untyped(method::MUX_MACHINE_FILES_CALL, Request),
+        untyped(method::MUX_MACHINE_PORTS_CALL, Request),
         untyped(method::MUX_KEYS_MINT, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),

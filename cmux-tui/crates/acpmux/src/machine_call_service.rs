@@ -29,7 +29,8 @@
 //! `{"id":N,"result":..}` or `{"id":N,"error":{code,message,data}}`. Methods are a fixed list
 //! ([`METHODS`]). The Computer Use methods spawn no process and take no path or command;
 //! [`FILES_CALL`] reads and writes files and runs one command, under the hand's policy for a
-//! person's machine (`machine_files.rs` says what it may do).
+//! person's machine (`machine_files.rs` says what it may do). [`PORTS_LIST`] reads the
+//! listening port numbers and nothing else.
 //! Requests on one circuit run one at a time, in order; a caller that wants two at once opens two
 //! streams (each is one frame on the machine's kept circuit).
 
@@ -53,8 +54,10 @@ pub const COMPUTER_USE_CALL: &str = "computer_use_call";
 pub const COMPUTER_USE_STATE: &str = "computer_use_state";
 /// One file or command action here (`machine_files.rs`).
 pub const FILES_CALL: &str = "files_call";
+/// The TCP ports listening here, numbers only (`listening_ports.rs`); reads, never changes.
+pub const PORTS_LIST: &str = "ports_list";
 /// Every method the service answers.
-pub const METHODS: &[&str] = &[COMPUTER_USE_CALL, COMPUTER_USE_STATE, FILES_CALL];
+pub const METHODS: &[&str] = &[COMPUTER_USE_CALL, COMPUTER_USE_STATE, FILES_CALL, PORTS_LIST];
 
 /// The longest request line: a tool's name and arguments, or one file's new text.
 const MAX_REQUEST_BYTES: usize = 16 << 20;
@@ -275,6 +278,7 @@ impl MachineCallGate for ConfiguredGate {
                         crate::server::computer_use_relay::run_from(&machine, &params).await
                     }
                     FILES_CALL => crate::machine_files::run_from(&params).await,
+                    PORTS_LIST => crate::listening_ports::run_here().await,
                     _ => Ok(crate::server::computer_use_relay::state_here().await),
                 }
             }
