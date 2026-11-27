@@ -367,7 +367,8 @@ impl VisitStore {
             let index = match at.get(url) {
                 Some(&index) => index,
                 None => {
-                    at.insert(url.to_owned(), sums.len());
+                    let index = sums.len();
+                    at.insert(url.to_owned(), index);
                     sums.push(Sum {
                         summary: VisitSummary {
                             url: url.to_owned(),
@@ -377,11 +378,14 @@ impl VisitStore {
                         },
                         titled_ms: i64::MIN,
                     });
-                    sums.len() - 1
+                    index
                 }
             };
-            let sum = &mut sums[index];
-            sum.summary.visit_count += 1;
+            // `at` only holds indexes into `sums`, so this always finds the entry.
+            let Some(sum) = sums.get_mut(index) else {
+                continue;
+            };
+            sum.summary.visit_count = sum.summary.visit_count.saturating_add(1);
             sum.summary.last_visit_ms = sum.summary.last_visit_ms.max(visit_ms);
             // The title of the newest visit that has one. A URL's visits mostly repeat its title:
             // a newer one that matches only moves the time, with no copy.
@@ -396,7 +400,7 @@ impl VisitStore {
             }
         }
         let mut out: Vec<VisitSummary> = sums.into_iter().map(|sum| sum.summary).collect();
-        out.sort_unstable_by(|a, b| b.last_visit_ms.cmp(&a.last_visit_ms));
+        out.sort_unstable_by_key(|summary| std::cmp::Reverse(summary.last_visit_ms));
         out.truncate(limit);
         Ok(out)
     }
