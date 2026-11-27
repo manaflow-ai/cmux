@@ -426,6 +426,13 @@ held_pr() {
   local head_failed base_failed="" staged_on
   head_failed="$(failed_names "$previous")" || return 2
   if staged_on="$(git merge-base "$previous" "$tip" 2>/dev/null)" && [[ "$staged_on" =~ ^[0-9a-f]{40}$ ]]; then
+    # The base moved the pin files since the head was staged (another pin landed first: #60275 held 68510112 while
+    # the base took dd9b5117, and both rewrite the same two lines): the held head conflicts and can never land, so
+    # it moves to the base now, the same one branch force-pushed, never a second PR.
+    if ! git diff --quiet "$staged_on" "$tip" -- "$pin_file" "$manifest"; then
+      echo "#$number's head ${previous:0:12} was staged before the base changed the pin files (${staged_on:0:12}..${tip:0:12}): it conflicts, moving it" >&2
+      return 1
+    fi
     base_failed="$(failed_names "$staged_on")" || base_failed=""
   fi
   failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
