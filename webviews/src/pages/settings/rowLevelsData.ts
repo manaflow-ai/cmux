@@ -329,6 +329,7 @@ export const ROW_LEVELS: {
     "agentPane.composerRing": "hidden",
     "agentPane.display.harnessPlacement": "hidden",
     "agentPane.display.modelChipIcon": "more",
+    "agentPane.display.effortChip": "more",
     "agentPane.display.queueing": "more",
     "agentPane.dictationSource": "more",
     "agentPane.dictationShortcut": "more",

@@ -28,6 +28,9 @@ struct AgentPaneDisplaySettingTests {
         // What the model chip opens (webviews ModelPicker.tsx): the harness columns unless a look picks the compact menu.
         Row(key: "agentPane.display.modelPickerStyle", fallback: .string("list"), accepted: [.string("menu")],
             refused: [.string("columns"), .bool(true)]),
+        // Where the composer names the effort (webviews ComposerPickers.tsx): as the look decides unless a look joins it to the model chip.
+        Row(key: "agentPane.display.effortChip", fallback: .string("auto"), accepted: [.string("joined")],
+            refused: [.string("split"), .bool(true)]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
