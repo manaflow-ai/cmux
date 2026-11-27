@@ -50,6 +50,12 @@ def feed(*items: tuple, channel: dict | None = None, source: dict | None = None)
             f"<channel>{body}</channel></rss>")
 
 
+def add_delta(text: str, build: int, delta_from: int, url: str = BASE) -> str:
+    enclosure = (f'<enclosure url="{url}/cmux-nightly-next-macos-arm64-{build}-{delta_from}.delta" '
+                 f'sparkle:version="{build}" sparkle:deltaFrom="{delta_from}" length="1"/>')
+    return text.replace("</item>", f"<sparkle:deltas>{enclosure}</sparkle:deltas></item>", 1)
+
+
 class SignatureTests(unittest.TestCase):
     """The DMG's EdDSA signature, written beside it so an app can check a build the feed dropped."""
 
@@ -162,6 +168,50 @@ class FeedWriteCase(unittest.TestCase):
 
 
 class WriteFeedTests(FeedWriteCase):
+    def test_same_build_revision_unions_deltas_from_the_live_item(self) -> None:
+        live = add_delta(feed((300, "live", 1), source={300: "a" * 40}), 300, 299).encode()
+        self.path.write_text(add_delta(feed((300, "candidate", 1)), 300, 200), encoding="utf-8")
+        written: list[tuple[bytes, list[str]]] = []
+
+        def fake_run(args, *rest, **kwargs):
+            written.append((self.path.read_bytes(), args))
+            return subprocess.CompletedProcess(args, 0)
+
+        with mock.patch.object(r2, "read_live", return_value=live), \
+                mock.patch.object(r2.subprocess, "run", fake_run):
+            self.assertEqual(r2.write_feed(self.path, str(self.output), same_build=True), 0)
+        payload = written[0][0]
+        self.assertIn(b'sparkle:deltaFrom="299"', payload)
+        self.assertIn(b'sparkle:deltaFrom="200"', payload)
+        self.assertIn(b'url="live"', payload)
+        self.assertIn(b">" + b"a" * 40 + b"<", payload)
+        self.assertEqual(hashlib.sha256(live).hexdigest(),
+                         written[0][1][written[0][1].index("--replace-sha256") + 1])
+
+    def test_same_build_revision_unions_deltas_again_after_a_lost_cas(self) -> None:
+        first_live = add_delta(feed((300, "live", 1), source={300: "a" * 40}), 300, 299).encode()
+        second_live = add_delta(feed((300, "racer", 1), source={300: "b" * 40}), 300, 198).encode()
+        self.path.write_text(add_delta(feed((300, "candidate", 1)), 300, 200), encoding="utf-8")
+        written: list[tuple[bytes, list[str]]] = []
+
+        def fake_run(args, *rest, **kwargs):
+            written.append((self.path.read_bytes(), args))
+            return subprocess.CompletedProcess(args, r2.CONFLICT if len(written) == 1 else 0)
+
+        with mock.patch.object(r2, "read_live", side_effect=[first_live, second_live]), \
+                mock.patch.object(r2.subprocess, "run", fake_run):
+            self.assertEqual(r2.write_feed(self.path, str(self.output), same_build=True), 0)
+        self.assertEqual(len(written), 2)
+        self.assertIn(b'sparkle:deltaFrom="299"', written[0][0])
+        self.assertIn(b'sparkle:deltaFrom="200"', written[0][0])
+        self.assertIn(b'sparkle:deltaFrom="198"', written[1][0])
+        self.assertIn(b'sparkle:deltaFrom="200"', written[1][0])
+        self.assertIn(b'url="racer"', written[1][0])
+        self.assertIn(b">" + b"b" * 40 + b"<", written[1][0])
+        for _payload, args, live_bytes in ((written[0][0], written[0][1], first_live),
+                                           (written[1][0], written[1][1], second_live)):
+            self.assertEqual(hashlib.sha256(live_bytes).hexdigest(),
+                             args[args.index("--replace-sha256") + 1])
     def test_a_newer_live_feed_is_left_alone(self) -> None:
         live = feed((300, "x", 1)).encode()
         self.assertEqual(self.run_with([live], []), 0)

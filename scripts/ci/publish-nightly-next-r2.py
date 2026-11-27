@@ -71,6 +71,9 @@ ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 ITEM_SOURCE = re.compile(rb"<cmux:sourceCommit(?:\s+[^>]*)?>\s*([0-9a-f]{7,40})\s*</cmux:sourceCommit>", re.I)
 ITEM_CHANNEL = re.compile(rb"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
+DELTA_BLOCK = re.compile(rb"(\s*<sparkle:deltas>)(.*?)(\s*</sparkle:deltas>)", re.S)
+DELTA_ENCLOSURE = re.compile(rb"\s*<enclosure\b[^>]*?/>", re.S)
+DELTA_FROM = re.compile(rb'sparkle:deltaFrom="(\d+)"')
 NIGHTLY_CHANNELS = (None, b"cmux-next")  # what a Nightly-ring app is offered (untagged or cmux-next)
 _sleep = time.sleep
 
@@ -270,6 +273,40 @@ def item_source(xml: bytes, build: int) -> str | None:
         source = ITEM_SOURCE.search(match.group(0))
         return source.group(1).decode("ascii").lower() if source else None
     return None
+
+
+def merge_live_deltas(live: bytes, generated: bytes, build: int) -> bytes:
+    """Add generated deltas to the live item for BUILD without rewriting live bytes.
+
+    The delta job has several independent writers. A writer that loses its CAS must
+    retain every delta the winning writer published while it was preparing its own
+    feed, so the next upload is the union of both items' deltaFrom values.
+    """
+    live_items = [(match, value) for match, value in item_builds(live) if value == build]
+    generated_items = [(match, value) for match, value in item_builds(generated) if value == build]
+    if len(live_items) != 1:
+        return generated
+    if len(generated_items) != 1:
+        return live
+    live_match, _ = live_items[0]
+    generated_match, _ = generated_items[0]
+    live_item = live_match.group(0)
+    generated_item = generated_match.group(0)
+    have = set(DELTA_FROM.findall(live_item))
+    block = DELTA_BLOCK.search(generated_item)
+    new = DELTA_ENCLOSURE.findall(block.group(2)) if block else []
+    new = [enclosure for enclosure in new
+           if (delta_from := DELTA_FROM.search(enclosure)) and delta_from.group(1) not in have]
+    if not new:
+        return live
+    existing = DELTA_BLOCK.search(live_item)
+    if existing:
+        merged_item = live_item[:existing.end(2)] + b"".join(new) + live_item[existing.end(2):]
+    else:
+        close = live_item.rindex(b"</item>")
+        merged_item = (live_item[:close] + b'    <sparkle:deltas>' + b"".join(new)
+                       + b"\n            </sparkle:deltas>\n        " + live_item[close:])
+    return live[:live_match.start()] + merged_item + live[live_match.end():]
 
 
 def add_source(xml: bytes, source_sha: str) -> bytes:
@@ -571,11 +608,14 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                             out.write("feed_written=false\npublication_refused=true\n")
                     return 0
             mode = ["--replace-sha256", hashlib.sha256(live).hexdigest(), "--conflict-exit-code", str(CONFLICT)]
-            merged = keep_earlier_builds(original, live)
+            generated = original
+            if same_build:
+                generated = merge_live_deltas(live, original, ours)
+            merged = keep_earlier_builds(generated, live)
             # Delta artifacts predate the source marker added by the initial CAS.
             # Keep the live item's provenance when revising that exact build.
             if same_build:
-                live_source = item_source(live, ours) or item_source(merged, ours)
+                live_source = item_source(live, ours) or item_source(merged, ours) or item_source(original, ours)
                 if live_source:
                     merged = add_source(merged, live_source)
             merged = bind_feed_prefixes(merged)
