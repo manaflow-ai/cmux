@@ -143,7 +143,8 @@ mod tests {
     #[test]
     fn buckets_cover_every_value_and_stay_within_an_eighth() {
         let mut last = 0;
-        for us in (0..5_000u64).chain([1 << 20, (1 << 20) + 1, 999_999, 600_000_000, u64::MAX / 2, u64::MAX]) {
+        for us in (0..5_000u64).chain([1 << 20, (1 << 20) + 1, 999_999, 600_000_000, u64::MAX / 2, u64::MAX])
+        {
             let index = bucket(us);
             assert!(index >= last || us > 5_000, "monotonic at {us}");
             last = index;

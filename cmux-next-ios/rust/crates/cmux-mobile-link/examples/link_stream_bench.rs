@@ -618,7 +618,8 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     let missing = keys_sent.saturating_sub(echoes.len() as u64);
     let path = *connected.path.borrow();
     let phone_outbox = outbox_ms(&link.take_outbox_wait());
-    let mac_outbox = lock(&mac_link).as_ref().map_or_else(|| "null".to_owned(), |mac| outbox_ms(&mac.take_outbox_wait()));
+    let mac_outbox =
+        lock(&mac_link).as_ref().map_or_else(|| "null".to_owned(), |mac| outbox_ms(&mac.take_outbox_wait()));
     println!(
         "{{\"classes\":{},\"datagram_wins\":{},\"workload\":\"echo-flood\",\"transport\":\"{}\",\"row\":\"{}\",\"lan_rtt_ms\":{},\"relay_rtt_ms\":{},\"seconds\":{},\
          \"flood_mbps\":{},\"loss_pct\":{},\"keys_on_input_lane\":{},\"keys_sent\":{},\"echo_missing\":{},\

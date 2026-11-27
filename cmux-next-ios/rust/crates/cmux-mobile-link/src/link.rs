@@ -2707,7 +2707,9 @@ async fn write_loop<W>(
             let flushed = Instant::now();
             let mut wait = inner.outbox_wait.lock().unwrap_or_else(PoisonError::into_inner);
             for at in queued.drain(..) {
-                wait.record(u64::try_from(flushed.saturating_duration_since(at).as_micros()).unwrap_or(u64::MAX));
+                wait.record(
+                    u64::try_from(flushed.saturating_duration_since(at).as_micros()).unwrap_or(u64::MAX),
+                );
             }
         }
         if !marks.is_empty() {

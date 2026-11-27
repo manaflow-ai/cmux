@@ -523,6 +523,12 @@ is forwarded, and the service never answers it.
   keys whose echo took over 150 ms; `spikes`: the six slowest, each
   `[upS at the key, ack ms or -1 when the reply had not come, echo ms]`, so a
   periodic stall shows its period.
+- `outboxUs` (added 2026-11-27; absent when the phone wrote nothing): its
+  link's outbox wait since the last stat, in µs (n, p50, p95, p99, max): a
+  frame's time from entering the outbox to the flush that handed it to the
+  transport (`cmux-mobile-link/src/outbox_wait.rs`). `echo` slow with
+  `outboxUs` slow is the phone's own writer, not the network or the Mac.
+  Clamped to 600000000.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
 - `portmap` (optional, added 2026-11-24): `{"by":"pcp"|"nat-pmp"|"upnp"|"unknown","used":bool}`,
@@ -538,7 +544,7 @@ error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
 one within 5 s of the socket's last (an `end` stat excepted). It writes one
 Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
 against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
-`rttMax`; `echo` and `ack` the same with `P99`; `spikes` at most six clamped
+`rttMax`; `echo`, `ack` and `outboxUs` the same with `P99`; `spikes` at most six clamped
 triples), plus `kind`, `ingressColo`, `country` and `continent` (where the
 socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
 hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`

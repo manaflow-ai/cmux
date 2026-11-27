@@ -73,6 +73,8 @@ const LINK_STAT_MARKS = new Set([
   "first_pong"
 ])
 const LINK_STAT_MAX_MS = 600_000
+/** `outboxUs` is in µs: the same 600 s (`cmux-mobile-link` `outbox_wait::MAX_US`). */
+const LINK_STAT_MAX_US = 600_000_000
 /** The most slow keys a `link_stat` carries (`cmux-mobile-link` `key_echo::MAX_SPIKES`). */
 const LINK_STAT_MAX_SPIKES = 6
 const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
@@ -137,16 +139,21 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
     const by = word(p.by, LINK_STAT_PORTMAP)
     if (by && typeof p.used === "boolean") Object.assign(line, { portmapBy: by, portmapUsed: p.used })
   }
-  // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
-  for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
+  // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`) and the phone's outbox wait
+  // (`outboxUs`, µs): flattened as `rtt` is.
+  for (const [field, prefix, maxN, cap] of [
+    ["echo", "echo", 100_000, LINK_STAT_MAX_MS],
+    ["ack", "ack", 100_000, LINK_STAT_MAX_MS],
+    ["outboxUs", "outboxUs", 100_000_000, LINK_STAT_MAX_US]
+  ] as const) {
     const k = f[field]
     if (typeof k !== "object" || k === null || Array.isArray(k)) continue
     const r = k as Record<string, unknown>
-    const n = num(r.n, 100_000)
-    const p50 = num(r.p50, LINK_STAT_MAX_MS)
-    const p95 = num(r.p95, LINK_STAT_MAX_MS)
-    const p99 = num(r.p99, LINK_STAT_MAX_MS)
-    const max = num(r.max, LINK_STAT_MAX_MS)
+    const n = num(r.n, maxN)
+    const p50 = num(r.p50, cap)
+    const p95 = num(r.p95, cap)
+    const p99 = num(r.p99, cap)
+    const max = num(r.max, cap)
     if (n && p50 !== undefined && p95 !== undefined && p99 !== undefined && max !== undefined) {
       Object.assign(line, { [`${prefix}N`]: n, [`${prefix}P50`]: p50, [`${prefix}P95`]: p95, [`${prefix}P99`]: p99, [`${prefix}Max`]: max })
     }
