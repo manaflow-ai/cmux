@@ -235,7 +235,8 @@ pub fn session_of(rel: &str) -> Option<String> {
     if rel.starts_with(".codex/") {
         // rollout-2026-01-01T00-00-00-<uuid>: a uuid is the last 5 dash-separated groups.
         let parts: Vec<&str> = name.split('-').collect();
-        return (parts.len() >= 6).then(|| parts[parts.len() - 5..].join("-"));
+        return (parts.len() >= 6)
+            .then(|| parts.get(parts.len() - 5..).map_or_else(String::new, |tail| tail.join("-")));
     }
     // ~/.claude/projects/<cwd>/<sid>.jsonl or <cwd>/<sid>/subagents/agent-*.jsonl
     let parts: Vec<&str> = rel.split('/').collect();
@@ -304,7 +305,8 @@ pub fn root_pair(cloud: &Cloud) -> String {
     let id = crate::sha256_hex(
         &[b"cmux-session-cloud transcripts root\0".as_slice(), cloud.key.id_material()].concat(),
     );
-    format!("{}csh.{}", cloud.root_prefix, &id[..32])
+    let short_id: String = id.chars().take(32).collect();
+    format!("{}csh.{short_id}", cloud.root_prefix)
 }
 
 /// Reads `entry`'s copy back from the store and checks it: the blob's address, then the
