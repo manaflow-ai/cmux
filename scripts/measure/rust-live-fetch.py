@@ -10,6 +10,7 @@ new binary into a staged copy of the previous one under each transfer variant:
   rsync_zlib        rsync -z, zlib (what a Mac's rsync 2.6.9 or openrsync negotiates: the loop today)
   rsync_zstd        rsync -z, zstd (two rsync 3.2+ ends negotiate it)
   rsync_whole_zlib  rsync -z --whole-file, zlib: no delta
+  rsync_plain       rsync, no -z: the delta, uncompressed (any rsync, openrsync too)
   zstd1             zstd -T0 -1 on the host, piped, zstd -d here: no rsync, no delta
   zstd3             the same at zstd's default level 3
   gzip1             pigz -1 (gzip -1 without it) on the host, gzip -d here: a stock Mac has gzip, not zstd
@@ -53,7 +54,7 @@ def load(name: str, path: Path):
 live = load("rust_live", ROOT / "scripts/cmux-next/rust-live.py")
 EDIT = ROOT / live.EDIT_FILE
 ANCHOR = live.EDIT_ANCHOR
-VARIANTS = ["rsync_zlib", "rsync_zstd", "rsync_whole_zlib", "zstd1", "zstd3", "gzip1"]
+VARIANTS = ["rsync_zlib", "rsync_zstd", "rsync_whole_zlib", "rsync_plain", "zstd1", "zstd3", "gzip1"]
 
 
 def log(msg: str) -> None:
@@ -85,8 +86,9 @@ def transfer(variant: str, source: Path, staged: Path, rsh: Path) -> tuple[float
     """Move source into staged (which holds the last build), as the loop's pull would; (seconds, wire bytes)."""
     t = time.monotonic()
     if variant.startswith("rsync"):
-        argv = ["rsync", "-z", "--stats", "-e", str(rsh),
-                "--compress-choice=" + ("zstd" if "zstd" in variant else "zlib")]
+        argv = ["rsync", "--stats", "-e", str(rsh)]
+        if "plain" not in variant:
+            argv += ["-z", "--compress-choice=" + ("zstd" if "zstd" in variant else "zlib")]
         if "whole" in variant:
             argv.append("--whole-file")
         else:
