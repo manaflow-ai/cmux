@@ -3487,7 +3487,9 @@ exit "$status"
 # the full workspace/scroll matrix. Fake providers, production link and host.
 [step.ios-pairing-paths]
 job = "linux"
-timeout = 900
+# Share the Cargo graph with the full matrix without racing another Rust build.
+alone = true
+timeout = 1800
 title = "iOS signed pairing: impaired carrier paths"
 about = "real signed pairing, host approval and authenticated echo over LocalHub, UDP, TURN UDP and WebSocket relay with deterministic delay/loss"
 needs = ["rust"]
