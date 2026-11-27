@@ -284,7 +284,7 @@ try {
     for (const key of Object.keys(serverMarks)) delete serverMarks[key];
     const started = performance.now();
     const savedAt = clock();
-    await write(probe.file, (text) => probe.edit(text, n));
+    if (!process.env.NOSWAP) await write(probe.file, (text) => probe.edit(text, n));
     const wroteAt = clock();
     let shown = true;
     await page.waitForFunction(probe.seen, n, { timeout: 15_000 }).catch(() => (shown = false));
@@ -322,6 +322,7 @@ try {
         { timeout: 20_000 },
       )
       .catch(() => (turnFinished = false));
+    if (!turnFinished) console.log("DEBUG body:\n" + (await inPage(() => document.body.innerText)).slice(-3000));
     results.push({
       probe: probe.name,
       file: probe.file,
