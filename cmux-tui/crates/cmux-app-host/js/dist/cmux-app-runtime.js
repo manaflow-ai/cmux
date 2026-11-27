@@ -787,6 +787,9 @@
       this.handlers.tap = fn;
       return this;
     }
+    opens(target) {
+      return this.set("opens", target);
+    }
     contextMenu(items) {
       this.menu = items;
       return this;

@@ -1,6 +1,7 @@
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
+import { AgentMark } from "../../agent-session/shared/AgentMark";
 import type { IconPack } from "../../agent-session/acpmux/icons/types";
 import { sceneText } from "./sceneStyle";
 import { symbolLayerPaint } from "./sceneSymbolRendering";
@@ -107,6 +108,32 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "square.stack": "apps.stack",
   link: "link",
   "arrow.up.right": "link.external",
+  // The New Tab looks' names: chats, status, search and the composer.
+  "bubble.left": "agent.chat",
+  "bubble.left.fill": "agent.chat",
+  "bubble.left.and.bubble.right": "agent.chat.list",
+  "square.and.pencil": "agent.chat.new",
+  "smallcircle.filled.circle": "status.running",
+  "arrow.clockwise": "action.reload",
+  "arrow.counterclockwise": "action.undo",
+  "questionmark.circle": "agent.question",
+  "hand.raised": "status.needsinput",
+  "hand.raised.fill": "status.needsinput",
+  magnifyingglass: "search",
+  "arrow.up": "composer.send",
+  "arrow.up.circle.fill": "composer.send",
+  paperclip: "composer.attach",
+  "chevron.right": "disclosure.collapsed",
+  "clock.arrow.circlepath": "history.recent",
+  laptopcomputer: "machine.mac",
+  desktopcomputer: "machine.local",
+  "folder.badge.plus": "folder",
+  "line.3.horizontal.decrease": "filter",
+  "line.3.horizontal.decrease.circle": "filter",
+  ellipsis: "action.more",
+  "pin.fill": "state.pinned",
+  gearshape: "settings",
+  "gearshape.fill": "settings",
   "arrow.triangle.2.circlepath": "action.sync",
   gauge: "context.usage",
   "gauge.with.needle": "context.usage",
@@ -116,12 +143,9 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   sparkles: "task.ai",
   rectangle: "workspace",
   "rectangle.inset.filled": "workspace",
-  "chevron.right": "disclosure.collapsed",
   house: "home",
   timer: "time.waiting",
   bell: "notification",
-  gearshape: "settings",
-  magnifyingglass: "search",
   "chart.bar": "agent.activity",
   star: "bookmark",
   "star.fill": "bookmark.active",
@@ -132,8 +156,6 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "pause.fill": "media.pause",
   "list.bullet": "view.list",
   "square.grid.2x2": "view.grid",
-  "bubble.left": "agent.chat",
-  "arrow.clockwise": "action.reload",
 };
 
 /** Drawn for a name neither the pack nor SCENE_SF_SYMBOLS knows: a small dot, so an app that names a
@@ -171,6 +193,9 @@ export function appSceneIcon(value: unknown): string {
   return resolveSceneSymbol(bundledIconPack.icons, sceneText(value)).name;
 }
 
+/** The symbol namespace of an agent's own mark: `harness:claude`, `harness:codex`, ... */
+export const HARNESS_PREFIX = "harness:";
+
 /** `.fill` names whose glyph is already filled in Line; their Solid form means something else (a
  *  selected swatch's ring). */
 const LINE_FILLED = new Set(["circle.fill"]);
@@ -207,6 +232,15 @@ export function SceneSymbol({
 }) {
   const { pack } = useIcons();
   const value = sceneText(symbol);
+  // `harness:<id>` (`Icon("harness:claude")`): the agent's own mark, as cmux's chat cards draw it; a
+  // harness no mark knows draws the icon acpmux picked for it, else a monogram.
+  if (value.startsWith(HARNESS_PREFIX) && value.length > HARNESS_PREFIX.length) {
+    return (
+      <span className={className ? `cmux-app-scene-harness ${className}` : "cmux-app-scene-harness"}>
+        <AgentMark agent={value.slice(HARNESS_PREFIX.length)} size={size} />
+      </span>
+    );
+  }
   const { name, paintAs } = resolveSceneSymbol(pack.icons, value);
   const layerPaint = name === SCENE_FALLBACK_ICON ? undefined : symbolLayerPaint(paintAs, rendering, palette);
   return (

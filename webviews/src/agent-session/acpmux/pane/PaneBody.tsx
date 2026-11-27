@@ -906,6 +906,13 @@ export function drawPaneBody({
                                 app={newTabApp}
                                 {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
                                 onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                                onOpen={(target) =>
+                                  "chat" in target
+                                    ? void callNative("chats.open", { key: target.chat }).catch(() => undefined)
+                                    : void callNative("tab.jump", { target: "closed", id: target.closed }).catch(
+                                        () => undefined,
+                                      )
+                                }
                               />
                             )}
                           </>

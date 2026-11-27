@@ -1388,6 +1388,7 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+
 /* The home-card-glow experiment (homeCardGlow.experiment.ts; ChatCards sets `data-glow` and each
    card's `--nt-card-tint`, the chat's own color). One card shell for every chat: a radial glow in
    its tint from the top corner and a tinted hairline under the meta row; hover or focus brightens

@@ -78,7 +78,6 @@
     "agent-session/acpmux/multiplayer/LivePresence.tsx#LiveTypingLine",
     "agent-session/acpmux/newtab/AllChatsLoading.tsx#AllChatsLoading",
     "agent-session/acpmux/newtab/DotSwitch.fixture.tsx#DotSwitchFixture",
-    "agent-session/acpmux/newtab/NewTabAppPage.tsx#NewTabAppPage",
     "agent-session/acpmux/newtab/RowGlyph.tsx#SuggestionGlyph",
     "agent-session/acpmux/permissions/cardFontGallery.tsx#CardFontCaption",
     "agent-session/acpmux/question/PermissionQuestion.tsx#PermissionQuestion",

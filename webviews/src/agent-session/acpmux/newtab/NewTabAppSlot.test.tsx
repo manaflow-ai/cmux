@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
+import type { SceneOpenTarget } from "../../../apps/scene/SceneRenderer";
 import { until } from "../../../../test/support/until";
 
 /// One turn of the event loop inside act, so the deadline's timer can fire and React flushes what it did.
@@ -196,4 +197,87 @@ test("a mounted scene that never draws is stopped at the deadline (unmounted at 
   expect(gone).toHaveLength(1);
   expect(host.ops("unmount").map((call) => call.params)).toEqual([{ mount_id: "m1" }]);
   await act(async () => root.unmount());
+});
+
+test("a TextField takes .monospaced() and .font() as a Text does; Icon harness:<id> draws the agent's mark", async () => {
+  const host = new Host();
+  const { container, root } = await render(host);
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "f", type: "TextField", props: { monospaced: true, font: 15 } },
+          { op: "create", id: "i", type: "Icon", props: { symbol: "harness:claude", size: 16 } },
+          { op: "create", id: "h", type: "HStack", props: {} },
+          { op: "children", id: "h", children: ["f", "i"] },
+          { op: "root", id: "h" },
+        ],
+      },
+      1,
+    );
+  });
+  const field = container.querySelector<HTMLInputElement>(".cmux-app-scene-field");
+  expect(field?.style.fontFamily).toBe("var(--font-mono)");
+  expect(field?.style.fontSize).toBe("15px");
+  expect(container.querySelector(".cmux-app-scene-harness")).not.toBeNull();
+  await act(async () => root.unmount());
+});
+
+test(".opens(...) taps go to the host's own open path, as the person's click; with no host open, onTap runs", async () => {
+  const scene = (host: Host) =>
+    act(async () => {
+      host.scene?.(
+        {
+          mount_id: "m1",
+          ops: [
+            {
+              op: "create",
+              id: "a",
+              type: "Row",
+              props: { title: "Atlas", opens: { chat: "chat-atlas" }, onTap: true },
+            },
+            { op: "create", id: "b", type: "Row", props: { title: "Closed", opens: { closed: "closed-7" } } },
+            { op: "create", id: "v", type: "VStack", props: {} },
+            { op: "children", id: "v", children: ["a", "b"] },
+            { op: "root", id: "v" },
+          ],
+        },
+        1,
+      );
+    });
+  const host = new Host();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const opened: SceneOpenTarget[] = [];
+  await act(async () => {
+    root.render(
+      <NewTabAppSlot
+        app="local/cards"
+        client={host}
+        onUnavailable={() => undefined}
+        onOpen={(target) => opened.push(target)}
+      />,
+    );
+  });
+  await scene(host);
+  const rows = container.querySelectorAll<HTMLElement>("[data-app-node]");
+  const row = (id: string) => [...rows].find((node) => node.dataset.appNode === id)!;
+  await act(async () => row("a").click());
+  await act(async () => row("b").click());
+  expect(opened).toEqual([{ chat: "chat-atlas" }, { closed: "closed-7" }]);
+  expect(host.ops("dispatch")).toEqual([]);
+  await act(async () => root.unmount());
+
+  // Another host (the sidebar, a pane) has no open path: the node's own onTap runs.
+  const plain = new Host();
+  const drawn = await render(plain);
+  await scene(plain);
+  const tapped = [...drawn.container.querySelectorAll<HTMLElement>("[data-app-node]")].find(
+    (node) => node.dataset.appNode === "a",
+  )!;
+  await act(async () => tapped.click());
+  expect(plain.ops("dispatch").length).toBe(1);
+  await act(async () => drawn.root.unmount());
 });

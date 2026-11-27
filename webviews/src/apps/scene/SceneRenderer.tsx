@@ -4,11 +4,12 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type ReactNode,
+  useMemo,
   type RefObject,
 } from "react";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
@@ -29,20 +30,34 @@ import {
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
+  sceneGradient,
   sceneNumber,
-  sceneRecord,
   sceneStyle,
   sceneText,
   textStyle,
-  sceneGradient,
-  type SceneStyle,
   sceneGlass,
+  sceneRecord,
+  type SceneStyle,
 } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
+/** A host-handled tap (`.opens(...)`): a recent chat by its chat key, or a Recently Closed item. */
+export type SceneOpenTarget = { chat: string } | { closed: string };
+/** The embedding host handles `.opens(...)` taps where it has cmux's native path. */
+export type SceneHost = { open?(target: SceneOpenTarget): void };
+
+/** A node's `opens` prop, when it names one chat or one closed item. */
+export function sceneOpenTarget(value: unknown): SceneOpenTarget | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { chat, closed } = value as Record<string, unknown>;
+  if (typeof chat === "string" && chat) return { chat };
+  if (typeof closed === "string" && closed) return { closed };
+  return undefined;
+}
+export const SceneHostContext = createContext<SceneHost | undefined>(undefined);
 /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
  * App-supplied URLs are never passed directly to an image. */
 export type SceneAssetResolver = (bundlePath: string) => string | undefined;
@@ -155,6 +170,8 @@ function SceneTextField({
     <input
       ref={input}
       className="cmux-app-scene-field"
+      // `.font()`, `.weight()` and `.monospaced()` as a Text's (a console look's monospace field).
+      style={fieldStyle(node.props)}
       value={text}
       placeholder={sceneText(node.props.placeholder)}
       aria-label={sceneText(node.props.help) || sceneText(node.props.placeholder) || undefined}
@@ -291,6 +308,17 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
       }}
     />
   );
+}
+
+/** A TextField's own type: the font, weight and monospace a Text takes, never its line limit. */
+function fieldStyle(props: SceneNode["props"]): CSSProperties | undefined {
+  const { fontSize, fontWeight, fontStyle, fontFamily } = textStyle(props);
+  const style: CSSProperties = {};
+  if (fontSize !== undefined) style.fontSize = fontSize;
+  if (fontWeight !== undefined) style.fontWeight = fontWeight;
+  if (fontStyle !== undefined) style.fontStyle = fontStyle;
+  if (fontFamily !== undefined) style.fontFamily = fontFamily;
+  return Object.keys(style).length ? style : undefined;
 }
 
 /** A Text with `date` and `dateStyle`: formatted here and ticked by the shared clock (sceneDate.ts),
@@ -509,6 +537,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   // A leaving node (and its subtree) draws from its last props, which the store keeps, until
   // its transition ends.
   const inLeaving = useContext(SceneLeavingContext);
+  const host = useContext(SceneHostContext);
   const leaving = own === true || inLeaving;
   const node = live ?? (leaving ? store.getDeparted(id) : undefined);
   const entering = useSceneEntering(store, node);
@@ -598,9 +627,14 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
     }
   }
-  const tappable = props.onTap === true || node.type === "Button";
+  // `.opens(...)`: the host opens the chat or closed item through cmux's own path, as the person's
+  // click; with no host that opens, the node's own onTap runs.
+  const opens = sceneOpenTarget(props.opens);
+  const tappable = props.onTap === true || node.type === "Button" || (!!opens && !!host?.open);
   const tap = () => {
-    if (!disabled) dispatch(node.id, "tap");
+    if (disabled) return;
+    if (opens && host?.open) return host.open(opens);
+    dispatch(node.id, "tap");
   };
   const shared = {
     "data-app-node": node.id,

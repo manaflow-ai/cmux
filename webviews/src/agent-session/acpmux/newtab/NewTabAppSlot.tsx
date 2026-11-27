@@ -17,8 +17,9 @@ import {
 } from "react";
 import { AppSceneMount } from "../../../apps/scene/appSceneMount";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
-import { SceneRenderer } from "../../../apps/scene/SceneRenderer";
+import { SceneHostContext, SceneRenderer } from "../../../apps/scene/SceneRenderer";
 import type { PageClient } from "../../../pages/shared/pageClient";
+import type { SceneOpenTarget } from "../../../apps/scene/SceneRenderer";
 import { pageHostClient } from "../pageHostClient";
 import "./appSlot.css";
 
@@ -35,6 +36,8 @@ type Props = {
   /// The app is missing, hidden or disabled, failed, threw, went away or did not draw in time: the
   /// slot is empty for the rest of this visit. Called once, with the reason.
   onUnavailable(reason: string): void;
+  /// A New Tab `.opens(...)` target, handled through cmux's own card or Recently Closed path.
+  onOpen?: (target: SceneOpenTarget) => void;
   /// Tests and the gallery inject their host and clock; the page uses the page host's.
   client?: PageClient | null;
   deadlineMs?: number;
@@ -73,6 +76,7 @@ function SlotScene({
   client: injected,
   deadlineMs = NEW_TAB_APP_DEADLINE_MS,
   onGone,
+  onOpen,
 }: Props & { onGone(reason: string): void }) {
   const client = injected === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injected;
   const mount = useMemo(() => new AppSceneMount(client, "newTab", app, cwd ? { cwd } : {}), [client, app, cwd]);
@@ -103,12 +107,14 @@ function SlotScene({
   return (
     <div className="nt-app-slot-body" data-status={status.state} aria-busy={!drawn}>
       {/* The composer owns focus: a scene that arrives late never takes the rest of a prompt. */}
-      <SceneRenderer
-        store={mount.store}
-        dispatch={mount.dispatch}
-        resolveAsset={mount.resolveAsset}
-        autofocus={false}
-      />
+      <SceneHostContext.Provider value={onOpen ? { open: onOpen } : undefined}>
+        <SceneRenderer
+          store={mount.store}
+          dispatch={mount.dispatch}
+          resolveAsset={mount.resolveAsset}
+          autofocus={false}
+        />
+      </SceneHostContext.Provider>
     </div>
   );
 }

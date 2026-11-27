@@ -167,6 +167,11 @@ export class ViewNode {
     this.handlers.tap = fn
     return this
   }
+  /** A tap the host runs itself, as the person's click, with no app scope: on a New Tab page,
+   * `{chat}` opens that chat (its chat.list key) and `{closed}` reopens that Recently Closed item,
+   * in the New Tab's own tab, as cmux's own page does. Where the host has no such path, the
+   * node's `onTap` runs instead. */
+  opens(target: { chat: string } | { closed: string }) { return this.set("opens", target) }
   contextMenu(items: ViewNode[] | (() => ViewNode[])) {
     this.menu = items
     return this

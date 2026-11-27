@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { SceneFailure, sceneFailureCopy } from "./SceneFailure";
 import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch } from "./SceneRenderer";
 import { translate } from "../../agent-session/acpmux/i18n";
-import { SCENE_FALLBACK_ICON, appSceneIcon } from "./SceneSymbol";
+import { appSceneIcon, SCENE_FALLBACK_ICON } from "./SceneSymbol";
 import { SceneStore, type SceneOp } from "./store";
 import { formatSceneDate, sceneClockRunning } from "./sceneDate";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -827,6 +827,20 @@ test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins 
   expect(style("dot").height).toBe("10px");
   const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
   expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
+});
+
+test("a Menu draws a chevron after its title; the looks' SF names map to pack icons", () => {
+  const { container } = render([
+    { op: "create", id: "menu", type: "Menu", props: { title: "All", menu: [{ title: "Unread" }] } },
+    { op: "root", id: "menu" },
+  ]);
+  const trigger = container.querySelector<HTMLButtonElement>(".cmux-app-scene-menu-trigger");
+  expect(trigger?.textContent).toBe("All");
+  expect(trigger?.querySelector(".cmux-app-scene-menu-chevron")).not.toBeNull();
+  expect(appSceneIcon("magnifyingglass")).toBe("search");
+  expect(appSceneIcon("bubble.left")).toBe("agent.chat");
+  expect(appSceneIcon("arrow.up")).toBe("composer.send");
+  expect(appSceneIcon("status.needsinput")).toBe("status.needsinput");
 });
 
 test("a drop in a Reorderable sends the list its item key and final index", () => {

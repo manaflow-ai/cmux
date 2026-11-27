@@ -44,7 +44,22 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   `message` and `symbol`.
 - Button renders its `title` or children. Menu renders nested `menu` entries with
   `title`, `symbol`, `disabled`, `destructive`, `children` or `divider`.
-- TextField supports `text`, `placeholder`, `autofocus` and handler-presence props.
+- TextField supports `text`, `placeholder`, `autofocus` and handler-presence props, and
+  `font`, `weight`, `italic` and `monospaced` as a Text does.
+- `opens` (`{chat}` or `{closed}`, the DSL's `.opens(...)`) is a tap the host runs: the New Tab slot
+  (NewTabAppSlot `onOpen`) opens that chat or reopens that closed item in its own tab, through cmux's
+  own card and Recently Closed paths; with no host `open`, the node's `onTap` runs.
+- Icon `harness:<id>` draws that agent's own mark (shared/AgentMark).
+- Icon pack names an app may use as is (the full list is `agent-session/acpmux/icons/cmuxIcons.json`):
+  status `status.running`, `status.needsinput`, `status.success`, `status.failure`, `status.warning`,
+  `status.dot`, `unread.dot`, `unread.badge`; chats `agent.chat`, `agent.chat.new`, `agent.chat.list`,
+  `agent.question`, `history.recent`; composer `composer.send`, `composer.attach`, `composer.add`;
+  `search`, `filter`, `folder`, `machine.mac`, `settings`, `action.more`, `state.pinned`,
+  `disclosure.expanded`, `disclosure.collapsed`. SF names the looks use map to them (SceneSymbol
+  `SYMBOLS`): `bubble.left` → `agent.chat`, `square.and.pencil` → `agent.chat.new`, `magnifyingglass`
+  → `search`, `arrow.up` → `composer.send`, `chevron.down`/`chevron.right` → `disclosure.*`,
+  `hand.raised` → `status.needsinput`, `ellipsis` → `action.more`, `gearshape` → `settings`.
+- A TextField in an HStack takes the row's free space; a Menu draws a chevron after its title.
   ProgressView renders a clamped `value` or the pane's existing spinner.
 - Toggle is a settings row: `label` leading, a small switch trailing, `value` its state. Slider
   spans the row over `min...max` (0...1 when empty or reversed), snapped to `step` (a hundredth

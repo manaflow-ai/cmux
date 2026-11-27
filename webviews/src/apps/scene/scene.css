@@ -175,6 +175,21 @@
   font: inherit;
   caret-color: var(--cmux-caret);
 }
+/* A TextField takes its row's free space, as SwiftUI's does, so its placeholder is not cut short. */
+.cmux-app-scene-hstack > .cmux-app-scene-textfield {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* A Menu's title with a chevron after it (cmux's filter reads "All" and a down chevron), on the row's baseline. */
+.cmux-app-scene-menu-trigger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.cmux-app-scene-menu-chevron {
+  align-self: center;
+  opacity: 0.7;
+}
 .cmux-app-scene-field::placeholder {
   color: var(--agent-muted);
 }
@@ -654,6 +669,13 @@
   }
 }
 
+/* `Icon("harness:<id>")`: the agent's mark, centered in the symbol's box. */
+.cmux-app-scene-harness {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
 .cmux-app-scene-move-row {
   position: relative;
 }

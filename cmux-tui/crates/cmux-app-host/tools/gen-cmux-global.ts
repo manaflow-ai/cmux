@@ -616,7 +616,7 @@ interface CmuxView {
   /** In a ZStack: the node's center at \`{x, y}\` points, or with \`unit: "fraction"\` 0...1 of the stack (SwiftUI's \`.position\`); a placed child does not size the stack. */
   position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
   cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
-  fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; opens(target: { chat: string } | { closed: string }): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
   /** Animate this node's own prop changes from the value on screen: \`smooth\` (the default), \`snappy\` and \`none\` (the motion scale's steps) its opacity, colors, rotation and strikethrough; a motion token, spring or timed curve every animatable prop (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value). */
   animation(v?: Bindable<CmuxMotion | null>): this
   /** Scale about the node's center (1 = identity). */
