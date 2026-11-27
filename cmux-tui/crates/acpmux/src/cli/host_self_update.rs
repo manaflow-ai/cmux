@@ -1,6 +1,8 @@
 //! `acpmux host self-update`: a Linux host brings its own daemon to the
 //! newest build of a channel (feat-cmux-next) with no Mac pushing it;
-//! `acpmux-update.timer` (`host_auto_update.rs`) runs it every 15 minutes.
+//! `acpmux-update.timer` (`host_auto_update.rs`) runs it every 15 minutes;
+//! the external channel follower may invoke it every minute. Both share
+//! the automatic restart floor while local sessions exist.
 //! Two places name a channel's build. Our build controller (cmuxterm-hq's
 //! `build-fleet`) runs the channel's daemon tests and builds acpmux itself,
 //! and on a pass serves a marker at `{controller}/v1/channels/<channel>`:
@@ -19,7 +21,8 @@
 //! same commit (most likely the marker's) is kept. When the installed
 //! `~/.local/bin/acpmux` has another sha256 than the chosen build, this
 //! host's binary is downloaded, checked against it, and handed to
-//! [`update_peer`] on this machine ([`LocalRemote`]): it installs the binary, restarts `acpmux.service` (agents keep running and
+//! [`update_peer`] on this machine ([`LocalRemote`]): it installs the binary, waits for the
+//! daemon's sessions to be idle, then restarts `acpmux.service` (agents keep running and
 //! the new daemon adopts them, so what the restart interrupted resumes) and
 //! rolls back a daemon that does not come back on it. A build rolled back
 //! here is not tried again; the next one the channel names is. A failure
@@ -39,7 +42,7 @@ use super::super::{REMOTE_HOME, Remote, RemoteOut};
 use super::{
     CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, RESTART_STAMP, RESTART_WINDOW,
     RESTART_WINDOW_ENV, RESTART_WINDOW_FILE, RESTART_WINDOW_SECS, UpdateOptions, build_commit,
-    embedded_build, is_own_unit, local_target, update_peer,
+    embedded_build, is_own_unit, local_target, update_peer, update_peer_automatic,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -889,7 +892,10 @@ pub(super) fn apply(
     };
     let opts = UpdateOptions {
         binary_dir: Some(dir.clone()),
-        if_idle: false,
+        // Native timer: 15 minutes; the external channel follower: 60 seconds.
+        // Defer busy turns; the automatic policy also batches idle gaps between
+        // turns with a 15-minute floor despite shorter per-host windows.
+        if_idle: !now,
         keep_newer: false,
         // Newer wins: a host whose installed build is of a newer commit than
         // the channel's keeps it (`current`, reason `newerInstalled`), as it
@@ -904,7 +910,7 @@ pub(super) fn apply(
         now,
     };
     let fenced = plan.lease.fence(remote);
-    let mut up = update_peer(&fenced, &opts);
+    let mut up = update_peer_automatic(&fenced, &opts);
     if !now && up.outcome == Outcome::Busy && up.reason.as_deref() == Some(RESTART_WINDOW) {
         up = idle_restart(&fenced, &opts, up);
     }

@@ -2407,8 +2407,17 @@ def wire_log(msg):
     if not path:
         return
     params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+    acpmux = meta.get("acpmux") if isinstance(meta.get("acpmux"), dict) else {}
+    prompt_id = acpmux.get("promptId") or meta.get("promptId")
+    prompt = params.get("prompt") if isinstance(params.get("prompt"), list) else []
+    text = " ".join(
+        part.get("text", "") for part in prompt
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+    )
     line = json.dumps({"pid": os.getpid(), "id": msg.get("id"), "method": msg.get("method"),
-                       "session": params.get("sessionId")}) + "\n"
+                       "session": params.get("sessionId"), "promptId": prompt_id,
+                       "text": text}) + "\n"
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
         os.write(fd, line.encode())

@@ -254,7 +254,8 @@ async fn run_on(
     let answer = client.request(method::MUX_SHUTDOWN, params).await;
     // A refusal of this client (`exe_path::shutdown_refusal`) leaves the daemon running.
     if let Err(e) = &answer
-        && e.to_string().contains("refused to stop the daemon")
+        && (e.to_string().contains("refused to stop the daemon")
+            || e.to_string().contains("daemon update deferred"))
     {
         return Err(anyhow!("{e}"));
     }

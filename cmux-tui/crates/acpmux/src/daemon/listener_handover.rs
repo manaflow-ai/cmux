@@ -74,6 +74,18 @@ pub(crate) struct Received {
     pub conns: Option<UnixStream>,
 }
 
+impl Received {
+    /// Fill listeners absent from a direct handover with those held across a supervisor restart.
+    pub(crate) fn with_held(self, held: Self) -> Self {
+        Self {
+            unix: self.unix.or(held.unix),
+            ws: self.ws.or(held.ws),
+            egress: self.egress.or(held.egress),
+            conns: self.conns,
+        }
+    }
+}
+
 /// Keep copies of the listeners this daemon serves, to hand to a successor.
 pub(crate) fn offer(unix: BorrowedFd<'_>, ws: Option<BorrowedFd<'_>>) {
     let copy = |fd: BorrowedFd<'_>| fd.try_clone_to_owned();
@@ -169,11 +181,14 @@ pub(crate) fn hand(
     Ok(sent)
 }
 
-/// Copies of this daemon's TCP listeners (the web listener, the egress proxy's), with the kind
+/// Copies of this daemon's listeners (Unix, web and egress), with the kind
 /// each goes by: what a listener keeper holds across a restart (`daemon/listener_keeper.rs`).
-pub(crate) fn offered_tcp() -> Vec<(&'static [u8; 4], OwnedFd)> {
+pub(crate) fn offered_listeners() -> Vec<(&'static [u8; 4], OwnedFd)> {
     let mut held = Vec::new();
     let offered = OFFERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(unix) = offered.as_ref().and_then(|(unix, _)| unix.try_clone().ok()) {
+        held.push((UNIX, unix));
+    }
     if let Some(ws) = offered.as_ref().and_then(|(_, ws)| ws.as_ref()?.try_clone().ok()) {
         held.push((WS, ws));
     }

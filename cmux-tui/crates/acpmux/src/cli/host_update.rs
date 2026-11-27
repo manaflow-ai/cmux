@@ -200,10 +200,14 @@ fn probe_script(if_idle: bool, now: bool) -> String {
     } else {
         ":"
     };
+    let restart = format!(
+        "{}echo \"{RESTART_AGE}$(date +%s) $(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null)\"\n",
+        restart_window_check()
+    );
     format!(
         "echo \"{UNAME}$(uname -sm)\"\nacpmux_nw={}\n{}if acpmux_window; then echo \"{WINDOW}$acpmux_why\"; fi\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}{APP_HELD_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
         u8::from(now),
-        restart_window_check(),
+        restart,
         cloud_vm_check(),
         daemon_unit(),
         migrate(true)
@@ -212,6 +216,11 @@ fn probe_script(if_idle: bool, now: bool) -> String {
 
 /// Starts [`probe_script`]'s line with why the restart window holds the daemon.
 const WINDOW: &str = "ACPMUX_WINDOW=";
+const RESTART_AGE: &str = "ACPMUX_RESTART_AGE=";
+
+/// Automatic channel followers may run every minute; live sessions need a
+/// minimum interval even when the host selected a shorter restart window.
+const AUTOMATIC_RESTART_FLOOR_SECS: u64 = 15 * 60;
 
 /// The file in [`REMOTE_HOME`], beside `update.owner`, that holds when (by
 /// the host's `date +%s`) an update last restarted the daemon there, whichever
@@ -304,6 +313,8 @@ struct Probe {
     refused: Option<(String, String)>,
     /// Why the host's restart window holds its daemon ([`restart_window_check`]).
     window: Option<String>,
+    restart_age: Option<u64>,
+    has_sessions: bool,
 }
 
 impl Probe {
@@ -355,7 +366,32 @@ impl Probe {
             .first()
             .and_then(|p| p.lines().find_map(|l| l.strip_prefix(APP_HELD)))
             .map(str::to_owned);
-        Some(Probe { uname, cloud_vm, app_managed, app_held, build, busy, refused, window })
+        let restart_age = parts[0].lines().find_map(|line| {
+            let mut words = line.strip_prefix(RESTART_AGE)?.split_whitespace();
+            let now = words.next()?.parse::<u64>().ok()?;
+            let stamp = words.next()?.parse::<u64>().ok()?;
+            now.checked_sub(stamp)
+        });
+        let has_sessions = serde_json::from_str::<Value>(parts[2].trim())
+            .ok()
+            .and_then(|v| {
+                v.get("sessions")?
+                    .as_array()
+                    .map(|rows| rows.iter().any(|row| row.get("peer").is_none()))
+            })
+            .unwrap_or(false);
+        Some(Probe {
+            uname,
+            cloud_vm,
+            app_managed,
+            app_held,
+            build,
+            busy,
+            refused,
+            window,
+            restart_age,
+            has_sessions,
+        })
     }
 }
 
@@ -774,6 +810,18 @@ fn update_unless_held(
 /// environment ([`SERVICE_ENV`]). The caller holds the host's update lock
 /// and passes `remote` fenced for it, so a step after the lease went fails.
 fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    update_peer_with_policy(remote, opts, false)
+}
+
+fn update_peer_automatic(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    update_peer_with_policy(remote, opts, true)
+}
+
+fn update_peer_with_policy(
+    remote: &dyn Remote,
+    opts: &UpdateOptions,
+    automatic: bool,
+) -> PeerUpdate {
     let remote = &ServiceEnv(remote);
     let up = PeerUpdate::new();
     let caller = opts.caller.as_ref();
@@ -866,6 +914,22 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
                 return up.end(Outcome::Busy, "unknown", why);
             }
         }
+    }
+    if automatic
+        && !opts.now
+        && probe.build.is_some()
+        && probe.has_sessions
+        && let Some(age) = probe.restart_age
+        && age < AUTOMATIC_RESTART_FLOOR_SECS
+    {
+        return up.end(
+            Outcome::Busy,
+            "automaticRestartWindow",
+            format!(
+                "automatic updates with sessions restart at most every 15 min; retry in {} s",
+                AUTOMATIC_RESTART_FLOOR_SECS - age
+            ),
+        );
     }
     if let Some((reason, why)) = &probe.refused {
         return up.end(Outcome::Failed, reason, why.clone());

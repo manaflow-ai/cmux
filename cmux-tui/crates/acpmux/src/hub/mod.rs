@@ -1197,6 +1197,8 @@ pub struct Hub {
     /// Client requests every connection serves now, each holding its work slot
     /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
     pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
+    /// Waiting sends admitted before an update must finish before shutdown.
+    pub(crate) update_admission: Arc<crate::server::update_drain::Admission>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
     /// `_acpmux/usage`'s last answer, kept by its list position (`usage_answer.rs`).
@@ -1857,6 +1859,7 @@ impl Hub {
             op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
+            update_admission: Default::default(),
             usage_stats: Default::default(),
             usage_answers: Default::default(),
             ledger,

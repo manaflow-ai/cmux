@@ -1,4 +1,4 @@
-//! The daemon's TCP listeners outlive a service-manager restart (2026-11-25: a self-update's
+//! The daemon's listeners outlive a service-manager restart (2026-11-25: a self-update's
 //! `systemctl --user restart acpmux.service` refused the vault egress proxy's port for about 3 s,
 //! and four Claude Code subagents whose requests went through it died mid-turn).
 //!
@@ -7,7 +7,7 @@
 //! old daemon, then starts the new one, and nothing holds the ports in between. So a daemon that
 //! stops for a restart without having handed its listeners on ([`hold_for_next`]):
 //!
-//! 1. starts a keeper, `acpmux __hold-listeners`, with copies of the web listener and the egress
+//! 1. starts a keeper, `acpmux __hold-listeners`, with copies of the Unix listener, web listener and the egress
 //!    proxy's listener as inherited descriptors. On Linux in a user service it starts under
 //!    `systemd-run --user --scope`, so the unit's stop does not end it with the daemon (as agent
 //!    hosts leave it, `agent_host/scope.rs`); elsewhere it is in its own session;
@@ -50,9 +50,9 @@ fn held_path(home: &Path) -> PathBuf {
     home.join(HELD)
 }
 
-/// The stopping daemon's side: start a keeper with copies of its TCP listeners. The kinds held.
+/// The stopping daemon's side: start a keeper with copies of its listeners. The kinds held.
 pub(crate) fn hold_for_next(home: &Path) -> Vec<&'static str> {
-    let held = listener_handover::offered_tcp();
+    let held = listener_handover::offered_listeners();
     if held.is_empty() || !cmux_unix_socket::fits(&held_path(home)) {
         return Vec::new();
     }
@@ -195,6 +195,7 @@ pub fn main(args: &[OsString]) -> anyhow::Result<()> {
         let arg = arg.to_string_lossy();
         let Some((kind, fd)) = arg.split_once('=') else { continue };
         let kind: &'static [u8; 4] = match kind {
+            "unix" => b"unix",
             "egress" => b"egrs",
             "ws" => b"ws\0\0",
             _ => continue,
@@ -353,6 +354,31 @@ mod tests {
             accepted += 1;
         }
         assert_eq!(accepted, open.len(), "every connect is served by the next daemon");
+    }
+
+    #[test]
+    fn update_keeper_preserves_unix_listener_and_queued_connection() {
+        use std::os::fd::AsFd as _;
+        let dir = cmux_unix_socket::short_test_dir("lku");
+        let home = dir.path().to_path_buf();
+        let path = home.join("daemon.sock");
+        let daemon = UnixListener::bind(&path).unwrap();
+        let copy = daemon.as_fd().try_clone_to_owned().unwrap();
+        let socket = bind_held(&held_path(&home)).unwrap();
+        let keeper = std::thread::spawn(move || {
+            let held: [(&'static [u8; 4], OwnedFd); 1] = [(b"unix", copy)];
+            serve(&socket, &held, Duration::from_secs(10))
+        });
+        drop(daemon);
+        let _queued = UnixStream::connect(&path).unwrap();
+        // Use the same startup merge as daemon::run, including the case with no direct handover.
+        let successor = listener_handover::Received::default()
+            .with_held(take_held(&home))
+            .unix
+            .expect("the successor inherits the Unix listener");
+        assert!(keeper.join().unwrap());
+        successor.set_nonblocking(true).unwrap();
+        assert!(successor.accept().is_ok(), "the queued client reaches the new daemon");
     }
 
     /// A home with no keeper gives nothing, at once.
