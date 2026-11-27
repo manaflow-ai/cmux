@@ -608,10 +608,6 @@ async fn connection(
     tokio::select! { () = up => {}, () = down => {} }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "one direction of one connection: each is its own part"
-)]
 /// How many of a read's bytes [`Shaper::trace_wire_text`] shows.
 pub const WIRE_TEXT_BYTES: usize = 96;
 
@@ -623,6 +619,10 @@ fn wire_text(chunk: &[u8]) -> String {
     format!("|{text}|")
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one direction of one connection: each is its own part"
+)]
 async fn direction(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
@@ -699,7 +699,7 @@ async fn direction(
                     None => format!("c{index} {way} {}B, dropped (link silent)", chunk.len()),
                 };
                 if counting.wire_text.load(Ordering::Relaxed) {
-                    format!("{line} {}", wire_text(&chunk))
+                    format!("{line} {}", wire_text(chunk))
                 } else {
                     line
                 }
