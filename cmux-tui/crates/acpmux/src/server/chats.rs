@@ -73,7 +73,8 @@
 //!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`, `sessions.sandbox`
 //!   and `agents.promptSuggestions`, each with whether MDM or the team policy
 //!   forces it (`hub/start_mode_state.rs`; a forced full-access off is an upper
-//!   bound, a forced prompt-suggestions value beats the file); answers the roots view with
+//!   bound, a forced prompt-suggestions value beats the file). Sandbox enforcement is read
+//!   separately from the managed-preference source by `local_sandbox`; answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!

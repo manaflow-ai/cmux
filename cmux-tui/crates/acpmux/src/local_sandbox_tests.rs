@@ -14,7 +14,7 @@ fn the_setting_is_on_by_default_fails_closed_and_policy_only_tightens() {
     assert!(file_wants(&Settings::Parsed(json!({"sessions": {"sandbox": "false"}}))));
     assert!(!file_wants(&Settings::Parsed(json!({"sessions": {"sandbox": false}}))));
     assert!(!file_wants(&Settings::Parsed(json!({"sessions.sandbox": false}))));
-    // MDM or the team policy: a forced on beats the file's off; nothing turns it off.
+    // The managed-preference source: a forced on beats the file's off; nothing turns it off.
     assert!(enabled_by(true, false));
     assert!(enabled_by(false, true));
     assert!(!enabled_by(false, false));
@@ -35,6 +35,7 @@ fn sample() -> Bound {
         gh_config_dir: "/Users/a/.config/gh".into(),
         xdg_gh_config_dir: "/Users/a/.config/gh".into(),
         folders: vec!["/Users/a/code/lib".into(), "/Users/a/code/app.git".into()],
+        policy_files: Vec::new(),
         api_port: None,
     }
 }
@@ -203,6 +204,34 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
 }
 
 #[test]
+fn claude_settings_fail_closed_and_managed_policy_cannot_be_filtered_out() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    let on = r#"{"sandbox":{"enabled":true}}"#;
+    std::fs::write(config.join("settings.json"), on).unwrap();
+    for invalid in ["{", "[]", r#"{"sandbox":{"enabled":"true"}}"#] {
+        std::fs::write(cwd.join(".claude/settings.local.json"), invalid).unwrap();
+        assert!(!claude_sandbox_on(&[], &cwd, &env), "invalid source: {invalid}");
+    }
+    std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
+    // A directory at the settings path is unreadable as a file, even when CI runs as root.
+    std::fs::create_dir(cwd.join(".claude/settings.local.json")).unwrap();
+    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    std::fs::remove_dir(cwd.join(".claude/settings.local.json")).unwrap();
+    assert!(claude_sandbox_on(&s(&["--settings", "{}"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&s(&["--settings", "{"]), &cwd, &env));
+    std::fs::write(config.join("remote-settings.json"), r#"{"sandbox":{"enabled":false}}"#)
+        .unwrap();
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
+    std::fs::write(config.join("remote-settings.json"), "{").unwrap();
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "user", "--settings", on]), &cwd, &env));
+}
+
+#[test]
 fn only_an_api_port_the_profile_lacks_is_added() {
     assert_eq!(extra_api_port("https://api.example.com:8443/v1"), Some(8443));
     assert_eq!(extra_api_port("http://user:pw@10.0.0.2:4000"), Some(4000));
@@ -257,4 +286,118 @@ fn relative_credential_config_paths_are_resolved_from_the_chat_folder() {
 fn profile_does_not_grant_tool_executable_write_roots() {
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.local"))"#));
     assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.cargo"))"#));
+}
+
+#[test]
+fn api_port_follows_settings_precedence_and_the_effective_child_environment() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = cwd.join("custom");
+    std::fs::create_dir_all(cwd.join(".claude")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let env = BTreeMap::from([
+        ("CLAUDE_CONFIG_DIR".into(), "custom".into()),
+        ("ANTHROPIC_BASE_URL".into(), "https://env.test:8001".into()),
+    ]);
+    let settings =
+        |port| format!(r#"{{"env":{{"ANTHROPIC_BASE_URL":"https://settings.test:{port}"}}}}"#);
+    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://env.test:8001"));
+    std::fs::write(config.join("settings.json"), settings(8002)).unwrap();
+    std::fs::write(cwd.join(".claude/settings.json"), settings(8003)).unwrap();
+    std::fs::write(cwd.join(".claude/settings.local.json"), settings(8004)).unwrap();
+    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://settings.test:8004"));
+    assert_eq!(
+        api_endpoint(&s(&["--setting-sources=user"]), &cwd, &env).as_deref(),
+        Some("https://settings.test:8002")
+    );
+    std::fs::write(cwd.join("override.json"), settings(8005)).unwrap();
+    let flags = s(&["--settings", &settings(8006), "--settings", "override.json"]);
+    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8005"));
+    std::fs::write(config.join("remote-settings.json"), settings(8007)).unwrap();
+    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8007"));
+    std::fs::write(config.join("remote-settings.json"), "{").unwrap();
+    assert_eq!(api_endpoint(&flags, &cwd, &env), None);
+}
+
+#[test]
+fn sandbox_decision_files_and_their_parents_are_protected() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), "custom".into())]);
+    let files = policy_files(&s(&["--settings", "own.json"]), &cwd, &env);
+    for file in [
+        "custom/settings.json",
+        "custom/remote-settings.json",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        "own.json",
+    ] {
+        assert!(files.contains(&cwd.join(file)), "{file}");
+    }
+    let bound = Bound { policy_files: files, ..sample() };
+    let args = bound.sandbox_args();
+    assert!(args[1].contains("(deny file-write* (subpath (param \"POLICY_FILE0\")))"));
+    assert!(args[1].contains(
+        "(deny file-write-unlink file-write-create (literal (param \"POLICY_PARENT0\")))"
+    ));
+}
+
+#[test]
+fn future_managed_dropins_are_protected_before_they_exist() {
+    let t = tempfile::tempdir().unwrap();
+    let env = BTreeMap::new();
+    let claude = claude_files(t.path(), &env);
+    let dropins = claude.managed_mcp.parent().unwrap().join("managed-settings.d");
+    let files = policy_files(&[], t.path(), &env);
+    assert!(files.contains(&dropins));
+    let args = Bound { policy_files: files.clone(), ..sample() }.sandbox_args();
+    let index = files.iter().position(|path| path == &dropins).unwrap();
+    assert!(
+        args[1].contains(&format!("(deny file-write* (subpath (param \"POLICY_FILE{index}\")))"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_credential_and_policy_paths_resolve_existing_symlink_ancestors() {
+    let t = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(t.path()).unwrap();
+    let cwd = root.join("chat");
+    let real = root.join("real");
+    std::fs::create_dir(&cwd).unwrap();
+    std::fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, cwd.join("alias")).unwrap();
+    let env = BTreeMap::from([
+        ("HOME".into(), "alias/new/../home".into()),
+        ("GH_CONFIG_DIR".into(), "alias/new/../gh".into()),
+        ("XDG_CONFIG_HOME".into(), "alias/new/../xdg".into()),
+        ("CLAUDE_CONFIG_DIR".into(), "alias/new/../claude".into()),
+    ]);
+    let bound = bound(&[], &cwd, &env).unwrap();
+    assert_eq!(bound.agent_home, real.join("home"));
+    assert_eq!(bound.gh_config_dir, real.join("gh"));
+    assert_eq!(bound.xdg_gh_config_dir, real.join("xdg/gh"));
+    assert!(bound.policy_files.contains(&real.join("claude/settings.json")));
+    assert!(bound.policy_files.contains(&cwd.join("alias/new/../claude/settings.json")));
+}
+
+#[cfg(unix)]
+#[test]
+fn default_agent_policy_paths_protect_symlink_targets_before_creation() {
+    let t = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(t.path()).unwrap();
+    let cwd = root.join("chat");
+    let home = root.join("home");
+    let config = cwd.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::create_dir(&home).unwrap();
+    std::os::unix::fs::symlink(&config, home.join(".config")).unwrap();
+    let env = BTreeMap::from([("HOME".into(), home.to_string_lossy().into_owned())]);
+    let bound = bound(&[], &cwd, &env).unwrap();
+    for dir in [cmux_config::NEXT_DIR, cmux_config::location::LEGACY_DIR] {
+        let tail = Path::new(dir).join(cmux_config::location::NEXT_FILE_NAME);
+        assert!(bound.policy_files.contains(&home.join(".config").join(&tail)));
+        assert!(bound.policy_files.contains(&config.join(&tail)));
+    }
 }

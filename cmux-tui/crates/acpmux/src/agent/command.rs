@@ -218,24 +218,8 @@ fn build_harness_command(
     // So is the CLI an agent runs (`cli_caller.rs`): never a profile's.
     env.remove(crate::cli_caller::BIN_ENV);
     let (program, args) = (&owned.0, &owned.1);
-    // A local chat's Claude Code runs in the Seatbelt sandbox (`local_sandbox.rs`): the wrap
-    // is made here, as the command is created (`CwdPin` below adds a pre_exec).
-    let sandbox = (claude_session && !remote_environment)
-        .then(|| crate::local_sandbox::prefix(args, cwd, &env))
-        .flatten();
-    let mut cmd = match sandbox {
-        Some((sandbox_program, sandbox_args)) => {
-            let mut cmd = Command::new(sandbox_program);
-            cmd.args(sandbox_args).arg(program);
-            cmd
-        }
-        None => crate::session_scope::command(
-            program,
-            session.map(|(id, _)| id),
-            &env,
-            remote_environment,
-        ),
-    };
+    let mut cmd =
+        crate::session_scope::command(program, session.map(|(id, _)| id), &env, remote_environment);
     if remote_environment {
         apply_remote_base(&mut cmd);
     }
@@ -402,23 +386,6 @@ fn build_harness_command(
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
-    cmd
-        // Claude refuses to nest inside another Claude session.
-        .env_remove("CLAUDECODE")
-        .env_remove("CLAUDE_CODE_ENTRYPOINT")
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    // Own process group, so stopping the session stops everything the
-    // agent started underneath it (background shells included). Windows: a
-    // job object (`job.rs`), made where the agent is spawned.
-    #[cfg(unix)]
-    cmd.process_group(0);
-    // A sub-session's harness execs only in the folder its start checked (`cwd_pin.rs`).
-    #[cfg(unix)]
-    crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     // And its own chat secrets, never another chat's (`chat_secrets.rs`).
@@ -511,6 +478,54 @@ fn build_harness_command(
     if plugin_hooks && !remote_environment {
         cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
+    // Derive the local boundary only after login, machine, profile, session and secret env
+    // have been applied. The settings and API route must be the ones the child receives.
+    // Do this before stdio, process-group and CwdPin setup so no spawn hooks are lost.
+    if claude_session && !remote_environment {
+        let final_env = command_env(&cmd).into_iter().collect();
+        let final_args: Vec<String> =
+            cmd.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        if let Some((sandbox_program, sandbox_args)) =
+            crate::local_sandbox::prefix(&final_args, cwd, &final_env)
+        {
+            let mut wrapped = crate::session_scope::command(
+                sandbox_program,
+                session.map(|(id, _)| id),
+                &env,
+                false,
+            );
+            wrapped.args(sandbox_args).arg(cmd.as_std().get_program());
+            wrapped.args(cmd.as_std().get_args());
+            for (key, value) in cmd.as_std().get_envs() {
+                match value {
+                    Some(value) => {
+                        wrapped.env(key, value);
+                    }
+                    None => {
+                        wrapped.env_remove(key);
+                    }
+                }
+            }
+            cmd = wrapped;
+        }
+    }
+    cmd
+        // Claude refuses to nest inside another Claude session.
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    // Own process group, so stopping the session stops everything the
+    // agent started underneath it (background shells included). Windows: a
+    // job object (`job.rs`), made where the agent is spawned.
+    #[cfg(unix)]
+    cmd.process_group(0);
+    // A sub-session's harness execs only in the folder its start checked (`cwd_pin.rs`).
+    #[cfg(unix)]
+    crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     Ok((cmd, codex))
 }
 
