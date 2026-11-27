@@ -555,7 +555,10 @@ class AdvisoryVerdictTests(unittest.TestCase):
         fallback = job("mac-fallback")
         runs_on = re.search(r"^    runs-on: (.*)$", fallback, re.M).group(1)
         condition = re.search(r"^    if: (.*)$", fallback, re.M).group(1)
-        self.assertEqual(runs_on, "${{ vars.CI_TEST_COMPILE_GATEWAY }}")
+        # The label is frozen to what CI_TEST_COMPILE_GATEWAY resolved to (#55571); the if: still gates on the variable.
+        self.assertIn("# frozen-label: CI_TEST_COMPILE_GATEWAY", runs_on)
+        self.assertIn("'glaeda-gateway-xcode-26.6'", runs_on)
+        self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", runs_on)
         self.assertIn("needs.compile.outputs.verdict == 'none'", condition)
         self.assertIn("vars.CI_TEST_COMPILE_GATEWAY != ''", condition)
         self.assertIn("::warning title=mac fallback::", fallback)
