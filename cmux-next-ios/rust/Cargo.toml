@@ -67,6 +67,8 @@ cmux-terminal-projection = { path = "../../cmux-tui/crates/cmux-terminal-project
 cmux-follow-cam = { path = "../../cmux-tui/crates/cmux-follow-cam" }
 # Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
+# Which device opens a web link (`side`): the phone and the Mac's daemon read one classifier.
+cmux-local-url = { path = "../../cmux-tui/crates/cmux-local-url" }
 # A message's Markdown as one line of words, shared with the daemon's Home rows (the Chief's push body).
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
 # Wake on intent (cmux-mobile-link-ffi cloud_wake.rs): the Mac's wake hint rules, one ledger per app process.

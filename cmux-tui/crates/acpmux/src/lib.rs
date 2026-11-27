@@ -273,6 +273,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// How good a peer's link is (`quality` in `_acpmux/peers`), and RTT-scaled liveness waits.
+pub mod peer_link_quality;
 pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;

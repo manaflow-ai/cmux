@@ -1027,6 +1027,17 @@ pub enum Command {
         after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
     )]
     Icon { session: String, icon: Option<String> },
+    /// A frame of the chat's page now, kept in its running turn's frames strip (cmuxterm-hq RFD
+    /// 0152): `--built SOURCE` says a `cmux live` loop's build is in place (`rust`, `swift`,
+    /// `chromium`, `web`), so the frame shows the swapped build, not the save before it. `@` is the
+    /// chat this shell runs in. No running turn: nothing is taken.
+    #[command(hide = true, after_help = "Example:\n  acpmux frame @ --built rust")]
+    Frame {
+        #[arg(default_value = "@")]
+        session: String,
+        #[arg(long, value_name = "SOURCE")]
+        built: String,
+    },
     /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
     /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
     /// Each name it takes over keeps the names that one answered to.
