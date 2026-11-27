@@ -15,6 +15,7 @@ import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "reac
 import type { Translate } from "../i18n";
 import { PHASE_DWELL_MS } from "./hatStep";
 import { useDwell } from "./HatStepSlot";
+import { Tick } from "./trayMotion";
 import type { TrayItem } from "./runningTray";
 import { type TrayHeadForms, type TrayHeadPart, trayHeadForms } from "./trayHeadKinds";
 import {
@@ -187,7 +188,7 @@ function SummaryKind({
       }}
     >
       {mark(part)}
-      <span className="acpmux-running-tray__kind-text">{formText(kind, form)}</span>
+      <Tick className="acpmux-running-tray__kind-text" text={formText(kind, form)} steadyCounts />
     </span>
   );
 }

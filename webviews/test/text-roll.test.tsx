@@ -135,6 +135,32 @@ describe("TextRoll", () => {
     await act(async () => view.root.unmount());
   });
 
+  test("the width ease holds its end until the roll lands: no frame between them at the old width", async () => {
+    // Measured in the gallery (subagent-tray-motion, line and groups arms): the width ease ended a frame
+    // before the leaving words did, so the cell sprang back to the old words' width for that frame
+    // (76px, 127px, 76px). The ease now fills forwards and is let go when the roll lands.
+    const made: { options: KeyframeAnimationOptions; cancelled: boolean }[] = [];
+    const animate = proto.animate;
+    proto.animate = (_frames: unknown, options: KeyframeAnimationOptions) => {
+      const record = { options, cancelled: false };
+      made.push(record);
+      return { cancel: () => void (record.cancelled = true) };
+    };
+    const rect = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 100, width: 100, height: 20 });
+    const view = await mount();
+    await view.draw("Reading the log");
+    await view.draw("Ok");
+    const width = made.find((record) => record.options.fill === "forwards");
+    expect(width).toBeDefined();
+    expect(width!.cancelled).toBe(false);
+    await view.land();
+    expect(width!.cancelled).toBe(true);
+    proto.animate = animate;
+    proto.getBoundingClientRect = rect;
+    await act(async () => view.root.unmount());
+  });
+
   test("Reduce Motion crossfades in place", async () => {
     reduce = true;
     const view = await mount();

@@ -99,6 +99,7 @@ export function TextRoll({
   const drawn = useRef<ReactNode>(children);
   // The cell's drawn width as a roll starts: its width eases from it.
   const widthFrom = useRef<number | undefined>(undefined);
+  const held = useRef<Animation | undefined>(undefined);
   let shown = state;
   if (turn !== state.turn && state.entering === undefined) {
     const mode = cell.current ? textRollMode(cell.current) : "none";
@@ -139,10 +140,18 @@ export function TextRoll({
     const duration = msOf(style?.getPropertyValue("--ui-text-roll-ms") ?? "") ?? 180;
     if (duration <= 0) return undefined;
     const easing = style?.getPropertyValue("--ui-text-roll-ease").trim() || "ease-out";
-    const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });
+    // Held at its end until the roll lands (below): it ends a frame before the leaving words do, and
+    // without the fill the cell sprang back to the old words' width for that frame.
+    const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing, fill: "forwards" });
     width.id = TEXT_ROLL_WIDTH;
+    held.current = width;
     return () => width.cancel();
   }, [n]);
+  // The roll has landed (the leaving words are gone, the new ones sit at their natural width): let go.
+  const landed = shown.previous === undefined && shown.entering === undefined;
+  useLayoutEffect(() => {
+    if (landed) held.current?.cancel();
+  }, [landed]);
   // A roll whose animations never started lands at once: a cell under `display: none` (a folded
   // tray), or one whose styles set no roll. A page without motion.css's styles (no roll clock on the
   // cell) is left to the end events.
