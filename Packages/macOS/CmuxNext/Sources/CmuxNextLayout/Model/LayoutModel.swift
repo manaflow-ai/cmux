@@ -170,6 +170,8 @@ public final class LayoutModel {
     /// follows the marks, not the chrome's parked state: a pane that rang while its workspace was parked has its ring
     /// on the chrome before the switch reads it, or the ring never shows at all (cmux#56125).
     public internal(set) var attentionWhileHeld: [PaneID: AttentionMark] = [:]
+    /// Which hold a release lets go (``LayoutRootView/releaseHeldAttention(after:)``): a newer hold or a park voids an older one.
+    @ObservationIgnored var attentionHold: UInt64 = 0
     /// Reads the ringing `pane` the person just went into (the focus entered it, or a click with `true`),
     /// when they look at this layout and the policy reads its ring so; true when it did
     /// (``enterAttention(_:click:)``). Set by the App.
