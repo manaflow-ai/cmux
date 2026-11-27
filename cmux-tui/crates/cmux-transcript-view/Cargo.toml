@@ -11,7 +11,7 @@ description = "The native read-only transcript (RFD 0121): a chat's rows shaped 
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-regex-lite = "0.1"
+regex.workspace = true
 serde_json.workspace = true
 
 [lints]
