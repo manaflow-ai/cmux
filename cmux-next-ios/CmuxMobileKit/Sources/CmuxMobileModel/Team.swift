@@ -148,7 +148,19 @@ public struct TeamAppearance: Hashable, Sendable, Codable {
 public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public var name: String
-    public var isOnline: Bool
+    /// What the cmux service lists: the Mac's signaling socket is open. Presence alone; a signaling
+    /// reset (a Worker deploy) says offline for a moment while this phone's link to the Mac is fine.
+    public var listedOnline: Bool
+    /// This phone's link to the Mac is connected right now (``AppStore/macConnection`` is
+    /// `.connected`). Kept by the store, never cached or sent.
+    public var linkUp = false
+    /// Online for every screen: the service lists it, or this phone is talking to it now. Aziz,
+    /// 2026-11-26: "im also getting this in several screens despite my mac being connected (ik
+    /// because gui works)". Setting it sets the listed presence.
+    public var isOnline: Bool {
+        get { listedOnline || linkUp }
+        set { listedOnline = newValue }
+    }
     public var lastSeenAt: Date?
     /// Who registered the Mac (nil when not known: mock data, older snapshots).
     public var ownerUserID: String?
@@ -165,10 +177,16 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
                 machineID: String? = nil, quietMs: Int? = nil) {
         self.id = id
         self.name = name
-        self.isOnline = isOnline
+        self.listedOnline = isOnline
         self.lastSeenAt = lastSeenAt
         self.ownerUserID = ownerUserID
         self.machineID = machineID
         self.quietMs = isOnline ? MacReachability.lateQuiet(quietMs) : nil
+    }
+
+    /// `linkUp` is this phone's live state, not the Mac's: it is never cached or sent.
+    enum CodingKeys: String, CodingKey {
+        case id, name, lastSeenAt, ownerUserID, machineID, quietMs
+        case listedOnline = "isOnline"
     }
 }

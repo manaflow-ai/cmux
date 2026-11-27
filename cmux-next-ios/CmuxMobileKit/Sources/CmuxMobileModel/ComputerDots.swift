@@ -40,7 +40,7 @@ public enum ComputerDots {
     }
 
     public static func dot(_ mac: MacDevice, name: String? = nil, reach: MacReachability) -> ComputerDot {
-        ComputerDot(id: mac.id, name: name ?? mac.name, isUp: isUp(reach, listedOnline: mac.isOnline))
+        ComputerDot(id: mac.id, name: name ?? mac.name, isUp: isUp(reach, listedOnline: mac.listedOnline))
     }
 
     /// The computer shown by default: the one the list is filtered to, else the one the

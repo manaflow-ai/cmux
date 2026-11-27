@@ -58,11 +58,11 @@ public enum MacReachability: Equatable, Sendable {
                                live: Bool, phoneOffline: Bool = false) -> MacReachability {
         #if os(iOS)
         let state = macReachabilityResolve(input: MacReachabilityInput(
-            isOnline: mac.isOnline, quietMs: mac.quietMs.map(Int64.init), connection: connection.map(\.ffi),
+            isOnline: mac.listedOnline, quietMs: mac.quietMs.map(Int64.init), connection: connection.map(\.ffi),
             failure: failure.map(\.ffi), live: live, phoneOffline: phoneOffline))
         return MacReachability(state, lastSeenAt: mac.lastSeenAt)
         #else
-        return mac.isOnline ? .connected : .offline(lastSeenAt: mac.lastSeenAt)
+        return mac.listedOnline ? .connected : .offline(lastSeenAt: mac.lastSeenAt)
         #endif
     }
 

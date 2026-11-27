@@ -110,7 +110,7 @@ public final class MacFilterMemo {
             let reach = MacReachability.resolve(mac: mac, connection: input.connection[mac.id], failure: input.failure[mac.id],
                                                 live: input.live, phoneOffline: input.phoneOffline)
             return Entry(id: mac.id, title: names.displayName(mac), detail: detail,
-                         isOnline: ComputerDots.isUp(reach, listedOnline: mac.isOnline))
+                         isOnline: ComputerDots.isUp(reach, listedOnline: mac.listedOnline))
         }
         entriesKey = input
         entryComputations += 1

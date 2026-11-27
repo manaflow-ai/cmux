@@ -5,7 +5,7 @@ import Observation
 @MainActor
 @Observable
 public final class AppStore {
-    public var teams: [Team] { didSet { refreshAttentionCount() } }
+    public var teams: [Team] { didSet { markLinkedMacs(); refreshAttentionCount() } }
     public var activeTeamID: String { didSet { refreshAttentionCount() } }
     /// Every Mac's workspaces. Setting the same value again changes nothing
     /// and notifies no one: a Mac's whole list arrives on every tree update,
@@ -32,6 +32,24 @@ public final class AppStore {
     /// tab bar reading them re-rendered (and rebuilt its items) each time.
     public private(set) var attentionCount = 0
 
+    /// Every Mac this phone is linked to reads as online (``MacDevice/linkUp``), whatever presence
+    /// last said: one rule for every screen, instead of each reading the service's presence alone.
+    /// Writes only on a change, so its own write ends here.
+    private func markLinkedMacs() {
+        var next = teams
+        var changed = false
+        for t in next.indices {
+            for m in next[t].macs.indices {
+                let up = macConnection[next[t].macs[m].id] == .connected
+                if next[t].macs[m].linkUp != up {
+                    next[t].macs[m].linkUp = up
+                    changed = true
+                }
+            }
+        }
+        if changed { teams = next }
+    }
+
     private func refreshAttentionCount() {
         let count = activeWorkspaces.count(where: \.needsAttention)
         if count != attentionCount { attentionCount = count }
@@ -55,7 +73,7 @@ public final class AppStore {
     /// Empty states read this, never `workspaces` alone (`macDataPhase`).
     public var macData: [String: MacDataMachine] = [:]
     /// Live mode: this phone's connection to each Mac it dials.
-    public var macConnection: [String: MacConnection] = [:]
+    public var macConnection: [String: MacConnection] = [:] { didSet { markLinkedMacs() } }
     /// Live mode: why this phone's last try at each Mac failed (``MacReachability``); nil once it works.
     public var macFailure: [String: MacLinkFailure] = [:]
     /// Live mode: a Retry from a Mac's view, step by step (``MacRecoveryAttempt``).
