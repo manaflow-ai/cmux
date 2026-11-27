@@ -499,6 +499,10 @@ pub mod method {
     pub const MUX_PIN: &str = "_acpmux/pin";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
+    /// The owner's Live on or off (`hub/presence.rs`, RFD 0141 phase 1).
+    pub const MUX_LIVE: &str = "_acpmux/live";
+    /// Everyone Live on this daemon, as `cmux-presence` records.
+    pub const MUX_LIVE_LIST: &str = "_acpmux/live_list";
     /// Who has a chat open and who types in it, to its attached connections.
     pub const MUX_PRESENCE: &str = "_acpmux/presence";
     /// The rooms (chats, workspaces) a client shows now; replaces its set (`hub/presence.rs`,

@@ -320,12 +320,14 @@ impl Session {
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
     /// it while acpmux's count is known, `activity-phases` with that while its phases are,
     /// `activity-turn-end` with `activity-turns` while every daemon promised it, and
-    /// `activity-workload` with `activity` while the workload probe reads.
+    /// `activity-workload` with `activity` while the workload probe reads, and `acpmux-ready` while
+    /// an acpmux daemon's report holds.
     fn daemon_now(&self) -> DaemonInfo {
         self.base
             .with_activity(self.stream_live, self.acp.known(), self.acp.phases().is_some())
             .with_turn_end(self.acp.turn_end())
             .with_workload(self.workload.is_some())
+            .with_acpmux_ready(!self.acp.daemons.is_empty())
     }
 
     /// One workload probe (`workload.rs`; None: it did not read). A report goes when the machine

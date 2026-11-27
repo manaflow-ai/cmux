@@ -120,6 +120,20 @@ async fn a_stop_ends_the_children_of_the_git_it_stops() {
     assert!(!late.exists(), "a child of the stopped process wrote after the stop");
 }
 
+#[test]
+fn a_fetch_the_floor_stopped_reads_no_room_though_clearing_its_pack_frees_the_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let pack = dir.path().join("objects/pack");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(pack.join("tmp_pack_X1"), b"x").unwrap();
+    // The disk is under the floor while the stopped pack is there and above it once cleared.
+    let room = |d: &Path| !d.join("objects/pack/tmp_pack_X1").exists();
+    assert_eq!(after_stop(dir.path(), room), Fetched::NoRoom);
+    assert!(!pack.join("tmp_pack_X1").exists());
+    // A failure with room to spare is a plain failure: the next miss may try again soon.
+    assert_eq!(after_stop(dir.path(), room), Fetched::Failed);
+}
+
 #[tokio::test]
 async fn a_watch_stops_a_running_git_and_says_why() {
     let mut cmd = Command::new("sleep");
