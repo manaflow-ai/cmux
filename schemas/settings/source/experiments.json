@@ -280,6 +280,31 @@
           ]
         },
         {
+          "key": "experiments.writtenHTMLOpenBeside",
+          "note": "First slice of docs/design/next-rich-output.md plan item 5 (hq): a written HTML file's card in the agent chat gets Open beside chat, which opens the file as the real page in the sandboxed browser tab beside the chat that `cmux file open` and MCP `open` already use (u18051), so its CSS, scripts and images load. The page posts file.open {where: tab}; the host's checkedFileOpen (AgentPaneFileOpen+Roots.swift) lets .html/.htm into a tab only with this switch on, under the pane's roots, on a real click it spends (webviews useExperimentSwitch(\"writtenHTMLOpenBeside\"), conversation/writtenArtifacts.tsx). Off by default; off keeps today's card and today's refusal.",
+          "title": {
+            "key": "settings.experiments.writtenHTMLOpenBeside",
+            "text": "Open Written HTML Beside the Chat"
+          },
+          "help": {
+            "key": "settings.experiments.writtenHTMLOpenBeside.help",
+            "text": "A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "html",
+            "page",
+            "open",
+            "beside",
+            "preview",
+            "rich output"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
@@ -605,6 +630,31 @@
           ]
         },
         {
+          "key": "experiments.cloudToggle",
+          "note": "Taste prototype: a chat's cloud controls. The composer's place chip and rainbow cloud toggle (Local, Cloud, Auto), the move card over the composer, Session Info's cloud rows, the chat cards' place and Evacuate rows, and the palette's Evacuate, Bring Back All and place actions (webviews useExperimentSwitch(\"cloudToggle\"), hybrid/hybridModel.ts CLOUD_TOGGLE_SWITCH; the App refuses the place actions while it is off). Off by default; off keeps today's Move to Cloud and Bring Back Local only.",
+          "title": {
+            "key": "settings.experiments.cloudToggle",
+            "text": "Cloud Toggle"
+          },
+          "help": {
+            "key": "settings.experiments.cloudToggle.help",
+            "text": "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "cloud",
+            "toggle",
+            "rainbow",
+            "hybrid",
+            "evacuate",
+            "auto"
+          ]
+        },
+        {
           "key": "experiments.expandedEditsEstimate",
           "note": "Agent chat estimates an opened \"Edited N files\" group at its files' diff cards (conversation/editDiffBox.ts) instead of its 22 px closed line, so no gap opens under it before it mounts (model.ts editsEstimateOn, from experimentSwitchOn(\"expandedEditsEstimate\")). Off by default (Leo's UI hold, 2026-11-24, ask-82b08b7ed7); off keeps the old estimate.",
           "title": {
@@ -658,6 +708,30 @@
           ]
         },
         {
+          "key": "experiments.appsTier",
+          "note": "RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.",
+          "title": {
+            "key": "settings.experiments.appsTier",
+            "text": "Publish Previews as Apps"
+          },
+          "help": {
+            "key": "settings.experiments.appsTier.help",
+            "text": "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "apps",
+            "publish",
+            "preview",
+            "cloud",
+            "version"
+          ]
+        },
+        {
           "key": "experiments.chatInstantUnderLoad",
           "note": "Perf experiment (docs/design/chat-instant-under-load.md, the idle lane): once the chat list shared with new tabs (webviews newtab/chatStore.ts) holds a list, a page writes a changed list from its idle lane (acpmux/schedule) instead of at once, so the write never shares a task with a key or a transcript frame; the newest list still wins and a page that hides still writes at once (webviews experimentSwitchOn(\"chatInstantUnderLoad\")). Off by default; off keeps today's timing.",
           "title": {
@@ -677,6 +751,32 @@
             "typing",
             "streaming",
             "performance"
+          ]
+        },
+        {
+          "key": "experiments.eventsAsToolCalls",
+          "note": "cmuxterm-hq docs/design/events-that-are-tool-calls.md, first unbuilt slice (plan: \"Add subagent_resume and announcement to the known kinds\"): the agent chat reads both acpmux provenance kinds by origin (webviews conversation/incomingMessage.ts, eventsAsToolCalls.experiment.ts, experimentSwitchOn(\"eventsAsToolCalls\")). An urgent forum rule acpmux pushes into a chat (hub/forum.rs, kind announcement) draws as acpmux's line instead of the person's prompt; a subagent's Resume (hub/subagent_resume.rs) is never read as an agent's message. Later slices of the design join this switch. Off by default; off reads every prompt as before.",
+          "title": {
+            "key": "settings.experiments.eventsAsToolCalls",
+            "text": "Harness Events Read by Origin"
+          },
+          "help": {
+            "key": "settings.experiments.eventsAsToolCalls.help",
+            "text": "A rule cmux pushes into a chat shows as cmux's line, never as your own message."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "events",
+            "tool calls",
+            "forum",
+            "rule",
+            "announcement",
+            "subagent",
+            "resume"
           ]
         },
         {
