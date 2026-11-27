@@ -176,9 +176,10 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        // The whole log with no move: off the runtime's workers (`qos::off_worker`).
+        // Its `transferred` records, from the kind index (a whole log's parse was minutes of a
+        // big chat's move, cmux#54461), off the runtime's workers (`qos::off_worker`).
         let _ = crate::qos::off_worker(|| {
-            self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            self.store.scan_kinds(&session.id, &["transferred"], &mut |e: EventRecord| {
                 // The daemon's own records only: an agent's update may carry any kind.
                 moved |= e.dir == "mux" && e.kind == "transferred";
                 !moved
@@ -230,11 +231,13 @@ impl Hub {
             let landed = if let Some(transfer_id) = value.get("transferId").and_then(Value::as_str)
             {
                 let mut landed = false;
-                let _ = self.store.scan(id, 0, &mut |event: EventRecord| {
-                    landed |= event.kind == "transferred_in"
-                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                    !landed
-                });
+                let _ =
+                    self.store.scan_kinds(id, &["transferred_in"], &mut |event: EventRecord| {
+                        landed |= event.kind == "transferred_in"
+                            && event.msg.get("transferId").and_then(Value::as_str)
+                                == Some(transfer_id);
+                        !landed
+                    });
                 landed
             } else {
                 false
@@ -341,11 +344,12 @@ impl Hub {
             super::transfer::is_plain_id(outer_id),
         ) {
             let mut landed = false;
-            let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
-                landed |= event.kind == "transferred_in"
-                    && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                !landed
-            });
+            let _ =
+                self.store.scan_kinds(outer_id, &["transferred_in"], &mut |event: EventRecord| {
+                    landed |= event.kind == "transferred_in"
+                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
+                    !landed
+                });
             landed
         } else {
             false
@@ -420,7 +424,8 @@ impl Hub {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
         };
-        self.receive_admission(&manifest, guard.as_ref(), true).await?;
+        let as_harness = as_harness_of(params);
+        self.receive_admission(&manifest, guard.as_ref(), as_harness, true).await?;
         Ok(json!({"takes": true, "sessionId": manifest["sessionId"]}))
     }
 
@@ -432,6 +437,7 @@ impl Hub {
         &self,
         manifest: &Value,
         guard: Option<&Guard>,
+        as_harness: Option<&str>,
         preflight: bool,
     ) -> Result<(), RpcError> {
         let incoming_epoch = manifest_epoch(manifest)?;
@@ -458,7 +464,7 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let here = self.session_get(id);
         if let Some(existing) = here.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -485,18 +491,18 @@ impl Hub {
                 "cmux-harness durable transfers require acpmux.transfer.v2",
             ));
         }
-        if !self.config.read().await.harnesses.contains_key(harness) {
-            // What to do next, for whoever reads it on the source: the chat runs under that
-            // harness, so the machine it moves to must have a profile of the same name.
-            let e = transfer_error(
-                "harness",
-                format!(
-                    "agent {harness:?} is not configured here: this machine needs a harness \
-                     profile named {harness:?} (a `harnesses` entry in its acpmux config) before \
-                     the chat can move to it"
-                ),
-            );
-            return Err(e.with_data(json!({"harness": harness})));
+        // `--as`: the chat lands on this machine's own harness for the same agent.
+        let family = manifest["harnessFamily"].as_str();
+        {
+            let cfg = self.config.read().await;
+            // A dry run's manifest comes from the chat's info, which does not say the agent its
+            // harness runs: with `--as` and neither side knowing it, only the name is checked
+            // here, and `transfer_receive` checks the agent with the real manifest.
+            let unknown = preflight && family.is_none() && cfg.family(harness).is_none();
+            match as_harness.filter(|_| unknown) {
+                Some(name) if cfg.family(name).is_some() => {}
+                _ => received_harness(&cfg, harness, as_harness, family)?,
+            }
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
         for f in &files {
@@ -515,13 +521,26 @@ impl Hub {
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+        self.receive_guarded(params, None).await
+    }
+
+    /// `transfer_receive`, and for `pulled` (a hub move between the same person's daemons, built
+    /// only by `hub/transfer_pull.rs` from this daemon's own config, never from a request) that
+    /// guard, a peer one that keeps the chat's own origin (`Guard::owner`).
+    pub(super) async fn receive_guarded(
+        &self,
+        params: &Value,
+        pulled: Option<Guard>,
+    ) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         manifest_epoch(&manifest)?;
-        let guard = match params.get("guard") {
-            Some(g) => Some(Guard::parse(g).await?),
-            None => None,
+        let guard = match (pulled, params.get("guard")) {
+            (Some(g), _) => Some(g),
+            (None, Some(g)) => Some(Guard::parse(g).await?),
+            (None, None) => None,
         };
-        self.receive_admission(&manifest, guard.as_ref(), false).await?;
+        let as_harness = as_harness_of(params);
+        self.receive_admission(&manifest, guard.as_ref(), as_harness, false).await?;
         let id = manifest["sessionId"].as_str().unwrap_or("");
         // A delta bundle comes with the prefix staged for it (`transfer_precopy.rs`), never alone.
         let stage_id = params.get("stageId").and_then(Value::as_str);
@@ -547,7 +566,12 @@ impl Hub {
             if let Some(g) = &guard {
                 g.store(&dir)?;
             }
-            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
+            // `transfer_finish` lands it on the `--as` harness.
+            let mut stored = manifest.clone();
+            if let Some(name) = as_harness {
+                stored.set("asHarness", json!(name));
+            }
+            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&stored)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut have = Vec::new();
@@ -625,13 +649,47 @@ impl Hub {
         Ok(json!({"next": have + data.len() as u64}))
     }
 
+    /// The received chat's metadata `meta` (the bundle's `session.json`) put on this machine's
+    /// harness `name`, which runs the same agent (`received_harness`): its launch is this one's,
+    /// its conversation and modes stay. Moving back `--as` the old name restores it.
+    async fn land_on_harness(
+        &self,
+        bundle: &Path,
+        meta: &mut SessionMeta,
+        name: &str,
+    ) -> Result<(), RpcError> {
+        let profile = self.config.read().await.harnesses.get(name).cloned();
+        let Some(profile) = profile else {
+            let e = transfer_error("harness", format!("agent {name:?} is not configured here"));
+            return Err(e.with_data(json!({"harness": name})));
+        };
+        meta.harness = name.to_owned();
+        meta.harness_argv = profile.argv.clone();
+        meta.family = Some(crate::config::derive_family(name, &profile));
+        // The source machine's launch and preset name nothing here.
+        meta.spawn_argv = None;
+        meta.launch_digest = None;
+        meta.preset = None;
+        let path = bundle.join("session.json");
+        let wrote = serde_json::to_vec_pretty(&*meta)
+            .map_err(anyhow::Error::from)
+            .and_then(|raw| Ok(crate::home_fs::write(&path, raw)?));
+        wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))
+    }
+
     /// Imports the received chat and runs its queue here.
     pub(super) async fn transfer_finish(
         self: &Arc<Self>,
         params: &Value,
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        // The owner's login for the chat's agent (`agent_credentials.rs`), which a new Cloud
+        // machine has none of: held on the chat before its queue runs, so the turn the move
+        // continues starts signed in. Never recorded; a bad one fails the finish before anything.
+        let credential = crate::agent_credentials::requested(Some(params))?;
+        let mut steps = super::transfer_out::transfer_live::MoveSteps::new("finish");
         let _receives = RECEIVES.lock().await;
+        steps.step("lock");
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
         let incoming_epoch = manifest_epoch(&manifest)?;
@@ -646,6 +704,7 @@ impl Hub {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
             }
         }
+        steps.step("check");
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         // Back where it once moved from: its closed copy gives way (below). Bind the
         // bundle's outer identity, harness, and ACP identity before any source is killed.
@@ -666,8 +725,17 @@ impl Hub {
                 "bundle identity does not match transfer manifest",
             ));
         }
-        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let mut bundle_meta = bundle_meta;
+        if let Some(name) = manifest["asHarness"].as_str().filter(|n| *n != bundle_meta.harness) {
+            self.land_on_harness(&bundle, &mut bundle_meta, name).await?;
+        }
+        // After the harness is settled: the login must serve the agent the chat lands on.
+        if let Some(credential) = &credential {
+            self.credential_serves(&bundle_meta.harness, credential).await?;
+        }
+        let old = self.session_get(id);
         let old = old.filter(|s| self.moved_away(s));
+        steps.step("moved_away");
         if let Some(existing) = old.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -678,10 +746,15 @@ impl Hub {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
+        // Only cmux-harness binds durable state (its journal) to the agent session id. Another
+        // harness that cannot load its session starts a new one on each machine it moves to
+        // (an ACP agent without loadSession), so its id differs on the way back and the chat
+        // is still this one: the outer id and the harness say so.
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
-                && existing_meta.agent_session_id == bundle_meta.agent_session_id
+                && (existing_meta.agent_session_id == bundle_meta.agent_session_id
+                    || bundle_meta.harness != "cmux-harness")
         });
         if old.is_some() && !replacing_durable {
             return Err(transfer_error(
@@ -719,6 +792,17 @@ impl Hub {
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
                 meta.set("cwd", json!(cwd));
+                Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
+            });
+            edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        }
+        // Its agent memory follows it (`memory_follow.rs`): after the guard, which clears the
+        // env a bundle brings, the move's own answer says whether the chat had memory.
+        {
+            let path = bundle.join("session.json");
+            let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
+                let mut meta: Value = serde_json::from_slice(&raw)?;
+                crate::memory_follow::apply_to_meta(&mut meta, &manifest);
                 Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
@@ -776,10 +860,19 @@ impl Hub {
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
         let session = match self
-            .import_into(&bundle, name, true, guarded, replacing_durable, true, staged.as_ref())
+            .import_into(
+                &bundle,
+                name,
+                super::transfer::Live::Moved(credential),
+                guarded,
+                replacing_durable,
+                true,
+                staged.as_ref(),
+            )
             .await
         {
             Ok(session) => {
+                steps.step("import");
                 session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
@@ -811,6 +904,7 @@ impl Hub {
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
                 }
+                steps.step("receipt");
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
@@ -840,6 +934,7 @@ impl Hub {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
                 }
+                steps.step("finalize");
                 session
             }
             Err(error) => {
@@ -856,8 +951,12 @@ impl Hub {
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
+        steps.step("queues");
         let _ = crate::home_fs::remove_dir_all(&dir);
-        Ok(self.session_summary(&session))
+        steps.step("cleanup");
+        let summary = self.session_summary(&session);
+        steps.step("summary");
+        Ok(summary)
     }
 
     /// Drops every receive of move `transferId` and says whether its chat landed here.
@@ -882,12 +981,12 @@ impl Hub {
                 let _ = crate::home_fs::remove_dir_all(entry.path());
             }
         }
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let here = self.session_get(session_id);
         let mut landed = false;
         if let Some(session) = here {
-            // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).
+            // Its `transferred_in` records, from the kind index, off the runtime's workers.
             let _ = crate::qos::off_worker(|| {
-                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                self.store.scan_kinds(&session.id, &["transferred_in"], &mut |e: EventRecord| {
                     landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
                     !landed
                 })
@@ -908,4 +1007,79 @@ impl Hub {
         }
         true
     }
+}
+
+/// Whether a chat on the source's harness `source` (running the agent `family`, when the source
+/// says) may land here, on `as_harness` (`session move --as`) or else on its own name. `--as`
+/// names a harness configured here that runs the same agent; with no `--as`, a missing name's
+/// refusal names this machine's harness for the same agent.
+fn as_harness_of(params: &Value) -> Option<&str> {
+    params.get("asHarness").and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+pub(super) fn received_harness(
+    cfg: &crate::config::Config,
+    source: &str,
+    as_harness: Option<&str>,
+    family: Option<&str>,
+) -> Result<(), RpcError> {
+    let missing = |name: &str, hint: String| {
+        // What to do next, for whoever reads it on the source: the chat runs under that
+        // harness, so the machine it moves to must have a profile of that name.
+        let e = transfer_error(
+            "harness",
+            format!(
+                "agent {name:?} is not configured here: this machine needs a harness profile \
+                 named {name:?} (a `harnesses` entry in its acpmux config) before the chat can \
+                 move to it{hint}"
+            ),
+        );
+        e.with_data(json!({"harness": name}))
+    };
+    let Some(name) = as_harness else {
+        if cfg.harnesses.contains_key(source) {
+            return Ok(());
+        }
+        let same: Vec<String> = family
+            .and_then(|f| cfg.families().remove(f))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n != source)
+            .collect();
+        let hint = match same.as_slice() {
+            [] => String::new(),
+            [one] => format!("; this machine has {one:?} for the same agent: move with --as {one}"),
+            [first, ..] => format!(
+                "; this machine has {} for the same agent: move with --as {first}",
+                same.iter().map(|n| format!("{n:?}")).collect::<Vec<_>>().join(", ")
+            ),
+        };
+        return Err(missing(source, hint));
+    };
+    let Some(theirs) = cfg.family(name) else {
+        return Err(missing(name, String::new()));
+    };
+    if name == source {
+        return Ok(());
+    }
+    // A source that does not say which agent runs its harness: judged by the same name here.
+    let Some(ours) = family.map(str::to_owned).or_else(|| cfg.family(source)) else {
+        let e = transfer_error(
+            "harness",
+            format!(
+                "the source does not say which agent {source:?} runs, so --as {name} is not checked: update its acpmux"
+            ),
+        );
+        return Err(e.with_data(json!({"harness": source, "as": name})));
+    };
+    if ours != theirs {
+        let e = transfer_error(
+            "harness",
+            format!(
+                "--as {name}: {name:?} runs {theirs} here and the chat's {source:?} runs {ours}; a chat moves only onto a harness for the same agent"
+            ),
+        );
+        return Err(e.with_data(json!({"harness": source, "as": name, "family": ours})));
+    }
+    Ok(())
 }

@@ -31,11 +31,9 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# A provenance publish job runs on the provenance pool (GitHub-hosted: npm provenance and attestations need it) and says
-# why. #47603 routed the literal `ubuntu-latest` through RUNNER_POOLS; a fork still gets ubuntu-latest.
-PROVENANCE_RUNS_ON = (
-    "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }}"
-)
+# A provenance publish job runs on GitHub-hosted Ubuntu (npm provenance and attestations need it) and says why. #47603
+# routed `ubuntu-latest` through RUNNER_POOLS.provenance; scripts/ci/one_linux_label.py froze that read back to the label.
+PROVENANCE_RUNS_ON = "runs-on: ubuntu-latest"
 
 def load_tests(
     loader: unittest.TestLoader,
@@ -259,7 +257,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "$SERVER_URL/repos/" not in artifacts
     for body in (preflight, owner_wait):
         assert "API_URL: ${{ github.api_url }}" in body
-    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # Owner and builder lookups share the controller-feed/API fallback. Keep the
+    # API host bound to github.api_url while allowing the helper's run-id
+    # parameter to serve both lookups.
+    assert '"$API_URL/repos/$REPOSITORY/actions/runs/$1"' in owner_wait
+    assert 'owner_json="$(run_read "$OWNER_RUN_ID"' in owner_wait
     # Any branch's run of the same commit owns it, not only feat-cmux-next's.
     assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
@@ -274,9 +276,17 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    assert "for attempt in 1 2 3" in daemon
-    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
-    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
+    assert "run: ../scripts/ci/cmux-next-daemon-tests.sh" in daemon
+    # The shared gate owns retries now; keep checking the implementation
+    # reached by the workflow rather than requiring an inline shell copy.
+    daemon_gate = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text()
+    assert "for attempt in 1 2 3" in daemon_gate
+    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon_gate
+    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon_gate
+    assert "set -euo pipefail" in daemon_gate
+    assert 'tee "$log" || status=$?' in daemon_gate
+    assert 'exit "$status"' in daemon_gate
+    assert "cargo test ran no cmux_next_ test" in daemon_gate
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
     # is already running"); main's cmux-tui-artifacts-retry.yml retries completed
@@ -303,13 +313,21 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     # refused before preflight and never reach a credentialed publisher.
     artifacts = workflow("cmux-tui-artifacts.yml")
     trusted = "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'"
+    # A dispatch on a branch publishes what a push on it would (the on-request build of a PR head's tree, and its
+    # mac-live.json for `cmux app try PR`): the dispatched ref's own workflow file runs either way, so this gate
+    # never held back a hostile branch; pin refs stay refused, before any build (reject-untrusted-pin-ref).
+    branch = ("((github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+              " && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))")
     for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
         assert trusted in body, job
-        assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in body, job
-    # A dispatch from another branch stays build-only.
+        assert branch in body, job
+    live = workflow_job(artifacts, "point-mac-live-channel")
+    assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in live
+    assert "(github.event_name == 'workflow_dispatch' || !startsWith(github.ref, 'refs/heads/lane/'))" in live
+    # Only a pin ref stays build-only.
     notice = workflow_job(artifacts, "publish-ref-notice")
-    assert f"!(github.event_name == 'push' || {trusted})" in notice
+    assert "&& startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in notice
     # Branch-published trees are their own family (the R2 pruner's candidates).
     tree = workflow_job(artifacts, "publish-tree")
     assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
@@ -471,10 +489,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     # Per commit, except the marker path (cx-qlilk): a feat-cmux-next push whose
     # tree another run already published shares one group per key, because
     # only the missing daemon-tests marker is at stake there, not the tree.
-    assert ("group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && "
+    # Off the trunk refs a branch's newer head cancels its older head's tests (DISPATCH_SUPERSEDED,
+    # test_branch_push_build_cancels_only_its_own_branch_older_build).
+    assert ("format('{0}-{1}', needs.tree-preflight.outputs.key, github.event_name == 'push' && "
             "github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && "
-            "'marker' || github.sha }}") in daemon
-    assert "cancel-in-progress: false" in daemon
+            "'marker' || github.sha)") in daemon
+    assert "DISPATCH_SUPERSEDED" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
@@ -911,7 +931,9 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     typescript = workflow("sdk-publish-npm.yml")
     assert 'node-version: "22.23.4"' in typescript
     assert (
-        "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
+        # RFD 0148 row 19: setup-node's npm cache is an actions/cache twin that
+        # saves on base branches only, keyed on this lockfile.
+        "hashFiles('cmux-tui/bindings/typescript/package-lock.json')"
         in typescript
     )
     assert "npm ci --no-audit --no-fund" in typescript
@@ -1192,14 +1214,19 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     # test binary needs optimization, not whole-program LTO (cx-3gstu).
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
-    steps = jobs["build-windows"]["steps"]
-    step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
+    # The test binaries are cross-compiled on Linux and only executed by the
+    # Windows verification job. The optimization env must therefore be on the
+    # producer step, where cargo compiles them.
+    steps = jobs["cross-build-windows"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Build the Windows long-path test binary")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
     run = step["run"]
-    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
+    assert "for crate in cmux-tui-core cmux-tui-platform; do" in run
+    assert '--config "profile.release.package.$crate.codegen-units=16"' in run
+    assert "--no-run" in run
     # The published binaries still build with the release profile as written.
-    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
+    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU, on Linux)")
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
@@ -1215,7 +1242,38 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
         if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
-            assert "actions/cache" not in str(step.get("uses", "")), name
+            action = str(step.get("uses", "")).split("@", 1)[0].lower()
+            # Local R2 wrappers have "actions/cache" in their path but do not use
+            # GitHub's cache scope. Their backend must remain explicitly R2.
+            if action in ("./.github/actions/cache-restore", "./.github/actions/cache-save"):
+                assert step.get("with", {}).get("backend") == "r2", name
+            assert action != "actions/cache" and not action.startswith("actions/cache/"), name
+
+    # The reviewed MinGW sysroot is shared only through the secret-backed R2
+    # store. PRs may read it anonymously; only successful branch pushes may save.
+    windows = jobs["cross-build-windows"]
+    assert windows["env"]["CI_CACHE_R2_BUCKET"] == "cmux-ci-cache-next"
+    assert windows["environment"] == (
+        "${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' "
+        "&& 'next-cache-writer' || '' }}"
+    )
+    sysroot_steps = [
+        step for step in jobs["cross-build-windows"]["steps"]
+        if step.get("with", {}).get("path") == "${{ runner.temp }}/cmux-windows-gnu-sysroot"
+    ]
+    restores = [s for s in sysroot_steps if s.get("uses") == "./.github/actions/cache-restore"]
+    saves = [s for s in sysroot_steps if s.get("uses") == "./.github/actions/cache-save"]
+    assert len(restores) == len(saves) == 1
+    restore, save = restores[0], saves[0]
+    assert restore["with"]["key"] == save["with"]["key"]
+    assert "secrets." not in str(restore.get("env", {}))
+    assert "AWS_ACCESS_KEY_ID" not in restore.get("env", {})
+    assert "AWS_SECRET_ACCESS_KEY" not in restore.get("env", {})
+    assert save.get("if") == (
+        "${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' }}"
+    )
+    assert save["env"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}"
+    assert save["env"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}"
 
 
 PACKAGE_BUILD_JOBS = (
@@ -1223,7 +1281,10 @@ PACKAGE_BUILD_JOBS = (
     # cloudflare-relay moved to its own lane; it checks out the pull request
     # directly rather than a caller-supplied ref, so it is no longer one of the
     # jobs this invariant applies to.
+    "cross-build-windows",
+    "wine-smoke-windows",
     "build-windows",
+    "build-windows-acpmux",
     "package",
     "verify-linux-packages",
     "attest-npm-packages",
@@ -1286,13 +1347,27 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
             if isinstance(step, dict)
             and "actions/checkout" in str(step.get("uses", ""))
         ]
-        assert len(checkouts) == 1, job_name
-        checkout = checkouts[0]
-        assert checkout["name"] == "Checkout caller or requested ref"
-        with_config = checkout["with"]
-        assert isinstance(with_config, dict)
-        assert with_config["persist-credentials"] == "false"
-        assert with_config["ref"] == "${{ inputs.checkout_ref }}"
+        assert len(checkouts) in (1, 2), job_name
+        primary = checkouts[0]
+        assert primary["name"] == "Checkout caller or requested ref"
+        assert "if" not in primary, job_name
+        if len(checkouts) == 2:
+            # A failed fetch may retry once, at the same ref, and a failed retry
+            # must fail the job rather than allowing a partial checkout to build.
+            retry = checkouts[1]
+            assert primary.get("id") == "checkout", job_name
+            assert primary.get("continue-on-error") == "true", job_name
+            assert retry.get("if") == "steps.checkout.outcome == 'failure'", job_name
+            assert retry.get("continue-on-error", "false") == "false", job_name
+            assert retry["uses"] == primary["uses"], job_name
+            assert retry["with"] == primary["with"], job_name
+        else:
+            assert primary.get("continue-on-error", "false") == "false", job_name
+        for checkout in checkouts:
+            with_config = checkout["with"]
+            assert isinstance(with_config, dict)
+            assert with_config["persist-credentials"] == "false"
+            assert with_config["ref"] == "${{ inputs.checkout_ref }}"
 
 
 def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
@@ -1466,9 +1541,9 @@ def _evaluate_branch_expression(template: str, context: dict[str, object]) -> st
 def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
     # BRANCH_BUILD_SUPERSEDED: on 2026-11-13..19 the builds of non-trunk branch
     # pushes ran 622 min/day after their branch had a newer push. A branch
-    # push's build shares one group per branch with cancel-in-progress; every
-    # trunk, integration, nightly and dispatch build keeps a group per run that
-    # nothing cancels. The R2 writers keep their per-run groups.
+    # push's (or dispatch's) build shares one group per branch with
+    # cancel-in-progress; every trunk, integration and nightly build, pushed or
+    # dispatched, keeps a group per run that nothing cancels. The R2 writers keep their per-run groups.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     concurrency = jobs["build"]["concurrency"]
@@ -1479,27 +1554,47 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
                                 "repository": "manaflow-ai/cmux"}}
         )
 
-    for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x"):
-        assert render(concurrency["group"], "push", ref) == f"cmux-tui-build-ref-{ref}", ref
-        assert render(concurrency["group"], "push", ref, "8") == render(concurrency["group"], "push", ref), ref
-        assert render(concurrency["cancel-in-progress"], "push", ref) == "True", ref
+    # DISPATCH_SUPERSEDED: a dispatch on such a branch (the hot verify rust look's tree request) shares the
+    # branch's group too, so a newer head's build cancels the older head's.
+    for event_name in ("push", "workflow_dispatch"):
+        for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x", "refs/heads/lane/c"):
+            assert render(concurrency["group"], event_name, ref) == f"cmux-tui-build-ref-{ref}", ref
+            assert render(concurrency["group"], event_name, ref, "8") == render(concurrency["group"], event_name, ref), ref
+            assert render(concurrency["cancel-in-progress"], event_name, ref) == "True", ref
+            linux = jobs["build-linux"]["concurrency"]
+            assert render(linux["group"], event_name, ref) == f"cmux-tui-build-linux-ref-{ref}", ref
+            assert render(linux["cancel-in-progress"], event_name, ref) == "True", ref
+    assert (render(concurrency["group"], "push", "refs/heads/fix/a")
+            == render(concurrency["group"], "workflow_dispatch", "refs/heads/fix/a"))
     assert render(concurrency["group"], "push", "refs/heads/fix/a") != render(concurrency["group"], "push", "refs/heads/fix/b")
     kept = ["refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next",
             "refs/heads/feat-cmux-next-ios", "refs/heads/next-batch/1", "refs/heads/rc/1.2", "refs/heads/cmux-tui-pin-aa"]
-    for event_name, ref in [("push", ref) for ref in kept] + [("workflow_dispatch", "refs/heads/fix/a")]:
+    for event_name, ref in [(event, ref) for ref in kept for event in ("push", "workflow_dispatch")]:
         assert render(concurrency["group"], event_name, ref) == "cmux-tui-build-" + "k" * 12 + "-7", (event_name, ref)
         assert render(concurrency["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
     # The jobs that write R2 never share a group across runs and are never cancelled by one.
-    for name in ("publish-tree", "build-darwin-fallback", "cmux-next-daemon-tests"):
+    for name in ("publish-tree", "build-darwin-fallback"):
         assert jobs[name]["concurrency"]["cancel-in-progress"] == "false", name
+    # The daemon tests write nothing to R2: off the trunk refs they follow the build's branch group;
+    # on them they keep the per-key, per-commit (or marker) group nothing cancels.
+    daemon = {name: value.replace("needs.tree-preflight.outputs.tree_ready", "github.tree_ready")
+              for name, value in jobs["cmux-next-daemon-tests"]["concurrency"].items()}
+    for event_name in ("push", "workflow_dispatch"):
+        assert render(daemon["group"], event_name, "refs/heads/lane/c") == "cmux-tui-daemon-ref-refs/heads/lane/c"
+        assert render(daemon["cancel-in-progress"], event_name, "refs/heads/lane/c") == "True"
+        for ref in kept:
+            assert render(daemon["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
+            assert not render(daemon["group"], event_name, ref).startswith("cmux-tui-daemon-ref-"), (event_name, ref)
     assert "concurrency" not in jobs["publish"] or jobs["publish"]["concurrency"]["cancel-in-progress"] == "false"
     assert document["concurrency"]["cancel-in-progress"] == "false"
     # A build a newer push cancelled plans no macOS fallback once the branch has moved;
     # a timeout's cancel (FALLBACK_AFTER_TIMEOUT) and a failed head read still plan one.
     plan = next(s for s in jobs["darwin-fallback-plan"]["steps"] if s.get("id") == "plan")
     assert render(plan["env"]["BRANCH_PUSH"], "push", "refs/heads/fix/a") == "1"
+    assert render(plan["env"]["BRANCH_PUSH"], "workflow_dispatch", "refs/heads/lane/c") == "1"
     for ref in kept:
         assert render(plan["env"]["BRANCH_PUSH"], "push", ref) == "", ref
+        assert render(plan["env"]["BRANCH_PUSH"], "workflow_dispatch", ref) == "", ref
     assert '"$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}"' in plan["run"]
     assert '"$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA"' in plan["run"]
     assert jobs["darwin-fallback-plan"]["permissions"]["contents"] == "read"
@@ -1982,9 +2077,11 @@ def test_sweep_skips_a_coalesced_run():
 def test_coalesce_saves_records_only_on_a_first_attempt():
     # A re-run whose -t-SHA record was lost must not claim the current wall-clock window.
     text = (ROOT / ".github/workflows/base-coalesce.yml").read_text()
-    for step in ("Claim this window", "Record this tip as tested"):
+    # The window claim keys on save_window: a direct push inside a taken window records its tip but does not
+    # claim the window again (tests/test_base_coalesce_direct_push.py).
+    for step, output in (("Claim this window", "save_window"), ("Record this tip as tested", "save")):
         block = text.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
-        assert "steps.decide.outputs.save == 'true' && github.run_attempt == '1'" in block, step
+        assert f"steps.decide.outputs.{output} == 'true' && github.run_attempt == '1'" in block, step
 
 
 def test_cmux_next_base_tier_run_falls_back_to_the_newest_published_tree():

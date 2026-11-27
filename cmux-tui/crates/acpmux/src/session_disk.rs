@@ -11,12 +11,19 @@
 //!   [`MAX_TMP_ENTRIES`] entries of a temporary directory (then its size is a floor, `partial`).
 //!   No worktree is walked. The cost is the processes acpmux scopes hold, which their `TasksMax`
 //!   caps, never the files on disk.
-//! - A scope over its budget is warned once in its chat. One over its budget while the home
+//! - A scope over its budget is warned once in its chat, and a chat once for all its scopes
+//!   (each background command is a scope of its own), again only when a scope's use doubles
+//!   the last one it was told about (`Watch::warned`). One over its budget while the home
 //!   filesystem's free space is under the host's floor (registry `lanes.free_gb_floor`, else
 //!   10 GB) has its top writer's process group stopped (SIGSTOP: throttled, not killed), unless
 //!   that group is one of the scope's own (`Known::protected`: the groups it held when the
 //!   watcher first saw it, the harness or a task's runner): then it is only
 //!   warned. A stopped group gets SIGCONT once free space is back over twice the floor.
+//! - Restart: every group the watcher stops is written to [`LEDGER`] in acpmux's home before
+//!   the SIGSTOP. A daemon start resumes (SIGCONT) each group listed there whose processes are
+//!   still in that scope, then empties it, whether or not the watcher is on, so no chat stays
+//!   frozen because the daemon that stopped it went away. Only listed groups are resumed: a
+//!   group a session stopped itself (a debugger, a test's SIGSTOP) is left alone.
 //! - Off: `ACPMUX_SESSION_DISK_WATCH=0`, or a disk budget of 0 (`ACPMUX_SESSION_DISK_MB=0`,
 //!   `session.diskMb` 0).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -156,7 +163,14 @@ pub(crate) struct Watch {
     pub budget: u64,
     pub truncated: bool,
     pub ticks: u64,
+    /// Each chat's use at its last plain `Action::Warn`: a chat whose builds each run in a new
+    /// scope heard the same warning once a build (76 wakes in a day on one lane host, 40 in one
+    /// chat; 13 under this rule). Stops, resumes and low-disk warnings always go out.
+    pub warned: BTreeMap<String, u64>,
 }
+
+/// The most chats `Watch::warned` remembers; past it, it starts over.
+const WARNED_MAX: usize = 4096;
 
 impl Watch {
     /// Applies a tick's `samples`; the actions with each scope's sample. Scopes that went away
@@ -168,6 +182,17 @@ impl Watch {
             let prev = self.states.get(&s.scope).copied().unwrap_or_default();
             let (next, action) = decide(prev, s, self.budget, self.free, self.floor);
             states.insert(s.scope.clone(), next);
+            if action == Some(Action::Warn)
+                && let Some(id) = s.session.as_deref()
+            {
+                if self.warned.get(id).is_some_and(|told| s.used() < told.saturating_mul(2)) {
+                    continue;
+                }
+                if self.warned.len() >= WARNED_MAX {
+                    self.warned.clear();
+                }
+                self.warned.insert(id.to_owned(), s.used());
+            }
             if let Some(a) = action {
                 actions.push((s.clone(), a));
             }
@@ -280,7 +305,18 @@ pub(crate) fn dir_size(dir: &std::path::Path, max: usize) -> (u64, bool) {
 pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<Sample>, bool) {
     let read = |p: &str| std::fs::read_to_string(p).ok();
     let (mut samples, mut pids_read, mut truncated) = (Vec::new(), 0usize, false);
-    for slice in [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE] {
+    let mut slices: Vec<String> =
+        [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+    // Each session's own slice (`session_total.rs`) holds its scopes under the sessions slice.
+    slices.extend(
+        crate::session_total::session_slices(manager)
+            .into_iter()
+            .map(|(name, _)| format!("{}/{name}", crate::session_scope::SESSIONS_SLICE)),
+    );
+    for slice in &slices {
         let Ok(entries) = std::fs::read_dir(format!("{manager}/{slice}")) else { continue };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -348,6 +384,88 @@ pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<S
         }
     }
     (samples, truncated)
+}
+
+/// The file in acpmux's home listing the groups the watcher holds stopped.
+pub(crate) const LEDGER: &str = "session-disk-stopped.json";
+
+/// One group the watcher stopped: its scope and process group.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub(crate) struct StoppedGroup {
+    pub scope: String,
+    pub pgid: i32,
+}
+
+impl Watch {
+    /// The groups held stopped now, sorted (what [`LEDGER`] lists).
+    pub(crate) fn stopped(&self) -> Vec<StoppedGroup> {
+        self.states
+            .iter()
+            .filter_map(|(scope, st)| match st {
+                State::Stopped(g) => Some(StoppedGroup { scope: scope.clone(), pgid: *g }),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// The groups [`LEDGER`] in `home` lists; none when it is missing or unreadable.
+pub(crate) fn read_ledger(home: &std::path::Path) -> Vec<StoppedGroup> {
+    std::fs::read(home.join(LEDGER))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Writes `groups` to [`LEDGER`] in `home` (atomically: a temporary file, then a rename); an
+/// empty list removes the file.
+pub(crate) fn write_ledger(home: &std::path::Path, groups: &[StoppedGroup]) -> std::io::Result<()> {
+    let path = home.join(LEDGER);
+    if groups.is_empty() {
+        return match crate::home_fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    crate::home_fs::create_dirs(home)?;
+    let tmp = home.join(format!("{LEDGER}.tmp"));
+    crate::home_fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
+    crate::home_fs::rename(&tmp, &path)
+}
+
+/// Whether a process of group `pgid` is still in `scope` under `manager` (`manager_dir`): a
+/// group id can be reused once its processes are gone, and a group in another scope is not ours.
+#[cfg(target_os = "linux")]
+fn group_in_scope(manager: &str, scope: &str, pgid: i32) -> bool {
+    [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE].iter().any(
+        |slice| {
+            std::fs::read_to_string(format!("{manager}/{slice}/{scope}/cgroup.procs"))
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|l| l.trim().parse::<i32>().ok())
+                // SAFETY: getpgid takes any pid; a gone one is -1.
+                .any(|pid| unsafe { libc::getpgid(pid) } == pgid)
+        },
+    )
+}
+
+/// At a daemon start: resumes (`signal`, SIGCONT) every group [`LEDGER`] in `home` lists whose
+/// processes are still in its scope, then empties the ledger. The groups resumed.
+#[cfg(target_os = "linux")]
+pub(crate) fn resume_left_stopped(
+    home: &std::path::Path,
+    manager: &str,
+    mut signal: impl FnMut(i32) -> bool,
+) -> Vec<StoppedGroup> {
+    let left = read_ledger(home);
+    let resumed: Vec<StoppedGroup> = left
+        .into_iter()
+        .filter(|g| group_in_scope(manager, &g.scope, g.pgid) && signal(g.pgid))
+        .collect();
+    if let Err(e) = write_ledger(home, &[]) {
+        tracing::warn!("could not empty {LEDGER}: {e}");
+    }
+    resumed
 }
 
 /// Sends `signal` to process group `pgid` (never 0 or 1, never this process's group).

@@ -36,6 +36,7 @@ pub const MAX_FRAME_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_O
 /// the same turn waited about 20 ms behind a unit of [`MAX_FRAME_CHANGES`]
 /// against 75 µs alone; at this size it waits about 2 ms. The dialer cuts a
 /// frame into units of this size, each with the mark after its last change.
+/// Measured: about 3.7 µs a row in one writer turn: 512 rows hold a local write about 2 ms.
 pub const MAX_UNIT_CHANGES: usize = 512;
 
 /// At most this many mirror changes in one writer turn, all origins together

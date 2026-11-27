@@ -113,6 +113,26 @@ fn the_watch_acts_per_scope_and_forgets_gone_ones() {
 }
 
 #[test]
+fn a_chat_is_warned_once_for_all_its_scopes_until_its_use_doubles() {
+    let mut w = Watch { budget: 8 * GB, free: 30 * GB, floor: 10 * GB, ..Watch::default() };
+    assert_eq!(w.apply(vec![sample("run-a.scope", 9 * GB, Some(9), Some(2))]).len(), 1);
+    // The next build is a new scope of the same chat: nothing new to say.
+    assert!(w.apply(vec![sample("run-b.scope", 12 * GB, Some(9), Some(2))]).is_empty());
+    // Twice what it was told: told again.
+    let acts = w.apply(vec![sample("run-c.scope", 18 * GB, Some(9), Some(2))]);
+    assert_eq!(acts.len(), 1);
+    assert_eq!(acts[0].1, Action::Warn);
+    // Another chat is told on its own.
+    let mut other = sample("run-d.scope", 9 * GB, Some(9), Some(2));
+    other.session = Some("s2".to_owned());
+    assert_eq!(w.apply(vec![other]).len(), 1);
+    // A stop still goes out to a chat already warned.
+    w.free = GB;
+    let acts = w.apply(vec![sample("run-e.scope", 9 * GB, Some(9), Some(2))]);
+    assert_eq!(acts[0].1, Action::Stop(9));
+}
+
+#[test]
 fn status_lists_the_top_scopes_and_every_one_over() {
     let mut w = Watch { budget: 100, free: u64::MAX, floor: 0, ..Watch::default() };
     let mut samples: Vec<Sample> =
@@ -179,4 +199,84 @@ fn this_process_reads_back() {
     // Never our own group.
     assert!(!signal_group(pgid, 0));
     assert!(!signal_group(1, 0));
+}
+
+#[test]
+fn the_ledger_lists_stopped_groups_and_an_empty_one_removes_it() {
+    let home = tempfile::tempdir().unwrap();
+    let mut w = Watch { budget: 8 * GB, free: 1, floor: 10 * GB, ..Watch::default() };
+    w.apply(vec![
+        sample("a.scope", 9 * GB, Some(9), Some(2)),
+        sample("b.scope", GB, Some(7), None),
+    ]);
+    let stopped = w.stopped();
+    assert_eq!(stopped, vec![StoppedGroup { scope: "a.scope".to_owned(), pgid: 9 }]);
+    write_ledger(home.path(), &stopped).unwrap();
+    assert_eq!(read_ledger(home.path()), stopped);
+    write_ledger(home.path(), &[]).unwrap();
+    assert!(!home.path().join(LEDGER).exists());
+    assert!(read_ledger(home.path()).is_empty());
+    write_ledger(home.path(), &[]).unwrap();
+}
+
+/// A daemon restart resumes the groups the last one stopped (SIGCONT), and only those still in
+/// their scope: a stopped group the ledger does not list, or lists under another scope, stays
+/// stopped.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restart_resumes_the_groups_the_last_daemon_left_stopped() {
+    use std::os::unix::process::CommandExt;
+    let state = |pid: u32| {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        stat.rsplit_once(") ").unwrap().1.chars().next().unwrap()
+    };
+    let wait_state = |pid: u32, want: char| {
+        for _ in 0..200 {
+            if state(pid) == want {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    };
+    let spawn = || std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap();
+    let (mut ours, mut moved, mut own) = (spawn(), spawn(), spawn());
+    for c in [&ours, &moved, &own] {
+        assert!(signal_group(c.id() as i32, libc::SIGSTOP));
+        assert!(wait_state(c.id(), 'T'), "{} stopped", c.id());
+    }
+    // A fake user manager: two scopes in the sessions slice.
+    let manager = tempfile::tempdir().unwrap();
+    let slice = manager.path().join(crate::session_scope::SESSIONS_SLICE);
+    for (scope, pids) in [("a.scope", vec![ours.id(), own.id()]), ("b.scope", vec![moved.id()])] {
+        std::fs::create_dir_all(slice.join(scope)).unwrap();
+        let procs: String = pids.iter().map(|p| format!("{p}\n")).collect();
+        std::fs::write(slice.join(scope).join("cgroup.procs"), procs).unwrap();
+    }
+    let home = tempfile::tempdir().unwrap();
+    let ledger = vec![
+        StoppedGroup { scope: "a.scope".to_owned(), pgid: ours.id() as i32 },
+        // Listed under a scope it is not in (its id reused elsewhere): not ours to resume.
+        StoppedGroup { scope: "a.scope".to_owned(), pgid: moved.id() as i32 },
+        StoppedGroup { scope: "gone.scope".to_owned(), pgid: 4_000_000 },
+    ];
+    write_ledger(home.path(), &ledger).unwrap();
+
+    let resumed = resume_left_stopped(home.path(), manager.path().to_str().unwrap(), |g| {
+        signal_group(g, libc::SIGCONT)
+    });
+
+    assert_eq!(resumed, vec![ledger[0].clone()]);
+    assert!(wait_state(ours.id(), 'S'), "the listed group runs again");
+    assert_eq!(state(moved.id()), 'T', "a group outside its listed scope stays stopped");
+    assert_eq!(state(own.id()), 'T', "a group the ledger does not list stays stopped");
+    assert!(read_ledger(home.path()).is_empty(), "the ledger is emptied");
+    // A second start resumes nothing.
+    assert!(
+        resume_left_stopped(home.path(), manager.path().to_str().unwrap(), |_| true).is_empty()
+    );
+    for c in [&mut ours, &mut moved, &mut own] {
+        let _ = c.kill();
+        let _ = c.wait();
+    }
 }

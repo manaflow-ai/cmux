@@ -128,6 +128,7 @@ impl Hub {
     }
 
     /// Stop the session as `kill` does, or refuse when the condition does not hold.
+    #[cfg(test)]
     pub(crate) async fn stop(
         &self,
         session: &Arc<Session>,
@@ -175,6 +176,12 @@ impl Hub {
         if has_child {
             Self::drain_inbound(session).await;
         }
+        // A Claude chat flagged unstored whose conversation Claude did store after all: the
+        // flags clear here too, not only in the idle pass, which reads them only for a session
+        // with a live child, so an unloaded chat kept the stale flag and every conditional stop
+        // refused it `unstored` (shadow-leo: "close sessions that are well and truly done"). One
+        // Claude never stored still refuses: a stop would lose its conversation.
+        self.confirm_claude_stored(session).await;
         // A rate-limit continuation waiting for the reset is no work: the stop closes the chat
         // and starts nothing (`only_rate_limit_waits`). Only the stop reads it so; a release to
         // the terminal still waits for it.

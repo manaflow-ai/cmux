@@ -24,8 +24,7 @@ register them: [.github/AGENTS.md](../.github/AGENTS.md). Rules for every sessio
 1. Find its tests: `python3 scripts/ci/focused_tests.py --files scripts/ci/x.py` lists every test that names
    the path, with its lane. The name `tests/test_<name>.py` (`tests/test_ci_<name>.py` for `scripts/ci/`)
    holds for about a third of scripts; trust the map, not the name.
-2. Run one: `python3 tests/test_x.py` or `./tests/test_x.sh` (seconds). On a lane VM, or when it needs a fleet
-   machine: `cmux-ci test -- python3 tests/test_x.py`.
+2. Run one: `python3 tests/test_x.py` or `./tests/test_x.sh` (seconds).
 3. Run one CI guard step the way CI does: `python3 scripts/ci/run_ci_guards.py --group GROUP --step "STEP NAME"
    --no-stamp`. `--group ci --list` prints a group's steps; `scripts/ci/guards-local.sh` runs the fast set.
 4. See which PR-pipeline steps a change routes: `python3 ci/run route --paths-file FILE` (one path per line).

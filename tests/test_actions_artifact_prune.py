@@ -231,12 +231,13 @@ class DropJob(unittest.TestCase):
         self.assertEqual(set(drop["needs"]), set(jobs) - {"drop-build-artifacts"})
         # Every reader of a dropped name is among them: a reader added later is covered by the rule above.
         readers = {name for name, job in jobs.items() if reads_dropped_artifacts(job)}
-        self.assertTrue({"publish", "publish-tree", "sentry-dsyms", "point-machine-channel-early",
+        self.assertTrue({"publish", "publish-tree", "sentry-dsyms",
                          "point-machine-channel", "darwin-fallback-plan"} <= readers, readers)
         self.assertTrue(readers <= set(drop["needs"]))
         condition = drop["if"]
         # notify-unpublished-tree hands the key on and must stay the run's last job (cx-urd.26).
-        for clause in ("always()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
+        # !cancelled(), never always(): a cancelled run queues no tail job (#48396).
+        for clause in ("!cancelled()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
                        "needs.notify-unpublished-tree.result == 'skipped'"):
             self.assertIn(clause, condition)
         self.assertTrue(drop.get("continue-on-error"))
@@ -252,23 +253,27 @@ class DropJob(unittest.TestCase):
         self.assertIn("--delete", step["run"])
         self.assertEqual(step["env"]["GITHUB_TOKEN"], "${{ steps.cmux-bot-token.outputs.token }}")
 
-    def test_only_the_early_channel_point_reads_a_machine_channel_artifact(self):
-        # MACHINE_CHANNEL_THIN: build-machine-channel uploads machine-channel-* (about 230 MB a target) for
-        # point-machine-channel-early alone; no shipped download reads them.
-        jobs = artifacts_jobs()
-        self.assertIn("build-machine-channel", jobs)
-        readers = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
-                           + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
-        self.assertEqual(readers, ["point-machine-channel-early"])
+    def test_only_the_machine_channel_points_read_a_machine_channel_artifact(self):
+        # MACHINE_CHANNEL_THIN: cmux-machine-channel.yml's two thin legs upload machine-channel-* (about 230 MB
+        # a target) for its points alone (LINUX_X86_64_FIRST); no shipped download in cmux-tui-artifacts.yml
+        # reads them.
+        def readers(jobs):
+            return [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
+                    + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
+        self.assertEqual(readers(artifacts_jobs()), [])
+        channel = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
+        self.assertEqual(readers(channel), ["point-x86_64", "point-linux"])
+        for leg in ("build-x86_64", "build-aarch64"):
+            self.assertEqual(channel[leg]["uses"], "./.github/workflows/cmux-tui-build-package.yml")
 
 
 class Workflow(unittest.TestCase):
     def test_only_main_prunes_and_only_on_an_explicit_opt_in(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/actions-artifact-prune.yml").read_text())
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
         triggers = workflow.get("on", workflow.get(True))
         self.assertEqual(set(triggers), {"schedule", "workflow_dispatch"})
         self.assertEqual(workflow["permissions"], {})
-        job = workflow["jobs"]["prune"]
+        job = workflow["jobs"]["actions-artifacts"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
         self.assertEqual(job["permissions"], {"contents": "read", "actions": "write"})
         run = next(step for step in job["steps"] if "actions_artifact_prune.py" in str(step.get("run", "")))
@@ -279,6 +284,29 @@ class Workflow(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.delete", condition)
         self.assertIn("github.event_name == 'schedule' && vars.ACTIONS_ARTIFACT_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
+
+    def test_storage_dispatch_routes_preserve_each_task_frequency(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
+        routes = {
+            "actions-artifacts": ("37 * * * *", "actions-artifacts"),
+            "r2-cache": ("23 5 * * *", "r2-cache"),
+            "r2-binaries": ("53 7 * * *", "r2-binaries"),
+            "r2-census-binaries": ("41 6 * * 1", "r2-census"),
+            "r2-census-cef": ("41 6 * * 1", "r2-census"),
+            "r2-census-ci-cache": ("41 6 * * 1", "r2-census"),
+            "pr-media": ("41 6 * * 1", "pr-media"),
+        }
+        self.assertEqual(set(workflow["jobs"]), set(routes))
+        for name, (cron, task) in routes.items():
+            with self.subTest(job=name):
+                job = workflow["jobs"][name]
+                guard = "github.ref == 'refs/heads/main'"
+                if name == "pr-media":
+                    guard = "github.repository_owner == 'manaflow-ai' && " + guard
+                expected = ("${{ (" + guard + ") && ((github.event_name == 'schedule' && "
+                            "github.event.schedule == '" + cron + "') || "
+                            "(github.event_name == 'workflow_dispatch' && inputs.task == '" + task + "')) }}")
+                self.assertEqual(job["if"], expected)
 
 
 if __name__ == "__main__":

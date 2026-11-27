@@ -64,6 +64,8 @@ pub unsafe fn process_main() -> Result<()> {
     // SAFETY: as above, before any thread exists.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -82,8 +84,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
-    // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
-    // starts, since on macOS this re-executes the host in place under a clamp.
+    // Its tier (`qos.rs`) is set before any thread starts.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
@@ -95,9 +96,19 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A listener keeper across a service-manager restart (`daemon/listener_keeper.rs`).
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::daemon::listener_keeper::HOLD_ARG) {
+        return crate::daemon::listener_keeper::main(args.get(1..).unwrap_or_default());
+    }
     // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
     if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
         return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
+    }
+    // A shared MCP server's relay for a harness (`mcp_pool.rs`): no runtime, stdout is MCP's.
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::mcp_pool::SHIM_ARG) {
+        return crate::mcp_pool::shim_main(args.get(1..).unwrap_or_default());
     }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
@@ -110,10 +121,15 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::github_lane_mint::CLI_ARG) {
         crate::install_github_source();
         let rest: Vec<String> =
-            args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
         let code = cmux_host::github_cli::run(&rest);
         // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
         std::process::exit(i32::from(code));
+    }
+    // The held pipes' host (`hub_carrier_pipe_host.rs`): its own runtime, no daemon start.
+    #[cfg(all(unix, feature = "hub-carrier"))]
+    if args.first().is_some_and(|a| a == crate::hub_carrier_pipe_host::PIPE_HOST_ARG) {
+        return crate::hub_carrier_pipe_host::main(args.get(1..).unwrap_or_default());
     }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
@@ -268,11 +284,11 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     // (`acpmux --json exec …`), so these rewrites see the same command.
     let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if at + 1 == argv.len() && argv[at] == "daemon" {
+    if at + 1 == argv.len() && argv.get(at).is_some_and(|a| a == "daemon") {
         argv.push("run".into());
     }
-    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[at] = "skill".into();
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "--skill" || *a == "--guide") {
+        *word = "skill".into();
     }
     // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
     if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {
@@ -281,6 +297,12 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     }
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
+    // `events`, `log`, `logs`: a guess at `session tail`, run and named so the next call uses it.
+    let tail_alias = argv
+        .get(at)
+        .and_then(|a| a.to_str())
+        .filter(|a| aliases::TAIL.contains(a))
+        .map(str::to_owned);
     // clap keeps command names as `&'static str`; one per process.
     let name = PROGRAM.get_or_init(|| invocation.display_name.clone()).as_str();
     let build_grammar = |front_door| {
@@ -302,17 +324,37 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
                 e
             };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
-                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
-                .or_else(|| {
-                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
-                });
-            match refusal {
-                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
-                None => e.exit(),
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
+            if let Some(refusal) = refusal {
+                errors::exit_with(&refusal.into(), json_out)
+            }
+            // The one form a mistyped or wishful one meant (cmux-intent, the shared layer of
+            // tools/intent.py): run and said on stderr when clear and safe, else listed or
+            // refused with its exact form. A destructive or outward form is never rewritten.
+            let words: Vec<String> =
+                argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+            let Some(fixed) = cmux_intent::recover(&grammar, "acpmux", name, &words, &e) else {
+                match json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten() {
+                    Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                    None => e.exit(),
+                }
+            };
+            argv = argv
+                .first()
+                .cloned()
+                .into_iter()
+                .chain(fixed.into_iter().map(OsString::from))
+                .collect();
+            match grammar.try_get_matches_from_mut(argv.clone()) {
+                Ok(matches) => matches,
+                Err(again) => again.exit(),
             }
         }
     };
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    if let Some(word) = &tail_alias {
+        eprintln!("{name}: `{word}` is `{name} session tail` (--last N, -f); running it");
+    }
     // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
     if let Some(Command::New(_)) = &cli.command
         && let Some((_, new)) = matches.subcommand()
@@ -342,6 +384,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
+        Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {
@@ -405,10 +448,10 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             match crate::log_sink::Sink::start(out) {
                 Ok(sink) => {
                     sink.install();
-                    logs.with_writer(sink).init();
+                    init_logs(logs.with_writer(sink).finish());
                 }
                 Err(e) => {
-                    logs.init();
+                    init_logs(logs.finish());
                     tracing::warn!(
                         "no log writer thread, lines are written where they are logged: {e}"
                     );
@@ -543,6 +586,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Channel(command)) => {
+            let json_out = cli.json;
+            match crate::cli::channel::run(command, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::WhoElse(args)) => {
             let json_out = cli.json;
             match crate::cli::who_else::run(args, json_out).await {
@@ -581,6 +631,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Memory(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::memory::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
@@ -635,7 +692,42 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
             Ok(())
         }
+        // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
+        // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
+        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+            let code = match cmd {
+                Command::RunVm { shim, command } => {
+                    let ran = match shim {
+                        Some(program) => {
+                            crate::placement::exec_router::shim_main(&program, &command).await
+                        }
+                        None if command.is_empty() => {
+                            Err(anyhow::anyhow!("run-vm: no command after --"))
+                        }
+                        None => crate::placement::run_vm::main(&command.join(" ")).await,
+                    };
+                    match ran {
+                        Ok(code) => code,
+                        Err(e) => errors::exit_with(&e, cli.json),
+                    }
+                }
+                Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                _ => 1,
+            };
+            // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
+            std::process::exit(code)
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
+            match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
+            Ok(()) => Ok(()),
+            Err(e) => errors::exit_with(&e, cli.json),
+        },
         Some(Command::TriggerChat { protocol, principal_fd }) => {
             match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
                 Ok(()) => Ok(()),
@@ -691,6 +783,17 @@ fn command_index(argv: &[OsString]) -> usize {
         .unwrap_or(argv.len())
 }
 
+/// The daemon's subscriber, plus a Chrome trace (Perfetto) file when `CMUX_TRACE_FILE` is set
+/// (`perf_trace.rs`).
+fn init_logs<S>(logs: S)
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
+{
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    logs.with(crate::perf_trace::from_env()).init();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -728,6 +831,41 @@ mod tests {
         }
         for word in ["", "unknown-command", "open-terminal-as-chat"] {
             assert!(!is_command(word), "{word}");
+        }
+    }
+
+    #[test]
+    fn an_agent_s_guess_at_a_session_s_events_runs_session_tail() {
+        use clap::Parser as _;
+        // The words an agent tried for interim-coord's events (Leo's screenshot, 2026-11-21):
+        // `events NAME --tail 25` and `log NAME`, both "unrecognized subcommand" before.
+        let parse = |args: &[&str]| {
+            let argv: Vec<OsString> =
+                std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
+            std::thread::Builder::new()
+                .stack_size(WORKER_STACK_BYTES)
+                .spawn(move || {
+                    let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{e}"));
+                    match cli.command.map(flatten) {
+                        Some(Command::Tail { session, last, follow, .. }) => {
+                            (session, last, follow)
+                        }
+                        _ => panic!("not tail"),
+                    }
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        assert_eq!(
+            parse(&["events", "interim-coord", "--tail", "25"]),
+            ("interim-coord".into(), 25, false)
+        );
+        assert_eq!(parse(&["log", "coord"]), ("coord".into(), 50, false));
+        assert_eq!(parse(&["logs", "coord", "-n", "5", "-f"]), ("coord".into(), 5, true));
+        assert_eq!(parse(&["session", "tail", "coord", "--tail", "7"]), ("coord".into(), 7, false));
+        for word in ["events", "log", "logs"] {
+            assert!(is_command(word), "{word}");
         }
     }
 

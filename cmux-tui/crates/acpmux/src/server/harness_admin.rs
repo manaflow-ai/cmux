@@ -424,6 +424,11 @@ pub(super) async fn handle(
     Ok(reply)
 }
 
+/// The capabilities gating `_acpmux/peer_state_changed` and `_acpmux/start_mode_changed`
+/// (`capabilities.rs`).
+const PEER_STATE_EVENTS: &str = "peer-state-events-v1";
+const START_MODE: &str = "start-mode-v1";
+
 /// One payload of the watchers' harness feed to watching connection `conn`:
 /// `_acpmux/harnesses_changed`, `_acpmux/peer_state_changed` when marked a peer
 /// state note (`peer.rs` `report_states`), or `_acpmux/start_mode_changed {}` when
@@ -432,20 +437,28 @@ pub(super) async fn handle(
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
     if let Some(state) = note.get(super::connections::CONNECTIONS_NOTE) {
         // Model connections (`server/connections.rs`): this machine's own, never to Web or a peer.
-        if !conn.origin.web_class() {
+        if !conn.origin.web_class()
+            && conn.client_features.hears_any(&[crate::capabilities::CONNECTIONS_EVENTS])
+        {
             conn.send(&crate::rpc::Message::notification(
                 method::MUX_CONNECTIONS_CHANGED,
                 state.clone(),
             ));
         }
     } else if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+        // Gated by the feature peer links read and the capability panes read (`peerStateEvents`,
+        // `peer-state-events-v1`): a client that listed neither never hears it.
+        let gates = [crate::peer_states::STATE_EVENTS_FEATURE, PEER_STATE_EVENTS];
+        if !conn.client_features.hears_any(&gates) {
+            return;
+        }
         conn.send(&crate::rpc::Message::notification(
             method::MUX_PEER_STATE_CHANGED,
             state.clone(),
         ));
     } else if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
         conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
-    } else if !conn.origin.web_class() {
+    } else if !conn.origin.web_class() && conn.client_features.hears_any(&[START_MODE]) {
         conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));
     }
 }

@@ -138,127 +138,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux isn't connected right now. Try again in a moment."
+            "value": "cmux isn't connected right now."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux غير متصل الآن. حاول مرة أخرى بعد لحظات."
+            "value": "cmux غير متصل الآن."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux trenutno nije povezan. Pokušajte ponovo za trenutak."
+            "value": "cmux trenutno nije povezan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux er ikke forbundet lige nu. Prøv igen om et øjeblik."
+            "value": "cmux er ikke forbundet lige nu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ist gerade nicht verbunden. Versuche es gleich noch einmal."
+            "value": "cmux ist gerade nicht verbunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no está conectado ahora. Inténtalo de nuevo en un momento."
+            "value": "cmux no está conectado ahora."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n'est pas connecté pour le moment. Réessayez dans un instant."
+            "value": "cmux n'est pas connecté pour le moment."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux non è connesso al momento. Riprova tra poco."
+            "value": "cmux non è connesso al momento."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は現在接続されていません。しばらくしてからもう一度お試しください。"
+            "value": "cmux は現在接続されていません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនបានភ្ជាប់ទេឥឡូវនេះ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+            "value": "cmux មិនបានភ្ជាប់ទេឥឡូវនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금은 cmux에 연결되어 있지 않습니다. 잠시 후 다시 시도하세요."
+            "value": "지금은 cmux에 연결되어 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux er ikke tilkoblet akkurat nå. Prøv igjen om litt."
+            "value": "cmux er ikke tilkoblet akkurat nå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nie jest teraz połączony. Spróbuj ponownie za chwilę."
+            "value": "cmux nie jest teraz połączony."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux não está conectado agora. Tente novamente em instantes."
+            "value": "O cmux não está conectado agora."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux сейчас не подключен. Повторите попытку чуть позже."
+            "value": "cmux сейчас не подключен."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ยังไม่ได้เชื่อมต่อในขณะนี้ ลองอีกครั้งในอีกสักครู่"
+            "value": "cmux ยังไม่ได้เชื่อมต่อในขณะนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux şu anda bağlı değil. Birazdan yeniden deneyin."
+            "value": "cmux şu anda bağlı değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux зараз не підключено. Спробуйте ще раз за мить."
+            "value": "cmux зараз не підключено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux hiện chưa được kết nối. Hãy thử lại sau giây lát."
+            "value": "cmux hiện chưa được kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 目前未连接。请稍后重试。"
+            "value": "cmux 目前未连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 目前未連線。請稍後再試一次。"
+            "value": "cmux 目前未連線。"
           }
         }
       }

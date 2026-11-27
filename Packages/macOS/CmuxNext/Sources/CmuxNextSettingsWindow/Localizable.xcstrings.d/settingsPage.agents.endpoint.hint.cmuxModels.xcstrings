@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.agents.endpoint.hint.cmuxModels" : {
+      "comment" : "Settings > Agents > Add > Endpoint (your own model endpoint); cmux models are open-weight models cmux hosts; keep cmux lowercase, and Claude Code and Fetch Models as the app names them",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نماذج مفتوحة الأوزان تستضيفها cmux، وتُستخدم بتسجيل دخولك إلى cmux. لا حاجة إلى مفتاح. يعرض جلب النماذج المتاح لك منها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modeli otvorenih težina koje hostuje cmux, uz vašu cmux prijavu. Ključ nije potreban. Preuzmi modele prikazuje one koji su vam dostupni."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modeller med åbne vægte, som cmux hoster, brugt med dit cmux-login. Ingen nøgle nødvendig. Hent modeller viser dem, du har adgang til."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Open-Weight-Modelle, die cmux hostet, genutzt mit deiner cmux-Anmeldung. Kein Schlüssel nötig. Modelle abrufen listet die für dich verfügbaren auf."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open-weight models that cmux hosts, used with your cmux sign-in. No key needed. Fetch Models lists the ones available to you."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modelos de pesos abiertos que aloja cmux, usados con tu sesión de cmux. No necesitas clave. Obtener modelos muestra los que tienes disponibles."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Des modèles à poids ouverts hébergés par cmux, utilisés avec votre connexion cmux. Aucune clé requise. Récupérer les modèles liste ceux qui vous sont disponibles."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modelli a pesi aperti ospitati da cmux, usati con il tuo accesso a cmux. Nessuna chiave necessaria. Recupera modelli elenca quelli disponibili per te."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux がホストするオープンウェイトモデルを、cmux のサインインで使います。キーは不要です。「モデルを取得」で利用できるモデルを一覧表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ូដែលទម្ងន់បើកចំហដែល cmux បង្ហោះ ប្រើជាមួយការចូលគណនី cmux របស់អ្នក។ មិនត្រូវការសោទេ។ ទាញយកម៉ូដែល បង្ហាញម៉ូដែលដែលអ្នកអាចប្រើបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 호스팅하는 오픈 웨이트 모델을 cmux 로그인으로 사용합니다. 키가 필요 없습니다. 모델 가져오기로 사용할 수 있는 모델을 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modeller med åpne vekter som cmux drifter, brukt med cmux-påloggingen din. Ingen nøkkel trengs. Hent modeller viser dem du har tilgang til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modele o otwartych wagach hostowane przez cmux, używane z Twoim logowaniem do cmux. Klucz nie jest potrzebny. Pobierz modele pokazuje te, które są dla Ciebie dostępne."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modelos de pesos abertos hospedados pelo cmux, usados com seu login do cmux. Não precisa de chave. Buscar modelos lista os disponíveis para você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Модели с открытыми весами, которые размещает cmux, работают через ваш вход в cmux. Ключ не нужен. «Получить модели» покажет доступные вам."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โมเดลแบบ open-weight ที่ cmux โฮสต์ ใช้กับการลงชื่อเข้า cmux ของคุณ ไม่ต้องใช้คีย์ ดึงโมเดลจะแสดงรายการที่คุณใช้ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux'un barındırdığı açık ağırlıklı modeller, cmux oturumunuzla kullanılır. Anahtar gerekmez. Modelleri Getir size açık olanları listeler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Моделі з відкритими вагами, які розміщує cmux, працюють через ваш вхід у cmux. Ключ не потрібен. «Отримати моделі» покаже доступні вам."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các mô hình trọng số mở do cmux lưu trữ, dùng với đăng nhập cmux của bạn. Không cần khóa. Tải mô hình sẽ liệt kê những mô hình bạn dùng được."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 托管的开放权重模型,通过你的 cmux 登录使用。无需密钥。“获取模型”会列出你可用的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 託管的開放權重模型,透過你的 cmux 登入使用。不需要金鑰。「取得模型」會列出你可用的模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

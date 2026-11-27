@@ -169,6 +169,19 @@ impl SubagentTree {
     /// The time of the updates that follow (epoch ms): a live one's arrival, a logged one's stamp.
     pub fn set_clock(&mut self, at: u64) {
         self.expiry.clock = at;
+        self.logged_at = None;
+    }
+
+    /// `set_clock` for an update read back from the chat's log at its stamp `at`: what the tree
+    /// records of it (`listed`'s start and end) is the log's time, not the time of the read.
+    pub fn set_log_clock(&mut self, at: u64) {
+        self.expiry.clock = at;
+        self.logged_at = Some(at);
+    }
+
+    /// The time `set_clock` gave the updates being read (epoch ms; 0 when none was given).
+    pub(super) fn expiry_clock(&self) -> u64 {
+        self.expiry.clock
     }
 
     /// One event of `id`: running, it is seen now; ended, it leaves expiry's tables. Any event

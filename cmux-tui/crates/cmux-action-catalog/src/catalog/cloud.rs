@@ -24,7 +24,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "cloud",
         surfaces: KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 200).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarNew", "create", 1)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         cli_name: "cloud new-workspace",
         main_menu: Some("file"),
@@ -197,6 +197,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -211,6 +212,111 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudEvacuate",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudEvacuate", "Evacuate to Cloud"),
+        description: Some("Moves every local chat of this Mac (or the named sessions, comma separated) to its own Cloud machine, a few at a time: the plan (which chats, how many at once) is Rust's. Only a person runs it: an agent's run is refused."),
+        keywords: &["vm", "cloud", "move", "teleport", "evacuate", "all", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud.and.arrow.up",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::SESSION_2.optional()],
+        targets: &[],
+        cli_name: "cloud evacuate",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudEvacuate.cancel",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudEvacuate.cancel", "Cancel Evacuation"),
+        description: Some("Stops an Evacuate or Bring Back All that is running: each running move that can still be cancelled is cancelled (the chat stays where it was), and the chats still waiting never start."),
+        keywords: &["vm", "cloud", "move", "evacuate", "cancel", "stop", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud.slash",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[],
+        targets: &[],
+        cli_name: "cloud evacuate-cancel",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudBringBackAll",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudBringBackAll", "Bring Back All Chats"),
+        description: Some("Brings the chats that Evacuate or Auto put on Cloud machines (or the named sessions, comma separated) back to this Mac, a few at a time, as Bring Back Local does each. Only a person runs it: an agent's run is refused."),
+        keywords: &["vm", "cloud", "move", "back", "local", "all", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud.and.arrow.down",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "sessions", title: t("Localizable", "argument.cloudBringBackAllSessions", "Sessions"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &[],
+        cli_name: "cloud bring-back-all",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chatPlace.set",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatPlace.set", "Set Chat Place"),
+        keywords: &["vm", "cloud", "move", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "mode", title: t("Localizable", "argument.chatPlaceMode", "Place"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "queued", title: t("Localizable", "argument.chatPlaceQueued", "Queued Prompts"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "hasDraft", title: t("Localizable", "argument.chatPlaceHasDraft", "Has an Unsent Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &["tab"],
+        cli_name: "action chat-place-set",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chatPriority.set",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatPriority.set", "Set Keep Running"),
+        keywords: &["vm", "cloud", "priority", "keep", "running", "hybrid", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "priority", title: t("Localizable", "argument.chatPriority", "Priority"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &["tab"],
+        cli_name: "action chat-priority-set",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chatMove.cancel",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatMove.cancel", "Cancel Chat Move"),
+        keywords: &["vm", "cloud", "move", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[],
+        targets: &["tab"],
+        cli_name: "action chat-move-cancel",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chatMove.retry",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatMove.retry", "Retry Chat Move"),
+        keywords: &["vm", "cloud", "move", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "queued", title: t("Localizable", "argument.chatPlaceQueued", "Queued Prompts"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "hasDraft", title: t("Localizable", "argument.chatPlaceHasDraft", "Has an Unsent Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &["tab"],
+        cli_name: "action chat-move-retry",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -226,6 +332,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud transfer-local",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -241,6 +348,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move-to-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -692,6 +800,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud open-desktop",
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -709,6 +818,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud setup-desktop",
         waits_for_result: true,
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -924,6 +1034,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         targets: &["machine"],
         cli_name: "cloud set-idle-pause",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -960,6 +1071,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud delete-snapshot",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -974,6 +1086,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "cloud diagnostics",
         main_menu: Some("help"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1002,6 +1115,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedOut"],
         cli_name: "cloud sign-in",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1015,6 +1129,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedIn"],
         cli_name: "cloud sign-out",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

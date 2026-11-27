@@ -78,6 +78,26 @@ pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foregrou
 /// part of the paste.
 pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
 
+/// `send-typed-submit-v1`: a `send` with `submit` and typed text (no `paste`) writes Return
+/// [`TYPED_SUBMIT_GAP`] after the text, in the same request. The phone's composer sends a one-line
+/// draft for a full-screen program that way (typed, not pasted: vim takes a bracketed paste as
+/// text even in normal mode). It was the text, then Return as a second request 250 ms later from
+/// the phone; across a link blip the text arrived and the Return did not (Leo, 2026-11-21: "the
+/// text goes through. But then the send doesn't go through"). One keyed request goes once or not
+/// at all, and the gap keeps an agent's paste-burst detection (Codex: about 120 ms after a burst
+/// of unbracketed characters) from taking the Return for a newline.
+pub(super) const SEND_TYPED_SUBMIT_CAPABILITY: &str = "send-typed-submit-v1";
+
+/// How long Return waits after typed text in a `submit` send (`send-typed-submit-v1`): past an
+/// agent TUI's paste-burst window, the phone's old typed-Enter delay.
+pub(super) const TYPED_SUBMIT_GAP: Duration = Duration::from_millis(250);
+
+/// The wait before a `submit`'s Return: after typed text, [`TYPED_SUBMIT_GAP`]; after a paste
+/// (the PTY writer's `paste_pacing` waits for it) or with nothing written, none.
+pub(super) fn submit_wait(paste: bool, wrote_text: bool) -> Duration {
+    if !paste && wrote_text { TYPED_SUBMIT_GAP } else { Duration::ZERO }
+}
+
 /// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
 /// `blocked` on an approval or a question, or `done`), in this harness session.
 #[derive(serde::Deserialize)]
@@ -279,6 +299,16 @@ fn send_unkeyed(
                  the send shortly"
             )));
         }
+        // A direct report of this terminal whose journal echo the roster has not folded (being
+        // appended, retried after a failed append, or past the roster's cursor), or whose echo was
+        // given up: the roster may hold the agent's state from before the report.
+        if surface.terminal_public_id().is_some_and(|terminal| mux.agent_report_unsettled(terminal))
+        {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent state not recorded yet: the terminal's last agent report is not in the \
+                 agent roster yet; retry the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
@@ -301,6 +331,7 @@ fn send_unkeyed(
             )));
         }
     }
+    let wrote_text = text.as_deref().is_some_and(|text| !text.is_empty()) || bytes.is_some();
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -330,12 +361,18 @@ fn send_unkeyed(
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
         // break, not a submit. The PTY writer holds it until the program read the paste
         // (`paste_pacing`).
+        // Typed text: Return waits past an agent's paste-burst window (`send-typed-submit-v1`).
+        let wait = submit_wait(paste, wrote_text);
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
         // The text is already in: a failed Return must not read as "nothing was written".
         surface.write_bytes_replying(b"\r", reply).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")
         })?;
     }
     mux.note_terminal_input(&surface, client);
+    mux.control_clients.last_inputs.note(surface.id, client);
     Ok(json!({}))
 }
 
@@ -565,6 +602,7 @@ pub(super) fn send_key(
     mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes_replying(&encoded, reply)?;
     mux.note_terminal_input(&surface, client);
+    mux.control_clients.last_inputs.note(surface.id, client);
     Ok(json!({}))
 }
 

@@ -10,13 +10,27 @@
 // - layout shifts (`layout-shift` entries), each said as after the first paint or not,
 // - bytes per method the page's socket carried (wire.ts), the watch's own requests left out,
 // - spans the page owns: a new chat (handshake to first token), the page load (navigation to
-//   first paint) and a workspace switch (the page shown again to a settled transcript).
+//   first paint), a workspace switch (the page shown again to a settled transcript), each send (its
+//   Enter to the frame that paints the sent row and the agent's reserved turn, to its first token,
+//   and the layout shifts over it) and a chat switch in the page (the pick to the frame that paints
+//   the new chat's rows). Leo, 2026-11-25: "when you press enter, the stuff should just start
+//   playing. we dont need to wait/get blocked by anything on rendering."
 //
 // Off by default, and off costs nothing: no observer, timer or listener is registered until the
 // daemon says the watch is on (one `status` read when the page first connects, the Inspector's
 // Perf tab, or a report's answer), and all of them go when it says off.
 
-import { acpmuxPerf, type AcpmuxPerf, type AgentMark } from "./perf";
+import {
+  acpmuxPerf,
+  keyDroppedFrames,
+  percentile,
+  typingFrameInterval,
+  type AcpmuxPerf,
+  type AgentMark,
+  type TypingSample,
+  type PerfSendMark,
+  type PerfTransport,
+} from "./perf";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
 
 /** Sends one `_acpmux/perf` request (the page's client, direct.ts `perf`). */
@@ -55,6 +69,17 @@ export const RECHECK_EVERY_MS = 10_000;
 export const LONG_FRAME_REPORT_MS = 50;
 /** Held between reports at most, each list; older items go first. */
 const HELD_CAP = 256;
+/** A send's rows not painted this long after its start are reported unpainted. */
+export const SEND_PAINT_MAX_MS = 5_000;
+/** A send with no first token this long after its start goes out without one. */
+export const SEND_TOKEN_MAX_MS = 120_000;
+/** A send's shifts are counted until this long after its first token, and at least SEND_SHIFT_MIN_MS from its start. */
+export const SEND_SHIFT_AFTER_TOKEN_MS = 1_000; // motion-allow: a measurement window, not an animation
+export const SEND_SHIFT_MIN_MS = 5_000; // motion-allow: a measurement window, not an animation
+/** Sends timed at once, at most (the oldest goes out as it is). */
+const SENDS_CAP = 8;
+/** A chat switch whose rows are not painted this long after the pick is reported unpainted. */
+export const CHAT_SWITCH_MAX_MS = 5_000;
 /** Reports that failed in a row before the reporter stops (the page lost its daemon for good). */
 const FAILURES_TO_STOP = 30;
 /** Frames a workspace switch waits for its transcript to settle before it is reported unsettled. */
@@ -177,6 +202,182 @@ export function workspaceSwitchSpan(
   return span;
 }
 
+/** Keys a key-to-paint span carries their own times for, at most (a second of fast typing is about 10). */
+const KEY_PAINT_KEYS = 64;
+/** A key whose frame-after mark has not come this long after its paint is reported without it (a hidden page). */
+const KEY_NEXT_FRAME_WAIT_MS = 1_000;
+
+/**
+ * The composer's typing since the last report as one span (Leo: "we need typing in the gui to be fast too and
+ * smootha nd stuff"): each key from its keydown to after the frame that drew it (perf.ts's composer key
+ * listener: one rAF, then a task after it, the post-paint mark). The span's total is the slowest key, judged
+ * against `composer.key_paint`; its parts are that key's stages (to the page's listener, the edit done, the
+ * frame start, the paint). `detail` has every key's paint time, so a reader takes p50/p95/p99 over many
+ * reports, the dropped frames (`keyDroppedFrames`) and the prompt's length. Undefined with no keys.
+ */
+export function keyPaintSpan(
+  samples: readonly TypingSample[],
+  nominal = typingFrameInterval(samples),
+): PerfSpan | undefined {
+  if (!samples.length) return undefined;
+  const slowest = samples.reduce((worst, sample) => (sample.paint > worst.paint ? sample : worst));
+  const stages: [string, number][] = [];
+  if (slowest.listener !== undefined) stages.push(["listener", slowest.listener]);
+  if (slowest.work !== undefined) stages.push(["edit", slowest.work]);
+  stages.push(["frame", slowest.frame], ["paint", slowest.paint]);
+  const sorted = samples.map((sample) => sample.paint).sort((a, b) => a - b);
+  return {
+    name: "key to paint",
+    budget: "composer.key_paint",
+    ms: round(slowest.paint),
+    parts: partsOf(stages, 0),
+    detail: {
+      keys: samples.length,
+      p50Ms: round(percentile(sorted, 0.5)),
+      p95Ms: round(percentile(sorted, 0.95)),
+      p99Ms: round(percentile(sorted, 0.99)),
+      droppedFrames: samples.reduce((total, sample) => total + keyDroppedFrames(sample, nominal), 0),
+      frameIntervalMs: round(nominal),
+      chars: samples.reduce((most, sample) => Math.max(most, sample.chars ?? 0), 0),
+      paintMs: samples.slice(-KEY_PAINT_KEYS).map((sample) => round(sample.paint)),
+    },
+  };
+}
+
+/** One send as the reporter times it (`PerfReporter.sendStarted`), on `performance.now()`'s clock. */
+export type SendTiming = PerfSendMark & {
+  /** After the paint of the first frame that drew the sent row; the frame's own number. */
+  userAt?: number;
+  userFrame?: number;
+  /** After the paint of the first frame that drew a row after it: the agent's reserved turn. */
+  reservedAt?: number;
+  reservedFrame?: number;
+  /** After the paint of the first frame after the send's first agent text. */
+  tokenAt?: number;
+  /** The first agent text came (its frame not painted yet). */
+  tokenSeen?: boolean;
+  shifts: number;
+  inputShifts: number;
+  shiftScore: number;
+  shiftWhat: string[];
+  /** Whether the engine reports layout shifts at all (WebKit does not: `shifts` is then null). */
+  shiftsObserved: boolean;
+};
+
+/**
+ * The per-send span: the Enter to the frame that paints both the sent row and the agent's reserved
+ * turn (budget `chat.send_paint`), with the first token as a part and in `detail.firstTokenMs`, and
+ * the layout shifts from the Enter to a second after the first token (at least 5 s). A send whose
+ * reserved turn never painted is timed to its row; one whose row never painted, to SEND_PAINT_MAX_MS.
+ */
+export function sendSpan(send: SendTiming): PerfSpan {
+  const marks: [string, number][] = [];
+  if (send.userAt !== undefined) marks.push(["user row painted", send.userAt]);
+  if (send.reservedAt !== undefined) marks.push(["reserved turn painted", send.reservedAt]);
+  if (send.tokenAt !== undefined) marks.push(["first token", send.tokenAt]);
+  marks.sort((left, right) => left[1] - right[1]);
+  const painted =
+    send.userAt === undefined
+      ? send.start + SEND_PAINT_MAX_MS
+      : send.reservedAt === undefined
+        ? send.userAt
+        : Math.max(send.userAt, send.reservedAt);
+  return {
+    name: "send",
+    budget: "chat.send_paint",
+    ms: round(Math.max(0, painted - send.start)),
+    parts: partsOf(marks, send.start),
+    detail: {
+      firstTokenMs: send.tokenAt === undefined ? null : round(Math.max(0, send.tokenAt - send.start)),
+      shifts: send.shiftsObserved ? send.shifts : null,
+      inputShifts: send.shiftsObserved ? send.inputShifts : null,
+      shiftScore: send.shiftsObserved ? Math.round(send.shiftScore * 10_000) / 10_000 : null,
+      shiftWhat: send.shiftWhat,
+      reserved:
+        send.userFrame !== undefined && send.reservedFrame !== undefined && send.reservedFrame <= send.userFrame,
+      painted: send.userAt !== undefined,
+      transport: send.transport,
+      freshChat: send.freshChat,
+      rows: send.rows,
+      fromKey: send.fromKey,
+    },
+  };
+}
+
+/** One chat switch in the page (`PerfReporter.chatSwitched`). */
+export type ChatSwitchTiming = {
+  start: number;
+  sessionId: string;
+  transport: () => PerfTransport;
+  /** The row ids drawn when the pick came: the new chat's rows are the first frame with none of them. */
+  before: Set<string>;
+  frames: number;
+  paintFrame?: number;
+  paintedAt?: number;
+  rows?: number;
+  quiet: number;
+  settledAt?: number;
+  handle?: unknown;
+};
+
+/** The chat-switch span: the pick to after the paint of the frame that draws the new chat's rows (budget `chat.switch_paint`). */
+export function chatSwitchSpan(state: ChatSwitchTiming, end: number): PerfSpan {
+  const painted = state.paintedAt ?? end;
+  const marks: [string, number][] = [["rows painted", painted]];
+  if (state.settledAt !== undefined) marks.push(["settled", Math.max(painted, state.settledAt)]);
+  return {
+    name: "chat switch",
+    budget: "chat.switch_paint",
+    ms: round(Math.max(0, painted - state.start)),
+    parts: partsOf(marks, state.start),
+    detail: {
+      rows: state.rows ?? 0,
+      transport: state.transport(),
+      settledMs: state.settledAt === undefined ? null : round(Math.max(0, state.settledAt - state.start)),
+      painted: state.paintedAt !== undefined,
+    },
+  };
+}
+
+/** What a frame of the page draws, for the send and chat-switch spans (the page's own DOM). */
+export type PerfProbe = {
+  /** Whether the frame draws the row `rowId`, and a transcript row after it (the agent's reserved turn). */
+  sendRows: (rowId: string) => { user: boolean; reserved: boolean };
+  /** The transcript row ids drawn now. */
+  rowIds: () => string[];
+};
+
+const ROW_SELECTOR = ".acpmux-row[data-row-id]";
+
+function domProbe(): PerfProbe {
+  return {
+    sendRows: (rowId) => {
+      const user = document.querySelector(`${ROW_SELECTOR}[data-row-id="${CSS.escape(rowId)}"]`);
+      if (!user) return { user: false, reserved: false };
+      let reserved = false;
+      for (const row of document.querySelectorAll(ROW_SELECTOR)) {
+        if (row === user || row.classList.contains("acpmux-user")) continue;
+        if (user.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          reserved = true;
+          break;
+        }
+      }
+      return { user: true, reserved };
+    },
+    rowIds: () => [...document.querySelectorAll<HTMLElement>(ROW_SELECTOR)].map((row) => row.dataset.rowId ?? ""),
+  };
+}
+
+/** Runs `run` after the current frame's paint (a posted message from inside its frame callback). */
+function afterPaintBrowser(run: () => void): void {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    channel.port1.close();
+    run();
+  };
+  channel.port2.postMessage(0);
+}
+
 /** Bytes per method of the wire entries after `afterSeq`, the watch's own left out, largest first. */
 export function bytesByMethod(entries: readonly WireEntry[], afterSeq: number): { label: string; bytes: number }[] {
   const sums = new Map<string, number>();
@@ -248,6 +449,10 @@ export type PerfReporterEnv = {
   frame: (run: (time: number) => void) => unknown;
   cancelFrame: (handle: unknown) => void;
   observe: Observe;
+  /** Runs after the current frame's paint; default a posted message. */
+  afterPaint?: (run: () => void) => void;
+  /** What the page draws; default its DOM. */
+  probe?: PerfProbe;
 };
 
 function browserEnv(): PerfReporterEnv {
@@ -261,6 +466,8 @@ function browserEnv(): PerfReporterEnv {
     frame: (run) => requestAnimationFrame(run),
     cancelFrame: (handle) => cancelAnimationFrame(handle as number),
     observe: observeEngine,
+    afterPaint: afterPaintBrowser,
+    probe: typeof document === "undefined" ? undefined : domProbe(),
   };
 }
 
@@ -283,6 +490,7 @@ export class PerfReporter {
   private wasEnabled = false;
   private lastRenders = new Map<string, number>();
   private lastWireSeq = 0;
+  private lastTyping = 0;
   private lastReportAt = 0;
   private frames: number[] = [];
   private shifts: LayoutShiftReport[] = [];
@@ -294,6 +502,11 @@ export class PerfReporter {
   private chatSpanFor: number | undefined;
   private switching: Switch | undefined;
   private disturbed = false;
+  private sends: SendTiming[] = [];
+  private sendFrame: unknown;
+  private frameCount = 0;
+  private shiftsObserved = false;
+  private chatSwitch: ChatSwitchTiming | undefined;
 
   constructor(private readonly env: PerfReporterEnv = browserEnv()) {}
 
@@ -349,6 +562,7 @@ export class PerfReporter {
     const windowMs = Math.max(1, Math.round(at - this.lastReportAt));
     this.lastReportAt = at;
     this.collectPageLoad();
+    this.collectTyping();
     const renders = renderDelta(perf.renders, this.lastRenders);
     this.lastRenders = new Map(perf.renders);
     const entries = wire.entries();
@@ -392,7 +606,9 @@ export class PerfReporter {
 
   /** One report; skipped while the last one is still out (its items wait for the next). */
   tick(): void {
-    if (!this.on || this.sending || !this.send) return;
+    if (!this.on) return;
+    this.flushSends();
+    if (this.sending || !this.send) return;
     const sentAt = this.lastSentAt;
     const report = this.buildReport() ?? (this.env.now() - sentAt >= HEARTBEAT_EVERY_MS ? this.heartbeat() : undefined);
     if (!report) return;
@@ -418,8 +634,12 @@ export class PerfReporter {
     this.wasEnabled = perf.enabled;
     perf.enable();
     perf.markListener = (stage) => this.agentMarked(stage);
+    perf.sendListener = (send) => this.sendStarted(send);
+    perf.tokenListener = (at) => this.tokenCame(at);
+    perf.switchListener = (sessionId, at, transport) => this.chatSwitched(sessionId, at, transport);
     this.lastRenders = new Map(perf.renders);
     this.lastWireSeq = wire.entries().at(-1)?.seq ?? 0;
+    this.lastTyping = perf.typingPushed;
     this.lastReportAt = now();
     this.lastSentAt = now();
     this.failures = 0;
@@ -432,6 +652,7 @@ export class PerfReporter {
     this.ownFrames = stopFrames !== undefined;
     if (stopFrames) this.stops.push(stopFrames);
     const stopShifts = observe("layout-shift", (entries) => this.shifted(entries));
+    this.shiftsObserved = stopShifts !== undefined;
     if (stopShifts) this.stops.push(stopShifts);
     this.timer = every(() => this.tick(), REPORT_EVERY_MS);
   }
@@ -443,7 +664,12 @@ export class PerfReporter {
     this.timer = undefined;
     for (const stop of this.stops.splice(0)) stop();
     this.cancelSwitch();
+    this.cancelSends();
+    this.cancelChatSwitch();
     perf.markListener = undefined;
+    perf.sendListener = undefined;
+    perf.tokenListener = undefined;
+    perf.switchListener = undefined;
     if (!this.wasEnabled) perf.disable();
     this.frames = [];
     this.shifts = [];
@@ -464,6 +690,25 @@ export class PerfReporter {
     if (!span) return;
     this.chatSpanFor = marks.handshakeStart;
     this.hold(this.spans, span);
+  }
+
+  /// The keys typed since the last report, up to the first whose frame-after mark is still due.
+  private collectTyping(): void {
+    const { perf, wall } = this.env;
+    const fresh = perf.typingAfter(this.lastTyping);
+    if (!fresh.length) return;
+    const now = wall();
+    let ready = 0;
+    while (
+      ready < fresh.length &&
+      (fresh[ready]!.next_frame_ms !== undefined ||
+        now - (fresh[ready]!.paint_epoch_ms ?? Number.NEGATIVE_INFINITY) >= KEY_NEXT_FRAME_WAIT_MS)
+    )
+      ready += 1;
+    // Keys the ring dropped before this report are skipped, not waited for.
+    this.lastTyping = perf.typingPushed - (fresh.length - ready);
+    const span = keyPaintSpan(fresh.slice(0, ready));
+    if (span) this.hold(this.spans, span);
   }
 
   private collectPageLoad(): void {
@@ -495,7 +740,9 @@ export class PerfReporter {
         hadRecentInput?: boolean;
         sources?: { node?: unknown }[];
       };
-      if (entry.hadRecentInput || !(typeof entry.value === "number" && entry.value > 0)) continue;
+      if (!(typeof entry.value === "number" && entry.value > 0)) continue;
+      this.sendShift(entry.startTime, entry.value, !!entry.hadRecentInput, entry.sources?.[0]?.node);
+      if (entry.hadRecentInput) continue;
       this.disturbed = true;
       this.hold(this.shifts, {
         score: Math.round(entry.value * 10_000) / 10_000,
@@ -539,6 +786,162 @@ export class PerfReporter {
       state.handle = this.env.frame(step);
     };
     state.handle = this.env.frame(step);
+  }
+
+  /// A send started (perf.ts `markSend`): time its rows' first paint frame by frame, its first token and its shifts.
+  sendStarted(mark: PerfSendMark): void {
+    if (!this.on) return;
+    if (this.sends.length >= SENDS_CAP) this.emitSend(this.sends.shift()!);
+    this.sends.push({
+      ...mark,
+      shifts: 0,
+      inputShifts: 0,
+      shiftScore: 0,
+      shiftWhat: [],
+      shiftsObserved: this.shiftsObserved,
+    });
+    this.watchSendFrames();
+  }
+
+  /// Agent text came (perf.ts `markToken`): each send still waiting for its first token gets it, as painted.
+  tokenCame(at: number): void {
+    const waiting = this.sends.filter((send) => !send.tokenSeen && send.start <= at);
+    if (!waiting.length) return;
+    for (const send of waiting) send.tokenSeen = true;
+    const afterPaint = this.env.afterPaint ?? ((run: () => void) => run());
+    this.env.frame(() =>
+      afterPaint(() => {
+        const painted = this.env.now();
+        for (const send of waiting) send.tokenAt ??= painted;
+      }),
+    );
+  }
+
+  private watchSendFrames(): void {
+    if (this.sendFrame !== undefined) return;
+    const probe = this.env.probe;
+    if (!probe) return;
+    const step = () => {
+      this.sendFrame = undefined;
+      if (!this.on) return;
+      const frame = ++this.frameCount;
+      const now = this.env.now();
+      const afterPaint = this.env.afterPaint ?? ((run: () => void) => run());
+      let pending = false;
+      for (const send of this.sends) {
+        if (send.userFrame !== undefined && send.reservedFrame !== undefined) continue;
+        if (now - send.start > SEND_PAINT_MAX_MS) continue;
+        const drawn = probe.sendRows(send.rowId);
+        if (drawn.user && send.userFrame === undefined) {
+          send.userFrame = frame;
+          afterPaint(() => (send.userAt ??= this.env.now()));
+        }
+        if (drawn.user && drawn.reserved && send.reservedFrame === undefined) {
+          send.reservedFrame = frame;
+          afterPaint(() => (send.reservedAt ??= this.env.now()));
+        }
+        if (send.userFrame === undefined || send.reservedFrame === undefined) pending = true;
+      }
+      if (pending) this.sendFrame = this.env.frame(step);
+    };
+    this.sendFrame = this.env.frame(step);
+  }
+
+  private sendShift(at: number, value: number, input: boolean, node: unknown): void {
+    for (const send of this.sends) {
+      if (at < send.start) continue;
+      const until = Math.max(
+        send.start + SEND_SHIFT_MIN_MS,
+        send.tokenAt === undefined ? Number.POSITIVE_INFINITY : send.tokenAt + SEND_SHIFT_AFTER_TOKEN_MS,
+      );
+      if (at > until) continue;
+      if (input) {
+        send.inputShifts += 1;
+        continue;
+      }
+      send.shifts += 1;
+      send.shiftScore += value;
+      const what = describeNode(node);
+      if (what && send.shiftWhat.length < 3 && !send.shiftWhat.includes(what)) send.shiftWhat.push(what);
+    }
+  }
+
+  /// Sends whose span is whole (first token painted and its shift window past, or past SEND_TOKEN_MAX_MS) go out.
+  flushSends(): void {
+    if (!this.sends.length) return;
+    const now = this.env.now();
+    this.sends = this.sends.filter((send) => {
+      const settled =
+        send.tokenAt !== undefined &&
+        now >= Math.max(send.start + SEND_SHIFT_MIN_MS, send.tokenAt + SEND_SHIFT_AFTER_TOKEN_MS);
+      if (!settled && now - send.start < SEND_TOKEN_MAX_MS) return true;
+      this.emitSend(send);
+      return false;
+    });
+  }
+
+  private emitSend(send: SendTiming): void {
+    this.hold(this.spans, sendSpan(send));
+  }
+
+  private cancelSends(): void {
+    if (this.sendFrame !== undefined) this.env.cancelFrame(this.sendFrame);
+    this.sendFrame = undefined;
+    this.sends = [];
+  }
+
+  /// Another chat was picked in this page (perf.ts `markChatSwitch`): time it to the first frame that
+  /// draws none of the rows drawn at the pick, after its paint, then to two quiet frames.
+  chatSwitched(sessionId: string, at: number, transport: () => PerfTransport): void {
+    if (!this.on) return;
+    const probe = this.env.probe;
+    if (!probe) return;
+    this.cancelChatSwitch();
+    const state: ChatSwitchTiming = {
+      start: at,
+      sessionId,
+      transport,
+      before: new Set(probe.rowIds()),
+      frames: 0,
+      quiet: 0,
+    };
+    this.chatSwitch = state;
+    const afterPaint = this.env.afterPaint ?? ((run: () => void) => run());
+    const step = () => {
+      if (this.chatSwitch !== state || !this.on) return;
+      state.frames += 1;
+      const now = this.env.now();
+      if (state.paintFrame === undefined) {
+        const ids = probe.rowIds();
+        if (ids.length && ids.every((id) => !state.before.has(id))) {
+          state.paintFrame = state.frames;
+          state.rows = ids.length;
+          this.disturbed = false;
+          afterPaint(() => (state.paintedAt ??= this.env.now()));
+        } else if (now - state.start > CHAT_SWITCH_MAX_MS) {
+          this.chatSwitch = undefined;
+          this.hold(this.spans, chatSwitchSpan(state, now));
+          return;
+        }
+      } else {
+        state.quiet = this.disturbed ? 0 : state.quiet + 1;
+        this.disturbed = false;
+        if (state.quiet >= SETTLED_FRAMES || state.frames >= SWITCH_MAX_FRAMES) {
+          if (state.quiet >= SETTLED_FRAMES) state.settledAt = now;
+          this.chatSwitch = undefined;
+          this.hold(this.spans, chatSwitchSpan(state, now));
+          return;
+        }
+      }
+      state.handle = this.env.frame(step);
+    };
+    state.handle = this.env.frame(step);
+  }
+
+  private cancelChatSwitch(): void {
+    const state = this.chatSwitch;
+    this.chatSwitch = undefined;
+    if (state?.handle !== undefined) this.env.cancelFrame(state.handle);
   }
 
   private cancelSwitch(): void {

@@ -214,6 +214,34 @@ async fn an_idle_chats_server_stops_and_its_next_call_starts_one_that_was_initia
     assert_eq!(answer["id"], json!(7));
 }
 
+/// The idle-server look woke an idle daemon every 30 s with no chat holding anything, the one wake
+/// left at idle but the lag canary's (`tests/daemon_idle.rs`: the runtime's pool ran in 2 of 6
+/// windows). It looks only while a chat used since its last stop may still hold a server or tool
+/// servers, and sleeps on the next request.
+#[tokio::test]
+async fn an_idle_gateway_looks_for_idle_servers_only_while_a_chat_holds_one() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), Duration::from_millis(200)).await;
+    g.keep("chat-r", launch(home.path())).unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(g.reap_passes.load(Ordering::Relaxed), 0, "looked with no chat used");
+    let answer = rpc(&g, "chat-r", call(1)).await;
+    assert_eq!(answer["id"], json!(1), "{answer}");
+    let pid = g.server_pid("chat-r").await.expect("runs");
+    until("the idle server stops", async || g.server_pid("chat-r").await.is_none() && gone(pid))
+        .await;
+    let stopped = g.reap_passes.load(Ordering::Relaxed);
+    assert!(stopped > 0, "the idle server stopped with no look");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    // One more look at most: a request during a look's sleep leaves it one wake.
+    let after = g.reap_passes.load(Ordering::Relaxed);
+    assert!(after <= stopped + 1, "{} looks after every server stopped", after - stopped);
+    let answer = rpc(&g, "chat-r", call(2)).await;
+    assert_eq!(answer["id"], json!(2), "{answer}");
+    until("a used chat is looked at again", async || g.reap_passes.load(Ordering::Relaxed) > after)
+        .await;
+}
+
 #[tokio::test]
 async fn thirty_chats_hold_no_process_while_idle() {
     let home = tempfile::tempdir().unwrap();
@@ -461,10 +489,22 @@ fn a_loopback_url_that_is_not_a_gateway_route_is_not_read_as_a_port() {
 async fn a_gateway_with_no_record_takes_the_port_its_home_derives() {
     let home = tempfile::tempdir().unwrap();
     let g = gateway_waiting(home.path(), Duration::ZERO).await;
-    assert_eq!(
-        g.port(),
-        derived_port(home.path()),
-        "the same port again, instead of a fresh ephemeral one no config names"
+    // The derived port sits in Linux's ephemeral range, so a parallel test's port-0 bind can hold
+    // it: `bind_derived` then steps upward through its tries, which is still the home's own port
+    // window and not a fresh ephemeral one. Exact equality failed whenever that happened.
+    let first = derived_port(home.path());
+    let window: Vec<u16> = (0..DERIVED_PORT_TRIES)
+        .map(|step| {
+            let within = (u64::from(first.saturating_sub(DERIVED_PORT_BASE))
+                .saturating_add(u64::from(step)))
+                & DERIVED_PORT_MASK;
+            DERIVED_PORT_BASE.saturating_add(u16::try_from(within).unwrap())
+        })
+        .collect();
+    assert!(
+        window.contains(&g.port()),
+        "the home's derived port window {window:?}, instead of a fresh ephemeral one no config names: {}",
+        g.port()
     );
     assert_eq!(read_record(home.path()).port, g.port());
 }
@@ -516,7 +556,7 @@ fn the_bg_hook_reads_a_gateway_server_at_an_earlier_port_as_its_stdio_launch() {
         env: vec![("CMUX_SESSION".into(), "chat-i".into())],
         cwd: None,
     };
-    let kept = Kept { launch, initialize: None };
+    let kept = Kept { launch, initialize: None, answers: None };
     crate::agent_tools::write_private(
         &launch_path(home.path(), "chat-i"),
         &serde_json::to_vec(&kept).unwrap(),
@@ -538,6 +578,120 @@ async fn a_closed_chats_server_ends_with_it() {
     let chat = g.chats.lock().unwrap().remove("chat-g").unwrap();
     chat.stop().await;
     until("the closed chat's server ends", async || gone(pid)).await;
+}
+
+fn init(id: u64) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "harness"}}})
+}
+
+fn list(id: u64) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {}})
+}
+
+/// A harness start (a new chat, each wake) asks `initialize` and `tools/list`, which started the
+/// chat's server and kept it for the idle window although the chat may never call a tool. After
+/// one start answered them, the next start of the same launch is answered with no process, the
+/// same list (so the harness's prompt prefix stays the same), and a call still starts the server
+/// initialized as the harness was.
+#[tokio::test]
+async fn a_wake_is_answered_its_start_with_no_process_and_a_call_starts_one() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-w", launch(home.path())).unwrap();
+    let first_init = rpc(&g, "chat-w", init(1)).await;
+    let first_list = rpc(&g, "chat-w", list(2)).await;
+    let first = g.server_pid("chat-w").await.expect("the first start runs the server");
+    assert_eq!(first_list.pointer("/result/tools/0/name"), Some(&json!("who")));
+    // The harness hibernates: its server goes now, not after the idle window.
+    hibernated_on(&g, "chat-w");
+    until("the hibernated chat's server stops", async || {
+        g.server_pid("chat-w").await.is_none() && gone(first)
+    })
+    .await;
+    // Its wake: the same start, answered with no process.
+    let again_init = rpc(&g, "chat-w", init(3)).await;
+    let again_list = rpc(&g, "chat-w", list(4)).await;
+    let ping = rpc(&g, "chat-w", json!({"jsonrpc": "2.0", "id": 5, "method": "ping"})).await;
+    assert_eq!(g.server_pid("chat-w").await, None, "a wake's start holds no process");
+    assert_eq!(again_init["result"], first_init["result"]);
+    assert_eq!(again_init["id"], json!(3));
+    assert_eq!(again_list["result"], first_list["result"], "the same list, the same prompt");
+    assert_eq!(again_list["id"], json!(4));
+    assert_eq!(ping["result"], json!({}));
+    // A call starts it, initialized as the harness was.
+    let answer = rpc(&g, "chat-w", call(6)).await;
+    let second = g.server_pid("chat-w").await.expect("a call runs the server");
+    assert!(text(&answer).starts_with(&format!("{second} harness ")), "{answer}");
+    // The next daemon has the answers too (the launch file keeps them).
+    let next = gateway(home.path(), IDLE_STOP).await;
+    assert!(next.chat("chat-w").unwrap().kept_answer("tools/list", &json!({})).is_some());
+}
+
+/// The number for item (1) of Leo's 04:31Z ask: a harness start (`initialize` then
+/// `tools/list`) on a chat whose server stopped, answered by starting the server (no kept
+/// answers: a first start, or another build) and from the kept answers (every later wake).
+#[tokio::test]
+async fn a_start_from_kept_answers_skips_the_server_start_numbers() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    let mut cold = Vec::new();
+    let mut kept = Vec::new();
+    for round in 0..5u64 {
+        let session = format!("chat-n{round}");
+        // Each round its own launch: one launch's later chats are answered from the first's
+        // shared answer, so only another launch is a cold start.
+        let mut cold_launch = launch(home.path());
+        cold_launch.env.push(("ROUND".into(), round.to_string()));
+        g.keep(&session, cold_launch).unwrap();
+        let started = Instant::now();
+        rpc(&g, &session, init(1)).await;
+        rpc(&g, &session, list(2)).await;
+        cold.push(started.elapsed());
+        let pid = g.server_pid(&session).await.expect("the first start runs the server");
+        hibernated_on(&g, &session);
+        until("the server stops", async || g.server_pid(&session).await.is_none() && gone(pid))
+            .await;
+        let started = Instant::now();
+        rpc(&g, &session, init(3)).await;
+        rpc(&g, &session, list(4)).await;
+        kept.push(started.elapsed());
+        assert_eq!(g.server_pid(&session).await, None, "answered with no process");
+    }
+    cold.sort();
+    kept.sort();
+    eprintln!(
+        "start after an idle stop (initialize + tools/list, median of 5): server start {:?}, kept answers {:?}",
+        cold[2], kept[2]
+    );
+    assert!(kept[2] < cold[2]);
+}
+
+/// Another launch (the person's settings changed it) or another `initialize` (another harness)
+/// is answered by the server, never from what an earlier one was told.
+#[tokio::test]
+async fn another_launch_or_another_initialize_is_answered_by_the_server() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-x", launch(home.path())).unwrap();
+    rpc(&g, "chat-x", init(1)).await;
+    rpc(&g, "chat-x", list(2)).await;
+    let chat = g.chat("chat-x").unwrap();
+    assert!(chat.kept_answer("tools/list", &json!({})).is_some());
+    let other = json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex"}});
+    assert_eq!(chat.kept_answer("initialize", &other), None, "another harness asks afresh");
+    let mut changed = launch(home.path());
+    changed.env.push(("ANOTHER".into(), "1".into()));
+    g.keep("chat-x", changed).unwrap();
+    assert_eq!(g.chat("chat-x").unwrap().kept_answer("tools/list", &json!({})), None);
+    // Another binary at the same path: answered afresh.
+    let chat = g.chat("chat-x").unwrap();
+    chat.keep_answer("tools/list", json!({}), json!({"tools": []}));
+    chat.kept.lock().unwrap().answers.as_mut().unwrap().stamp = "an older build".into();
+    assert_eq!(chat.kept_answer("tools/list", &json!({})), None);
+}
+
+fn hibernated_on(g: &Gateway, session: &str) {
+    g.stop_chat(session);
 }
 
 /// The specs acpmux gives a chat's `cmux` server for its own five servers (`agent_tools.rs`
@@ -562,7 +716,10 @@ fn tool_specs(session: &str, socket: &Path, allow: Option<&str>) -> Vec<Value> {
         acpmux[crate::agent_tools::MCP_TOOLS_ENV] = json!(allow);
     }
     let spec = |name: &str, word: &str, env: Value| json!({"name": name, "command": "/bin/acpmux", "args": ["acp", word], "env": env});
+    let mut computer_use = base(crate::computer_use::mcp::SESSION_ENV);
+    computer_use["CMUX_TUI_SOCKET"] = json!("/nonexistent/cmux-tui.sock");
     vec![
+        spec("cmux-computer-use", "computer-use-mcp", computer_use),
         spec("cmux-secrets", "secret-mcp", base("ACPMUX_SECRET_SESSION")),
         spec("cmux-sessions", "offer-mcp", base("ACPMUX_OFFER_SESSION")),
         spec("cmux-subsessions", "subsession-mcp", caller(base("ACPMUX_SESSION_ID"))),
@@ -739,7 +896,7 @@ async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_r
 #[test]
 fn the_bg_hook_reads_a_gateway_server_as_its_stdio_launch() {
     let home = tempfile::tempdir().unwrap();
-    let kept = Kept { launch: launch(home.path()), initialize: None };
+    let kept = Kept { launch: launch(home.path()), initialize: None, answers: None };
     crate::agent_tools::write_private(
         &launch_path(home.path(), "chat-h"),
         &serde_json::to_vec(&kept).unwrap(),
@@ -829,4 +986,247 @@ fn progress_for_a_slow_reader_keeps_only_the_newest_note() {
     post_progress(&progress, json!({"params": {"progress": 10_000}}));
     let next = newest_progress(&mut notes, &mut seen).expect("the next note");
     assert_eq!(next["params"]["progress"], 10_000);
+}
+
+/// [`FAKE`] that answers each request on its own thread after `FAKE_SLEEP_MS`, as a server
+/// whose calls run concurrently (`cmux mcp serve`, `tools_mcp::serve`) does.
+const FAKE_CONCURRENT: &str = r#"
+import json, os, sys, threading, time
+lock = threading.Lock()
+delay = int(os.environ.get("FAKE_SLEEP_MS", "0")) / 1000
+def say(m):
+    with lock:
+        print(json.dumps(m), flush=True)
+def answer(i):
+    time.sleep(delay)
+    say({"jsonrpc": "2.0", "id": i, "result": {"content": [{"type": "text", "text": str(os.getpid())}]}})
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" not in m:
+        continue
+    if m.get("method") == "initialize":
+        say({"jsonrpc": "2.0", "id": m["id"], "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "fake"}}})
+        continue
+    threading.Thread(target=answer, args=(m["id"],), daemon=True).start()
+"#;
+
+fn concurrent_launch(dir: &Path, sleep_ms: u64) -> Launch {
+    Launch {
+        command: "python3".into(),
+        args: vec!["-c".into(), FAKE_CONCURRENT.into()],
+        env: vec![("FAKE_SLEEP_MS".into(), sleep_ms.to_string())],
+        cwd: Some(dir.to_owned()),
+    }
+}
+
+/// `body` POSTed to the chat's relay endpoint: its status and its JSON body (null if none).
+async fn post_raw(g: &Gateway, session: &str, body: &str) -> (String, Value) {
+    let auth = g.endpoint(session).authorization;
+    let (status, body) = request(
+        g.port(),
+        "POST",
+        &format!("/mcp/{session}"),
+        &[("authorization", &auth), ("content-type", "application/json")],
+        body,
+    )
+    .await;
+    (status, serde_json::from_str(&body).unwrap_or(Value::Null))
+}
+
+/// `n` calls to `session` at once, each its own POST, as a harness's parallel tool calls come.
+async fn parallel_calls(g: &Gateway, session: &str, n: u64) -> Duration {
+    let started = Instant::now();
+    let answers = futures::future::join_all((0..n).map(|i| rpc(g, session, call(100 + i)))).await;
+    let took = started.elapsed();
+    for (i, answer) in answers.iter().enumerate() {
+        assert_eq!(answer["id"], json!(100 + i as u64), "each answer goes to its own call");
+    }
+    took
+}
+
+#[tokio::test]
+async fn parallel_calls_to_one_chat_run_at_once_not_one_after_another() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-par", concurrent_launch(home.path(), 300)).unwrap();
+    rpc(&g, "chat-par", call(1)).await;
+    let one = parallel_calls(&g, "chat-par", 1).await;
+    let eight = parallel_calls(&g, "chat-par", 8).await;
+    // Serialized, eight would take 8x one (2.4 s); in flight together, about one.
+    assert!(eight < one * 3, "eight parallel calls took {eight:?}, one took {one:?}");
+}
+
+#[tokio::test]
+async fn a_batch_is_answered_as_one_array_with_each_answer_by_its_id() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-batch", concurrent_launch(home.path(), 200)).unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "harness"}}});
+    let batch = json!([init, call(2), {"jsonrpc": "2.0", "method": "notifications/initialized"}, call(3), call(4)]);
+    let started = Instant::now();
+    let (status, answer) = post_raw(&g, "chat-batch", &batch.to_string()).await;
+    let took = started.elapsed();
+    assert!(status.contains("200"), "{status}: {answer}");
+    let answers = answer.as_array().expect("an array answers a batch");
+    let ids: Vec<_> = answers.iter().map(|a| a["id"].clone()).collect();
+    assert_eq!(ids, vec![json!(1), json!(2), json!(3), json!(4)], "no answer for the notification");
+    assert!(answers.iter().skip(1).all(|a| !text(a).is_empty()), "{answer}");
+    assert!(took < Duration::from_millis(550), "the batch's calls run at once: {took:?}");
+    let (status, answer) = post_raw(&g, "chat-batch", "[]").await;
+    assert!(status.contains("400"), "an empty batch is invalid: {status}");
+    assert_eq!(answer["error"]["code"], json!(-32600), "{answer}");
+    let notes = json!([{"jsonrpc": "2.0", "method": "notifications/initialized"}]);
+    let (status, _) = post_raw(&g, "chat-batch", &notes.to_string()).await;
+    assert!(status.contains("202"), "a batch of notifications only: {status}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_batch_to_acpmux_s_own_servers_is_answered_as_one_array() {
+    let home = tempfile::tempdir().unwrap();
+    let socket = home.path().join("d.sock");
+    let scope = Arc::new(cmux_scope::Scope::new("fake daemon"));
+    fake_daemon(&socket, scope.clone());
+    let g =
+        bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60), Duration::ZERO)
+            .await
+            .unwrap();
+    g.keep("chat-tb", tools_launch(home.path(), &tool_specs("chat-tb", &socket, None))).unwrap();
+    let mut rules =
+        for_server("cmux-forum", "tools/call", json!({"name": "rules", "arguments": {}}));
+    rules["id"] = json!(9);
+    let batch = json!([for_server("acpmux", "tools/list", json!({})), rules]);
+    let (status, answer) = tools_rpc(&g, "chat-tb", "chat-tb", batch).await;
+    assert!(status.contains("200"), "{status}");
+    let answers = answer.as_array().expect("an array answers a batch");
+    assert_eq!(answers.len(), 2, "{answer}");
+    assert!(answers[0]["result"]["tools"].as_array().is_some_and(|t| !t.is_empty()), "{answer}");
+    assert_eq!(answers[1]["id"], json!(9));
+    assert_eq!(answers[1]["result"]["structuredContent"]["caller"], json!("chat-tb"), "{answer}");
+}
+
+/// The numbers for the PR: `cargo test -p acpmux --lib gateway_parallel_numbers -- --ignored
+/// --nocapture`. Prints `GATEWAY-PARALLEL` lines.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "a measurement, not a check"]
+async fn gateway_parallel_numbers() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    // Parallel calls to one chat whose server takes 100 ms a call.
+    g.keep("slow", concurrent_launch(home.path(), 100)).unwrap();
+    rpc(&g, "slow", call(1)).await;
+    for n in [1u64, 8, 32] {
+        let mut runs = vec![];
+        for _ in 0..5 {
+            runs.push(ms(parallel_calls(&g, "slow", n).await));
+        }
+        runs.sort_by(f64::total_cmp);
+        println!("GATEWAY-PARALLEL calls={n} server=100ms wall_p50_ms={:.1}", runs[runs.len() / 2]);
+    }
+    // 32 calls to a server that answers at once: 32 POSTs at once vs one batch POST.
+    g.keep("fast", concurrent_launch(home.path(), 0)).unwrap();
+    rpc(&g, "fast", call(1)).await;
+    let body = Value::Array((0..32).map(|i| call(100 + i)).collect()).to_string();
+    let (mut posts, mut batches) = (vec![], vec![]);
+    for _ in 0..20 {
+        posts.push(ms(parallel_calls(&g, "fast", 32).await));
+        let started = Instant::now();
+        let (status, _) = post_raw(&g, "fast", &body).await;
+        batches.push(if status.contains("200") { ms(started.elapsed()) } else { f64::NAN });
+    }
+    posts.sort_by(f64::total_cmp);
+    batches.sort_by(f64::total_cmp);
+    println!(
+        "GATEWAY-PARALLEL calls=32 server=0ms posts_p50_ms={:.2} batch_p50_ms={:.2}",
+        posts[10], batches[10]
+    );
+    // Duress: 32 chats, each 8 parallel calls of 100 ms, all at once.
+    for c in 0..32 {
+        g.keep(&format!("duress-{c}"), concurrent_launch(home.path(), 100)).unwrap();
+    }
+    futures::future::join_all((0..32).map(|c| {
+        let g = &g;
+        async move { rpc(g, &format!("duress-{c}"), call(1)).await }
+    }))
+    .await;
+    let started = Instant::now();
+    futures::future::join_all((0..32).map(|c| {
+        let g = &g;
+        async move { parallel_calls(g, &format!("duress-{c}"), 8).await }
+    }))
+    .await;
+    println!(
+        "GATEWAY-PARALLEL duress chats=32 calls_each=8 server=100ms wall_ms={:.1} (serial would be {} ms per chat)",
+        ms(started.elapsed()),
+        8 * 100
+    );
+}
+
+/// A launch for chat `session`: the session id in its env, as acpmux's own launch carries it.
+fn launch_for(dir: &Path, session: &str) -> Launch {
+    let mut launch = launch(dir);
+    launch.env.push(("CMUX_SESSION_ID".into(), session.into()));
+    // A chat's own secret, unlike its session id nowhere in the server's answers.
+    let token: String = session.chars().rev().collect();
+    launch.env.push(("ACPMUX_SESSION_TOKEN".into(), format!("token-{token}")));
+    launch
+}
+
+/// Every new chat's harness asks `initialize` and `tools/list` first. Once one chat's server
+/// answered them, a new chat of the same launch (but its session id) is answered with no process,
+/// its session id in place of the other's, and its own call still starts its own server.
+#[tokio::test]
+async fn a_new_chat_of_the_same_shape_starts_with_no_process() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-a", launch_for(home.path(), "chat-a")).unwrap();
+    let first_init = rpc(&g, "chat-a", init(1)).await;
+    let first_list = rpc(&g, "chat-a", list(2)).await;
+    assert!(g.server_pid("chat-a").await.is_some(), "the first chat's start runs its server");
+    // Its server's answer names its session: the new chat's names the new chat's.
+    let chat = g.chat("chat-a").unwrap();
+    let launch = chat.kept.lock().unwrap().launch.clone();
+    let named = json!({"tools": [{"name": "who", "description": "for chat-a", "inputSchema": {"type": "object"}}]});
+    chat.share_answer(&launch, "tools/list", &json!({}), &named);
+
+    g.keep("chat-b", launch_for(home.path(), "chat-b")).unwrap();
+    let again_init = rpc(&g, "chat-b", init(3)).await;
+    let again_list = rpc(&g, "chat-b", list(4)).await;
+    assert_eq!(g.server_pid("chat-b").await, None, "the new chat's start holds no process");
+    assert_eq!(again_init["result"], first_init["result"]);
+    assert_eq!(again_init["id"], json!(3));
+    assert_eq!(again_list.pointer("/result/tools/0/description"), Some(&json!("for chat-b")));
+    assert_ne!(again_list["result"], first_list["result"]);
+    // It is the new chat's own kept answer now: its wakes get the same list.
+    assert!(g.chat("chat-b").unwrap().kept_answer("tools/list", &json!({})).is_some());
+    // A call starts its own server, initialized as its harness was.
+    let answer = rpc(&g, "chat-b", call(5)).await;
+    let pid = g.server_pid("chat-b").await.expect("a call runs the new chat's server");
+    assert!(text(&answer).starts_with(&format!("{pid} harness ")), "{answer}");
+}
+
+/// Another shape (another env, so another server) or another harness's `initialize` is answered
+/// by a server, and a shared answer older than the window is not used.
+#[tokio::test]
+async fn another_shape_or_an_old_shared_answer_asks_the_server() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-c", launch_for(home.path(), "chat-c")).unwrap();
+    rpc(&g, "chat-c", init(1)).await;
+    rpc(&g, "chat-c", list(2)).await;
+    let mut other = launch_for(home.path(), "chat-d");
+    other.env.push(("ANOTHER".into(), "1".into()));
+    g.keep("chat-d", other).unwrap();
+    rpc(&g, "chat-d", init(3)).await;
+    assert!(g.server_pid("chat-d").await.is_some(), "another shape starts its own server");
+
+    g.keep("chat-e", launch_for(home.path(), "chat-e")).unwrap();
+    let chat = g.chat("chat-e").unwrap();
+    let codex = json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex"}});
+    assert_eq!(chat.start_answer("initialize", &codex), None, "another harness asks afresh");
+    for (at, _) in g.shared.by_shape.lock().unwrap().values_mut() {
+        *at = Instant::now().checked_sub(SHARED_FOR + Duration::from_secs(1)).unwrap();
+    }
+    assert_eq!(chat.start_answer("tools/list", &json!({})), None, "an old answer is not used");
 }

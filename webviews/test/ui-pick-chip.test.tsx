@@ -19,6 +19,8 @@ const keys = [
   "document",
   "navigator",
   "HTMLElement",
+  // A Markdown code block's renderer defines a custom element when it loads.
+  "customElements",
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
@@ -46,6 +48,7 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
     Node: window.Node,
     Element: window.Element,
