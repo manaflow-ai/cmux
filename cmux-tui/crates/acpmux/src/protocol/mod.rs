@@ -20,6 +20,7 @@ pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
+pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
