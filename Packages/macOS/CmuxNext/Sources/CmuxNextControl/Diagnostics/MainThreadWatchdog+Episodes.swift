@@ -95,8 +95,9 @@ extension MainThreadWatchdog {
         let now = HostLoad.current()
         return stallEvents.withLock { base in
             guard base?.beat == beat else { return now }
-            base?.host = HostLoad.peak(base?.host, now)
-            return base?.host
+            let peak = HostLoad.peak(base?.host, now)
+            base?.host = peak
+            return peak
         }
     }
 
