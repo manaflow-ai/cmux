@@ -8,6 +8,9 @@
  * sending it again is safe whatever its method. Nothing else is retried here: any other status, a lost
  * response, and a stored answer of a request that ran (the background request id header) go to the caller
  * as before. The wait is bounded (CAPACITY_RETRY_DELAYS_MS, about 3 minutes), so a real outage still fails.
+ *
+ * The same holds for the provider's "Background requests are temporarily unavailable" refusal
+ * (isBackgroundUnavailableAnswer): image roll 45957567838 (job 140367707448, 11-27 07:32Z) lost a 10-minute bake on it.
  */
 
 /** Waits before each retry; Retry-After lengthens one up to CAPACITY_RETRY_MAX_DELAY_MS. 7 tries over 195 s. */
@@ -42,6 +45,26 @@ export function isCapacityAnswer(status: number, body: string): boolean {
     // a plain-text body is its own message
   }
   return code === "INFRASTRUCTURE_OVERLOADED" || /\bat capacity\b|\binfrastructure overloaded\b|\bcapacity queue wait expired\b/i.test(message);
+}
+
+/**
+ * The provider refusing a request because its background-request service is down: every API-key call carries
+ * x-freestyle-background-after-secs, and the provider answers "Background requests are temporarily unavailable"
+ * instead of taking it. Image roll 45957567838 (job 140367707448) got it 4.2 s into the bake's identity-final exec,
+ * under the 5 s background window: an exec that ran would have answered with its result inline then, so the answer
+ * is a refusal at admission, before the command ran. Its status is not in the log, so any error status counts; the
+ * message must match and a stored answer of a request that ran (the background request id header) never does.
+ */
+export function isBackgroundUnavailableAnswer(status: number, body: string): boolean {
+  if (status < 400) return false;
+  let message = body;
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown };
+    if (typeof parsed?.message === "string") message = parsed.message;
+  } catch {
+    // a plain-text body is its own message
+  }
+  return /\bbackground requests are temporarily unavailable\b/i.test(message);
 }
 
 /** Only a body sent whole can be sent again; a stream is spent by the first send. */
@@ -82,11 +105,12 @@ export function capacityRetryFetch(inner: Fetch, deps: CapacityRetryDeps = {}): 
     const canRetry = !(input instanceof Request) && replayable(init?.body) && !describe(input, init).includes("/background-requests/");
     for (let attempt = 0; ; attempt++) {
       const response = await inner(input, init);
-      if (!canRetry || attempt >= delays.length || response.status !== 429 || response.headers.has(BACKGROUND_REQUEST_ID_HEADER)) return response;
+      if (!canRetry || attempt >= delays.length || response.status < 400 || response.headers.has(BACKGROUND_REQUEST_ID_HEADER)) return response;
       const body = await response.clone().text().catch(() => "");
-      if (!isCapacityAnswer(response.status, body)) return response;
+      const capacity = isCapacityAnswer(response.status, body);
+      if (!capacity && !isBackgroundUnavailableAnswer(response.status, body)) return response;
       const wait = Math.min(Math.max(delays[attempt], retryAfterMs(response)), CAPACITY_RETRY_MAX_DELAY_MS);
-      log(`PROVIDER AT CAPACITY: ${describe(input, init)} answered 429; retry ${attempt + 1}/${delays.length} in ${(wait / 1000).toFixed(0)}s`);
+      log(`${capacity ? "PROVIDER AT CAPACITY" : "PROVIDER BACKGROUND UNAVAILABLE"}: ${describe(input, init)} answered ${response.status}; retry ${attempt + 1}/${delays.length} in ${(wait / 1000).toFixed(0)}s`);
       await response.body?.cancel().catch(() => {});
       await sleep(wait, init?.signal);
     }
