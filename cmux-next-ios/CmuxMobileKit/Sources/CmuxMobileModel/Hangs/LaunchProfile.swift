@@ -8,7 +8,7 @@ import QuartzCore
 /// main thread's stack every 2 ms with ``ThreadStackSampler`` (the walk that is safe at launch), for 12 s
 /// at most. ``finish(nowMs:windows:done:)`` stops it and, off the main thread, counts each function's
 /// samples in each window of the launch marks: inclusive (on the stack), self (the innermost frame), and
-/// this app's own functions. The report is one JSON line.
+/// this app's own functions, and who calls `os_log` and who waits on a lock. The report is one JSON line.
 ///
 /// Off, nothing runs. On, one thread and one stack (128 frames) per 2 ms, for 12 s at most.
 public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples` and `stopped` are guarded by `lock`
@@ -84,7 +84,19 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
             var inclusive: [String: Int] = [:]
             var innermost: [String: Int] = [:]
             var own: [String: Int] = [:]
+            var logCallers: [String: Int] = [:]
+            var waitCallers: [String: Int] = [:]
             for sample in inWindow {
+                let names = sample.stack.map { symbol($0).name }
+                // Who logs, and who waits: the five frames out from the outermost os_log frame, and
+                // from the innermost wait past the lock's own frames.
+                if let log = names.lastIndex(where: { $0.hasPrefix("libsystem_trace.dylib ") }) {
+                    logCallers[names[(log + 1)...].prefix(5).joined(separator: " < "), default: 0] += 1
+                }
+                if names.first?.contains("__ulock_wait") == true {
+                    let past = names.firstIndex { !$0.hasPrefix("libsystem_kernel.dylib ") && !$0.hasPrefix("libsystem_platform.dylib ") } ?? names.count
+                    waitCallers[names[past...].prefix(5).joined(separator: " < "), default: 0] += 1
+                }
                 var seen = Set<String>()
                 var seenOwn = Set<String>()
                 for (index, address) in sample.stack.enumerated() {
@@ -98,7 +110,8 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
                 counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(n).map { [$0.key, $0.value] }
             }
             out.append(["name": window.name, "from": window.from.rounded(), "to": window.to.rounded(), "n": inWindow.count,
-                        "self": top(innermost, 15), "app": top(own, 45), "incl": top(inclusive, 35)])
+                        "self": top(innermost, 15), "app": top(own, 45), "incl": top(inclusive, 35),
+                        "log": top(logCallers, 20), "wait": top(waitCallers, 20)])
         }
         let object: [String: Any] = ["interval_ms": Double(interval) / 1000, "samples": samples.count, "windows": out]
         guard let data = try? JSONSerialization.data(withJSONObject: object), let text = String(data: data, encoding: .utf8) else { return "{}" }
