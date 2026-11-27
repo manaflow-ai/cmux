@@ -22,6 +22,9 @@
 //! - [`invariants`]: the input invariants (model, transition, world).
 //! - [`type_ahead::TypeAheadQueue`]: keys typed before a page can take them.
 //! - [`child_window`]: what a window does when a child window becomes key.
+//! - [`escape_exit::EscapeExit`]: browser focus mode's Esc Esc exit.
+//! - [`work_context::WorkContextTrail`]: the terminals and chats focused
+//!   last, what new ones copy their folder and chat settings from.
 //! - [`agent_cursor_visibility::resolve`]: where an agent cursor for a
 //!   target tab draws (its page, an anchor in its window, or nowhere).
 //! - [`input::InputRouter`]: the one input router: every window's focus and
@@ -38,6 +41,7 @@ pub mod child_window;
 pub mod close_aim;
 pub mod close_focus;
 pub mod close_selection;
+pub mod escape_exit;
 pub mod event;
 pub mod input;
 pub mod invariants;
@@ -48,3 +52,4 @@ pub mod topology;
 pub mod type_ahead;
 pub mod window;
 pub mod wire;
+pub mod work_context;

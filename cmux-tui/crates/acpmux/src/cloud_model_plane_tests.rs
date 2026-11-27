@@ -117,3 +117,19 @@ fn a_spawn_gets_the_route_only_where_nothing_else_set_it() {
         "an empty value is none"
     );
 }
+
+#[test]
+fn a_no_is_reused_for_a_burst_only_so_a_name_that_starts_resolving_routes_the_next_spawn() {
+    let now = Instant::now();
+    let no = Answer::new("coderouter.cmux.internal", now, Some(false));
+    assert_eq!(no.reused("coderouter.cmux.internal", now), Some(false));
+    // Production 2026-11-26 21:46 UTC: a "no" held for 60 s left every agent started after the
+    // edge's name began resolving without a route.
+    assert_eq!(no.reused("coderouter.cmux.internal", now + Duration::from_secs(3)), None);
+    let yes = Answer::new("coderouter.cmux.internal", now, Some(true));
+    assert_eq!(yes.reused("coderouter.cmux.internal", now + Duration::from_secs(59)), Some(true));
+    assert_eq!(yes.reused("other.internal", now), None);
+    let hung = Answer::new("coderouter.cmux.internal", now, None);
+    assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(9)), Some(false));
+    assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(11)), None);
+}

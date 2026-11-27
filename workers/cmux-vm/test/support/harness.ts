@@ -16,6 +16,7 @@ import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedR
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
+import { memoryReplicaLayer, type ReplicaStore } from "../../src/replica/store.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
@@ -39,6 +40,8 @@ export interface HarnessOptions {
   /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
   readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
+  /** The paused-read replica store; an in-process one by default. */
+  readonly replicas?: Layer.Layer<ReplicaStore>;
   /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
   readonly serviceScopeGrants?: string;
   /** Operator-approved image configuration, as supplied to the Worker. */
@@ -319,6 +322,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(VmImages, { get images() { return configuredImages; } }),
     entitlements,
     options.limits ?? memoryLimitsLayer(),
+    options.replicas ?? memoryReplicaLayer(),
     Layer.succeed(
       UpstreamClient,
       upstreamClient,
