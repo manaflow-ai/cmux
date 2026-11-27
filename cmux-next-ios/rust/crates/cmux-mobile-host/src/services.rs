@@ -191,6 +191,12 @@ pub async fn serve_with_upload_timeout(
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "site-data" => {
+            let (socket, query) = (config.daemon_socket(), crate::site_data::tabs_query());
+            let tabs = daemon_query(&socket, query.as_bytes(), "cmux-mobile-site-data");
+            crate::site_data::serve(tabs, &args, &control::emit, &sender).await
+        }
+        cmux_phone_page::SERVICE => crate::phone_page::serve(&peer.device_id, &args, &sender, receiver).await,
         "phone-frames" => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
@@ -290,12 +296,14 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `phone-page-v1`: the `phone-page` service (agents' `browser.page.*` calls on a tab the
+/// phone shows itself, `phone_page.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 12] = [
+pub const CAPABILITIES: [&str; 13] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -306,6 +314,7 @@ pub const CAPABILITIES: [&str; 12] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::PHONE_PAGE,
     names::MAILBOX_SEND,
     names::BUNDLE,
 ];
@@ -339,6 +348,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.streams_mac_display() {
         out.push(MAC_DISPLAY);
+    }
+    if crate::site_data::enabled() && control::enabled() {
+        out.push(names::SITE_DATA_HANDOFF);
     }
     if crate::lan::running() {
         // The phone may enroll for the LAN direct path (`lan`, lan.rs).
@@ -2268,7 +2280,7 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
-async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
+pub(crate) async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
@@ -3484,6 +3496,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1"
             ]
@@ -3505,6 +3518,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
                 BROWSER_STREAM,
@@ -3619,7 +3633,14 @@ mod tests {
         let listed: Vec<&str> = CAPABILITIES
             .iter()
             .copied()
-            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP, MAC_DISPLAY])
+            .chain([
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK,
+                SURFACE_STREAM,
+                CLOUD_DESKTOP,
+                MAC_DISPLAY,
+                names::SITE_DATA_HANDOFF,
+            ])
             .collect();
         let host: Vec<&str> =
             names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();
