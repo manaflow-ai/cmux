@@ -658,6 +658,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-device-kind"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+]
+
+[[package]]
 name = "cmux-file-lock"
 version = "0.1.0"
 
@@ -665,6 +673,7 @@ version = "0.1.0"
 name = "cmux-hub-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-process",
  "cmux-rd-proto",
