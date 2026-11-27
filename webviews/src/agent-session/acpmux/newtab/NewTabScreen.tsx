@@ -1079,89 +1079,6 @@ export function NewTabScreen(props: Props) {
       done();
     }
   };
-  /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
-  const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    // Held for Computer Use before anything starts (an Ask row's click too): the prompt stays.
-    // cmux's own commands first (`/import @computer-use` opens its picker), and an address is no prompt.
-    if (command.intercept(prompt, agent, attachments.length, true)) return false;
-    if (prompt && !isAddress(prompt, home) && holdsSend(prompt)) return false;
-    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
-    // read against the list of the harness that asks: an Ask row for another harness has none.
-    const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
-    // The list the menu showed, a kept chat's included, so a skill picked from it goes as Codex reads it.
-    const skills = agent === listed ? slashCommands : undefined;
-    const inText = placeInline(withSkillDollars(prompt, skills, pickedSkills.current), attachments, {
-      dropped: (id) => reading.some((chip) => chip.id === id),
-    });
-    // As in chat, slash commands lead with their words and carry files after the command.
-    const words = withoutInlineTokens(
-      inText.text,
-      (id) => attachments.some((chip) => chip.id === id) || reading.some((chip) => chip.id === id),
-    ).trim();
-    const slash = /^\/(\S+)/.exec(words)?.[1];
-    const isCommand =
-      slash !== undefined &&
-      (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
-    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
-    const sent = isCommand
-      ? {
-          text: customizeMessage(words) ?? words,
-          attachments: attachments.map(({ inline: _, ...attachment }) => attachment),
-        }
-      : inText;
-    const sentAttachments = sent.attachments;
-    // Only a verdict that already says the harness is signed out holds the prompt back. A check
-    // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
-    // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
-    // reports a sign-in that turns out missing.
-    if (authBlocksSend(targetAuth)) {
-      setSignInAsked(true);
-      return false;
-    }
-    if (command.intercept(prompt, agent, attachments.length)) return false;
-    if (cloudFolderWaiting || (localGitHubPick && !localGitHubPick.cwd)) return false;
-    // A GitHub repository on the chip with This Mac picked: Return checks it out here first, then sends.
-    const checkoutRepo =
-      !cloudMode && props.runMode?.mode !== "sandboxed" && !machine && !environment && !newProject
-        ? githubFolderRepo(localAskFolder)
-        : undefined;
-    if (checkoutRepo && localAskFolder && props.onNewWorktree) {
-      const github =
-        deferredGitHub.current?.repo === checkoutRepo ? deferredGitHub.current : { repo: checkoutRepo, candidates: [] };
-      const choice = newWorktreeHere(localAskFolder, github);
-      if (choice !== undefined)
-        heldAsk.current = { choice, ask: (folder) => void askChatRef.current(agent, prompt, folder, model) };
-      return false;
-    }
-    if (cloudMode && !machine && props.onCloud) {
-      const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
-      setSandboxRefusal(typeof started === "string" ? started : undefined);
-      if (started === true) rememberCloudPick(askFolder, callNative);
-      return started === true;
-    }
-    if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
-      const started = props.onSandbox(agent, sent.text, sentAttachments);
-      setSandboxRefusal(typeof started === "string" ? started : undefined);
-      return started === true;
-    }
-    if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
-    if (newProject && props.onNewProject) return askInNewProject(agent, sent.text, model, sentAttachments);
-    if (machine)
-      return requestChat(
-        agent,
-        sent.text,
-        machine.folder,
-        model,
-        undefined,
-        sentAttachments.length ? sentAttachments : undefined,
-        {
-          peer: machine.peer,
-        },
-      );
-    if (sentAttachments.length > 0)
-      return requestChat(agent, sent.text, cwd, model, none || undefined, sentAttachments);
-    return none ? requestChat(agent, sent.text, cwd, model, true) : requestChat(agent, sent.text, cwd, model);
-  };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   // The chips' agent or model pick starts no chat in a folder New project has not made yet.
   const chipFolder = newProject ? undefined : chatFolder;
@@ -1278,6 +1195,89 @@ export function NewTabScreen(props: Props) {
       ),
     [snapshot.commands, keptCommands],
   );
+  /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
+  const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    // Held for Computer Use before anything starts (an Ask row's click too): the prompt stays.
+    // cmux's own commands first (`/import @computer-use` opens its picker), and an address is no prompt.
+    if (command.intercept(prompt, agent, attachments.length, true)) return false;
+    if (prompt && !isAddress(prompt, home) && holdsSend(prompt)) return false;
+    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
+    // read against the list of the harness that asks: an Ask row for another harness has none.
+    const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
+    // The list the menu showed, a kept chat's included, so a skill picked from it goes as Codex reads it.
+    const skills = agent === listed ? slashCommands : undefined;
+    const inText = placeInline(withSkillDollars(prompt, skills, pickedSkills.current), attachments, {
+      dropped: (id) => reading.some((chip) => chip.id === id),
+    });
+    // As in chat, slash commands lead with their words and carry files after the command.
+    const words = withoutInlineTokens(
+      inText.text,
+      (id) => attachments.some((chip) => chip.id === id) || reading.some((chip) => chip.id === id),
+    ).trim();
+    const slash = /^\/(\S+)/.exec(words)?.[1];
+    const isCommand =
+      slash !== undefined &&
+      (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
+    const sent = isCommand
+      ? {
+          text: customizeMessage(words) ?? words,
+          attachments: attachments.map(({ inline: _, ...attachment }) => attachment),
+        }
+      : inText;
+    const sentAttachments = sent.attachments;
+    // Only a verdict that already says the harness is signed out holds the prompt back. A check
+    // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
+    // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
+    // reports a sign-in that turns out missing.
+    if (authBlocksSend(targetAuth)) {
+      setSignInAsked(true);
+      return false;
+    }
+    if (command.intercept(prompt, agent, attachments.length)) return false;
+    if (cloudFolderWaiting || (localGitHubPick && !localGitHubPick.cwd)) return false;
+    // A GitHub repository on the chip with This Mac picked: Return checks it out here first, then sends.
+    const checkoutRepo =
+      !cloudMode && props.runMode?.mode !== "sandboxed" && !machine && !environment && !newProject
+        ? githubFolderRepo(localAskFolder)
+        : undefined;
+    if (checkoutRepo && localAskFolder && props.onNewWorktree) {
+      const github =
+        deferredGitHub.current?.repo === checkoutRepo ? deferredGitHub.current : { repo: checkoutRepo, candidates: [] };
+      const choice = newWorktreeHere(localAskFolder, github);
+      if (choice !== undefined)
+        heldAsk.current = { choice, ask: (folder) => void askChatRef.current(agent, prompt, folder, model) };
+      return false;
+    }
+    if (cloudMode && !machine && props.onCloud) {
+      const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      if (started === true) rememberCloudPick(askFolder, callNative);
+      return started === true;
+    }
+    if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
+      const started = props.onSandbox(agent, sent.text, sentAttachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      return started === true;
+    }
+    if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
+    if (newProject && props.onNewProject) return askInNewProject(agent, sent.text, model, sentAttachments);
+    if (machine)
+      return requestChat(
+        agent,
+        sent.text,
+        machine.folder,
+        model,
+        undefined,
+        sentAttachments.length ? sentAttachments : undefined,
+        {
+          peer: machine.peer,
+        },
+      );
+    if (sentAttachments.length > 0)
+      return requestChat(agent, sent.text, cwd, model, none || undefined, sentAttachments);
+    return none ? requestChat(agent, sent.text, cwd, model, true) : requestChat(agent, sent.text, cwd, model);
+  };
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
   const commandOpening = commandAt !== undefined;
   const savedPrompts = useSavedPrompts(commandOpening);
@@ -1295,7 +1295,6 @@ export function NewTabScreen(props: Props) {
   const readChatCommands = props.readChatCommands;
   const keptReadFor = keptRead?.key;
   const sessionsNow = useRef(snapshot.sessions);
-  sessionsNow.current = snapshot.sessions;
   useEffect(() => {
     if (!commandOpening || !readChatCommands || keptReadFor === keptKey) return;
     const chats = folderChats(sessionsNow.current, harness, chatFolder);
@@ -3223,6 +3222,7 @@ export function NewTabScreen(props: Props) {
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
+          data-page-glass="suggestions share the new tab composer's rim and elevation on the page"
           // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
           popupSettle="results"
           initialFocus={false}
@@ -3300,6 +3300,7 @@ export function NewTabScreen(props: Props) {
   // callback): a ref written during render keeps NewTabScreen out of the React Compiler, and uncompiled it
   // rendered every child again on each key (typing lag, Lawrence 2026-11-19; the chat composer's #46224).
   useInsertionEffect(() => {
+    sessionsNow.current = snapshot.sessions;
     attachmentsRef.current = attachments;
     onInputReady.current = props.onInputReady;
     textRef.current = text;

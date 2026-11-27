@@ -9633,6 +9633,14 @@
         "ty": "string",
         "nullable": true
       },
+      "/name_source": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "auto",
+          "user"
+        ]
+      },
       "/origin": {
         "ty": "string",
         "nullable": true

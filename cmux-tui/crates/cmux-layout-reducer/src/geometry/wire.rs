@@ -6,18 +6,26 @@
 use super::column_strip::{self, EqualizeColumn};
 use super::divider_band::DividerBand;
 use super::dock_strip::{self, Docks, FrameOrientation};
+use super::drop_preview;
 use super::drop_zones::{
     self, Bars, CLASSIC_PANE_PADDING, DropGeometry, DropStyle, DropTarget, PaneDropZone,
 };
+use super::edge_motion::{
+    self, AnimatedFrame, Edges, HandleKind, Influence, MouseArea, MovedEdges, PressScreen,
+    ScrollFacts, ShownPixels, Spring,
+};
+use super::floating_corners::FloatingPaneCorners;
 use super::pane_chrome::{self, ChromeStyle};
 use super::row_stack::{self, Row, RowStack};
+use super::screen::{self, FloatingPane, ScreenGeometry, ScreenLayout, ScreenStyle};
+use super::shown_range::ShownResizeRange;
 use super::split_layout::{self, DividerGeometry, PointerRatio, PushResize, SplitNode, SplitStyle};
 use super::strip_math::{self, StripStart, UniformEdge};
 use super::width_ledger::{self, LedgerColumn, LedgerRecord};
 use super::window_frame::{self, MOVED_WINDOW_GAP, WindowDock};
 use super::{DockEdge, Point, Rect, Size, SplitAxis};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -393,11 +401,250 @@ struct LedgerTakeRequest {
     viewport_width: f64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScreenRequest {
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    scale: Option<f64>,
+    /// `shiftingRows`: per row column, its vertical scroll offset.
+    #[serde(default)]
+    row_offsets: BTreeMap<String, f64>,
+    /// `shiftingAreas`: per scroll area, its horizontal scroll offset.
+    #[serde(default)]
+    area_offsets: BTreeMap<String, f64>,
+    /// `placingFloating`: the floating panes, back to front.
+    #[serde(default)]
+    floating: Vec<FloatingPane>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SplitRoomRequest {
+    pane: String,
+    axis: SplitAxis,
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    removing: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasRequest {
+    frames: BTreeMap<String, Rect>,
+    visible: Rect,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CornersRequest {
+    /// Set: `init(uniform:)`; else the card's size and its edges' distances in from the window's.
+    uniform: Option<f64>,
+    #[serde(default)]
+    size: Size,
+    #[serde(default)]
+    left: f64,
+    #[serde(default)]
+    top: f64,
+    #[serde(default)]
+    right: f64,
+    #[serde(default)]
+    bottom: f64,
+    #[serde(default)]
+    window_radius: f64,
+    #[serde(default)]
+    floor: f64,
+    /// `contentRadius(inset:)`'s inset.
+    #[serde(default)]
+    inset: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CornersResponse {
+    #[serde(flatten)]
+    corners: FloatingPaneCorners,
+    largest: f64,
+    content_radius: f64,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DropPreviewRequest {
+    pane: String,
+    zone: PaneDropZone,
+    layout: ScreenLayout,
+    removing: Option<String>,
+    #[serde(default)]
+    even_sizing: bool,
+    #[serde(default = "yes")]
+    equalizes_close: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum ShownKind {
+    Ratio,
+    Width,
+    Trade,
+    DockWidth,
+    RowHeights,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShownRangeRequest {
+    /// The screen; its geometry is `compute` of it at `viewport`, with `floating` placed.
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    scale: Option<f64>,
+    strip_offset: Option<f64>,
+    #[serde(default)]
+    floating: Vec<FloatingPane>,
+    kind: ShownKind,
+    /// `ratio`: the split.
+    split: Option<String>,
+    /// `width`, `dockWidth`, `rowHeights`, and the left one of a `trade`.
+    column: Option<String>,
+    /// `trade`: the right column.
+    right: Option<String>,
+    /// `rowHeights`: the pane the press is on.
+    pane: Option<String>,
+    #[serde(default)]
+    delta: f64,
+}
+
+/// A screen as the edge ops lay it out: `compute` at `viewport` and `scale`, `floating` placed.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeScreen {
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    #[serde(default)]
+    floating: Vec<FloatingPane>,
+}
+
+impl EdgeScreen {
+    fn geometry(&self, scale: f64) -> ScreenGeometry {
+        ScreenGeometry::compute(&self.layout, self.viewport, &self.style, scale)
+            .placing_floating(&self.floating, scale)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgePlaceRequest {
+    frame: AnimatedFrame,
+    target: Rect,
+    #[serde(default)]
+    keeps_shown: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeSeedRequest {
+    frame: AnimatedFrame,
+    before: Option<Rect>,
+    after: Rect,
+    rate: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgePressRequest {
+    #[serde(flatten)]
+    screen: EdgeScreen,
+    scale: Option<f64>,
+    /// The screen view's bounds (a docked column's viewport).
+    bounds: Size,
+    kind: HandleKind,
+    /// The handle's frame springs.
+    handle: AnimatedFrame,
+    /// How the screen draws the line's axis.
+    shown: ShownPixels,
+    /// The view offset that places the line moves.
+    #[serde(default)]
+    moves: bool,
+    /// Extents from the anchor to answer `valueAt` for.
+    #[serde(default)]
+    extents: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeInfluenceRequest {
+    kind: HandleKind,
+    axis: SplitAxis,
+    /// The caught layout and the probe's (both laid out at `scale`, 0 off the pixel grid as the
+    /// press lays them).
+    caught: EdgeScreen,
+    probe: EdgeScreen,
+    #[serde(default)]
+    scale: f64,
+    #[serde(default)]
+    frames: BTreeMap<String, AnimatedFrame>,
+    targets: Option<BTreeMap<String, Rect>>,
+    #[serde(default)]
+    speed_change: f64,
+    #[serde(default)]
+    place_change: f64,
+    #[serde(default)]
+    clamp_leftover: f64,
+    minimum: Size,
+    spring: Spring,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeLowestRequest {
+    edges: Edges,
+    spring: Spring,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatchersRequest {
+    areas: Vec<MouseArea>,
+    pages: Vec<Rect>,
+    active: bool,
+    visible: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollRouteRequest {
+    dx: f64,
+    dy: f64,
+    /// A discrete wheel notch (no phase); else an undecided gesture's event.
+    #[serde(default)]
+    notch: bool,
+    #[serde(default)]
+    ended: bool,
+    #[serde(default)]
+    facts: ScrollFacts,
+}
+
+fn bounds_value(bounds: Option<crate::shown_resize::Bounds>) -> Value {
+    bounds.map_or(Value::Null, |bounds| json!({"lower": bounds.lower, "upper": bounds.upper}))
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
 
-fn to_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
+fn to_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
@@ -739,6 +986,209 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
         "width_ledger_take" => {
             let r: LedgerTakeRequest = parse(request)?;
             to_value(width_ledger::take(r.record.as_ref(), &r.current, r.viewport_width))
+        }
+        "screen_compute" => {
+            let r: ScreenRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let geometry = ScreenGeometry::compute(&r.layout, r.viewport, &r.style, scale)
+                .shifting_rows(&r.row_offsets)
+                .shifting_areas(&r.area_offsets)
+                .placing_floating(&r.floating, scale);
+            let navigation: BTreeMap<&String, Rect> = geometry
+                .panes
+                .keys()
+                .filter_map(|pane| geometry.navigation_rect(pane).map(|rect| (pane, rect)))
+                .collect();
+            let docks: BTreeMap<&String, &str> = geometry
+                .panes
+                .keys()
+                .filter_map(|pane| {
+                    geometry.dock_frame(pane).map(|dock| (pane, dock.column.as_str()))
+                })
+                .collect();
+            let mut value = to_value(&geometry)?;
+            value["maxOffset"] = json!(geometry.max_offset());
+            value["navigationRects"] = to_value(navigation)?;
+            value["dockOfPane"] = to_value(docks)?;
+            Ok(value)
+        }
+        "screen_canvas" => {
+            let r: CanvasRequest = parse(request)?;
+            to_value(ScreenGeometry::canvas(&r.frames, r.visible))
+        }
+        "split_room" => {
+            let r: SplitRoomRequest = parse(request)?;
+            to_value(screen::split_placement(
+                &r.pane,
+                r.axis,
+                &r.layout,
+                r.viewport,
+                &r.style,
+                r.removing.as_deref(),
+            ))
+        }
+        "floating_corners" => {
+            let r: CornersRequest = parse(request)?;
+            let corners = match r.uniform {
+                Some(radius) => FloatingPaneCorners::uniform(radius),
+                None => FloatingPaneCorners::new(
+                    r.size,
+                    r.left,
+                    r.top,
+                    r.right,
+                    r.bottom,
+                    r.window_radius,
+                    r.floor,
+                ),
+            };
+            to_value(CornersResponse {
+                corners,
+                largest: corners.largest(),
+                content_radius: corners.content_radius(r.inset),
+            })
+        }
+        "drop_preview" => {
+            let r: DropPreviewRequest = parse(request)?;
+            to_value(drop_preview::drop_preview(
+                &r.pane,
+                r.zone,
+                &r.layout,
+                r.removing.as_deref(),
+                r.even_sizing,
+                r.equalizes_close,
+            ))
+        }
+        "shown_range" => {
+            let r: ShownRangeRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let geometry = ScreenGeometry::compute(&r.layout, r.viewport, &r.style, scale)
+                .placing_floating(&r.floating, scale);
+            let range = ShownResizeRange {
+                geometry: &geometry,
+                style: &r.style,
+                scale,
+                strip_offset: r.strip_offset,
+            };
+            let columns: &[screen::Column] = match &r.layout {
+                ScreenLayout::Columns(columns) => columns,
+                ScreenLayout::Splits(_) => &[],
+            };
+            let column = |id: &Option<String>| {
+                id.as_ref().and_then(|id| columns.iter().find(|column| &column.id == id))
+            };
+            Ok(match r.kind {
+                ShownKind::Ratio => bounds_value(r.split.and_then(|split| range.ratio(&split))),
+                ShownKind::Width => bounds_value(column(&r.column).and_then(|c| range.width(c))),
+                ShownKind::DockWidth => {
+                    bounds_value(column(&r.column).and_then(|c| range.dock_width(c)))
+                }
+                ShownKind::Trade => match (column(&r.column), column(&r.right)) {
+                    (Some(left), Some(right)) => range
+                        .trade(left, right, r.delta, &r.layout)
+                        .map_or(Value::Null, |(left, right)| json!({"left": left, "right": right})),
+                    _ => Value::Null,
+                },
+                ShownKind::RowHeights => match (column(&r.column), r.pane) {
+                    (Some(c), Some(pane)) => {
+                        range.row_heights(&pane, c, r.delta).map_or(Value::Null, |heights| {
+                            Value::Array(
+                                heights
+                                    .into_iter()
+                                    .map(|(row, height)| json!({"row": row, "height": height}))
+                                    .collect(),
+                            )
+                        })
+                    }
+                    _ => Value::Null,
+                },
+            })
+        }
+        "edge_place" => {
+            let mut r: EdgePlaceRequest = parse(request)?;
+            edge_motion::place(&mut r.frame, r.target, r.keeps_shown);
+            to_value(r.frame)
+        }
+        "edge_seed" => {
+            let mut r: EdgeSeedRequest = parse(request)?;
+            let moved = MovedEdges::new(r.before, r.after);
+            edge_motion::seed(&mut r.frame, moved, r.rate);
+            Ok(json!({"moved": to_value(moved)?, "frame": to_value(r.frame)?}))
+        }
+        "edge_press" => {
+            let r: EdgePressRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let geometry = r.screen.geometry(scale);
+            let screen = PressScreen {
+                geometry: &geometry,
+                layout: &r.screen.layout,
+                style: &r.screen.style,
+                bounds: r.bounds,
+            };
+            let caught = edge_motion::press(&r.kind, &screen, &r.handle, |_| (r.shown, r.moves));
+            let Some(caught) = caught else {
+                return Ok(Value::Null);
+            };
+            let values = r
+                .extents
+                .iter()
+                .map(|extent| to_value(caught.value_at(*extent, &r.screen.style)))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "value": to_value(&caught.value)?,
+                "base": caught.base,
+                "axis": to_value(caught.axis)?,
+                "speedChange": caught.speed_change,
+                "placeChange": caught.place_change,
+                "held": caught.held,
+                "catches": caught.catches,
+                "restLine": edge_motion::rest_line(&r.kind, caught.axis, &geometry),
+                "valuesAt": values,
+            }))
+        }
+        "edge_influence" => {
+            let r: EdgeInfluenceRequest = parse(request)?;
+            let caught = r.caught.geometry(r.scale);
+            let probe = r.probe.geometry(r.scale);
+            let influence = Influence::new(&r.kind, &caught, &probe, r.axis);
+            let mut applied = r.frames.clone();
+            if let Some(influence) = &influence {
+                for (pane, frame) in &mut applied {
+                    let (from, to) =
+                        (caught.panes.get(pane).copied(), probe.panes.get(pane).copied());
+                    influence.apply(r.speed_change, r.place_change, frame, from, to);
+                }
+            }
+            let negative = edge_motion::may_show_negative_size(
+                &r.frames,
+                r.targets.as_ref(),
+                influence.as_ref(),
+                r.speed_change,
+                r.clamp_leftover,
+                r.minimum,
+                r.spring,
+            );
+            Ok(json!({
+                "lineMove": influence.as_ref().map(|i| i.line_move),
+                "frames": to_value(applied)?,
+                "mayShowNegativeSize": negative,
+            }))
+        }
+        "edge_lowest" => {
+            let r: EdgeLowestRequest = parse(request)?;
+            Ok(json!(edge_motion::lowest(&r.edges, r.spring)))
+        }
+        "divider_catchers" => {
+            let r: CatchersRequest = parse(request)?;
+            let wanted = edge_motion::wanted_catchers(&r.areas, &r.pages, r.active, r.visible);
+            Ok(json!(wanted.iter().map(|area| area.id.as_str()).collect::<Vec<_>>()))
+        }
+        "scroll_route" => {
+            let r: ScrollRouteRequest = parse(request)?;
+            if r.notch {
+                to_value(edge_motion::notch_route(r.dx, r.dy, r.facts))
+            } else {
+                to_value(edge_motion::undecided_lock(r.dx, r.dy, r.ended, r.facts))
+            }
         }
         _ => Err(format!("unknown operation {operation}")),
     }

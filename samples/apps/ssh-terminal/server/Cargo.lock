@@ -228,11 +228,16 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "cmux-action-catalog",
+ "cmux-motion",
  "serde",
  "serde_json",
  "unicode-normalization",
  "unicode-segmentation",
 ]
+
+[[package]]
+name = "cmux-motion"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-theme-tokens"

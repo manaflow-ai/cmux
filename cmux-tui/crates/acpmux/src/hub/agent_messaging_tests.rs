@@ -216,11 +216,19 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
     held.abort();
 
     // A question wakes it: never refused, and a turn comes until its notice ran.
+    // Hold the next prompt between admission and turn start. Without this seam the fake agent can
+    // finish before the acceptance callback is observed, making the `work_coming` assertion depend
+    // on scheduler timing rather than the admitted question's state.
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
     let (question, accepted) =
         send(&hub, &s, "s-other", "p-q", "which branch?", PromptClass::Question, true);
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
     assert!(hub.work_coming(&s.id), "its notice's turn is still coming");
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    release.send(()).unwrap();
     let answered = tokio::time::timeout(WAIT, question).await.unwrap().unwrap().unwrap();
     assert_eq!(answered["stopReason"], "end_turn", "{answered}");
     let settled = async {

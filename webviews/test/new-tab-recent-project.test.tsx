@@ -63,7 +63,7 @@ let host: HTMLElement;
 let window: JSDOM["window"];
 
 beforeAll(() => {
-  window = new JSDOM("<!doctype html><div id=root></div>").window;
+  window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }).window;
   Object.assign(window, {
     ResizeObserver: class {
       observe() {}

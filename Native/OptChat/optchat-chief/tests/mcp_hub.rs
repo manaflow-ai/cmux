@@ -486,7 +486,16 @@ fn oauth_sign_in_then_the_server_connects_and_wakes_the_chief() {
     let agent = ureq::AgentBuilder::new().redirects(0).build();
     let resp = agent.get(&url).call().unwrap();
     let back = resp.header("location").unwrap().to_owned();
-    let page = ureq::get(&back).call().unwrap().into_string().unwrap();
+    // The loopback answers 302 to cmux.com's signed-in page and keeps an inline
+    // page in the body. Read that answer here; following it would make this
+    // test depend on a live site (it went red when cmux.com/connected 404ed).
+    let done = agent.get(&back).call().unwrap();
+    assert_eq!(done.status(), 302);
+    assert_eq!(
+        done.header("location"),
+        Some("https://cmux.com/connected?app=generic&status=ok")
+    );
+    let page = done.into_string().unwrap();
     assert!(page.contains("Signed in"), "{page}");
     let n = note(&r.notes, "[mcp locked] signed in");
     assert!(n.contains("echo"), "{n}");

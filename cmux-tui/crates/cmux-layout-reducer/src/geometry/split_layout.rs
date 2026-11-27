@@ -32,6 +32,69 @@ impl SplitNode {
         }
     }
 
+    /// `panes`: the leaves in preorder.
+    pub fn panes(&self) -> Vec<String> {
+        match self {
+            SplitNode::Leaf { pane } => vec![pane.clone()],
+            SplitNode::Split { a, b, .. } => {
+                let mut panes = a.panes();
+                panes.extend(b.panes());
+                panes
+            }
+        }
+    }
+
+    /// `splits`: the split ids in preorder.
+    pub fn splits(&self) -> Vec<String> {
+        match self {
+            SplitNode::Leaf { .. } => Vec::new(),
+            SplitNode::Split { split, a, b, .. } => {
+                let mut splits = vec![split.clone()];
+                splits.extend(a.splits());
+                splits.extend(b.splits());
+                splits
+            }
+        }
+    }
+
+    /// `removing(_:)`: the tree without `pane`, its sibling taking the parent's place; `None` when the
+    /// tree was that one leaf.
+    pub fn removing(&self, pane: &str) -> Option<SplitNode> {
+        match self {
+            SplitNode::Leaf { pane: leaf } => (leaf != pane).then(|| self.clone()),
+            SplitNode::Split { split, axis, ratio, a, b } => {
+                let Some(kept_a) = a.removing(pane) else { return Some((**b).clone()) };
+                let Some(kept_b) = b.removing(pane) else { return Some((**a).clone()) };
+                Some(SplitNode::Split {
+                    split: split.clone(),
+                    axis: *axis,
+                    ratio: *ratio,
+                    a: Box::new(kept_a),
+                    b: Box::new(kept_b),
+                })
+            }
+        }
+    }
+
+    /// `replacingLeaf(_:with:)`: `pane`'s leaf replaced by `transform` of it.
+    pub fn replacing_leaf(
+        &self,
+        pane: &str,
+        transform: &dyn Fn(&SplitNode) -> SplitNode,
+    ) -> SplitNode {
+        match self {
+            SplitNode::Leaf { pane: leaf } if leaf == pane => transform(self),
+            SplitNode::Leaf { .. } => self.clone(),
+            SplitNode::Split { split, axis, ratio, a, b } => SplitNode::Split {
+                split: split.clone(),
+                axis: *axis,
+                ratio: *ratio,
+                a: Box::new(a.replacing_leaf(pane, transform)),
+                b: Box::new(b.replacing_leaf(pane, transform)),
+            },
+        }
+    }
+
     /// `cellCount(along:)`: the cells of this node's same-axis chain; another axis counts as one.
     pub fn cell_count(&self, axis: SplitAxis) -> usize {
         match self {
@@ -41,6 +104,32 @@ impl SplitNode {
                     a.cell_count(axis) + b.cell_count(axis)
                 } else {
                     1
+                }
+            }
+        }
+    }
+
+    /// `settingRatio(_:for:)`: a copy with `id`'s ratio replaced.
+    #[must_use]
+    pub fn setting_ratio(&self, value: f64, id: &str) -> SplitNode {
+        match self {
+            SplitNode::Leaf { .. } => self.clone(),
+            SplitNode::Split { split, axis, ratio, a, b } => {
+                if split == id {
+                    return SplitNode::Split {
+                        split: split.clone(),
+                        axis: *axis,
+                        ratio: value,
+                        a: a.clone(),
+                        b: b.clone(),
+                    };
+                }
+                SplitNode::Split {
+                    split: split.clone(),
+                    axis: *axis,
+                    ratio: *ratio,
+                    a: Box::new(a.setting_ratio(value, id)),
+                    b: Box::new(b.setting_ratio(value, id)),
                 }
             }
         }

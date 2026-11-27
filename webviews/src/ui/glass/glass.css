@@ -210,9 +210,22 @@
 
 .ui-glass {
   background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+}
+
+/* Opt-in Settings knobs use the same backdrop painter. A range paints only its native thumb,
+   never its track. The vendor pseudo-element has its own rule so other engines still paint glass. */
+.ui-glass,
+:where(:root[data-settings-look="refined"] .settings[data-glass-controls]) :where(.ui-switch .ui-switch-thumb, input[type="range"]) {
+  &:not(:where(input[type="range"])) {
+    -webkit-backdrop-filter: var(--glass-backdrop);
+    backdrop-filter: var(--glass-backdrop);
+  }
+
+  &::-webkit-slider-thumb {
+    -webkit-backdrop-filter: var(--glass-backdrop);
+    backdrop-filter: var(--glass-backdrop);
+  }
 }
 /* CONTENT LAYER (design/glass-system.md, rule 2: glass is for floating things; a card in the
    content layer gets a near-solid surface). A card that sits in the content layer (a permission ask

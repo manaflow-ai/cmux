@@ -1508,6 +1508,7 @@ function ThreadMinimapView({
     height,
     scrubbing,
     followPointer,
+    scroller,
     sessionId,
     rowPitch,
     rested,
