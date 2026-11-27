@@ -113,7 +113,8 @@ class Gate(unittest.TestCase):
         try:
             out = io.StringIO()
             with redirect_stdout(out):
-                pr.main(["gate", "--suite", "ios-flows"])
+                rc = pr.main(["gate", "--suite", "ios-flows"])
+            self.assertEqual(rc, pr.UNREAD)
             self.assertTrue(out.getvalue().startswith("error\t"))
         finally:
             os.environ.update({k: v for k, v in saved.items() if v is not None})
@@ -134,6 +135,14 @@ class Plan(unittest.TestCase):
                 "ui": ["U1", "U2", "U3"], "swift": [], "scripts": []}
         base.update(kw)
         return base
+
+    def test_step_keys_name_the_head_and_the_shard(self):
+        steps = ios_verify.plan(self.selection(), [], ["cmux22"], "always")
+        keys = [ios_verify.step_key(s, HEAD, 7) for s in steps]
+        self.assertEqual(len(keys), len(set(keys)))
+        moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
+        self.assertFalse(set(keys) & set(moved))
+        self.assertTrue(all(HEAD[:12] in k for k in keys))
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -297,10 +306,10 @@ class SimStepRoutingTest(unittest.TestCase):
         self.assertIn("--pin-strict", cmd)
 
     def test_key_names_head_and_pin_mode(self):
-        step = {"mode": "test", "worker": "cmux22"}
-        loose, strict = ios_verify.step_key(7, HEAD, step, False), ios_verify.step_key(7, HEAD, step, True)
+        step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test"}
+        loose, strict = ios_verify.step_key(step, HEAD, 7, False), ios_verify.step_key(step, HEAD, 7, True)
         self.assertNotEqual(loose, strict)
-        self.assertNotEqual(loose, ios_verify.step_key(7, OTHER, step, False))
+        self.assertNotEqual(loose, ios_verify.step_key(step, OTHER, 7, False))
         self.assertIn(HEAD[:12], loose)
 
 
