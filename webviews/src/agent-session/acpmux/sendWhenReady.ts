@@ -9,6 +9,11 @@ import { hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostR
 /// The first wait before a held send asks again; each next wait doubles up to 2 s (`nextRetryDelay`).
 export const SEND_RETRY_FIRST_MS = 250;
 
+/// A failed send that goes again by itself (direct.ts `resendItself`) first waits this long, then
+/// twice as long each time, up to SELF_RESEND_MAX_MS, with no last try.
+export const SELF_RESEND_FIRST_MS = 1000;
+export const SELF_RESEND_MAX_MS = 30_000;
+
 /// Whether a failed send may go again on its own: the pane had no connection to acpmux, so the
 /// frame never left it (`native.not_connected`), and acpmux comes back by itself. Only such a frame
 /// goes again: a frame that reached the app spent the send's gesture ticket (the native relay
@@ -100,6 +105,17 @@ export const sendsHeldForHost = {
       if (held === 0) changed();
     };
   },
+};
+
+/// The prompts sent straight to the chat that acpmux has not taken (or refused) yet, and the wait for
+/// the last of them: a prompt sent meanwhile goes after it, never before (`sendInTurn`). `noAcpmux`:
+/// the host answered that this page has no acpmux to reach (a preview host, the gallery): no
+/// `chat.send` will ever come, so a send is not "made while the chat loads" and never waits for one
+/// in the pane's queue; the composer keeps it, as before (`untilAcpmuxTakesSends`).
+export const paneSends: { direct: number; inFlight: Promise<void>; noAcpmux: boolean } = {
+  direct: 0,
+  inFlight: Promise.resolve(),
+  noAcpmux: false,
 };
 
 /// The sends waiting for this page to connect to acpmux (`window.cmuxAcpmuxActions` has no
