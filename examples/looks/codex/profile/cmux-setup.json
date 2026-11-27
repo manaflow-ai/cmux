@@ -35,6 +35,8 @@
 
     // The composer (codex/composer): the prompt on its own line over the controls row.
     "agentPane.composerLook": "studio",
+    // The empty message box's text, as in a Codex thread.
+    "agentPane.composerPlaceholder": "Ask for follow-up changes",
     // The model picker (parity table, model_effort_picker): the reference app's chip opens a short list of
     // models with a check on the current one; the compact menu is that, with Effort as a submenu.
     "agentPane.display.modelPickerStyle": "menu",
@@ -83,6 +85,9 @@
     "sidebar.sections.hidden": ["sec_top"],
     "sidebar.sectionLook": "lines",
     "sidebar.folderlessUngrouped": true,
+    // The Personal row at the sidebar's foot opens the account menu, as the Codex app's: who is signed in, the
+    // teams to switch between, then Settings, Usage, Help and Sign Out.
+    "sidebar.profileMenu.style": "account",
 
     // The New Tab page (codex/send-parity): the builder page from customize/.
     "tabs.newTabApp": "local/customize",
