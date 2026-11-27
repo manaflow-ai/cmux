@@ -36,12 +36,16 @@ pub(crate) struct Feature {
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
     Feature { name: "verify", on: super::verify::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
+    Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
+    Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
-    Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
+    Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 
 /// The settings key of `feature`'s off switch.

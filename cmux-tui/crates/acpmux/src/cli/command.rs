@@ -427,10 +427,18 @@ pub enum Command {
     /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
     #[command(name = "run-vm", hide = true)]
     RunVm {
-        /// The shell command, after `--`.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        /// The program an exec router shim stands in for (`placement/exec_router.rs`): the
+        /// words after `--` are then its arguments, not a shell command.
+        #[arg(long, value_name = "PROGRAM")]
+        shim: Option<String>,
+        /// The shell command (or, with `--shim`, the program's arguments), after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// The exec router (`placement/exec_router.rs`): where each heavy command an agent, a
+    /// helper or their subprocesses ran went, and why. Not `exec`: that is `new`'s alias.
+    #[command(name = "exec-router", subcommand)]
+    Exec(ExecCmd),
     /// A `gh run view` log, served from or kept in this machine's shared cache of finished CI
     /// logs (harness magic `sharedCache`, `ci_log_cache.rs`); the Bash hook puts it before `gh`.
     #[command(name = "ci-log-cache", hide = true)]
@@ -1011,7 +1019,7 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { facts: PathBuf },
+    RouteDeath { session: Option<String>, facts: Option<PathBuf>, show_facts: bool },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1681,7 +1689,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Undelete { session } => Command::Undelete { session },
             SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Route { facts } => Command::RouteDeath { facts },
+            SessionCmd::Route { session, facts, show_facts } => {
+                Command::RouteDeath { session, facts, show_facts }
+            }
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
@@ -1936,4 +1946,16 @@ mod deadline_defaults_tests {
             assert!(parse(&["acpmux", "send", "c", "hi", "--gather", clash]).is_err(), "{clash}");
         }
     }
+}
+
+/// `acpmux exec-router ...`.
+#[derive(Debug, clap::Subcommand)]
+pub enum ExecCmd {
+    /// Each routing decision, newest last: where it ran (fork or here), what sent it (hook,
+    /// shim), the program, wall time, exit, bytes back, and the cause when it ran here.
+    Trace {
+        /// How many of the newest decisions.
+        #[arg(long, default_value_t = 20)]
+        last: usize,
+    },
 }
