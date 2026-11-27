@@ -4238,7 +4238,6 @@ button.menu-disclosure {
    type under Connect Claude, the paste form inside it once opened. */
 .models-claude-paste > summary {
   width: fit-content;
-  cursor: pointer;
 }
 .models-claude-paste[open] > summary {
   margin-bottom: 8px;
@@ -4293,3 +4292,12 @@ button.menu-disclosure {
   display: block;
   margin: 0 0 12px;
 }
+
+/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+

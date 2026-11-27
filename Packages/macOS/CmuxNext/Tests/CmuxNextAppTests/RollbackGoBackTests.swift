@@ -229,7 +229,9 @@ import Testing
         let waiterPID = try #require(Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)))
         helper.terminate()
         helper.waitUntilExit()
-        #expect(kill(waiterPID, 0) == -1 && errno == ESRCH)
+        let killResult = kill(waiterPID, 0)
+        let killErrno = errno
+        #expect(killResult == -1 && killErrno == ESRCH)
         #expect(!FileManager.default.fileExists(atPath: opened.path))
     }
 

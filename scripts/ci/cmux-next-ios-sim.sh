@@ -998,6 +998,13 @@ if [[ "$mode" == test && ${#ui_suites[@]} -gt 0 && ${#ui_cold[@]} -eq 0 && ${#du
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet)
   [[ "$ui_config" != Demo ]] || ui_prebuild_args+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+  # Resolve the Swift packages once first: both builds share SwiftPM's artifact cache
+  # (~/Library/Caches/org.swift.swiftpm), and on a cold cache (a hosted runner) the two raced to
+  # download the same binary targets, one failing "already exists in file system" (exit 74), so the
+  # UI suite ran no test. Warm, this takes a few seconds; a failure leaves the builds to report it.
+  xcodebuild -resolvePackageDependencies -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+    -derivedDataPath "$dd_root/dd-ui" >"$work/spm-resolve.log" 2>&1 ||
+    note "- SwiftPM resolve before the parallel builds: failed ($(tail -n 1 "$work/spm-resolve.log"))"
   ui_prebuild_t0=$SECONDS
   xcodebuild build-for-testing "${ui_prebuild_args[@]}" >"$work/ui-build.log" 2>&1 &
   ui_prebuild_pid=$!

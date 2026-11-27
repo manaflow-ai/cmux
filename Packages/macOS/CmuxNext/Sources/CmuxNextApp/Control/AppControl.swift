@@ -61,7 +61,7 @@ final class AppControl {
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
     ///   automation tasks, and the watchdog reads its board.
     init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
+        self.mainWork = mainWork; DebugTimings.markLaunch("main.control.fields") // after the watchdog's and the probes' initial values
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
     }
 

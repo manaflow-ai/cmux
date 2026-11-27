@@ -18,8 +18,12 @@ The artifact is downloaded by ID, checked against GitHub's SHA256 digest,
 unpacked safely and must be a Mach-O with exactly the architectures this run
 ships.
 
+The input key reads the gitlink and blob ids from the checkout's own git when it
+holds the commit, and asks the contents API only for one it lacks.
+
 Writes hit, key, source_run and source_build_sha to GITHUB_OUTPUT. A miss is
-not an error: the workflow builds the helper on a Mac.
+not an error: the workflow builds the helper on a Mac. Any failure to ask GitHub
+(a 403, a timeout, an unexpected answer) is a miss, with exit 0.
 """
 from __future__ import annotations
 
@@ -71,7 +75,11 @@ def git_tree_ids(sha: str) -> dict[str, tuple[str, str]] | None:
     try:
         listed = ls_tree()
         if listed.returncode != 0:
-            subprocess.run(["git", "fetch", "--quiet", "--no-tags", "--depth=1", "--filter=blob:none", "origin", sha],
+            # --depth=1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
+            shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                                     capture_output=True, text=True, timeout=30).stdout.strip() == "true"
+            subprocess.run(["git", "fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []),
+                            "--filter=blob:none", "origin", sha],
                            capture_output=True, text=True, timeout=120)
             listed = ls_tree()
     except (OSError, subprocess.SubprocessError):
@@ -262,7 +270,11 @@ def main() -> None:
     archs = set(args.archs.split())
     if archs not in ({"arm64"}, {"arm64", "x86_64"}):
         raise SystemExit(f"unsupported architectures: {args.archs}")
-    key, artifact, sha = find(repo, args.build_sha, token, lambda a: fetch(a, token, args.out, archs))
+    try:
+        key, artifact, sha = find(repo, args.build_sha, token, lambda a: fetch(a, token, args.out, archs))
+    except (Exception, SystemExit) as error:  # noqa: BLE001  any failure to ask GitHub is a miss: build the helper
+        print(f"helper lookup failed ({type(error).__name__}: {error}); building")
+        key, artifact, sha = "", None, ""
     outputs = {"hit": "false", "key": key, "source_run": "", "source_build_sha": ""}
     if artifact is not None:
         outputs.update(hit="true", source_run=str(artifact["workflow_run"]["id"]), source_build_sha=sha)
