@@ -931,11 +931,19 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
     let mux = Mux::open_persistent("room-restart", options, &root).unwrap();
     let shares = shares_of(&mux);
 
+    // Hold one tokenless worker at its final read until the expiry timer has tried to
+    // start cleanup. The worker releasing that claim must pick up the missed expiry.
+    let id = "pending-0";
+    assert!(shares.claim_room_delete(id));
+    let worker = DeleteGuard { mux: Arc::downgrade(&mux), share_id: id.into(), tokenless: true };
+
     // A restart has no owner credential or host token for these failed provisions. It must still
     // resume the records and wake a credentialless cleanup at their expiry.
     start_link_share_bridge(&mux, Some(&room.url));
     shares.advance(Duration::from_secs(2 * 86_400));
     shares.expired(&mux);
+    assert!(view(&mux, id).unwrap().delete);
+    drop(worker);
     // Each settles on the bridge's own worker (`delete`), not inside `expired`.
     let pending = || {
         shares

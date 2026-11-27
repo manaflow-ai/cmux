@@ -44,11 +44,15 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
-            wireguard: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            ssh_mux_override: std::sync::OnceLock::new(),
+            wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            wg_learner: std::sync::OnceLock::new(),
+            wg_learning: AtomicBool::new(false),
             tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
@@ -169,7 +173,14 @@ impl Peer {
         transport: Arc<crate::wireguard::Transport>,
         address: std::net::SocketAddr,
     ) {
-        let _ = self.wireguard.set((transport, address));
+        *self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((transport, address));
+    }
+
+    pub(crate) fn wireguard_route(
+        &self,
+    ) -> Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)> {
+        self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// What the current (or last) link received (`ReceivedBytes`).
@@ -338,6 +349,42 @@ impl Peer {
             error.as_deref(),
             crate::store::now_ms(),
         )
+    }
+
+    /// The link is up and past its handshake: a request goes out on it.
+    fn takes_requests(&self) -> bool {
+        self.connected.load(Ordering::SeqCst) && !self.admitting.load(Ordering::SeqCst)
+    }
+
+    /// A link that is coming up or went down moments ago (a network blip, a path switch, the
+    /// peer's daemon restarting) is usually back within seconds: a request waits that out
+    /// (`LinkTimings::reconnect_wait`) instead of refusing the person at once. A link that has
+    /// been down longer, or whose attempt failed while it waited, refuses now as before
+    /// (`peer_unreachable`, retryable: the request was not sent).
+    pub(crate) async fn await_reconnect(&self) -> Result<(), RpcError> {
+        use cmux_tui_util::retry::{Attempt, Patience};
+        let wait = self.timings.reconnect_wait;
+        if wait.is_zero() || !self.link().coming_back(crate::store::now_ms()) {
+            return Err(self.unreachable_error());
+        }
+        let peer: &Self = self;
+        Patience::new(format!("{} to reconnect", self.name), wait)
+            .quiet()
+            .spaced(Duration::from_millis(50), Duration::from_millis(500))
+            .run_async(
+                || (),
+                move || async move {
+                    if peer.takes_requests() {
+                        Ok(())
+                    } else if peer.link().coming_back(crate::store::now_ms()) {
+                        Err(Attempt::Retry(()))
+                    } else {
+                        Err(Attempt::Fail(()))
+                    }
+                },
+            )
+            .await
+            .map_err(|()| self.unreachable_error())
     }
 
     /// Receives every later settled connect attempt.
@@ -1105,8 +1152,11 @@ impl Peer {
         // One of any link that is bound to its connection goes again on the next link when
         // this one switches paths under it (`resend_switched`).
         let retry = epoch.is_none() && dual::bound(m);
+        if epoch.is_none() && !self.takes_requests() {
+            self.await_reconnect().await?;
+        }
         let epoch = epoch.unwrap_or_else(|| self.link_epoch());
-        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
+        if !self.takes_requests() {
             return Err(self.unreachable_error());
         }
         self.send_request_with(m, params, Some(epoch), ListKey::None, retry).await
