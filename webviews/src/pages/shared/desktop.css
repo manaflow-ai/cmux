@@ -48,6 +48,12 @@
   --transient-surface-gap: var(--ds-space-2);
   --transient-action-fill: var(--ds-color-accent);
   --transient-action-ink: var(--ds-color-on-accent);
+  /* The image lightbox (ImageViewer.tsx): its dim, the solid dim under Reduce Transparency and the
+     viewed image's shadow. Hand-written here, outside the generated design-scale block, which the
+     build rewrites from schemas/design-scale/design-scale.json. */
+  --lightbox-image-shadow: 0 8px 32px color-mix(in srgb, black 35%, transparent); /* an image shown in the lightbox, above its dimmed backdrop */
+  --lightbox-scrim: color-mix(in srgb, black 45%, transparent); /* the lightbox's dim: the chat stays visible behind a viewed image */
+  --lightbox-scrim-solid: color-mix(in srgb, black 70%, transparent); /* the same dim with Reduce Transparency on */
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */
@@ -172,9 +178,6 @@ body {
   --ds-transient-web-saturation: 1.6;
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
-  --elevation-lightbox: 0 8px 32px color-mix(in srgb, black 35%, transparent); /* an image shown in the lightbox, above its dimmed backdrop */
-  --ds-lightbox-scrim: color-mix(in srgb, black 45%, transparent); /* the lightbox's dim: the chat stays visible behind a viewed image */
-  --ds-lightbox-scrim-solid: color-mix(in srgb, black 70%, transparent); /* the same dim with Reduce Transparency on */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
   --ds-color-elevated: var(--cmux-elevated-background, var(--cmux-app-elevated, Canvas)); /* menus, popovers and sheets under Reduce Transparency */
   --ds-color-fg: var(--cmux-text, var(--cmux-app-text, CanvasText)); /* primary text */
