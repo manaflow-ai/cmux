@@ -15,7 +15,9 @@
 //! the pane a Close Tab press is aimed at after a close emptied a pane
 //! (`PaneCloseAim`, `cmux_focus_pane_moved` and its siblings).
 
+#[path = "focus/codec.rs"]
 mod codec;
+#[path = "focus/reply.rs"]
 mod reply;
 
 pub(crate) use codec::{decode_event, decode_topology};
