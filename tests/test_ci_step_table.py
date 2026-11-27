@@ -1104,8 +1104,9 @@ class PipelineTest(unittest.TestCase):
             self.assertIn('table=["web-browser"]\n', out.read_text())
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
-        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}",
-                                                         "only": "${{ needs.route.outputs.only || '' }}"})
+        self.assertEqual(router["jobs"]["pipeline"]["with"], {
+            "jobs": "${{ needs.route.outputs.table || '' }}",
+            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
@@ -1195,7 +1196,8 @@ class PipelineTest(unittest.TestCase):
                 routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}')"
                 if name in PIPELINE_LAND_TIER_JOBS:
                     # The land tier (#54886's condition and label guard): runs only at the head handed to land.
-                    self.assertEqual(job["if"], f"${{{{ ({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                    deferred = "!inputs.defer_web_browser && " if name == "web-browser" else ""
+                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
                 else:
                     self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
