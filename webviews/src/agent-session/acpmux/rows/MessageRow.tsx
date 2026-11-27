@@ -114,8 +114,10 @@ export const MessageRow = memo(
               )
             }
             githubRepository={githubRepository}
+            // Where it was sent from opens with the message, so the shut line stays one row
+            // (rowMetric.ts; Leo, 2026-11-17: "these are too big").
+            provenance={row.sentFrom && <SentFromLine from={row.sentFrom} />}
           />
-          {row.sentFrom && <SentFromLine from={row.sentFrom} />}
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
