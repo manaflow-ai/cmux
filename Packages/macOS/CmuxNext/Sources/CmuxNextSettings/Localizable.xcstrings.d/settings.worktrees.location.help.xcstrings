@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.worktrees.location.help" : {
+      "comment" : "Settings > General > Storage: help for the Worktree Folder field. cmux makes one subfolder per project there.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المكان الذي ينشئ فيه cmux الـ worktrees للمحادثات المحلية والتفرعات والمسارات، مجلد لكل مشروع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdje cmux pravi worktreeje za lokalne razgovore, grananja i trake, jedan folder po projektu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor cmux opretter worktrees til lokale chats, forgreninger og spor, én mappe pr. projekt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wo cmux Worktrees für lokale Chats, Abzweigungen und Lanes anlegt, ein Ordner pro Projekt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where cmux makes worktrees for local chats, forks and lanes, one folder per project."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dónde cmux crea worktrees para chats locales, bifurcaciones y carriles, una carpeta por proyecto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Où cmux crée les worktrees des discussions locales, des embranchements et des voies, un dossier par projet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dove cmux crea i worktree per chat locali, diramazioni e corsie, una cartella per progetto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux がローカルチャット、フォーク、レーンの worktree を作る場所。プロジェクトごとに 1 フォルダです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងដែល cmux បង្កើត worktree សម្រាប់ការជជែកមូលដ្ឋាន ការបំបែក និងផ្លូវ មួយថតក្នុងមួយគម្រោង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 로컬 채팅, 포크, 레인용 worktree를 만드는 위치입니다. 프로젝트마다 폴더 하나입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor cmux lager worktrees for lokale chatter, forgreninger og spor, én mappe per prosjekt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdzie cmux tworzy worktree dla lokalnych czatów, rozgałęzień i torów, jeden folder na projekt."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onde o cmux cria worktrees para chats locais, bifurcações e faixas, uma pasta por projeto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Где cmux создаёт worktree для локальных чатов, ответвлений и дорожек, по одной папке на проект."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตำแหน่งที่ cmux สร้าง worktree สำหรับแชตในเครื่อง การแยก และเลน หนึ่งโฟลเดอร์ต่อโปรเจกต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux'un yerel sohbetler, çatallar ve şeritler için worktree oluşturduğu yer, her proje için bir klasör."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Де cmux створює worktree для локальних чатів, відгалужень і доріжок, по одній теці на проєкт."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nơi cmux tạo worktree cho cuộc trò chuyện cục bộ, nhánh rẽ và làn, mỗi dự án một thư mục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 为本地聊天、分叉和通道创建工作树的位置，每个项目一个文件夹。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 為本機聊天、分叉和通道建立工作樹的位置，每個專案一個資料夾。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

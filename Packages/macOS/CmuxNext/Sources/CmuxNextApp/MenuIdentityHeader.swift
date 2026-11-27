@@ -18,9 +18,9 @@ enum MenuIdentityHeader {
     /// header shows only the swatches. The color choices are the rows of the submenu whose rows each
     /// set a group color; for the group menu `current` names the ringed one, for the workspace menu
     /// the row whose state is on. `noColor`: the group has no color (`GroupTint.none`), so No Color
-    /// is ringed; a workspace menu rings it when no color row is on. A menu with neither is left as it is.
+    /// is ringed; a workspace menu rings it when no color row is on. A menu with neither, or `drawn` (a GlassMenu: no row views), is left as it is.
     static func install(in menu: NSMenu, registry: ActionRegistry, target: ActionTargetRef, name: String?, rename: ActionID,
-                        current: GroupColor? = nil, noColor: Bool = false) {
+                        current: GroupColor? = nil, noColor: Bool = false, drawn: Bool = DesignSettings.shared.sidebarDrawnMenus) {
         // A rename that can't run on this target (no daemon support yet) keeps its disabled row, not a dead field.
         // The field always sends a name, so ask whether a rename with this name can run: a pinned
         // workspace's tile has no list row for the inline rename, yet renames by name.
@@ -30,7 +30,7 @@ enum MenuIdentityHeader {
         let colorIndex = menu.items.firstIndex { item in
             (item.submenu?.items.filter { color(of: $0) != nil }.count ?? 0) >= 2
         }
-        guard renameIndex != nil || colorIndex != nil else { return }
+        guard !drawn, renameIndex != nil || colorIndex != nil else { return }
         let colorMenu = colorIndex.flatMap { menu.items[$0].submenu }, colorTitle = colorIndex.map { menu.items[$0].title }, choices = colorMenu?.items.filter { color(of: $0) != nil } ?? []
         // The clear row, wherever the menu keeps it (the color submenu, or a folder), only beside swatches.
         let clear = colorMenu.map { takeClearRow(from: $0) ?? takeClearRow(from: menu) } ?? nil

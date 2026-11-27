@@ -769,7 +769,7 @@ fn home_dir() -> PathBuf {
 }
 
 /// The index a workspace takes in the personal group it joins, from the same
-/// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
+/// `workspaces.newPlacement` the app reads (cmux-next.json; see
 /// `agent_memory::settings`). Only `bottom` keeps the daemon's place, the end; `top` (the
 /// default) and `afterCurrent` put it first (index 0), never at the sidebar's end (Leo 2026-11-06).
 /// None keeps the daemon default.

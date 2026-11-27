@@ -1,3 +1,5 @@
-# Vendored smoltcp keeps its upstream format, rustfmt's defaults: without this file the
-# pre-commit hook and `cargo fmt` take cmux-tui/rustfmt.toml (use_small_heuristics = "Max")
-# and rewrite the whole file around any patch (CMUX_PATCH.md).
+# Vendored smoltcp keeps rustfmt's defaults, the format its source is in: on 2026-11-25,
+# 94 of the 96 files under src/ were already clean under the defaults, against 16 under
+# cmux-tui's style (max_width = 100, use_small_heuristics = "Max"), which rewrote
+# about 5,200 lines and the whole of socket/tcp.rs around any patch. Without this file
+# the pre-commit hook and `cargo fmt` take cmux-tui/rustfmt.toml instead (CMUX_PATCH.md).

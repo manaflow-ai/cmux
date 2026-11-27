@@ -14,10 +14,12 @@ export const HOVER_LOOK_ATTRIBUTE = "data-hover-look";
 /// ui/hoverLook.css paints).
 export const HOVER_LOOK_SURFACES = ".ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip";
 
-/// How tooltips and hover cards look once the switch is on (Leo, ask-68c2ce3e90: "i recall a lot of
-/// our existing hovers and errors and whatnot look like shit"). Every arm is paint only: the
-/// padding, type, rim width and so the size of every tooltip and card are today's, so turning it on
-/// moves nothing. With the switch off no arm draws anything.
+/** How tooltips and hover cards look once the switch is on (Leo, ask-68c2ce3e90: "i recall a lot of
+ * our existing hovers and errors and whatnot look like shit"). Every arm is paint only: the
+ * padding, type, rim width and so the size of every tooltip and card are today's, so turning it on
+ * moves nothing. With the switch off no arm draws anything.
+ * @status experimental
+ */
 export const hoverLook = defineExperiment({
   id: "hover-look",
   title: "Tooltip and hover card look",
@@ -38,8 +40,17 @@ export const hoverLook = defineExperiment({
       label: "Soft",
       description: "A clearer glass with a rounder corner, no ring and a wide diffuse shadow.",
     },
+    one: {
+      label: "One",
+      description:
+        "One material for every tooltip and hover card: the tooltip's contrast-fitted veil over the transient frost and the tooltip's corner, each blurring what it covers in place, one hover open at a time, shown and gone in one frame.",
+    },
   },
   defaultArm: "crisp",
 });
 
 export type HoverLook = keyof typeof hoverLook.arms;
+
+/// The arm that makes every hover surface one material and one at a time (Leo, 2026-11-22, softened:
+/// "multiple styles for hover previews plus bad-looking translucency blur, unacceptable").
+export const HOVER_LOOK_ONE: HoverLook = "one";

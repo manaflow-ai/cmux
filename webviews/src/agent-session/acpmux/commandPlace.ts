@@ -29,7 +29,9 @@ export function commandPlace(args: string | undefined): PlacedArgs {
 /// shared web data store (cloudRun.ts CloudStartKeyStore) under a one-time token, and the app hands
 /// only that token to the new tab (`action.run palette.newCloudChat {handoff}`, the handshake's
 /// `cloudStartHandoff`). Only the tab with the token reads it, once, within its time.
-export type HandedCloudStart = { prompt?: string; cwd?: string };
+/// `agent`: a started Cloud chat's pick of another agent in the model picker (ComposerPickers.tsx,
+/// cmux#51731): the new Cloud chat starts on it, whatever this Mac last picked in its folder.
+export type HandedCloudStart = { prompt?: string; cwd?: string; agent?: { harness: string; model?: string } };
 
 export type HandoffStore = {
   getItem(name: string): string | null;
@@ -75,7 +77,7 @@ export function takeHandedCloudStart(
   token: string,
   now: number,
 ): HandedCloudStart | undefined {
-  let kept: { prompt?: unknown; cwd?: unknown; at?: unknown } | undefined;
+  let kept: { prompt?: unknown; cwd?: unknown; agent?: unknown; at?: unknown } | undefined;
   try {
     const text = store?.getItem(HANDED_CLOUD_START + token);
     kept = text ? JSON.parse(text) : undefined;
@@ -88,7 +90,16 @@ export function takeHandedCloudStart(
   if (!(now - at >= 0 && now - at <= HANDED_CLOUD_START_TTL_MS)) return undefined;
   const prompt = typeof kept.prompt === "string" && kept.prompt.trim() ? kept.prompt : undefined;
   const cwd = typeof kept.cwd === "string" && kept.cwd.startsWith("/") ? kept.cwd : undefined;
-  return { ...(prompt ? { prompt } : {}), ...(cwd ? { cwd } : {}) };
+  const agent = handedAgent(kept.agent);
+  return { ...(prompt ? { prompt } : {}), ...(cwd ? { cwd } : {}), ...(agent ? { agent } : {}) };
+}
+
+/// A handed agent pick, as rememberPick (lastPick.ts) takes one: a harness id and an optional model.
+function handedAgent(value: unknown): { harness: string; model?: string } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { harness, model } = value as { harness?: unknown; model?: unknown };
+  if (typeof harness !== "string" || !harness || harness.length > 128) return undefined;
+  return { harness, ...(typeof model === "string" && model && model.length <= 256 ? { model } : {}) };
 }
 
 /// The one place a new chat page reads its hand-off: from its first handshake (never a
@@ -97,7 +108,12 @@ export function takeHandedCloudStart(
 /// field) unless the app seeded one, and the folder the page then opens in (`chooseProject`).
 export function receiveHandedCloudStart<
   T extends { sessionId?: string; draft?: string; newTab?: unknown; pickCloud?: unknown; cloudStartHandoff?: unknown },
->(host: T, reconnect: boolean, store: HandoffStore | undefined, now: number): { host: T; folder?: string } {
+>(
+  host: T,
+  reconnect: boolean,
+  store: HandoffStore | undefined,
+  now: number,
+): { host: T; folder?: string; agent?: { harness: string; model?: string } } {
   const token = host.cloudStartHandoff;
   if (reconnect || host.sessionId || typeof token !== "string" || !token) return { host };
   const handed = takeHandedCloudStart(store, token, now);
@@ -118,6 +134,7 @@ export function receiveHandedCloudStart<
       ...(newTab !== undefined ? { newTab } : {}),
     },
     ...(handed.cwd ? { folder: handed.cwd } : {}),
+    ...(handed.agent ? { agent: handed.agent } : {}),
   };
 }
 

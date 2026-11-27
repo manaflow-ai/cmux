@@ -1,0 +1,113 @@
+name: Cloud MVP Nightly readback
+
+# The Auto/Cloud MVP read back in the app on a published cmux NEXT NIGHTLY, with a video and result.json
+# (scripts/measure/cloud-mvp-nightly-readback.sh). No fleet Mac holds the agent test account, so this signs the
+# production agent account in on a GitHub macOS runner, the way cloud-chat-proof.yml's proof-prod job does:
+# the same cmux-next-cloud-journey environment (limited to feat-cmux-next by GitHub's branch policy), the same
+# Stack password sign-in (scripts/cmux-next/dev-signin-token.py). The session goes to the script as the 0600
+# CMUX_CI_SIGNIN_FILE a `cmux-ci run --sign-in agent` step gets; nothing secret is printed or uploaded.
+# Leo, 2026-11-26: "austin was also really wanting to have a demo of the auto/hybrid cloud thing. and have it in
+# the nightly. can we put our mvp in?"
+#   gh workflow run cloud-mvp-nightly-readback.yml --ref feat-cmux-next -f build=4592220755201
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/cloud-mvp-nightly-readback.yml
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "NIGHTLY build number (CFBundleVersion) to check; empty = the newest in the NEXT feed"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-mvp-nightly-readback
+  cancel-in-progress: false
+
+jobs:
+  readback:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 60
+    steps:
+      - name: Check the build input
+        env:
+          BUILD: ${{ inputs.build }}
+        run: |
+          if [ -n "$BUILD" ] && ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{1,20}'; then
+            echo "::error::build must be a NIGHTLY build number (digits only)"
+            exit 1
+          fi
+
+      - name: Checkout cmux
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts
+            Packages/macOS/CmuxNext/Sources
+
+      - name: Sign the production agent account in
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error::the production agent Stack pair is missing from this job's environment"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/signin"
+          chmod 700 "$RUNNER_TEMP/signin"
+          python3 -I - "$RUNNER_TEMP/signin/session.json" <<'PY'
+          import importlib.util, json, os, sys
+          spec = importlib.util.spec_from_file_location("dst", "scripts/cmux-next/dev-signin-token.py")
+          dst = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(dst)
+          session = dst.sign_in(os.environ["CMUX_DOGFOOD_STACK_EMAIL"], os.environ["CMUX_DOGFOOD_STACK_PASSWORD"], "production")
+          fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, "w") as handle:
+              json.dump({"profile": "agent", "email": os.environ["CMUX_DOGFOOD_STACK_EMAIL"],
+                         "project": dst.BACKENDS["production"][0], "refresh_token": session["refreshToken"]}, handle)
+          PY
+          echo "CMUX_CI_SIGNIN_FILE=$RUNNER_TEMP/signin/session.json" >> "$GITHUB_ENV"
+
+      - name: Read the Cloud MVP back in the NIGHTLY
+        id: readback
+        env:
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -uo pipefail
+          args=()
+          if [ -n "$BUILD" ]; then args+=("build=$BUILD"); fi
+          scripts/measure/cloud-mvp-nightly-readback.sh "${args[@]}"
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          case "$status" in
+            0) echo "Cloud MVP readback passed (build ${BUILD:-newest})" >> "$GITHUB_STEP_SUMMARY" ;;
+            1) echo "::error::Cloud MVP readback: a product step failed (exit 1)" ;;
+            *) echo "::error::Cloud MVP readback: the rig could not run it (exit $status)" ;;
+          esac
+          exit "$status"
+
+      - name: Remove the sign-in session
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/signin"
+
+      - name: Upload the report (video and result.json)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-mvp-nightly-readback
+          path: .build/cloud-mvp-nightly-readback/report.tgz
+          if-no-files-found: warn
+          retention-days: 14

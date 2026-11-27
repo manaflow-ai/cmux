@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "auth.login.expired" : {
+      "comment" : "Agent pane: the composer's notice when the agent's own sign-in (OAuth) expired; {agent} is the agent's name (Claude Code)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "انتهت صلاحية تسجيل دخولك إلى {agent}. سجّل الدخول إلى {agent} للمتابعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaša prijava u {agent} je istekla. Prijavite se u {agent} da nastavite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dit login til {agent} er udløbet. Log ind på {agent} for at fortsætte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Anmeldung bei {agent} ist abgelaufen. Melde dich bei {agent} an, um fortzufahren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your {agent} sign-in expired. Sign in to {agent} to continue."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu sesión de {agent} ha caducado. Inicia sesión en {agent} para continuar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre session {agent} a expiré. Connectez-vous à {agent} pour continuer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il tuo accesso a {agent} è scaduto. Accedi a {agent} per continuare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} のサインインの有効期限が切れました。続行するには {agent} にサインインしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការចូល {agent} របស់អ្នកបានផុតកំណត់។ ចូល {agent} ដើម្បីបន្ត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} 로그인이 만료되었습니다. 계속하려면 {agent}에 로그인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen din i {agent} er utløpt. Logg på {agent} for å fortsette."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logowanie do {agent} wygasło. Zaloguj się do {agent}, aby kontynuować."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua sessão do {agent} expirou. Entre no {agent} para continuar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Срок действия входа в {agent} истёк. Войдите в {agent}, чтобы продолжить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การลงชื่อเข้าใช้ {agent} หมดอายุแล้ว ลงชื่อเข้าใช้ {agent} เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} oturumunuzun süresi doldu. Devam etmek için {agent} hesabına giriş yapın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термін дії входу в {agent} минув. Увійдіть у {agent}, щоб продовжити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Phiên đăng nhập {agent} đã hết hạn. Hãy đăng nhập {agent} để tiếp tục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的 {agent} 登录已过期。请登录 {agent} 以继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的 {agent} 登入已過期。請登入 {agent} 以繼續。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

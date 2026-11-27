@@ -84,6 +84,8 @@ extension CloudHandlers {
         let registry = context.services.registry
         guard registry.isCapturingWork else { return }
         let creations = context.services.cloud.creations
+        // When the caller asked: a machine the server made well before it is a reused one, and says so.
+        let askedAt = Date().timeIntervalSince1970
         // task-owner: the action run; it ends when the create settles or the wait ends.
         let task: ActionResultWork = Task { @MainActor in
             // concurrency-allow: the observation task is cancelled by the bounded race below
@@ -100,7 +102,7 @@ extension CloudHandlers {
             // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a CLI or
             // agent caller can start that plan's checkout; a declined or dismissed create is refused.
             var facts: [String: Any] = ["creationId": creation.id.uuidString.lowercased(), "workspaceId": creation.workspaceID as Any,
-                                        "plan": creation.planRefusal?.plan as Any, "machine": creation.session.map(machineFacts) as Any]
+                                        "plan": creation.planRefusal?.plan as Any, "machine": creation.session.map(machineFacts) as Any, "askedAt": askedAt]
             switch settled {
             case .pending?, nil: break
             case .created?: facts["state"] = "created"
@@ -140,7 +142,8 @@ extension CloudHandlers {
         return ["id": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
                 "displayName": machine.displayName as Any, "sizeName": machine.size?.name as Any, "cpu": machine.size?.cpu as Any,
                 "memoryMb": machine.size?.memoryMb as Any, "idlePauseMinutes": machine.idlePauseMinutes as Any,
-                "ipv4": machine.address?.ipv4 as Any, "ipv6": machine.address?.ipv6 as Any].compacted
+                "ipv4": machine.address?.ipv4 as Any, "ipv6": machine.address?.ipv6 as Any,
+                "createdAt": machine.createdAt?.timeIntervalSince1970 as Any].compacted
     }
 
     /// The longest a CLI or agent `cloud exec` runs its command (the Cloud

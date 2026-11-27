@@ -414,7 +414,7 @@ extension ConversationViewController {
         guard pollLayout.cardFrame.contains(shifted) else { return false }
         guard pollModel.interactive,
               let optionID = cell.pollCard.optionID(at: cell.pollCard.convert(shifted, from: cell.shiftable)) else { return true }
-        UISelectionFeedbackGenerator().selectionChanged()
+        ConversationHaptics.selectionChanged()
         store.togglePollVote(messageID: model.message.id, optionID: optionID)
         return true
     }
@@ -455,12 +455,14 @@ extension ConversationViewController {
     func presentPollVoteFailed(messageID: String) {
         let alert = UIAlertController(
             title: String(localized: "conversation.poll.voteFailed", defaultValue: "Poll vote failed.", bundle: .module),
+            // retry-prompt-ok: re-sends the person's vote
             message: String(localized: "conversation.poll.voteFailedDescription", defaultValue: "Your vote was not sent. Tap “Try Again” to resend your vote.", bundle: .module),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel) { [weak self] _ in
             self?.store.dismissPollVoteFailure(messageID: messageID)
         })
+        // retry-prompt-ok: re-sends the person's vote
         alert.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
             self?.store.retryPollVote(messageID: messageID)
         })

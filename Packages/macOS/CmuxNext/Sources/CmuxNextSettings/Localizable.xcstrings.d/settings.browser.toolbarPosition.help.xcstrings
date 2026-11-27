@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.toolbarPosition.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where the address bar of browser and Markdown panes sits."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مكان شريط العنوان في أجزاء المتصفح و Markdown."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdje se nalazi adresna traka u oknima preglednika i Markdowna."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor adresselinjen i browser- og Markdown-ruder sidder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wo die Adressleiste von Browser- und Markdown-Bereichen sitzt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dónde se sitúa la barra de direcciones de los paneles de navegador y de Markdown."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’emplacement de la barre d’adresse dans les sous-fenêtres de navigateur et Markdown."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dove si trova la barra degli indirizzi nei riquadri del browser e Markdown."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ブラウザと Markdown のペインでアドレスバーを置く位置。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងដែលរបារអាសយដ្ឋាននៃផ្ទាំងកម្មវិធីរុករក និង Markdown ស្ថិតនៅ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "브라우저 및 Markdown 패널에서 주소 막대의 위치입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor adresselinjen står i nettleser- og Markdown-ruter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdzie znajduje się pasek adresu w panelach przeglądarki i Markdown."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onde fica a barra de endereço nos painéis de navegador e Markdown."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Где находится адресная строка в панелях браузера и Markdown."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตำแหน่งของแถบที่อยู่ในบานหน้าต่างเบราว์เซอร์และ Markdown"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tarayıcı ve Markdown bölmelerinde adres çubuğunun yeri."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Де розташований адресний рядок у панелях браузера й Markdown."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vị trí thanh địa chỉ trong các ngăn trình duyệt và Markdown."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "浏览器和 Markdown 窗格中地址栏的位置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "瀏覽器和 Markdown 窗格中網址列的位置。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

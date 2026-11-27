@@ -8,6 +8,7 @@ runs. The base already carries a `try!` (base debt): only what a push adds count
 """
 import contextlib
 import importlib.util
+import json
 import sys
 import os
 from pathlib import Path
@@ -222,6 +223,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.
@@ -233,6 +235,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -581,7 +584,8 @@ class PrePushGateTests(unittest.TestCase):
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
         # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
         # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
-        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
+        # refuse only for the pusher's own diff). The web lint says the same and, since #49904 (Leo 2026-11-22: lint
+        # never stops a push), lets the push through too: every message names the fix, nothing traces back.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -593,13 +597,14 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push_ref("fresh")
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("nothing was checked, and the push goes through UNCHECKED", output)
         self.assertIn("cannot tell which commits are this push's own", output)
         self.assertIn("git fetch origin", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
-        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
+        # The cmux-next gate warns and passes (CannotDecide); the web lint never stops a push (#49904). The fix is named.
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -608,7 +613,7 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push()
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(result.returncode, 0, output)
         self.assertIn("push_range.py is missing; rerun scripts/install-git-hooks.sh", output)
         self.assertNotIn("Traceback", output)
 
@@ -1678,6 +1683,27 @@ let package = Package(
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_spawn_owner_reads_unchanged_path_declaration_and_refuses_product_spawn(self):
+        src = "cmux-tui/crates/fixture/src/"
+        self.write(src + "lib.rs", "mod session;\nmod worker;\n")
+        self.write(src + "session.rs", '#[cfg(test)]\n#[path = "backpressure.rs"]\nmod bench;\n')
+        self.write(src + "worker.rs", "")
+        self.commit("crate with a test-only module at a sibling path")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+
+        spawn = "pub fn run() {\n    tokio::spawn(async {});\n}\n"
+        self.write(src + "backpressure.rs", spawn)
+        self.commit("spawn in the test-only module")
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.write(src + "worker.rs", spawn)
+        self.commit("spawn in a production module")
+        result = self.push()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("worker.rs has 1 spawn line", result.stdout + result.stderr)
+
     def test_the_raw_spawn_guard_rules_hold(self):
         # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-spawn.test.sh")],
@@ -2018,11 +2044,22 @@ let package = Package(
 
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("must update plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("must add its entry under plans/cmux-next/sidebar-owner/", output)
 
     def test_a_visual_sidebar_change_with_the_note_passes(self):
         self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
         self.write("plans/cmux-next/sidebar-owner.md", "# owner\n- titles at the inset (Lawrence 11405)\n")
+        self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_visual_sidebar_change_with_an_entry_file_passes(self):
+        # One file per entry (scripts/ci/entry_logs.py): two PRs logging looks never share a line of the note.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
+        self.write("plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md",
+                   "- 2026-11-25 (lane/x): Sidebar-Look: Lawrence 11405: titles at the inset\n")
         self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
 
         result = self.push()
@@ -2068,6 +2105,23 @@ let package = Package(
 
         self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
 
+    def test_a_sidebar_change_logged_in_an_entry_file_passes_in_the_ci_sweep(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let flash = true\n}\n")
+        self.commit("scrollers: flash on enter")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        base = self.git("rev-parse", "HEAD^").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda: subprocess.run(["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{base}..HEAD"],
+                                       cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(sweep().returncode, 0)
+        self.write("plans/cmux-next/sidebar-owner/2026-11-25-scrollers.md",
+                   f"- {first[:11]} scrollers (a595), no look change\n")
+        self.commit("plans: log the scroller commit")
+
+        logged = sweep()
+
+        self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
+
     def test_a_pull_request_sweep_warns_on_a_base_commit_and_errors_on_its_own(self):
         # 2026-10-29: two feat-cmux-next commits without the owner's record (#24073, #24295) put an ##[error] on
         # every pull request's checks, and next-autoland read it as the PR's own red (#27454). A pull request is
@@ -2091,7 +2145,7 @@ let package = Package(
         self.assertNotIn("::error", output)
         self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
         self.assertIn(on_base[:11], output)
-        self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("plans/cmux-next/sidebar-owner/", output)
         self.assertIn("no `Sidebar-Look:` trailer. Add", output, "the warning carries the whole finding")
 
         # The branch's push sweep (no --own-range) still fails on the same base commit.
@@ -2325,6 +2379,131 @@ mod tests {
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
+    # A file git reports as renamed is the same code, so its baseline rows follow it (scripts/cmux-next/
+    # baseline_renames.py). The hook judges a push against the INSTALLED baselines, which have rows for the old path
+    # only: 2026-11-24, acpmux's TUI moved into its own acpmux-tui crate with every row moved too, and the hook read
+    # each moved unwrap, state root and spawn as a new file's debt three times over. The carry is capped at the old
+    # row and at the push's own new row, so a move that adds one more is still refused.
+    MOVED_FROM = "cmux-tui/crates/fixture-a/src/lock.rs"
+    MOVED_TO = "cmux-tui/crates/fixture-b/src/lock.rs"
+    RUST_LOCK_UNWRAP_TWICE = RUST_LOCK_UNWRAP + """
+pub fn reset(snapshot: &Snapshot) {
+    *snapshot.state.lock().unwrap() = 0;
+}
+"""
+
+    def set_crash_unwraps(self, rows):
+        path = self.repo / "scripts/cmux-next/crash-safety-baseline.json"
+        data = json.loads(path.read_text())
+        unwraps = data.setdefault("rust", {}).setdefault("unwrap", {})
+        for crate, count in rows.items():
+            if count:
+                unwraps[crate] = count
+            else:
+                unwraps.pop(crate, None)
+        path.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
+
+    def move_a_crate_file_with_an_unwrap(self, source):
+        """A base whose fixture-a crate has one non-test lock().unwrap() and its baseline row, the hook installed from
+        it, then the file `git mv`d to the fixture-b crate holding SOURCE, with the row moved to fixture-b as SOURCE's
+        unwrap count."""
+        self.write(self.MOVED_FROM, self.RUST_LOCK_UNWRAP)
+        self.set_crash_unwraps({"fixture-a": 1})
+        self.commit("base: one lock().unwrap() in fixture-a")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        (self.repo / self.MOVED_TO).parent.mkdir(parents=True)
+        self.git("mv", self.MOVED_FROM, self.MOVED_TO)
+        self.write(self.MOVED_TO, source)
+        self.set_crash_unwraps({"fixture-a": 0, "fixture-b": source.count(".unwrap()")})
+        self.commit("moves lock.rs to fixture-b")
+
+    def test_a_renamed_crate_file_with_an_unwrap_passes(self):
+        self.move_a_crate_file_with_an_unwrap(self.RUST_LOCK_UNWRAP)
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("rust fixture-a: unwrap -> rust fixture-b: unwrap: 1 (moved with a renamed file)", output)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_a_renamed_crate_file_that_adds_an_unwrap_is_refused(self):
+        self.move_a_crate_file_with_an_unwrap(self.RUST_LOCK_UNWRAP_TWICE)
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the added unwrap must not reach origin")
+        self.assertIn(f"{self.MOVED_TO}:", output)
+        self.assertIn("unwrap", output)
+
+    def move_old_to_the_app(self, extra=""):
+        """`git mv` Old.swift (its base try!) within the Kit module, plus EXTRA lines in its struct."""
+        moved = f"{PKG}/Sources/CmuxNextKit/Renamed.swift"
+        self.git("mv", f"{PKG}/Sources/CmuxNextKit/Old.swift", moved)
+        if extra:
+            self.write(moved, OLD.replace('    func name()', extra + '    func name()'))
+        self.commit("moves Old.swift to the app")
+        return moved
+
+    def test_a_renamed_file_keeps_its_existing_findings(self):
+        # 2026-11-27: a695910bf8bb moved SleepySceneView.swift with its two raw font sizes, and the ast-grep layer
+        # read them as new: the base run never scanned the old path, the head's keyed the new one.
+        self.move_old_to_the_app()
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_renamed_file_that_adds_a_finding_is_refused(self):
+        moved = self.move_old_to_the_app('    let other = try! NSRegularExpression(pattern: "b+")\n')
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the added try! must not reach origin")
+        self.assertIn(f"{moved}:", output)
+
+    def move_the_scan_file(self, sites):
+        """install_with_scan_sites(2), then SCAN `git mv`d to another crate with SITES lines and its row moved."""
+        moved = "cmux-tui/crates/fixture-moved/src/scan.rs"
+        self.install_with_scan_sites(2)
+        (self.repo / moved).parent.mkdir(parents=True)
+        self.git("mv", self.SCAN, moved)
+        self.write(moved, self.scan_source(sites))
+        self.set_scan_row(0)
+        path = self.repo / "scripts/cmux-next/process-scan-baseline.tsv"
+        path.write_text(path.read_text() + f"{moved}\t{sites}\tremove\tfixture\n")
+        self.commit("moves scan.rs to another crate")
+        return moved
+
+    def test_a_renamed_file_keeps_its_ratchet_row(self):
+        moved = self.move_the_scan_file(2)
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn(f"process-scan-baseline.tsv: {moved} 0 -> 2 (carried across a rename)", output)
+
+    def test_a_renamed_file_that_adds_a_ratchet_site_is_refused(self):
+        moved = self.move_the_scan_file(3)
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the added site must not reach origin")
+        self.assertIn(moved, output)
+
     # Packages/iOS: of the scanners only the visible-only one (and the fixture host names) judge it, so the fixture
     # repo needs none of the macOS package scanners' data.
     EAGER = "Packages/iOS/CmuxFixture/Sources/CmuxFixture/EagerTable.swift"
@@ -2459,7 +2638,61 @@ mod tests {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
-            "keychain-no-prompt-baseline.tsv"})
+            "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
+
+    def test_classic_ids_baseline_takes_a_deleted_row(self):
+        # A push that moves a Classic cache root and deletes its classic-ids row was refused as "no longer has ...:
+        # delete its row" (the installed copy kept the row): now each tree reads its own lower row.
+        spec = importlib.util.spec_from_file_location("prepush_gate_classic_ids", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "classic-ids-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.commit("pushed classic ids: b.rs moved off Classic's cache, a.rs kept")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("a.rs\t.config/cmux/\t1\tmove\tx\nb.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.assertEqual(taken, [f'{name}: b.rs join("cmux") 1 -> 0 (row deleted)'])
+
+    def test_classic_ids_baseline_keys_old_and_trimmed_rows_the_same(self):
+        # cmux#55211 trims each classic-ids row's text (`com.cmuxterm.app"` -> `com.cmuxterm.app`, `.config/cmux/` ->
+        # `.config/cmux`, `join("cmux",` -> `join("cmux")`): the hook's installed old-form rows read the trimmed push
+        # as every row deleted and every hit new (~60 refused). Both forms now key the same; two old rows that trim
+        # to one share its count.
+        spec = importlib.util.spec_from_file_location("prepush_gate_classic_ids_trim", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "classic-ids-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "a.swift\tcom.cmuxterm.app\t2\tmove\tx\n"
+                   "b.swift\t.config/cmux\t1\tmove\tx\n"
+                   "c.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+        self.commit("pushed classic ids in the trimmed form: b.swift lost one of its two sites, d.rs fixed")
+        installed = self.root / "installed"
+        installed.mkdir()
+        old = ("a.swift\tcom.cmuxterm.app\"\t2\tmove\tx\n"
+               "b.swift\t.config/cmux\"\t1\tmove\tx\n"
+               "b.swift\t.config/cmux/\t1\tmove\tx\n"
+               "c.rs\tjoin(\"cmux\",\t1\tmove\tx\n"
+               "d.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+        (installed / name).write_text(old)
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "a.swift\tcom.cmuxterm.app\"\t2\tmove\tx\n"
+                         "b.swift\t.config/cmux\"\t1\tmove\tx\n"
+                         "c.rs\tjoin(\"cmux\",\t1\tmove\tx\n")
+        self.assertEqual(taken, [f"{name}: b.swift .config/cmux 1 -> 0 (row deleted)",
+                                 f'{name}: d.rs join("cmux") 1 -> 0 (row deleted)'])
+        self.assertEqual(gate.classic_ids_text('com.cmuxterm.app"'), "com.cmuxterm.app")
+        self.assertEqual(gate.classic_ids_text("Library/Caches/cmux/"), "Library/Caches/cmux")
+        self.assertEqual(gate.classic_ids_text('appendingPathComponent("cmux",'), 'appendingPathComponent("cmux")')
+        self.assertEqual(gate.classic_ids_text("/tmp/cmux-debug-$TAG.sock"), "/tmp/cmux-debug-$TAG.sock")
+        for text in ("com.cmuxterm.app", ".config/cmux", 'join("cmux")'):
+            self.assertEqual(gate.classic_ids_text(text), text)
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
@@ -2477,6 +2710,29 @@ mod tests {
         self.assertEqual((installed / name).read_text(), "# only shrinks\nA.swift: kept\n")
         self.assertEqual(taken, [f"{name}: B.swift: fixed (line removed)"])
         self.assertEqual(gate.LINE_BASELINES, (name,))
+
+    def test_a_renamed_file_carries_its_baseline_rows_and_lines(self):
+        # baseline_renames.py: a moved file's installed row and line follow it, capped at the old row and at the
+        # pushed copy's own row; a row the pushed copy did not move stays out.
+        spec = importlib.util.spec_from_file_location("prepush_gate_renamed_baselines", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        scan, lines = "process-scan-baseline.tsv", "concentric-containers-baseline.txt"
+        self.write(f"scripts/cmux-next/{scan}", "# path\tcount\nnew/a.rs\t2\tremove\tx\nnew/b.rs\t5\tremove\tx\n")
+        self.write(f"scripts/cmux-next/{lines}", "# only shrinks\nnew/C.swift: kept\n")
+        self.commit("pushed baselines: a.rs and C.swift moved with their rows, b.rs raised past its old row")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / scan).write_text("# path\tcount\nold/a.rs\t2\tremove\tx\nold/b.rs\t3\tremove\tx\n")
+        (installed / lines).write_text("# only shrinks\nold/C.swift: kept\n")
+        moved = {"new/a.rs": "old/a.rs", "new/b.rs": "old/b.rs", "new/C.swift": "old/C.swift"}
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed, moved)
+
+        self.assertEqual((installed / scan).read_text(), "# path\tcount\nnew/a.rs\t2\tremove\tx\nnew/b.rs\t3\tremove\tx\n")
+        self.assertEqual((installed / lines).read_text(), "# only shrinks\nnew/C.swift: kept\n")
+        self.assertIn(f"{scan}: new/b.rs 0 -> 3 (carried across a rename)", taken)
+        self.assertIn(f"{lines}: new/C.swift: kept (carried across a rename)", taken)
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -3654,7 +3910,7 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
 
 
 class MergeUpstreamRunTests(unittest.TestCase):
-    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    """2026-11-21: a merge push's gate took 798 s on a Linux workstation (the hook's 600 s limit): gate_own's run over the range
     the merge does not own ran every check again, whole-package dependency and surface material trees among them
     (293 s), though only the checks the push's own run found something in are ever read from it."""
 

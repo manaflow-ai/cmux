@@ -3,7 +3,6 @@
   "ops": {
     "account.add": "account.add",
     "acpmux.restart": "acpmux.restart",
-    "acpmux.restartStuck": "acpmux.restartStuck",
     "action.run": "action.run",
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",
@@ -24,6 +23,7 @@
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
+    "chat.cloudStartQueue": "chat.cloudStartQueue",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",
@@ -98,8 +98,15 @@
     "cloudMachine.prewarm": "cloudMachine.prewarm",
     "cloudMachine.recoveryList": "cloudMachine.recoveryList",
     "cloudMachine.resume": "cloudMachine.resume",
+    "cloudMachine.wakeHint": "cloudMachine.wakeHint",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "composer.copy.begin": "composer.copy.begin",
+    "composer.copy.cancel": "composer.copy.cancel",
+    "composer.copy.chunk": "composer.copy.chunk",
+    "composer.copy.finish": "composer.copy.finish",
+    "composer.copy.staged": "composer.copy.staged",
+    "customizations.menu": "customizations.menu",
     "designSelection.released": "designSelection.released",
     "diag.flicker": "diag.flicker",
     "dictation.audio": "dictation.audio",
@@ -112,6 +119,7 @@
     "dictation.start": "dictation.start",
     "dictation.stop": "dictation.stop",
     "dictation.toggle": "dictation.toggle",
+    "editors.list": "editors.list",
     "environment.list": "environment.list",
     "environment.remove": "environment.remove",
     "environment.save": "environment.save",
@@ -174,11 +182,13 @@
     "pane.checkpointAvailability": "pane.checkpointAvailability",
     "pane.clientReady": "pane.clientReady",
     "pane.commandAvailability": "pane.commandAvailability",
+    "pane.composerFilled": "pane.composerFilled",
     "pane.copyText": "pane.copyText",
     "pane.edit": "pane.edit",
     "pane.finishSound": "pane.finishSound",
     "pane.framePacing": "pane.framePacing",
     "pane.glass": "pane.glass",
+    "pane.inputEchoed": "pane.inputEchoed",
     "pane.launchSettle": "pane.launchSettle",
     "pane.moveToMachine": "pane.moveToMachine",
     "pane.noticeAction": "pane.noticeAction",
@@ -236,6 +246,7 @@
     "tab.open": "tab.open",
     "tab.typeAhead": "tab.typeAhead",
     "tips.state": "tips.state",
+    "transport.ack": "transport.ack",
     "transport.close": "transport.close",
     "transport.gesture": "transport.gesture",
     "transport.gesture.release": "transport.gesture.release",
@@ -259,6 +270,28 @@
     ],
     "composer.copy": [
       "items",
+      "text"
+    ],
+    "composer.copy.begin": [
+      "batch",
+      "batchToken",
+      "name",
+      "size"
+    ],
+    "composer.copy.cancel": [
+      "token"
+    ],
+    "composer.copy.chunk": [
+      "data",
+      "offset",
+      "token"
+    ],
+    "composer.copy.finish": [
+      "token"
+    ],
+    "composer.copy.staged": [
+      "items",
+      "order",
       "text"
     ],
     "environment.list": [],
@@ -305,6 +338,7 @@
       "urls"
     ],
     "link.openPath": [
+      "line",
       "path"
     ],
     "link.preview": [

@@ -40,7 +40,9 @@
 //! "deleted":N,"kept":N,"skipped":N,"bytes":N,"skipped_files":[{"path","kind","why"}],
 //! "skipped_counts":{KIND:N}}` (a pull adds `fast_forwarded` and `head`),
 //! exit 0; on failure `{"ok":false,"error":...,"error_code":...}` on stdout
-//! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`; a
+//! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`, and
+//! still writes every file that merged and names each file: see
+//! [`pull`]'s module docs; a
 //! full disk on the machine is `disk_full`), exit 1; bad usage exits 64. A
 //! push also prints its progress on stderr as JSON lines
 //! (`{"progress":{"files_done","files_total","bytes_done","bytes_total"}}`):
@@ -85,6 +87,9 @@ pub(crate) mod estimate;
 pub(crate) mod offload;
 pub(crate) mod project;
 pub(crate) mod project_back;
+mod project_hot;
+mod project_kept;
+pub(crate) mod project_pin;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -507,7 +512,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 1;
     }
     if action == Action::Pull {
-        return finish_pull(pull::pull(&socket, &local, &remote));
+        return finish_pull(pull::pull_per_file(&socket, &local, &remote));
     }
     match push(&socket, &local, &remote) {
         Ok(summary) => {
@@ -876,9 +881,10 @@ pub(super) fn delete_remote(socket: &Path, path: &str) -> anyhow::Result<()> {
 /// Prints a pull's answer line and returns its exit code.
 fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
     let line = match pulled {
+        // A per-file pull with a conflict applied the rest and says `"ok":false`.
         Ok(pull::Pulled::Done(summary)) => {
             println!("{summary}");
-            return 0;
+            return if summary.get("ok") == Some(&json!(false)) { 1 } else { 0 };
         }
         Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(

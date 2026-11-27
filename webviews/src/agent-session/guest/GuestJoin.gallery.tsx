@@ -25,6 +25,9 @@ const base: GuestPageProps = {
   socketUrl: "",
 };
 
+/** The longest name the room keeps (64 characters). */
+const LONG_NAME = "Maximiliana Alexandrovna Bartholomew-Featherstonehaugh Kowalczyk";
+
 const invite: GuestPageProps = { ...base, secret: undefined, invite: true };
 
 export default componentEntry<GuestPageProps>({
@@ -34,8 +37,8 @@ export default componentEntry<GuestPageProps>({
   keywords: ["multiplayer", "share", "guest", "invite link", "invite", "sign in"],
   covers: ["agent-session/guest/GuestPage.tsx"],
   height: 520,
-  // A phone browser at narrow.
-  widths: { narrow: 390 },
+  // A phone browser at narrow; the smallest phones (280, 320) at normal and wide.
+  widths: { narrow: 390, normal: 280, wide: 320 },
   pane: true,
   load: () => import("./GuestPage").then((module) => module.GuestPage),
   variants: {
@@ -54,6 +57,40 @@ export default componentEntry<GuestPageProps>({
       props: { ...base, whoami: () => Promise.resolve({ signedIn: true, name: "Priya Raman", avatarUrl: AVATAR }) },
       note: "Signed in to cmux: Join as the account, with its picture; Edit name opens the field.",
       play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as")),
+    },
+    "signed-in-talk": {
+      props: {
+        ...base,
+        whoami: () => Promise.resolve({ signedIn: true, name: "Priya Raman", avatarUrl: AVATAR, linkRole: "talk" }),
+      },
+      note: "Signed in on a link that lets the account send: the owner approves each message.",
+      play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as")),
+    },
+    "signed-in-view": {
+      props: {
+        ...base,
+        whoami: () => Promise.resolve({ signedIn: true, name: "Priya Raman", avatarUrl: AVATAR, linkRole: "view" }),
+      },
+      note: "Signed in on a view-only link: the page says the account will watch.",
+      play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as")),
+    },
+    "signed-in-long-name": {
+      props: { ...base, whoami: () => Promise.resolve({ signedIn: true, name: LONG_NAME }) },
+      note: "A 64-character account name (the most the room keeps): Join as cuts it at the end.",
+      play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as")),
+    },
+    "signed-in-expired": {
+      props: {
+        ...base,
+        redeem: () => Promise.resolve({ ok: false, error: "share.unauthorized" }),
+        whoami: () => Promise.resolve({ signedIn: true, name: "Priya Raman", avatarUrl: AVATAR }),
+      },
+      note: "The account's sign-in lapsed before Join: the page says so with a link to sign in again.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as"));
+        await ctx.click({ selector: ".guest-join__as" });
+        await ctx.waitFor(() => ctx.document.querySelector("[role='alert'] a"));
+      },
     },
     "signed-in-initials": {
       props: { ...base, whoami: () => Promise.resolve({ signedIn: true, name: "Tomás Ortega" }) },
@@ -97,7 +134,7 @@ export default componentEntry<GuestPageProps>({
       note: "Signed in with an account the owner did not invite.",
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Join" });
-        await ctx.waitFor(() => ctx.document.querySelector("[role='alert']"));
+        await ctx.waitFor(() => ctx.document.querySelector("[role='alert'] a"));
       },
     },
     "invite-signed-out": {

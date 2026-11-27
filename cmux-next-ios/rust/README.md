@@ -168,7 +168,12 @@ with a TURN server it offers only its relayed address and the path is
 dial fails at once (the backend relay frames are retired). `blockUdp`
 (debug "Block UDP", or `CMUX_MOBILE_DEV_BLOCK_UDP` in the environment) sends and
 accepts no plain UDP and skips TURN over UDP: WireGuard rides TURN over TLS
-on 443 (path `turnTls`). The path enum is `Direct`, `Turn`, `TurnTls`,
+on 443 (path `turnTls`). `proxyOnly` (debug "Proxy only",
+`CMUX_MOBILE_DEV_PROXY_ONLY`) blocks UDP too and lets TURN over TLS out only
+through the system's proxy; `dropWireguard` (debug "Drop WireGuard",
+`CMUX_MOBILE_DEV_DROP_WIREGUARD`) drops every WireGuard datagram over UDP while
+STUN still answers, so the link falls through to TURN over TLS
+(PROTOCOL.md "Corporate networks"). The path enum is `Direct`, `Turn`, `TurnTls`,
 `NoPath`.
 
 ## cmux-mobile-host
@@ -201,7 +206,7 @@ target/release/cmux-mobile-host
 | `CMUX_MOBILE_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
 | `CMUX_MOBILE_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `CMUX_MOBILE_AGENT_TAB_HOST` | The `agent_session.host` this Mac's app records on its own agent tabs (`install:<id>`). hostd sets it on a phone's `new-conversation-tab`. Unset refuses agent tabs from a phone. |
-| `CMUX_MOBILE_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session. Default `$CMUX_MOBILE_STATE_DIR/uploads`. |
+| `CMUX_MOBILE_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session (per phone for resumable uploads). Default `$CMUX_MOBILE_STATE_DIR/uploads`. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CMUX_MOBILE_ACPMUX_URL` / `CMUX_MOBILE_ACPMUX_TOKEN` override. |
 | `CMUX_MOBILE_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
 | `CMUX_MOBILE_PUSH=0` | Do not report agent events for push notifications. By default hostd watches acpmux (`_acpmux/watch`) and reports each new question, permission request and finished turn to `POST /v1/devices/:deviceId/notify` with labels only (kind, agent name, folder name, ids; never prompts, output, tool arguments or paths). See `src/notify.rs`. |
@@ -264,9 +269,13 @@ Services (default deny, `unknown_service` otherwise):
   required to stay inside a `CMUX_MOBILE_FILE_ROOTS` root; streams the regular file
   of any size in bounded chunks, then closes with `eof`.
 - `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
-  and answers `{"path","size"}`. The file goes into
+  and answers `{"path","size"}`. Adding `upload_id` and optional decimal
+  `offset` resumes a partial upload with newline-delimited `have` and `ack`
+  replies. The file goes into
   `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of
   the daemon's tabs or inside a root, else into `CMUX_MOBILE_UPLOADS_DIR/<session>/`.
+  Resumable uploads publish to a stable device folder in place of the session, and keep their partial
+  files in a `.parts` folder beside it, keyed by `upload_id`, so they survive a redial.
   It never overwrites. The name is made safe. A refusal is answered
   `{"error","message"}`. See `../SECURITY.md`.
 

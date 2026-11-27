@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.terminalCellBackgrounds.help" : {
+      "comment" : "Settings search help for Terminal Cell Backgrounds.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كيف تُرسم خلفيات الخلايا التي يلونها البرنامج (شريط رسائل واجهة نصية، سطر الحالة) فوق نافذة شفافة أو خلفية سطح المكتب: معتمة (الافتراضي)، بشفافية النافذة (window)، بتلاشي الرماديات القريبة من الخلفية إلى صبغة (tint)، أو كلاهما (tintWindow)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kako se pozadine ćelija koje boji program (traka poruka TUI-ja, statusna linija) crtaju preko prozirnog prozora ili pozadine: neprozirno (zadano), uz prozirnost prozora (window), sive blizu pozadine blijede u nijansu (tint), ili oboje (tintWindow)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan cellebaggrunde, som et program maler (en TUI's beskedbånd, statuslinje), tegnes over et gennemsigtigt vindue eller skrivebordsbillede: uigennemsigtigt (standard), med vinduets gennemsigtighed (window), grå nær baggrunden toner over i en toning (tint), eller begge (tintWindow)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie von Programmen gefärbte Zellhintergründe (das Nachrichtenband einer TUI, eine Statuszeile) über einem durchscheinenden Fenster oder Hintergrundbild gezeichnet werden: deckend (Standard), mit der Deckkraft des Fensters (window), hintergrundnahe Grautöne verblassen zu einer Tönung (tint), oder beides (tintWindow)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cómo se dibujan los fondos de celda que pinta un programa (la banda de mensajes de una TUI, una línea de estado) sobre una ventana translúcida o el fondo de pantalla: opacos (predeterminado), con la opacidad de la ventana (window), con los grises cercanos al fondo atenuados a un tinte (tint), o ambos (tintWindow)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Comment les arrière-plans de cellules peints par un programme (bandeau de messages d’une TUI, ligne d’état) s’affichent sur une fenêtre translucide ou un fond d’écran : opaques (par défaut), à l’opacité de la fenêtre (window), gris proches du fond estompés en teinte (tint), ou les deux (tintWindow)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Come vengono disegnati gli sfondi delle celle dipinti da un programma (la banda dei messaggi di una TUI, una riga di stato) su una finestra traslucida o uno sfondo: opachi (predefinito), con l’opacità della finestra (window), con i grigi vicini allo sfondo sfumati in una tinta (tint), o entrambi (tintWindow)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "プログラムが塗るセル背景（TUIのメッセージ帯やステータス行）を、半透明のウインドウや壁紙の上にどう描くか：不透明（デフォルト）、ウインドウの不透明度で（window）、背景に近いグレーをティントへフェード（tint）、またはその両方（tintWindow）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបដែលផ្ទៃខាងក្រោយក្រឡាដែលកម្មវិធីលាបពណ៌ (បន្ទះសារ TUI បន្ទាត់ស្ថានភាព) គូរលើបង្អួចថ្លា ឬផ្ទាំងរូបភាព៖ ស្រអាប់ (លំនាំដើម) តាមភាពស្រអាប់បង្អួច (window) ពណ៌ប្រផេះជិតផ្ទៃខាងក្រោយរសាត់ទៅជាពណ៌លាប (tint) ឬទាំងពីរ (tintWindow)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "프로그램이 칠한 셀 배경(TUI의 메시지 띠, 상태 줄)을 반투명 윈도우나 배경화면 위에 그리는 방식: 불투명(기본값), 윈도우 불투명도로(window), 배경에 가까운 회색을 틴트로 흐리게(tint), 또는 둘 다(tintWindow)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan cellebakgrunner som et program maler (en TUI-s meldingsbånd, statuslinje) tegnes over et gjennomsiktig vindu eller bakgrunnsbilde: ugjennomsiktig (standard), med vinduets gjennomsiktighet (window), grått nær bakgrunnen tones over til en toning (tint), eller begge (tintWindow)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak tła komórek malowane przez program (pasek wiadomości TUI, wiersz stanu) są rysowane na półprzezroczystym oknie lub tapecie: nieprzezroczyste (domyślnie), z przezroczystością okna (window), szarości bliskie tłu przechodzą w odcień (tint), lub oba (tintWindow)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Como os fundos de célula pintados por um programa (a faixa de mensagens de uma TUI, uma linha de status) são desenhados sobre uma janela translúcida ou papel de parede: opacos (padrão), com a opacidade da janela (window), com cinzas próximos ao fundo esmaecendo para uma tonalidade (tint), ou ambos (tintWindow)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Как фон ячеек, закрашенный программой (полоса сообщений TUI, строка состояния), рисуется поверх полупрозрачного окна или обоев: непрозрачно (по умолчанию), с прозрачностью окна (window), серые оттенки рядом с фоном растворяются в оттенок (tint), или оба варианта (tintWindow)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "วิธีวาดพื้นหลังเซลล์ที่โปรแกรมระบายสี (แถบข้อความของ TUI แถบสถานะ) บนหน้าต่างโปร่งแสงหรือภาพพื้นหลัง: ทึบ (ค่าเริ่มต้น) ตามความทึบของหน้าต่าง (window) สีเทาที่ใกล้พื้นหลังจางเป็นสีอ่อน (tint) หรือทั้งสองอย่าง (tintWindow)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir programın boyadığı hücre arka planlarının (bir TUI'nin mesaj bandı, durum satırı) yarı saydam bir pencere veya duvar kâğıdı üzerinde nasıl çizileceği: opak (varsayılan), pencerenin opaklığında (window), arka plana yakın griler bir renk tonuna solar (tint), ya da ikisi birden (tintWindow)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Як тло клітинок, зафарбоване програмою (смуга повідомлень TUI, рядок стану), малюється поверх напівпрозорого вікна чи шпалер: непрозоро (типово), з прозорістю вікна (window), сірі відтінки біля тла розчиняються у відтінок (tint), або обидва (tintWindow)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cách vẽ nền ô do chương trình tô (dải tin nhắn của TUI, dòng trạng thái) trên cửa sổ trong mờ hoặc hình nền: đục (mặc định), theo độ mờ của cửa sổ (window), các màu xám gần nền nhạt dần thành sắc màu (tint), hoặc cả hai (tintWindow)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "程序绘制的单元格背景（TUI 的消息带、状态行）在半透明窗口或墙纸上的绘制方式：不透明（默认）、按窗口不透明度（window）、接近背景的灰色渐隐为着色（tint），或两者兼有（tintWindow）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "程式繪製的儲存格背景（TUI 的訊息帶、狀態列）在半透明視窗或桌布上的繪製方式：不透明（預設）、依視窗不透明度（window）、接近背景的灰色漸隱為著色（tint），或兩者皆有（tintWindow）。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

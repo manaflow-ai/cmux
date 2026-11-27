@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
+import { buildLocalGuide, buildNextDocsFullText } from "../app/lib/next-docs-text";
+import { NEXT_START_MARKDOWN_PATH, NEXT_START_MARKDOWN_URL, nextStartMarkdown } from "../data/next-docs/markdown";
 import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
@@ -123,13 +125,25 @@ describe("cmux-next docs", () => {
     const blocks = body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
     const url = `https://cmux.com${nextDocPublicPath("start")}.md`;
     expect(blocks).toHaveLength(3);
-    expect(blocks[0]).toContain(url);
+    // The pasted line names the repo copy, which serves today; the nightly docs zone is built from main and has no
+    // cmux-next pages, so cmux.com/docs/nightly/next/start.md answered 404 to every agent the old line sent there.
+    expect(blocks[0]).toContain(NEXT_START_MARKDOWN_URL);
+    expect(blocks[0]).not.toContain("cmux.com/docs/nightly/next");
     expect(blocks.slice(1)).toEqual([promptOf("Start a chat on cmux Cloud")!, promptOf("Use cmux from an iPhone")!]);
     // The heading the entry line and llms.txt both name.
     expect(body).toContainEqual({ h2: "If you are an agent" });
     const llms = buildLlmsText("https://cmux.com");
     expect(llms.indexOf(url)).toBeGreaterThan(-1);
     expect(llms.indexOf(url)).toBeLessThan(llms.indexOf("## What cmux is"));
+  });
+
+  // docs/cmux-next/start.md is what the pasted setup line sends an agent to: it must be the Start page as it is now.
+  test("docs/cmux-next/start.md is the Start page, regenerated", () => {
+    const committed = readFileSync(join(repo, NEXT_START_MARKDOWN_PATH), "utf8");
+    // Stale: run `bun web/scripts/export-next-start.ts` and commit docs/cmux-next/start.md.
+    expect(committed).toBe(nextStartMarkdown());
+    expect(committed).toContain("## If you are an agent");
+    expect(NEXT_START_MARKDOWN_URL.endsWith(`/feat-cmux-next/${NEXT_START_MARKDOWN_PATH}`)).toBe(true);
   });
 
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
@@ -145,6 +159,10 @@ describe("cmux-next docs", () => {
       "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault", "cmux setup mcp",
       "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
       "cmux server down", "cmux server logs",
+      // acpmux's sessions and daemon (cmux-tui/crates/acpmux/docs/cli-sessions.md, cli-daemon.md),
+      // and `cmux device` (src/devices/mod.rs).
+      "cmux acp ls", "cmux acp new", "cmux acp send", "cmux acp wait", "cmux acp last", "cmux acp daemon",
+      "cmux device list", "cmux device doctor", "cmux device revoke",
       // The Rust CLI's sign-in and chat commands, as cmux setup's cloud_chat prompt writes them
       // (docs/chief-setup-prompts.md), and classic's machine verbs.
       "cmux login", "cmux whoami", "cmux chat --on", "cmux vm pause",
@@ -160,6 +178,17 @@ describe("cmux-next docs", () => {
       }
     }
     expect(unknown).toEqual([]);
+  });
+
+  // The architecture pages point at the code of each part. A move or rename of that code would
+  // leave the page pointing at nothing, so every cited path must still exist.
+  test("every repository path a hand-written page cites exists", () => {
+    const cited = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files.map(({ path }) => ({ slug: page.slug, path })) : [])),
+    );
+    expect(cited.length).toBeGreaterThan(0);
+    const missing = cited.filter(({ path }) => path.startsWith("/") || path.includes("..") || !existsSync(join(repo, path)));
+    expect(missing.map(({ slug, path }) => `${slug}: ${path}`)).toEqual([]);
   });
 
   test("the sidebar lists every page once, in nightly only", () => {
@@ -184,6 +213,32 @@ describe("cmux-next docs", () => {
     }
     expect(nextDocPublicPath("getting-started")).toBe("/docs/nightly/next");
     expect(nextDocPublicPath("own-keys")).toBe("/docs/nightly/next/own-keys");
+  });
+
+  // Agents read the docs more than people do: llms-full.txt gives them every page in one fetch.
+  test("llms-full.txt carries every page's headings, commands and cited code paths", () => {
+    const full = buildNextDocsFullText("https://cmux.com");
+    expect(buildLlmsText("https://cmux.com")).toContain("https://cmux.com/llms-full.txt");
+    expect(resolveAgentPageVariant("/llms-full.txt")).toBeNull();
+    for (const page of nextDocPages) {
+      expect(full).toContain(`# ${page.title}\n\nURL: https://cmux.com${nextDocPublicPath(page.slug)}`);
+      for (const block of page.body) {
+        if ("h2" in block) expect(full).toContain(`## ${block.h2}`);
+        if ("code" in block) expect(full).toContain(block.code);
+        if ("files" in block) for (const file of block.files) expect(full).toContain(`[\`${file.path}\`]`);
+      }
+    }
+  });
+
+  // The cmux CLI embeds docs/cmux-next/guide/pages.json (`cmux docs guide`), so agents read the
+  // pages with no network. The files are generated; this fails when they are stale.
+  test("the local guide in docs/cmux-next/guide is fresh against the pages", () => {
+    const expected = buildLocalGuide();
+    const dir = join(repo, "docs/cmux-next/guide");
+    expect(readdirSync(dir).sort()).toEqual(Object.keys(expected).sort());
+    for (const [name, text] of Object.entries(expected)) expect([name, readFileSync(join(dir, name), "utf8")]).toEqual([name, text]);
+    expect(expected["architecture.md"]).toContain("](acpmux.md)");
+    expect(expected["llms-full.txt"]).not.toContain("](https://cmux.com/docs");
   });
 
   test("Markdown variants resolve on cmux.com and in the nightly zone", () => {
