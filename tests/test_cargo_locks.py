@@ -129,6 +129,23 @@ class CargoLocksTests(unittest.TestCase):
         self.assertNotIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
         self.assertEqual(self.locks("check").returncode, 0)
 
+    def test_an_optional_dependency_the_lock_lists_is_not_an_orphan(self):
+        """ffi takes a only behind a feature; the lock lists a (cargo locks every feature's dependencies), and
+        cargo metadata's default-feature resolve leaves it out. cmux#57506 called it an orphan and refused every push
+        into cmux-next-ios/rust (cmux-mobile-tailnet's `tsnet`) and cmux-tui (wasmtime, dhat)."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a", optional = true }\n\n[features]\nwith-a = ["dep:a"]\n'
+                   '\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a behind a feature")
+        self.assertIn('name = "a"', (self.repo / "ffi/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("stale", result.stdout)
+
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
 
