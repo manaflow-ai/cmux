@@ -626,6 +626,8 @@ impl Peer {
     /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
     pub fn set_vm_boundary(&self, on: bool) {
         self.vm_boundary.store(on, Ordering::SeqCst);
+        // A peer whose copies this daemon keeps stays dialed (`peer_demand.rs` `closes_idle`).
+        self.demand_changed();
     }
 
     /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
