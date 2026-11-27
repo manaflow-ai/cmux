@@ -33,22 +33,8 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export type AgentCallLook = "report" | "stacked" | "preview";
 
 export function AgentCallCard({ call, tool, look = "report" }: { call: AgentCall; tool: Tool; look?: AgentCallLook }) {
-  const t = useT();
   const harness = useContext(SubagentHarnessContext) ?? "claude";
-  const now = usePageNow(call.running);
   const findItems = useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]);
-  const state = call.running ? "working" : call.failed ? "failed" : "done";
-  const status = (
-    <span className="cv-agentcall__status" data-state={state} title={t(SUBSESSION_STATE_LABEL[state])}>
-      {call.running && <Spinner size={12} loading />}
-      {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
-      <span className="cv-agentcall__status-text">
-        {[call.running ? "" : t(SUBSESSION_STATE_LABEL[state]), ...statusParts(t, call, tool, now)]
-          .filter(Boolean)
-          .join(" · ")}
-      </span>
-    </span>
-  );
   const label = (
     <>
       {call.type && <span className="cv-agentcall__type">{call.type}</span>}
@@ -65,11 +51,29 @@ export function AgentCallCard({ call, tool, look = "report" }: { call: AgentCall
       // The harness's mark at the tool rows' icon size, as a sub-session's line draws it (AgentCard.tsx).
       icon={<AgentIdentity harness={harness} tone={agentTone(tool.id)} size={14} fallback={SUBAGENT_FALLBACK} />}
       label={label}
-      status={status}
+      status={<AgentCallStatus call={call} tool={tool} />}
       below={preview}
     >
       <AgentCallBody call={call} tool={tool} look={look} />
     </DisclosureRow>
+  );
+}
+
+// Only the elapsed status wakes each second; the retained prompt/report is independent of time.
+function AgentCallStatus({ call, tool }: { call: AgentCall; tool: Tool }) {
+  const t = useT();
+  const now = usePageNow(call.running);
+  const state = call.running ? "working" : call.failed ? "failed" : "done";
+  return (
+    <span className="cv-agentcall__status" data-state={state} title={t(SUBSESSION_STATE_LABEL[state])}>
+      {call.running && <Spinner size={12} loading />}
+      {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
+      <span className="cv-agentcall__status-text">
+        {[call.running ? "" : t(SUBSESSION_STATE_LABEL[state]), ...statusParts(t, call, tool, now)]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+    </span>
   );
 }
 

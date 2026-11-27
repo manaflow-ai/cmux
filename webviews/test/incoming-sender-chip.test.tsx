@@ -379,8 +379,12 @@ test("an unlisted sender on another machine opens the session acpmux resolves, b
       "gcp-agent-lane-1/side-lane": remote,
     });
     expect(open).not.toBeNull();
-    // Asked once the page is idle; answered, a click opens the session by its id.
-    await act(async () => void (await refs.resolveSessionRef("gcp-agent-lane-1/side-lane")));
+    // Asked once the page is idle; the next frame publishes the answer to visible chips.
+    // Once drawn, a click opens the session by its id.
+    await act(async () => {
+      await refs.resolveSessionRef("gcp-agent-lane-1/side-lane");
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
     await act(async () => open!.click());
     expect(queries).toEqual(["gcp-agent-lane-1/side-lane"]);
     expect(opened).toEqual([remote.sessionId]);
@@ -436,7 +440,10 @@ test("a self-declared sender is asked for and opened by the name it gave, never 
     );
     await act(async () => open!.click());
     expect(opened).toEqual([label]);
-    await act(async () => void (await refs.resolveSessionRef(label)));
+    await act(async () => {
+      await refs.resolveSessionRef(label);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
     expect(queries).toEqual([label]);
     await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!.click());
     expect(opened).toEqual([label, remote.sessionId]);

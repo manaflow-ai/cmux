@@ -12,6 +12,7 @@ import { StatusVerbContext } from "../statusVerbs";
 import { WaitingOnContext } from "./waitingOn";
 import { setChatDisplay } from "../chatDisplay";
 import { WRITING_MS } from "./thinkingModel";
+import { LiveUpdatesContext } from "../../../ui/liveUpdates";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -309,6 +310,7 @@ function handPulse(line: Partial<AcpmuxRow>, heard?: number) {
   const listeners = new Set<() => void>();
   let current = { id: "thinking-live", version: 1, at: 0, kind: "thinking", ...line } as AcpmuxRow;
   return {
+    listeners: () => listeners.size,
     line: () => current,
     heard: () => heard,
     subscribe(listener: () => void) {
@@ -359,6 +361,43 @@ test("a late draw bringing a key the pulse already heard does not start its Writ
     expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
     act(() => root!.render(line("a:2")));
     expect(container.querySelector(".cv-worked")?.textContent).not.toContain("Writing");
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a retained live line releases pulse listeners and its quiet timer, then reads the current pulse on reveal", () => {
+  jest.useFakeTimers();
+  try {
+    let clock = 1_000_000;
+    const now = () => clock;
+    const pulse = handPulse({ quietKey: "a:1", quietAt: clock });
+    const show = (active: boolean) =>
+      root!.render(
+        <LiveUpdatesContext.Provider value={active}>
+          <Thinking liveState="writing" quietKey="a:1" quietAt={1_000_000} now={now} pulse={pulse} />
+        </LiveUpdatesContext.Provider>,
+      );
+    act(() => show(true));
+    expect(pulse.listeners()).toBe(2);
+    expect(container.textContent).toContain("Writing");
+    act(() => show(false));
+    expect(pulse.listeners()).toBe(0);
+    const retained = container.textContent;
+    act(() => {
+      clock += WRITING_MS * 2;
+      pulse.emit({ quietKey: "a:2", quietAt: clock }, clock);
+      jest.advanceTimersByTime(WRITING_MS * 2);
+    });
+    expect(container.textContent).toBe(retained);
+    act(() => show(true));
+    expect(pulse.listeners()).toBe(2);
+    expect(container.textContent).toContain("Writing");
+    act(() => {
+      clock += WRITING_MS + 1;
+      jest.advanceTimersByTime(WRITING_MS + 1);
+    });
+    expect(container.textContent).not.toContain("Writing");
   } finally {
     jest.useRealTimers();
   }

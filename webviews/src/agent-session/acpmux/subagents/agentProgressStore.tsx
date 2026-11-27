@@ -3,6 +3,8 @@ import { createContext, useCallback, useContext, useSyncExternalStore } from "re
 import { usePaneLanguage, useT } from "../i18n";
 import type { Subagent } from "./subagentFold";
 import { subagentProgress } from "./subagentProgress";
+import { frameNotification } from "../../../ui/frameNotifications";
+import { useLiveUpdates } from "../../../ui/liveUpdates";
 
 import { AgentProgressStore } from "./agentProgressSource";
 export { AgentProgressStore } from "./agentProgressSource";
@@ -14,16 +16,29 @@ export const AgentProgressContext = createContext<AgentProgressStore | undefined
 export function useAgentProgress(agent?: Subagent): string | undefined {
   const store = useContext(AgentProgressContext);
   const id = agent?.id;
-  const subscribe = useCallback(
-    (notify: () => void) => (store && id !== undefined ? store.subscribe(id, notify) : () => {}),
-    [store, id],
-  );
-  const snapshot = useCallback(
-    () => (store && id !== undefined ? store.get(id) : (agent ?? EMPTY)),
-    [store, id, agent],
-  );
-  const progress = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const active = useLiveUpdates();
   const t = useT();
   const language = usePaneLanguage();
-  return agent ? subagentProgress(t, language, progress, { usage: false }).join(" · ") : undefined;
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      if (!active || !store || id === undefined) return () => {};
+      const frame = frameNotification(notify);
+      const stop = store.subscribe(id, frame.schedule);
+      return () => {
+        stop();
+        frame.cancel();
+      };
+    },
+    [active, store, id],
+  );
+  // The row draws workflow counts, not token/tool usage. A new source object with the same
+  // displayed text must not reconcile the row (twenty busy agents otherwise do this per event).
+  const snapshot = useCallback(
+    () =>
+      id === undefined
+        ? undefined
+        : subagentProgress(t, language, store ? store.get(id) : (agent ?? EMPTY), { usage: false }).join(" · "),
+    [store, id, agent, t, language],
+  );
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

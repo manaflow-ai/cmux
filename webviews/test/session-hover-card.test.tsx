@@ -466,9 +466,10 @@ test("an agent link that resolves while its card is up shows the chat's card in 
     await act(async () => {
       answer({ session: { sessionId: ID } });
       await Promise.resolve();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
     expect(link.getAttribute("data-open-session")).toBe(ID);
-    // In the same act: the site's card is gone and the chat's is up, with no fade in.
+    // On the delivered frame: the site's card is gone and the chat's is up, with no fade in.
     expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
     const card = rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
     expect(card?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
