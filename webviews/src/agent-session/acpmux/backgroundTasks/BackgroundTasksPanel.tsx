@@ -41,12 +41,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { formatDuration, spanDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import { useOwnLog, type OwnLogChat, type ReadOwnLog } from "../subagents/subagentOwnLog";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
@@ -72,7 +72,12 @@ const StopsAgents = createContext(true);
 
 /// How a workflow agent's transcript is read (App.tsx `readWorkflowAgent`); unset, a workflow's
 /// agents are listed but open nothing.
-export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
+export type WorkflowReads = {
+  sessionId?: string;
+  chat: string;
+  connection: string;
+  read: TranscriptRead;
+};
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
 
 /// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
@@ -486,29 +491,10 @@ function PanelFrame({
 /// Elapsed while it runs; once ended, its duration ("856ms" under a second, spanDuration), or
 /// nothing when its end time is unknown (a command known only from the transcript) or it was
 /// stamped at one moment, never a time that keeps counting or a floored "0s".
-function BackgroundElapsed({
-  t,
-  from,
-  to,
-  running,
-  clock = false,
-}: {
-  t: Translate;
-  from?: number;
-  to?: number;
-  running: boolean;
-  clock?: boolean;
-}): ReactNode {
-  const now = useNow(running);
-  const text =
-    from === undefined
-      ? ""
-      : running
-        ? formatDuration(Math.max(0, now - from))
-        : to === undefined
-          ? ""
-          : spanDuration(t, to - from);
-  return clock ? <Clock className="acpmux-bg__time" text={text} /> : text || undefined;
+function backgroundTime(t: Translate, from?: number, to?: number, running = false, clock?: string): ReactNode {
+  if (running && from !== undefined) return <Elapsed since={from} clock={clock} />;
+  const text = from !== undefined && to !== undefined ? spanDuration(t, to - from) : undefined;
+  return clock ? <Clock className={clock} text={text ?? ""} /> : text;
 }
 
 function GroupBlock({
@@ -565,7 +551,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <BackgroundElapsed t={t} from={group.startedAt} to={group.endedAt} running={live} clock />
+          backgroundTime(t, group.startedAt, group.endedAt, live, "acpmux-bg__time")
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -597,7 +583,9 @@ function GroupBlock({
 /// "39 tasks, 3 failed", the failures in the danger colour.
 function Counts({ total, failed }: { total: number; failed: number }) {
   const t = useT();
-  const tasks = t(total === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", { n: total });
+  const tasks = t(total === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", {
+    n: total,
+  });
   if (failed === 0) return <span>{tasks}</span>;
   return (
     <span>
@@ -716,11 +704,7 @@ function TaskRow({
         toolCallId={task.toolCallId}
         processId={task.processId}
         state={task.state}
-        time={
-          task.startedAt !== undefined && (task.state === "running" || task.endedAt !== undefined) ? (
-            <BackgroundElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} />
-          ) : undefined
-        }
+        time={backgroundTime(t, task.startedAt, task.endedAt, task.state === "running")}
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
         openAt={openAt}
@@ -743,7 +727,7 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <BackgroundElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} clock />
+      {backgroundTime(t, task.startedAt, task.endedAt, task.state === "running", "acpmux-bg__time")}
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );
@@ -767,7 +751,9 @@ function StopSlot({
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
   // retry-prompt-ok: stopping a task is a destructive action the person chooses, so a failed stop is theirs to try again.
-  const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
+  const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", {
+    name,
+  });
   return (
     <span className="acpmux-bg__stop-slot">
       <Button

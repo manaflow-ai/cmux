@@ -29,7 +29,10 @@ import {
   STATE_LABEL,
   ticking,
   STACK,
+  subagentTime,
+  useNow,
 } from "./subagentGroupModel";
+import { Clock } from "../../../ui/Typography";
 import { Elapsed } from "./Elapsed";
 import { intl } from "../../../ui/intl";
 
@@ -194,17 +197,8 @@ function GroupElapsed({ agents }: { agents: readonly Subagent[] }) {
 }
 
 function SubagentElapsed({ agent }: { agent: Subagent }) {
-  const live = ticking(agent);
-  // Preserve the tray's no-time state for an ended run whose duration is still under one second.
-  if (!live && agent.endedAt !== undefined && Math.max(0, agent.endedAt - agent.startedAt) < 1000) return null;
-  return (
-    <Elapsed
-      since={agent.startedAt}
-      until={live ? undefined : agent.endedAt}
-      ended={!live && agent.endedAt === undefined}
-      clock="cv-subagent__time"
-    />
-  );
+  const time = subagentTime(agent, useNow(ticking(agent)));
+  return time ? <Clock className="cv-subagent__time" text={time} /> : null;
 }
 
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude

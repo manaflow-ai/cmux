@@ -13,8 +13,7 @@ import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosu
 import { ChevronRight } from "../conversation/icons";
 import { useT } from "../i18n";
 import { AgentCard } from "./AgentCard";
-import { running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, ticking } from "./subagentGroupModel";
-import { Elapsed } from "./Elapsed";
+import { running, STATE_LABEL, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { SubsessionContext, useSenderChat, type SubsessionState } from "./subsessions";
 
@@ -57,13 +56,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       disclosureChevron={false}
       disclosureKey={`agent-run:${agent.id}`}
       state={cardState(agent)}
-      time={
-        <Elapsed
-          since={agent.startedAt}
-          until={ticking(agent) ? undefined : agent.endedAt}
-          ended={!ticking(agent) && agent.endedAt === undefined}
-        />
-      }
+      time={agent}
       stateLabel={stopped(agent.state) ? t(STATE_LABEL[agent.state]) : undefined}
       onOpen={openChat ?? (openRun ? () => openRun(agent.id) : undefined)}
       openLabel={openChat ? undefined : t("bgTask.showOutput")}
