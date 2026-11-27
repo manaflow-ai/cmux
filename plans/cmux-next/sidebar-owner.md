@@ -2844,12 +2844,6 @@ Commits logged without a trailer (the card above):
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
 
-- 2026-11-20 (Claude capacity gate): Leo approved with “Yes, do both”. A workspace with Claude prompts
-  waiting for gateway capacity shows “Waiting for capacity (N)” in the existing secondary text style.
-  The title keeps its line. A compact row adds a detail line for the hold and returns to its usual height
-  when the count clears. The label is translated in the sidebar catalog, with a locale-formatted count.
-  The regression test is `SidebarCapacityStatusTests`.
-
 - 2026-11-17 (Lawrence, via Leo: "also for customization make it possible to turn out sidebar into [another app]'s
   sidebar"): two opt-in settings and a theme file restyle the sidebar into a minimal session list, with no code
   change. `sidebar.workspaceRow.statusPlacement` `leading` draws the row's status mark (badge, agent mark or spinner)

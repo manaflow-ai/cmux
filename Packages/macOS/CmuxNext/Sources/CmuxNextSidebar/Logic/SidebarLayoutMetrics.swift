@@ -237,7 +237,7 @@ nonisolated extension SidebarLayoutOptions {
         if ws.capacityWaitCount > 0 {
             let count = ws.capacityWaitCount.formatted()
             content.detail = String(localized: "sidebar.workspace.waitingForCapacity",
-                                    defaultValue: "Waiting for capacity (\(count))", bundle: .module)
+                                    defaultValue: "Waiting for capacity (\(count))", bundle: .localizedModule)
         } else if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             // Ordinary agent activity uses a detail line only when the row already has one.
             (content.now, content.detail) = (step, step)

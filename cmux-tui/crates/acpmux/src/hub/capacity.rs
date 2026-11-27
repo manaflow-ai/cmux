@@ -99,8 +99,10 @@ impl Route {
 
     async fn probe(&self) -> Result<(), u64> {
         let fallback = || now_ms().saturating_add(DEFAULT_RETRY_MS);
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        // The person set this gateway (ANTHROPIC_BASE_URL or SUBROUTER2_BASE_URL): the gate lets it through
+        // (docs/privacy.md "hosts you name").
+        cmux_egress::allow_named(self.url.as_str());
+        let client = cmux_egress::client_builder("acpmux::capacity_probe")
             .redirect(reqwest::redirect::Policy::none())
             .timeout(PROBE_TIMEOUT)
             .build()
