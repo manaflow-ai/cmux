@@ -172,6 +172,8 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-extension-author/**"
+      - "schemas/motion-scale/motion-scale.json"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
@@ -205,6 +207,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -363,6 +366,8 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "skills/cmux-extension-author/**"
+      - "schemas/motion-scale/motion-scale.json"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
@@ -396,6 +401,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
   workflow_dispatch:
 
