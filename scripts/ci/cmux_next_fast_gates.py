@@ -229,13 +229,13 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
 
 def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
     """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
-    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--refmap=", how, remote, *wants, check=False)
+    result = git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", DEEPEN_FILTER, "--refmap=", how, remote, *wants, check=False)
     if result.returncode == 0:
         return
     if "pack-objects" not in result.stderr:
         raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
     log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
-    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, "--refmap=", how, remote, *wants)
+    git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", DEEPEN_FALLBACK_FILTER, "--refmap=", how, remote, *wants)
 
 
 def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
@@ -289,9 +289,9 @@ def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
     true merge base."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
     if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
-        git(repo, "fetch", "--no-tags", "--quiet", remote, *refspecs)
+        git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", remote, *refspecs)
         return
-    git(repo, "fetch", "--no-tags", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
+    git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
     deepen(repo, remote, refspecs, HEAD_REF, base)
 
 
@@ -543,6 +543,37 @@ def run_gate_batch(lanes: list[list[tuple[str, list[str]]]], repo: Path, deadlin
     return results
 
 
+def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
+    """Remove temp folders PREFIX* whose owner process is gone (a run killed by SIGKILL or a timeout never reached its
+    cleanup; a lane VM's acpmux session TMPDIR keeps them). No .owner-pid: judged by age. Same sweep as
+    scripts/web_lint_prepush.py's sweep_orphan_holders."""
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / ".owner-pid").read_text().strip())
+            try:
+                os.kill(owner, 0)
+                dead = False
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                dead = False
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -552,7 +583,9 @@ def run(args: argparse.Namespace) -> int:
     if not merge:
         log(f"fast-gates: --merge {args.merge!r} is not a commit in this checkout")
         return 2
+    sweep_dead_holders("fast-gates-base-")
     holder = Path(tempfile.mkdtemp(prefix="fast-gates-base-"))
+    (holder / ".owner-pid").write_text(str(os.getpid()))
     rows: list[tuple[str, str, float]] = []
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:

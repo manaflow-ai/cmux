@@ -27,7 +27,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-tooling-tests-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-tooling-tests-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -592,6 +594,14 @@ jobs:
         id: tt-tip-test-compile
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tip-test-compile ')) }}
         run: python3 tests/test_ci_tip_test_compile.py
+
+      # The step table's rules (ci/steps.toml against the workflows it carries, pr-pipeline.yml, web_subareas.py). It ran
+      # only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips (ci-guard-group runs on the push), so
+      # a tt- step with no shard line (#56816) and subarea paths with no step glob (#49458) landed and turned the base red.
+      - name: The step table's rules (test_ci_step_table.py)
+        id: tt-ci-step-table
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ci-step-table ')) }}
+        run: python3 tests/test_ci_step_table.py
 
       # What a later head of this pull request reuses (scripts/ci/tooling_reuse.py): the merge tree and the steps that
       # ran and passed here, failed run or not. Reused and skipped steps' outcome is skipped, so a pass never chains.

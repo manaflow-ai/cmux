@@ -292,6 +292,9 @@
 
 /* Inline status values share the control center line; only subtitles need a top gap. */
 :root[data-settings-look="refined"] .settings .row-control > .row-help { margin-top: 0; }
+/* A label that is itself help text (Agents on This Mac's manual lines) has no title above it: no gap, so it
+   stays on its Copy button's center line. */
+:root[data-settings-look="refined"] .settings .row-main > .row-label.row-help { margin-top: 0; }
 
 :root[data-settings-look="refined"] .settings .row-control { margin-left: auto; justify-content: flex-end; }
 :root[data-settings-look="refined"] .settings :is(.field, .button, .theme-button):not(.ui-input, .ui-btn) { min-height: var(--ds-control-row); border-radius: var(--ds-radius-control); }
