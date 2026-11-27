@@ -2,14 +2,15 @@
 //! modifier wire shapes, their validation, and the conversions to and from
 //! Ghostty's `KeyInput`. Owns the clear-history fallback-key payload that the
 //! daemon sends to a terminal host. Depends only on `ghostty_vt` and serde,
-//! so it can move into a protocol crate unchanged.
+//! so it can move into a protocol crate unchanged. Lives below `server` (RFD 0174
+//! slice 5); `server` re-exports it.
 
 use ghostty_vt::{KeyAction, KeyInput, Mods, sys};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
-pub(super) const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+pub(crate) const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 macro_rules! protocol_keys {
     ($($variant:ident => $constant:ident),+ $(,)?) => {

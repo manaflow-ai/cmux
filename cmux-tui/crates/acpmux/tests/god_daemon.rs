@@ -618,7 +618,10 @@ impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
         let log = scratch.join("daemon.log");
+        // The daemon logs to its stdout (`log_sink.rs`); its stderr carries a panic. Both go to
+        // the log, so a failed run prints why the daemon did what it did.
         let stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log).unwrap();
+        let stdout = stderr.try_clone().unwrap();
         let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
             .map(PathBuf::from)
             .unwrap_or_else(|| daemon_env::bin().to_path_buf());
@@ -629,7 +632,7 @@ impl Daemon {
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
