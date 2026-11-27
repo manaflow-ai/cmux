@@ -835,6 +835,33 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
         self.assertNotIn(30, read)
 
 
+    def test_a_stuck_reds_later_probe_is_not_refused_for_its_own_chain_steps(self) -> None:
+        # Probe run 45971486391 (11-27 09:10Z): batch 45965089670 dispatched web / Web tests (1/4) at 27712e0b, a
+        # stuck red's culprit step past earlier chains' probes; its judge read those judged steps as finished bisects
+        # (no chain_start), so stuck_reds dropped the job and the probe was refused as "not a new red".
+        job = "web / Web tests (2/4)"
+        batch = lambda rid, sha, at: {"id": rid, "status": "completed", "head_sha": sha * 40, "display_title": f"{pmb.BATCH} at {sha * 40}",
+                                      "created_at": at, "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "feat-cmux-next"}
+        step = lambda rid, sha, at: {"id": rid, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}", "created_at": at}
+        judge = {"name": "judge", "status": "completed", "conclusion": "success"}
+        red, green = {"name": job, "status": "completed", "conclusion": "failure"}, {"name": job, "status": "completed", "conclusion": "success"}
+        runs = [step(56, "2", "2026-11-27T08:50:00Z"), step(55, "2", "2026-11-27T08:40:00Z"), step(54, "2", "2026-11-27T08:30:00Z"),
+                step(53, "2", "2026-11-27T08:20:00Z"), batch(50, "5", "2026-11-27T08:00:00Z"), batch(30, "1", "2026-11-27T07:00:00Z")]
+        jobs = {60: [red, judge], 50: [red, judge], 30: [green, judge], 70: [red], **{r: [red, judge] for r in (53, 54, 55, 56)}}
+        commits = [c * 40 for c in "23456"]
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="4" * 40, suite="web", job=job, only="web-tests", probe_sha="4" * 40, good="3" * 40, bad="5" * 40,
+                         origin="60", tries="0", pieces="", dry_run=True, summary=None, github_output=None)
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid, api=None: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "gh_api", return_value=batch(60, "6", "2026-11-27T09:00:00Z")), \
+                mock.patch.object(pmb, "first_parent_range", lambda good, head: commits[commits.index(good) + 1:] if good in commits else commits), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), mock.patch("sys.stderr"):
+            code = pmb.cmd_judge(args)
+        self.assertEqual(code, 0)  # refused is 1; here the culprit step goes on to its confirm runs
+
+
 class KnownVerdictTest(unittest.TestCase):
     commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
 
