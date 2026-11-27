@@ -50,6 +50,13 @@ struct SidebarListBlocks: Equatable {
     var drawsLines: Bool
     var appHeights: [LayoutSectionID: CGFloat]
 
+    /// The same sections, drawing inputs and heights of app sections as `other`, whatever their items' infos.
+    func differsOnlyInInfos(from other: SidebarListBlocks) -> Bool {
+        var same = other
+        same.infos = infos
+        return same == self
+    }
+
     /// Section `id` without `hiding` and with a gap at `gap` (an index among the items left), as wide as the first hidden item.
     /// `joinsAbove`: a block drawn right before it, so the two keep one band's spacing (the list's row gap between them,
     /// or a section gap and its line in a lines look; the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
@@ -197,6 +204,31 @@ extension SidebarListViewComponents {
         }
         // A band row runs past the region's edge by the row trim; the card it morphs to stops at the list's.
         return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y).clippedX(to: bounds) }
+    }
+
+    /// Shows `new` in place when it differs from the drawn blocks only in their items' looks (`infos`: a pinned
+    /// workspace's status or progress, a badge, a title) and every block keeps its height: each drawn block shows
+    /// its new content and no row moves. False, changing nothing, otherwise (an item added, moved or hidden that
+    /// changes a height, another input, a drag, drop or landing under way): the caller lays the list out again.
+    /// Before, each progress report of a pinned workspace laid out every row of the list (400 rows, about 4 times a
+    /// second in the CMUX NEXT Stable `sidebar.400.ticking` bench, whose first workspace is pinned and ticking).
+    func patchBlocks(_ new: SidebarListBlocks) -> Bool {
+        guard let old = blocks, old.differsOnlyInInfos(from: new), drag == nil, settling == nil, landing == nil, external == nil
+        else { return false }
+        let heights = blockHeights(includeGap: true)
+        blocks = new
+        guard blockHeights(includeGap: true) == heights else {
+            blocks = old
+            return false
+        }
+        SidebarPerfCounters.add(.blockPatches)
+        // A shown hover card reads its row's new status, as after a reload.
+        if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
+        for (key, view) in rowViews {
+            guard case .block = key, let row = displayed.row(for: key) else { continue }
+            configure(view, row: row, animated: false)
+        }
+        return true
     }
 
     /// Each block's height at the list's width.
