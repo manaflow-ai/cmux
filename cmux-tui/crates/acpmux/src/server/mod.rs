@@ -217,7 +217,6 @@ mod send_hop;
 #[cfg(test)]
 mod send_hop_tests;
 mod session_auth;
-mod test_tampering_restore;
 mod session_files;
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
@@ -261,6 +260,7 @@ pub mod tailnet_ingress;
 pub(crate) mod tailnet_service;
 mod team;
 mod team_directory;
+mod test_tampering_restore;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
