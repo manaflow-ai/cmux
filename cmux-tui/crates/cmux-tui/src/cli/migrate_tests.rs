@@ -142,7 +142,9 @@ fn the_app_route_runs_the_cloud_verbs() {
     assert!(writes.iter().all(|c| c.iter().all(|w| w.len() < 4096 && w != "--contents")));
     assert!(writes.iter().all(|c| c.iter().any(|w| w == "--contents-file")));
     let joined = cloud.runner.calls.last().unwrap();
-    assert!(joined.iter().any(|w| w.starts_with("cat ") && w.contains("> '/home/cmux/f'")));
+    // Quoted as `cloud_start_chat::shell_quote` quotes it (a plain path goes bare).
+    let to = format!("> {}", shell_quote("/home/cmux/f"));
+    assert!(joined.iter().any(|w| w.starts_with("cat ") && w.contains(&to)));
 }
 
 #[test]
