@@ -68,7 +68,7 @@ pub struct ScreenInput {
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "exact_i64")]
     pub i: Option<i64>,
     /// Modifier keysyms for `chord`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "exact_u32_list")]
     pub m: Option<Vec<u32>>,
     /// The unit of a `scroll`'s `dx`/`dy`: absent for lines, `px` for pixels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -188,7 +188,9 @@ pub fn delivery(input: &ScreenInput, view_only: bool, backend_capabilities: &[St
 /// A display the host can stream, in pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Display {
+    #[serde(deserialize_with = "required_i64")]
     pub w: i64,
+    #[serde(deserialize_with = "required_i64")]
     pub h: i64,
 }
 
@@ -206,12 +208,12 @@ pub struct ScreenHostMessage {
     pub t: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub displays: Option<Vec<Display>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "exact_i64")]
     pub current: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The frames per second the stream is set to.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "exact_i64")]
     pub fps: Option<i64>,
     /// `caps`: a comma list; `source`: the state; `paste-image`: the outcome.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -467,6 +469,23 @@ fn exact_i64<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
 
 fn exact_u32<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
     number(d, |n| ranged(n, 0, i64::from(u32::MAX))).map(|v| v.map(|v| v as u32))
+}
+
+fn required_i64<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    exact_i64(d)?.ok_or_else(|| de::Error::custom("expected an integer"))
+}
+
+fn exact_u32_list<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u32>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(transparent)]
+    struct Element(#[serde(deserialize_with = "required_u32")] u32);
+
+    fn required_u32<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+        exact_u32(d)?.ok_or_else(|| de::Error::custom("expected a modifier keysym"))
+    }
+
+    Option::<Vec<Element>>::deserialize(d)
+        .map(|list| list.map(|values| values.into_iter().map(|value| value.0).collect()))
 }
 
 fn exact_u8<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {

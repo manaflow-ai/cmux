@@ -37,6 +37,31 @@ fn input_decodes_like_the_swift_decoder() {
 }
 
 #[test]
+fn swift_integer_fields_accept_whole_numbers_and_respect_nullability() {
+    let input = ScreenInput::decode(br#"{"t":"chord","m":[1.0,2e2,4294967295]}"#).unwrap();
+    assert_eq!(input.m, Some(vec![1, 200, u32::MAX]));
+    assert_eq!(ScreenInput::decode(br#"{"t":"chord","m":null}"#).unwrap().m, None);
+    for invalid in ["null", "1.5", "-1", "4294967296"] {
+        let input = format!(r#"{{"t":"chord","m":[{invalid}]}}"#);
+        assert!(ScreenInput::decode(input.as_bytes()).is_none());
+    }
+
+    let host = ScreenHostMessage::decode(
+        br#"{"t":"displays","displays":[{"w":1920.0,"h":1.08e3}],"current":0.0,"fps":6e1}"#,
+    )
+    .unwrap();
+    assert_eq!(host.displays.unwrap().first().map(|d| (d.w, d.h)), Some((1920, 1080)));
+    assert_eq!((host.current, host.fps), (Some(0), Some(60)));
+    for invalid in [
+        r#"{"t":"displays","displays":[{"w":null,"h":1}]}"#,
+        r#"{"t":"displays","displays":[{"w":1}]}"#,
+        r#"{"t":"displays","fps":1.5}"#,
+    ] {
+        assert!(ScreenHostMessage::decode(invalid.as_bytes()).is_none());
+    }
+}
+
+#[test]
 fn input_encodes_only_present_keys() {
     assert_eq!(
         ScreenInput::scroll(0.5, 0.5, 1, -2, true).encode(),
