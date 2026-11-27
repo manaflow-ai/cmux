@@ -225,13 +225,30 @@ pub(crate) fn detach_command(args: &[String]) -> anyhow::Result<Value> {
     match dial_answer(&socket, &line)? {
         Ok(answer) => {
             // The mount is gone, so nothing reads through the server; the record stays.
-            let _ = super::project::stop_recorded_server(&socket, &found);
-            Ok(json!({"ok": true, "detached": true, "mark": field(&answer, "/data/mark"),
-                      "was_mounted": field(&answer, "/data/was_mounted")}))
+            Ok(detached_answer(&answer, super::project::stop_recorded_server(&socket, &found)))
         }
         Err(answer) => Ok(json!({"ok": false, "error": field(&answer, "/error"),
                                  "error_code": field(&answer, "/error_code")})),
     }
+}
+
+fn detached_answer(answer: &Value, stopped: anyhow::Result<bool>) -> Value {
+    // Cleanup can fail after the machine detached successfully. Keep that state in the answer
+    // so a caller can retry cleanup without treating the retained edits as still mounted.
+    let mut answer = json!({"ok": true, "detached": true, "mark": field(answer, "/data/mark"),
+                           "was_mounted": field(answer, "/data/was_mounted")});
+    match stopped {
+        Ok(stopped) => answer["server_stopped"] = Value::Bool(stopped),
+        Err(error) => {
+            answer["ok"] = Value::Bool(false);
+            answer["server_stopped"] = Value::Bool(false);
+            answer["error_code"] = Value::String("projection.stop_failed".into());
+            answer["error"] = Value::String(format!(
+                "the folder detached, but its server could not be stopped: {error:#}"
+            ));
+        }
+    }
+    answer
 }
 
 /// Bring Back of the projected folder `found` (module docs). `keep`: leave the projection on the

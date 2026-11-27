@@ -78,7 +78,7 @@ impl Overlay {
         if name.is_empty() || name.contains('/') {
             return Err(super::EINVAL);
         }
-        let _mutation = self.mutation.replace_pristine()?;
+        let mutation = self.mutation.replace_pristine()?;
         let _swap = self.swap.write().unwrap_or_else(PoisonError::into_inner);
         let index = self.lower(name).ok_or(ENOENT)?;
         if self.manifest.entry(index).map(|entry| entry.kind) != Some(Kind::Dir) {
@@ -103,6 +103,9 @@ impl Overlay {
             let _ = fs::remove_file(&link);
             return Err(errno);
         }
+        // A failed attempt leaves the untouched mount eligible for another swap. Keep
+        // admissions excluded until both the filesystem and inode state are updated.
+        mutation.replacement_committed();
         {
             let mut inner = self.lock();
             Self::retire(&mut inner, name, old, index, self.manifest.head_len() as u64);

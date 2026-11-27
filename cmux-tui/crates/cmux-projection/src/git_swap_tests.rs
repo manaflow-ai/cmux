@@ -514,6 +514,18 @@ fn unmounted_git() -> (tempfile::TempDir, tempfile::TempDir, Arc<Overlay>) {
 }
 
 #[test]
+fn a_failed_git_swap_leaves_the_untouched_mount_eligible_for_retry() {
+    let (_mac, _state, overlay) = unmounted_git();
+    let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;
+    let target = tempfile::tempdir().unwrap();
+    assert_eq!(overlay.swap_to_link("missing", target.path()), Err(libc::ENOENT));
+    // An invalid target fails while creating the temporary symlink, after validation.
+    assert_eq!(overlay.swap_to_link(".git", Path::new("\0")), Err(libc::EINVAL));
+    assert_eq!(overlay.swap_to_link(".git", target.path()), Ok(git));
+    assert_eq!(overlay.swap_to_link(".git", target.path()), Err(libc::EBUSY));
+}
+
+#[test]
 fn an_admitted_git_writer_prevents_swap_before_its_first_bytes() {
     let (_mac, state, overlay) = unmounted_git();
     let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;

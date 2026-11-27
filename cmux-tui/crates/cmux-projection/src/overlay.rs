@@ -416,6 +416,13 @@ struct MutationGuard<'a> {
     replacing: bool,
 }
 
+impl MutationGuard<'_> {
+    fn replacement_committed(&self) {
+        debug_assert!(self.replacing);
+        self.gate.state.lock().unwrap_or_else(PoisonError::into_inner).admitted = true;
+    }
+}
+
 impl Drop for MutationGuard<'_> {
     fn drop(&mut self) {
         let mut state = self.gate.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -475,10 +482,9 @@ impl MutationGate {
         if state.sealed {
             return Err(libc::EROFS);
         }
-        if state.admitted {
+        if state.admitted || state.replacing {
             return Err(libc::EBUSY);
         }
-        state.admitted = true;
         state.replacing = true;
         state.active += 1;
         Ok(MutationGuard { gate: self, replacing: true })

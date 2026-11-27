@@ -13,6 +13,18 @@ fn me() -> Who {
 }
 
 #[test]
+fn a_directory_replacement_excludes_a_second_attempt_until_it_finishes() {
+    let gate = MutationGate::new();
+    let replacing = gate.replace_pristine().unwrap();
+    assert_eq!(gate.replace_pristine().err(), Some(libc::EBUSY));
+    drop(replacing);
+    let retry = gate.replace_pristine().unwrap();
+    retry.replacement_committed();
+    drop(retry);
+    assert_eq!(gate.replace_pristine().err(), Some(libc::EBUSY));
+}
+
+#[test]
 fn sealing_during_a_directory_replacement_has_a_bounded_wait() {
     let gate = Arc::new(MutationGate::new());
     let replacing = gate.replace_pristine().unwrap();
