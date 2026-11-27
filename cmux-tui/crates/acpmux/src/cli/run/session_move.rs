@@ -35,9 +35,10 @@
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
-//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
-//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` (or one
+//!    that is not an owner/name remote) has nowhere to push: its branches and tags go as a `git
+//!    bundle` over the move's ssh and become a fresh repository at the same path under the
+//!    target's home (`BUNDLE_SCRIPT`,
 //!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
@@ -71,6 +72,8 @@ mod link;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
+#[path = "session_move_files.rs"]
+mod files;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -505,9 +508,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         if args.carry_changes {
             bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        Some(hub::resolve(&src, &args.host).await.with_context(|| {
-            format!(
-                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+        // The hub's own reason goes in the message: "not listed" and "not read yet" need
+        // different next steps, and `{}` of a context shows only the outer line.
+        Some(hub::resolve(&src, &args.host).await.map_err(|e| {
+            anyhow!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists ({e:#})",
                 args.host
             )
         })?)
@@ -971,7 +976,7 @@ async fn move_steps(
                 sub_text(subdir)
             ),
             Folder::Bundle { top, branch, subdir, .. } => format!(
-                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
+                "{top} on {branch}{} (no owner/name origin to push to: its branches go as a git bundle)",
                 sub_text(subdir)
             ),
         });
@@ -1105,6 +1110,7 @@ async fn prepare(
     let mut carry = None;
     let mut at = None;
     let mut bundle = None;
+    let mut packed: Option<Vec<u8>> = None;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1120,6 +1126,29 @@ async fn prepare(
         record.set("bundled", json!(true));
         base = Some((read.0.clone(), *dirty, c.top.clone()));
         bundle = Some(read);
+    }
+    if let (Folder::Plain { .. }, None, None) = (&folder, &checkout, &args.cwd) {
+        // Not in a git checkout, and the folder is not named on the target: its files go too
+        // (never the home folder itself).
+        if cwd != home {
+            let read = tokio::task::spawn_blocking({
+                let (dir, ssh) = (cwd.to_path_buf(), source.ssh().map(str::to_owned));
+                move || files::pack_folder(ssh.as_deref(), &dir)
+            })
+            .await??;
+            match read {
+                files::Packed::Files(bytes) => {
+                    record.set("filesCopied", json!(bytes.len()));
+                    packed = Some(bytes);
+                }
+                files::Packed::TooBig(n) => bail!(
+                    "{} is {n} bytes packed, over the {} a move carries: pass --cwd to run the chat in a folder that is already there, or send the folder with `cmux link seed`",
+                    cwd.display(),
+                    files::MAX_BYTES
+                ),
+                files::Packed::Missing => {}
+            }
+        }
     }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
@@ -1143,8 +1172,9 @@ async fn prepare(
         base = Some((commit, *dirty, c.top.clone()));
     }
     if let Some((commit, dirty, top)) = base {
-        if dirty && args.carry_changes {
-            // Read after the freeze and the push: what the agent left, against what was pushed.
+        if args.carry_changes {
+            // Read after the freeze and push even when display status looks clean:
+            // submodule.<name>.ignore can hide work the carry must refuse.
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
@@ -1179,6 +1209,9 @@ async fn prepare(
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
         move || match (&folder, bundle) {
+            (Folder::Plain { cwd }, None) if packed.is_some() => {
+                files::unpack_folder(&host, cwd, packed.as_deref().unwrap_or_default())
+            }
             (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
                 unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
             }
@@ -1198,7 +1231,9 @@ async fn prepare(
         .await;
     }
     let there = there??;
-    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+    if let Some(carry) = carry.filter(|c| {
+        !c.patch.is_empty() || !c.staged_patch.is_empty() || !c.intent_to_add.is_empty()
+    }) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
             move || apply_carry(&host, &there, &carry)
@@ -1350,7 +1385,7 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when
 /// empty), through [`carry::APPLY_SCRIPT`].
 fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
-    let input = carry::apply_input(there, carry);
+    let input = carry::apply_input(there, carry)?;
     let out = if host.is_empty() {
         run_here(carry::APPLY_SCRIPT, &input)?
     } else {

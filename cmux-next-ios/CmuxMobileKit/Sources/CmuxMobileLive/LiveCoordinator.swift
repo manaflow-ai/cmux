@@ -141,6 +141,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// The network-return watch while a link is down in front (``updateNetworkReturnWatch()``).
+    @ObservationIgnored private var networkReturnTask: Task<Void, Never>?
     /// UIKit's `willEnterForeground` already resumed the links for this return
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
@@ -387,23 +389,25 @@ public final class LiveCoordinator {
     /// lists the bind: its chat opens on that session meanwhile. Gone with the tab's store.
     @ObservationIgnored var boundHere: [String: String] = [:]
 
-    /// The first message of a chat this phone just started in tab `summary`: the tab's chat is
-    /// rebuilt on `session` now (its store reads the session's source), and the message goes as
-    /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
+    /// Starts the chat in tab `summary`, then rebuilds its store on the bound session.
+    /// The replacement store adopts the first message with its original prompt id and shows
+    /// any send failure on that same message.
     private func unboundStart(_ owner: MacSession, summary: AgentSessionSummary, key: String) -> UnboundAgentSource.Start {
-        { [weak self, weak owner] (text: String, attachments: [AgentAttachment]) async throws in
+        { [weak self, weak owner] (_: String, _: [AgentAttachment]) async throws in
             guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
             let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
-            self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
+            self.bindFirst(session: session, summary: summary, key: key)
         }
     }
 
-    private func sendFirst(_ text: String, attachments: [AgentAttachment], session: String,
-                           summary: AgentSessionSummary, key: String) {
+    func bindFirst(session: String, summary: AgentSessionSummary, key: String,
+                   directory: AgentSessionDirectory = .shared) {
         boundHere[key] = session
         sourcedSessions[key] = nil
-        AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
-        AgentSessionDirectory.shared.store(for: summary).send(prompt: text, attachments: attachments)
+        directory.invalidate(id: summary.id, macID: summary.macID)
+        // Rebuilding adopts the first message under its original prompt id. Sending its text
+        // again here would mint another id and make the Mac execute the same message twice.
+        _ = directory.store(for: summary)
     }
 
     /// A tab's new chat source: a loading one keeps the earlier loading source's held prompts; a
@@ -429,8 +433,8 @@ public final class LiveCoordinator {
     /// it loaded gets that store now, not when it is next opened: the prompts go to its new
     /// source (sent, or back in its composer with why) instead of expiring into a store that
     /// is gone, which would lose them.
-    func chatSessionChanged(id: String, macID: String) {
-        AgentSessionDirectory.shared.invalidate(id: id, macID: macID)
+    func chatSessionChanged(id: String, macID: String, carryWaiting: Bool = true) {
+        AgentSessionDirectory.shared.invalidate(id: id, macID: macID, carryWaiting: carryWaiting)
         let key = AgentSessionDirectory.key(id: id, macID: macID)
         guard let pending = pendingSources[key], !pending.held.isEmpty else { return }
         _ = AgentSessionDirectory.shared.store(for: pending.summary)
@@ -524,7 +528,65 @@ public final class LiveCoordinator {
     }
 
     /// Presence down at least this long before its return redials the links.
-    static let presenceOutageMin: Duration = .seconds(3)
+    static let presenceOutageMin = PresenceTiming.outageMin
+
+    /// Whether a link is down while the app is in front: the network-return watch runs then.
+    private var wantsNetworkReturnWatch: Bool {
+        guard !isBackgrounded, registeredTeamID != nil else { return false }
+        return sessions.values.contains { session in
+            guard session.linkDownSince != nil else { return false }
+            switch session.link.phase {
+            case .connecting, .waiting: return true
+            case .idle, .connected, .macOffline, .signedOut: return false
+            }
+        }
+    }
+
+    /// Starts or stops the network-return watch (Rust `net_return`): while a link is down and
+    /// the app is in front, a TCP connect to the cmux service once a second; the first that gets
+    /// through after one that did not redials every link at once. It is the network-back signal
+    /// when iOS reports no path change and presence is still in its backoff (or hanging on the
+    /// dead path): before it, such a return waited out a backoff step, up to 30 s
+    /// (`network_flaps`). A network that was never down (the Mac is the problem) ends it until
+    /// the next phase change. Costs one SYN a second while dark, nothing in the background.
+    func updateNetworkReturnWatch() {
+        #if canImport(CmuxMobileLinkFFI)
+        guard wantsNetworkReturnWatch else {
+            networkReturnTask?.cancel()
+            networkReturnTask = nil
+            return
+        }
+        guard networkReturnTask == nil else { return }
+        let baseURL = api.baseURL.absoluteString
+        networkReturnTask = Task { [weak self] in
+            // Bounded rounds: a cancelled watch's Rust side stops within one.
+            while !Task.isCancelled {
+                let got = await waitForNetworkReturn(baseUrl: baseURL, maxWaitMillis: 15_000)
+                guard !Task.isCancelled, let self else { return }
+                if got.back {
+                    self.networkReturned(downMillis: got.downMillis)
+                    break
+                }
+                if got.neverDown { break }
+                if !self.wantsNetworkReturnWatch { break }
+            }
+            // A cancelled watch leaves the slot to the one that replaced it.
+            guard !Task.isCancelled else { return }
+            self?.networkReturnTask = nil
+        }
+        #endif
+    }
+
+    /// The network-return watch got through after a dark spell: as on a path change, every
+    /// waiting or dialing link dials now and presence reconnects now.
+    private func networkReturned(downMillis: UInt64) {
+        log.info("network back (probe, dark \(downMillis) ms): links redial")
+        ConnectTimeline.shared.mark("network_back_probe")
+        lastPathNudge = instants.now()
+        if store.isOffline { store.isOffline = false }
+        presence?.kick()
+        for session in sessions.values { session.link.send(.networkChanged) }
+    }
 
     // MARK: Warm start
 
@@ -633,13 +695,24 @@ public final class LiveCoordinator {
         }
     }
 
+    /// How long unchanged workspaces keep their snapshot stamp (``saveSnapshot()``).
+    static let snapshotStampInterval: TimeInterval = 60
+
     private func saveSnapshot() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         var saved = snapshot?.teamID == team.id ? snapshot?.workspaces ?? [:] : [:]
         let macIDs = Set(team.macs.map(\.id))
         saved = saved.filter { macIDs.contains($0.key) }
         for mac in team.macs where store.macData[mac.id]?.source == .live {
-            saved[mac.id] = .init(workspaces: store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }, savedAt: Date())
+            let workspaces = store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }
+            // The same workspaces keep their stamp for up to a minute: a fresh `savedAt` on every
+            // save made each one differ from the last, so the guard below never held and every
+            // change anywhere rewrote the file. The stamp still says when they were last live,
+            // to the minute.
+            let now = Date()
+            if let held = saved[mac.id], held.workspaces == workspaces,
+               now.timeIntervalSince(held.savedAt) < Self.snapshotStampInterval { continue }
+            saved[mac.id] = .init(workspaces: workspaces, savedAt: now)
         }
         let next = LiveSnapshot(teamID: team.id, teamName: team.name, macs: team.macs,
                                 linkedMacID: focusedMacID ?? snapshot?.linkedMacID, workspaces: saved)
@@ -1341,6 +1414,7 @@ public final class LiveCoordinator {
         // A call's link may have been opened since the call started.
         holdCallLink()
         for session in sessions.values { session.link.send(.background) }
+        updateNetworkReturnWatch()
         discovery.pause()
         presence?.backgrounded = true
         #if canImport(CmuxMobileLinkFFI)
@@ -1493,7 +1567,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
+    var holdWindow: Duration = AgentChatStore.sendDeadline {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
@@ -1506,7 +1580,7 @@ final class PendingAgentSource: AgentSessionSource {
     #if canImport(CmuxMobileLinkFFI)
     /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
     /// up): their order, their hold, and the ones given back past it.
-    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
+    private let outbox = ChatPromptOutbox(holdMs: ChatPromptClock.milliseconds(AgentChatStore.sendDeadline), seed: 0)
     private var wake: Task<Void, Never>?
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
@@ -1532,11 +1606,9 @@ final class PendingAgentSource: AgentSessionSource {
     /// Holds `intent`, aged from `since` (a prompt handed over from an earlier loading source
     /// keeps its first send's time, so the hold is one window in all).
     func hold(_ intent: AgentClientIntent, since at: ContinuousClock.Instant) {
-        guard case .prompt(let text, _, _, let promptID, let resend) = intent else {
-            let reason = "Connecting to \(summary.macName)…"
-            for continuation in continuations { continuation.yield(.clientError(reason)) }
-            return
-        }
+        // Nothing but a prompt has anything to act on yet, and nothing to say about it
+        // (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... i want it to just work").
+        guard case .prompt(let text, _, _, let promptID, let resend) = intent else { return }
         #if canImport(CmuxMobileLinkFFI)
         guard outbox.push(promptId: promptID, text: text, uploadIds: [], resend: resend,
                           tappedMs: ChatPromptClock.milliseconds(at),
@@ -1608,9 +1680,8 @@ final class PendingAgentSource: AgentSessionSource {
     #endif
 
     private func gaveBack(_ dropped: [AgentClientIntent]) {
-        // Short, with nothing to decode: the draft is back in the composer and Send is the action
-        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
-        let reason = "Not sent: \(summary.macName) is offline."
+        // The chat marks each one not sent on its own bubble (one quiet line, a tap sends it again).
+        let reason = AgentChatStore.unreachableNotice
         for intent in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {

@@ -176,13 +176,22 @@ export function agentStepPlan(options: Pick<ProbeOptions, "modelRoute" | "vmId">
   return { run: false, status: "UNVERIFIED", reason: "no model route: a raw clone has no coderouter edge and the probe takes no credential; the tools acpmux attaches are checked without a model" };
 }
 
-/** A `claude` stand-in that appends its command line (one argument per line, then RECORD_END) to `out`. */
+/**
+ * A `claude` stand-in that appends its command line (one argument per line, then RECORD_END) to `out`.
+ * acpmux starts claude more than once at a time (the session, and live_models/claude.rs's `-p` model list
+ * beside it), so each launch is built in its own file and appended with one write: in roll 45906244147 the
+ * printf-per-line appends of the session and a model-list launch interleaved, the session's record lost
+ * its MCP_CONFIG_LINE to the next record, and the probe read no servers at all.
+ */
 export function recorderScript(out: string): string {
   return [
     "#!/bin/sh",
     "# cmux agent tools probe: records the launch acpmux makes; calls no model.",
     // acpmux passes --mcp-config as a 0600 file it deletes when the session ends: keep its JSON (one line) too.
-    `{ cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } >> ${sq(out)}`,
+    // acpmux starts its model listing (live_models) beside the chat's launch: each launch's record is built in its
+    // own file and appended in one write, so two launches never interleave their lines (roll 45906244147's
+    // attempt 2 had the chat's arguments and a model listing's in one record).
+    `rec=${sq(out)}.$$; { cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } > "$rec"; cat "$rec" >> ${sq(out)}; rm -f "$rec"`,
     `if [ "\${1:-}" = --version ]; then echo "2.1.267 (Claude Code)"; exit 0; fi`,
     `echo "cmux agent tools probe: recorder, no model" >&2`,
     "exit 3",
@@ -193,10 +202,15 @@ export function recorderScript(out: string): string {
 /** A server of the launch: a stdio command, or (`url`) an HTTP server such as acpmux's gateway, with no command. */
 export type RecordedServer = { name: string; command: string; args: string[]; env: Record<string, string>; url?: string };
 
-/** The last recorded launch that carries `--mcp-config`: its servers and its `--plugin-dir`. */
+/**
+ * The last recorded chat launch that carries `--mcp-config`: its servers and its `--plugin-dir`. acpmux's model
+ * listing (live_models/claude.rs) passes an empty inline `--mcp-config` under `--strict-mcp-config` and can start
+ * after the chat's launch (roll 45890407908's gateway leg), so a `--strict-mcp-config` launch is never the chat's:
+ * acpmux gives such a launch no tools (agent_tools.rs `left_out`).
+ */
 export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; pluginDir?: string } {
   const launches = text.split(`${RECORD_END}\n`).map((block) => block.split("\n").filter((line, i, all) => i < all.length - 1 || line !== ""));
-  const launch = launches.reverse().find((args) => args.includes("--mcp-config"));
+  const launch = launches.reverse().find((args) => args.includes("--mcp-config") && !args.includes("--strict-mcp-config"));
   if (!launch) return { servers: [] };
   // The value is a file path (acpmux writes the config to a 0600 file); an inline JSON value is read as it is.
   const value = launch[launch.indexOf("--mcp-config") + 1] ?? "";
@@ -401,18 +415,37 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   await run(vm, `setsid python3 -m http.server ${PAGE_PORT} --bind 127.0.0.1 --directory ${PROBE_DIR}/www >${PROBE_DIR}/www.log 2>&1 < /dev/null & echo started`, 30_000, DEVBOX_WORK_USER);
   const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
+  const started = Date.now();
   const ws = await run(vm, `${C} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${C} workspace create --name ${WORKSPACE} >/dev/null && echo ok`, 60_000, DEVBOX_WORK_USER);
-  check("daemon-terminal", ws.code === 0, ws.stdout.trim() || ws.stderr.slice(-300));
+  result.timings.daemonTerminalMs = Date.now() - started;
+  // Roll 45916909960: a clone's daemon left a request unanswered past the CLI's 10 s read bound (wire.rs), with no
+  // evidence of what it was doing: a failure keeps the daemon's own status beside the CLI's words.
+  const status = ws.code === 0 ? "" : (await run(vm, `timeout 20 ${C} daemon status 2>&1 | tail -15`, 30_000, DEVBOX_WORK_USER).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
+  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"})`}`);
   return ws.code === 0;
 }
 
-/** One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown. */
-function recordSteps(name: string, env: string): string[] {
+/** How often recordSteps starts a session whose launch was not recorded (a slow clone's first daemon). */
+export const RECORD_TRIES = 2;
+
+/**
+ * One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown, into
+ * `launches`. A try that recorded no session launch (no `--plugin-dir`) is made again, once: in roll
+ * 45914140136 the first step's session on a slow clone (its daemon terminal took 42 s, about 1 s live) was
+ * never launched within its bounds, while the next step's was. What acpmux said each try is kept.
+ */
+export function recordSteps(name: string, env: string, launches: string): string[] {
+  const out = (step: string) => `${PROBE_DIR}/${name}-${step}.txt`;
   return [
     `export ${env}`,
-    `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/${name}-new.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } > ${PROBE_DIR}/${name}-send.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/${name}-shutdown.txt 2>&1`,
+    `rm -f ${out("new")} ${out("send")} ${out("shutdown")}`,
+    `for try in $(seq 1 ${RECORD_TRIES}); do`,
+    `  for f in ${out("new")} ${out("send")} ${out("shutdown")}; do echo "try $try" >> "$f"; done`,
+    `  { ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } >> ${out("new")} 2>&1`,
+    `  { timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } >> ${out("send")} 2>&1`,
+    `  { timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } >> ${out("shutdown")} 2>&1`,
+    `  grep -qx -- --plugin-dir ${launches} 2>/dev/null && break`,
+    "done",
   ];
 }
 
@@ -426,10 +459,11 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0`,
     // First the launch a person's chat gets (the gateway on), kept apart; then the same with the gateway off
     // (ACPMUX_MCP_GATEWAY=0), whose stdio servers the probe starts and calls itself.
-    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`),
-    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`),
+    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`, GATEWAY_LAUNCHES),
+    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`, LAUNCHES),
   ].join("\n");
-  result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180);
+  // Each try is bounded by its two 60 s timeouts plus `acp new`: two steps of RECORD_TRIES tries.
+  result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180 * RECORD_TRIES);
   let text = "";
   try {
     text = await readGuest(vm, LAUNCHES);
@@ -438,17 +472,25 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
   }
   writeFileSync(path.join(outDir, "claude-launches.txt"), text);
   // What acpmux said: without a recorded launch these are the only evidence of why.
-  const said: string[] = [];
-  for (const name of ["recorder-new", "recorder-send", "recorder-shutdown"]) {
-    const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
-    writeFileSync(path.join(outDir, `${name}.txt`), out);
-    said.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
-  }
+  // Each leg's own: the gateway leg's were never kept, so its failure (no session launch recorded, rolls 45890407908
+  // and 45906244147) left no evidence of why.
+  const saidBy = async (leg: string): Promise<string[]> => {
+    const lines: string[] = [];
+    for (const step of ["new", "send", "shutdown"]) {
+      const name = `${leg}-${step}`;
+      const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
+      writeFileSync(path.join(outDir, `${name}.txt`), out);
+      lines.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
+    }
+    return lines;
+  };
+  const said = await saidBy("recorder");
+  const gatewaySaid = await saidBy("gateway");
   const gatewayText = await readGuest(vm, GATEWAY_LAUNCHES).catch(() => "");
   writeFileSync(path.join(outDir, "claude-launches-gateway.txt"), gatewayText);
   const gateway = parseRecordedLaunch(gatewayText);
   const gatewayIssues = gatewayProblems(gateway.servers);
-  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || "no launch with --mcp-config was recorded"}`);
+  check("acpmux-attaches-cmux-gateway", gatewayIssues.length === 0, `${gatewayIssues.join("; ")}${gatewayIssues.length ? ": " : ""}${gateway.servers.map((s) => `${s.name}=${s.url ?? s.command}`).join("; ") || `no launch with --mcp-config was recorded (${gatewayText.split(`${RECORD_END}\n`).filter((b) => b.trim()).length} launches recorded, none of them the chat's); ${gatewaySaid.join(" | ")}`}`);
   const launch = parseRecordedLaunch(text);
   const names = launch.servers.map((s) => `${s.name}=${s.url ?? `${s.command} ${s.args.join(" ")}`}`);
   const cu = attachedComputerUse(launch.servers);

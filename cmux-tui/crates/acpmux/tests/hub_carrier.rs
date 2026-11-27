@@ -2306,6 +2306,136 @@ fn hub_carrier_a_joined_daemon_with_no_websocket_config_runs_it_on_loopback_and_
     assert!(line.contains("127.0.0.1:"), "the carrier is not on the loopback listener: {line}");
 }
 
+/// The consent service end to end: machine B serves it with a consent authority that pinned the
+/// owner Mac's key. A machine B's hub book does not list is refused by name; once listed, A reads
+/// B's switches, a grant the pinned key signed turns Control and Screen on through the carrier,
+/// and the same grant again is refused as a replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_consent_service_applies_a_pinned_grant_and_refuses_an_unlisted_machine() {
+    use acpmux::cli::consent_grant::{Target, grantor_id, message};
+    use acpmux::consent_grant_service::{ConfiguredConsentGate, ask};
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // The owner Mac's key, pinned on B for the account both are joined as.
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let owner =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let owner_key = owner.public_key().as_ref().to_vec();
+    let owner_id = grantor_id(&owner_key);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("os-account/.acpmux/machine-consent");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
+    let pins = json!({"grantors": [{"id": owner_id, "publicKey": acpmux::hub::approvers::hex(&owner_key),
+        "name": "owner mac", "account": "user-1", "pinnedAt": 1}], "seq": {}});
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(root.join("grantors.json"))
+        .and_then(|mut file| std::io::Write::write_all(&mut file, pins.to_string().as_bytes()))
+        .unwrap();
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let hub_b = hub();
+    hub_b.hub_carrier.set(carrier_b.clone());
+    let target = Target {
+        account: Some("user-1".into()),
+        machine_id: Some("machine_b".into()),
+        node_key: None,
+        name: Some("mini-b".into()),
+        own_grantor: None,
+    };
+    carrier_b.set_consent_gate(Arc::new(ConfiguredConsentGate::at(&hub_b, root.clone(), target)));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let b = public(&key_b);
+    let wait = Duration::from_secs(10);
+
+    // B's book does not list A yet: refused by name, nothing read. B's registration may still be
+    // on its way, so the first ask goes again until B answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let answer = ask(&carrier_a, &b, &json!({"op": "status"}), wait).await;
+        assert_ne!(answer["ok"], true, "an unlisted machine read the consent: {answer}");
+        if answer["reason"] == "machine.unlisted" {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never answered: {answer}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    hub_b.set_mesh_book_machines(BTreeMap::from([(public(&key_a), "mbp-a".to_owned())]));
+    let status = ask(&carrier_a, &b, &json!({"op": "status", "grantor": owner_id}), wait).await;
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["machineId"], "machine_b");
+    assert_eq!(status["nodeKey"], json!(b), "the node key is the carrier's");
+    assert_eq!(status["control"], false);
+    assert_eq!(status["grantor"]["pinned"], true);
+
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    let (issued, expires) = (now - 1_000, now + 60_000);
+    let signed = message(&owner_id, "user-1", "machine_b", &b, "on", "on", issued, expires);
+    let signature = owner.sign(&rng, &signed).unwrap();
+    let grant = json!({"v": 1, "grantor": owner_id, "account": "user-1", "machineId": "machine_b",
+        "nodeKey": b, "control": "on", "screen": "on", "issuedAt": issued, "expiresAt": expires,
+        "signature": acpmux::hub::approvers::hex(signature.as_ref())});
+    let set = ask(&carrier_a, &b, &json!({"op": "set", "grant": grant}), wait).await;
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(set["control"], true);
+    assert_eq!(set["screen"], true);
+    assert_eq!(set["controlGrantedBy"]["grantor"], json!(owner_id));
+    let consent: Value =
+        serde_json::from_slice(&std::fs::read(root.join("consent.json")).unwrap()).unwrap();
+    assert_eq!(consent["control"], "granted");
+    let line = set["grantLog"].as_array().and_then(|log| log.last()).cloned().unwrap();
+    assert_eq!(line["from"], "mbp-a", "the log names the machine that carried it");
+
+    let replayed = ask(&carrier_a, &b, &json!({"op": "set", "grant": grant}), wait).await;
+    assert_eq!(replayed["ok"], false);
+    assert_eq!(replayed["reason"], "grant.replayed");
+}
+
 /// How long A takes from adding peer `b` to its link being connected, with `url` as b's
 /// configured URL and the hub carrier's relay as the other path; the relay is fresh each run.
 async fn time_to_connected(url: &str) -> Duration {
@@ -3075,6 +3205,22 @@ async fn kept_fixture_with(
     b_keeps_circuits: bool,
     granted: bool,
 ) -> KeptFixture {
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    kept_fixture_timed(delay, rate, b_keeps_circuits, granted, fast).await
+}
+
+/// [`kept_fixture_with`] on both carriers' `fast` timings.
+async fn kept_fixture_timed(
+    delay: Duration,
+    rate: Option<u64>,
+    b_keeps_circuits: bool,
+    granted: bool,
+    fast: Timings,
+) -> KeptFixture {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -3093,11 +3239,6 @@ async fn kept_fixture_with(
     let direct = format!("relay+ws://{relay_address}");
     let sshd = standin_sshd().await;
     let (key_a, key_b) = (random_key(), random_key());
-    let fast = Timings {
-        control: Duration::from_secs(5),
-        handshake: Duration::from_secs(5),
-        ..Timings::default()
-    };
     let b = HubCarrier::new(
         Arc::new(FixedTickets {
             relay: direct,
@@ -3277,6 +3418,88 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
     assert_eq!(fixture.plain_dials(), 0);
     assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// RFD 0056 part 4, RFD 0061 G5 ("0 for a held circuit"): a held circuit is open before the
+/// first dial to the machine and outlives `kept_idle` with no stream, so the first acpmux dial,
+/// long after the last one, is a stream on it: no new circuit, no plain dial. A kept circuit that
+/// is not held idles out beside it, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_held_circuit_is_open_before_the_first_dial_and_never_idles_out() {
+    let _ = HERMETIC;
+    let idle = Duration::from_millis(600);
+    let timings = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        keepalive: Duration::from_millis(150),
+        kept_idle: idle,
+        ..Timings::default()
+    };
+    // The fixture's own cmux-tui dials (until B served) opened the bulk circuit, not held.
+    let fixture = kept_fixture_timed(Duration::ZERO, None, true, true, timings).await;
+    assert!(!fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    let opened = fixture.kept_circuits();
+
+    let stages = within("the hold", fixture.a.hold_circuit(&fixture.b_key, CircuitLane::Cheap))
+        .await
+        .unwrap()
+        .expect("the hold opened the cheap circuit");
+    assert!(stages.total() > Duration::ZERO);
+    assert!(fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    assert_eq!(fixture.kept_circuits(), opened + 1);
+    // A second hold finds it open.
+    let again = within("a second hold", fixture.a.hold_circuit(&fixture.b_key, CircuitLane::Cheap))
+        .await
+        .unwrap();
+    assert!(again.is_none(), "{again:?}");
+    assert_eq!(fixture.kept_circuits(), opened + 1);
+
+    // Three idle periods with no stream: the bulk circuit idles out, the held one stays.
+    tokio::time::sleep(idle * 3).await;
+    assert!(fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1, "only the held circuit is open");
+
+    let opens = fixture.kept_opens();
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"held\n").await;
+    assert_eq!(fixture.kept_circuits(), opened + 1, "the dial rode the held circuit");
+    assert_eq!(fixture.kept_opens(), opens + 1);
+    assert_eq!(fixture.plain_dials(), 0);
+}
+
+/// `ACPMUX_HUB_HOLD_CIRCUITS` names machines once each; unset or empty holds none.
+#[test]
+fn hub_carrier_held_machines_reads_a_list_once_each_and_nothing_by_default() {
+    use acpmux::hub_carrier::held_machines;
+    assert_eq!(acpmux::hub_carrier::HOLD_CIRCUITS_ENV, "ACPMUX_HUB_HOLD_CIRCUITS");
+    assert!(held_machines(None).is_empty());
+    assert!(held_machines(Some("  , ")).is_empty());
+    assert_eq!(held_machines(Some("a, b c,a\nd")), vec!["a", "b", "c", "d"]);
+}
+
+/// A held machine is named by its `daemonId` or its host: a host resolves through the address
+/// book to every key it lists for that host, each key once, and a name the book lacks is left out.
+#[test]
+fn hub_carrier_held_machines_resolve_host_names_through_the_address_book() {
+    use acpmux::hub_carrier::{is_daemon_id, resolve_held};
+    let key_a = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=".to_owned();
+    let key_b = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned();
+    let key_c = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=".to_owned();
+    assert!(is_daemon_id(&key_a));
+    assert!(!is_daemon_id("build-box"));
+    let book = vec![
+        (key_a.clone(), "build-box".to_owned()),
+        (key_b.clone(), "work-mac".to_owned()),
+        (key_c.clone(), "work-mac".to_owned()),
+    ];
+    let entries: Vec<String> =
+        ["build-box", "work-mac", "gone-host", &key_a].iter().map(|s| s.to_string()).collect();
+    let (keys, unlisted) = resolve_held(&entries, &book);
+    assert_eq!(keys, vec![key_a.clone(), key_b, key_c]);
+    assert_eq!(unlisted, vec!["gone-host".to_owned()]);
+    // A key the book does not list is still held: the book can lag a machine that just joined.
+    let (keys, unlisted) = resolve_held(&[key_a.clone()], &[]);
+    assert_eq!((keys, unlisted), (vec![key_a], Vec::<String>::new()));
 }
 
 /// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's

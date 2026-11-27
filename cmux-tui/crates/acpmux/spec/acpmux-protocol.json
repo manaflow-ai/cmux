@@ -251,6 +251,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/callers",
       "params": true,
       "result": true
@@ -373,6 +385,26 @@
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/live",
+      "params": {
+        "$ref": "#/types/LiveParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/live_list",
+      "params": {
+        "$ref": "#/types/LiveListParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveListResult"
       }
     },
     {
@@ -925,6 +957,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_hop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mesh_control",
       "params": true,
       "result": true
@@ -1033,6 +1071,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/bg/rearm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/run_elsewhere/plan",
       "params": true,
       "result": true
@@ -1058,6 +1102,12 @@
     {
       "kind": "request",
       "name": "_acpmux/goal/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history/read",
       "params": true,
       "result": true
     },
@@ -1140,6 +1190,12 @@
     {
       "kind": "request",
       "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/lifecycle",
       "params": true,
       "result": true
     },
@@ -1260,6 +1316,20 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/undelete",
+      "params": {
+        "$ref": "#/types/UndeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/deleted",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/side",
       "params": {
         "$ref": "#/types/SideParams"
@@ -1313,6 +1383,12 @@
     {
       "kind": "request",
       "name": "_acpmux/scorecard",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard_replay",
       "params": true,
       "result": true
     },
@@ -1437,6 +1513,24 @@
     {
       "kind": "request",
       "name": "_acpmux/team/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/navigator",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/pick",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/session_info",
       "params": true,
       "result": true
     },
@@ -2709,6 +2803,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/heap_profile",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peers",
       "params": {
         "$ref": "#/types/PeersParams"
@@ -2724,6 +2824,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wireguard_admit",
       "params": true,
       "result": true
     },
@@ -2855,18 +2961,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/trace/spans",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/status",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "agent/credentials.update",
       "params": true,
       "result": true
@@ -2927,6 +3021,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/consent_remote_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_remote_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_grantor_trust",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_account_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_trust_refresh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_screen_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_routes",
       "params": true,
       "result": true
@@ -2976,6 +3106,12 @@
     {
       "kind": "request",
       "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_challenge",
       "params": true,
       "result": true
     },
@@ -3670,6 +3806,13 @@
             "null"
           ]
         },
+        "hold": {
+          "description": "The hold of a chat whose rows come from the row store (`attach-hold-v1`,\n`server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact\npage-state `kinds` streamed live; needs `eventStream: true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "kinds": {
           "anyOf": [
             {
@@ -4316,6 +4459,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4326,6 +4470,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true,
         "text": true
       },
@@ -5277,6 +5422,7 @@
         "cancelFork": true,
         "cancelToken": true,
         "expectRevision": true,
+        "grace": true,
         "ifIdle": true,
         "purge": true,
         "sessionId": true
@@ -5502,6 +5648,53 @@
       ],
       "type": "object"
     },
+    "LiveListParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live_list` takes no params.",
+      "type": "object"
+    },
+    "LiveListResult": {
+      "description": "`_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while\nthe owner is not Live).",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        },
+        "people": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "people"
+      ],
+      "type": "object"
+    },
+    "LiveParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.",
+      "properties": {
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LiveResult": {
+      "description": "`_acpmux/live`'s answer: Live now.",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live"
+      ],
+      "type": "object"
+    },
     "LoopEpisodeSummary": {
       "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
       "properties": {
@@ -5582,6 +5775,11 @@
         {
           "const": "paused",
           "description": "A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud\ncarrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.",
+          "type": "string"
+        },
+        {
+          "const": "idle",
+          "description": "Not dialed, on purpose: nothing has used it since this daemon started, or its link closed\nafter it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last\nlinked, unless it is `offline` instead. Folded to `connected` for an older app, which then\nlets a person pick it, and the pick connects it.",
           "type": "string"
         }
       ]
@@ -6747,6 +6945,9 @@
         },
         "answers": {
           "description": "A question's answers, by question."
+        },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
         },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
@@ -8038,6 +8239,14 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -9018,6 +9227,14 @@
         },
         "harness": {
           "type": "string"
+        },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "harnessSandboxFailed": {
           "default": null,
@@ -10412,6 +10629,16 @@
         "sessionId",
         "on"
       ],
+      "type": "object"
+    },
+    "UndeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "UsageParams": {

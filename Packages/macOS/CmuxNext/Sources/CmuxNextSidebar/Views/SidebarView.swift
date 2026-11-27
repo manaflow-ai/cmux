@@ -98,18 +98,11 @@ public final class SidebarView: NSView {
     /// omnipresent... say the bottom left of the sidebar area"): a click runs ``onLiveToggle``, a right-click lists who
     /// is live (SidebarView+Live). `sidebar.showLiveToggle` hides it.
     let liveButton = SidebarIconButton(symbol: "dot.radiowaves.left.and.right", pointSize: { Metrics.iconSize }, label: Strings.live)
-    /// The footer's Spaces visibility button, beside Live. It stays available while Spaces are hidden by default,
-    /// so the switcher never depends on a right-click menu for discovery (SidebarView+Spaces).
-    let spacesButton = SidebarIconButton(symbol: "square.grid.2x2", pointSize: { Metrics.iconSize }, label: Strings.spacesToggle)
     let liveMenuTarget = SidebarLiveMenuTarget()
     /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
     public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
-    /// Whether the Spaces strip is enabled in settings; the App binds this from `sidebar.showSpaces`.
-    public var spacesShown = true { didSet { if spacesShown != oldValue { applySpaces(); needsLayout = true } } }
     /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
     public var onLiveToggle: (() -> Void)?
-    /// The Spaces visibility button was pressed; the App writes `sidebar.showSpaces` through the registry.
-    public var onSpacesToggle: (() -> Void)?
     /// A teammate was picked in the Live menu: the App opens their direct message.
     public var onLiveOpenPerson: ((String) -> Void)?
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
@@ -258,6 +251,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
+            listReplacement = appSections?.workspaceList
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
@@ -265,6 +259,16 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+
+    /// The person's own workspace list (`cmux.sidebar/1`, `sidebar.workspaceListApp`); the App
+    /// injects it. The built-in list draws while it is nil or its content is not drawn (SidebarListSwap).
+    public var listReplacement: (any SidebarListReplacement)? {
+        didSet {
+            listReplacement?.onContentChange = { [weak self] in self?.needsLayout = true }
+            needsLayout = true
+        }
+    }
+    let listSwap = SidebarListSwap()
 
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
     /// popover and the "cmux Updated!" card. Set by the App; without them the
@@ -282,6 +286,15 @@ public final class SidebarView: NSView {
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
     /// `search`), the same centered palette as Cmd-P. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
+    /// Keeps the Search button's tooltip key (the Command Palette's, "⇧⌘P") current through a rebind.
+    private var searchShortcutObservation: Task<Void, Never>?
+    public func followSearchShortcut(_ shortcut: @escaping @MainActor () -> String?) {
+        searchShortcutObservation?.cancel()
+        // task-owner: the sidebar view (cancelled on the next call); event-driven (Observation)
+        searchShortcutObservation = Task { [weak self] in
+            for await key in ObservationStream({ shortcut() }) { self?.searchButton.themedToolTipShortcut = key }
+        }
+    }
 
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
@@ -383,11 +396,6 @@ public final class SidebarView: NSView {
         liveButton.onPress = { [weak self] in self?.onLiveToggle?() }
         liveButton.menuProvider = { [weak self] in self?.liveMenu() }
         addSubview(liveButton)
-        spacesButton.setAccessibilityIdentifier("cmux.sidebar.spacesToggle")
-        spacesButton.showsLabelToolTip = false
-        spacesButton.onPress = { [weak self] in self?.onSpacesToggle?() }
-        addSubview(spacesButton)
-        applySpaces()
         applyLive()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
@@ -486,7 +494,6 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
         SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
-        SidebarHiddenState.apply(noFade, to: spacesButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
@@ -497,7 +504,7 @@ public final class SidebarView: NSView {
         // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space,
         // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
         // make the switcher again (a window resize step).
-        let spacesChanged = bandsDirty
+        let spacesChanged = bandsDirty, widthChanged = bandsSize.map { $0.width != b.width } ?? false
         if bandsDirty || bandsSize?.width != b.width || (bandsFollowHeight && bandsSize?.height != b.height) {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
@@ -508,12 +515,13 @@ public final class SidebarView: NSView {
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
         // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
-        let landsAtOnce = cardSlot.updatedLandsAtOnce
+        // A resized sidebar rewraps the card: its room follows the drag at once, never on a spring that stretches it.
+        let landsAtOnce = cardSlot.updatedLandsAtOnce || widthChanged
         // The Updated card dragged to the top takes its room there; the bottom slot's closes (Leo 2026-11-07).
         let atTop = cardSlot.updatedAtTop
         let updateHeight = cardSlotMotion.height(toward: atTop ? 0 : slotHeight, in: self, snaps: landsAtOnce)
         let topCardHeight = topCardMotion.height(toward: atTop ? slotHeight : 0, in: self, snaps: landsAtOnce)
-        if landsAtOnce { updatedCardView.landed() }
+        if cardSlot.updatedLandsAtOnce { updatedCardView.landed() }
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
@@ -539,6 +547,7 @@ public final class SidebarView: NSView {
         // from nothing in it.
         footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
+        listSwap.apply(listReplacement?.content, in: self, frame: listFrame, native: edgeFade)
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)
