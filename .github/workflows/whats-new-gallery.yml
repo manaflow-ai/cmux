@@ -13,7 +13,10 @@ name: What's New gallery pictures
 # .github/actions/pr-media-publish and its privacy check.
 on:
   push:
-    branches: [feat-cmux-next]
+    # nightly-next too: a promote that carries a highlight plans again what an earlier run left
+    # unrendered. Run 45963430187 failed on a broken gallery file and nothing ran it again, so
+    # theme-flourishes, ios-new-task-cloud-machine and diff-pickers-draw-what-shows shipped with no picture.
+    branches: [feat-cmux-next, nightly-next]
     paths:
       - "release-notes/next/highlights/**"
       # A planner change plans again what is still missing (it only renders pictures not on pr-media).
@@ -138,17 +141,24 @@ jobs:
           write_input_keys "$GITHUB_SHA" "$out/input-keys.json"
           cd webviews
           bun install --frozen-lockfile
-          # No ENTRIES: a state is still to be picked, from every entry's cases.
-          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
+          # No ENTRIES: a state is still to be picked, from every entry's cases. --skip-broken: a gallery file
+          # that fails to load is left out, named in the log, so it costs only its own pictures. On 2026-11-27
+          # one duplicate `const` in ClaudeConnectRow.gallery.tsx failed 10 runs from 05:14Z to 08:18Z, and four
+          # Improved highlights shipped in nightly 4598742452601 with none (Leo, 2026-10-20: "we want things to
+          # be PRETTY!!!!").
+          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --themes pair --widths normal \
             --frame component --out "$RUNNER_TEMP/cases.json"
           # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
           # And the source files each entry covers: a highlight whose commit changed no gallery file.
-          bun scripts/gallery/notes.ts --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
+          bun scripts/gallery/notes.ts --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
           # Picks the states no line names and writes them into the plan publish reads.
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
             --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" \
             --covers "$RUNNER_TEMP/covers.json" --out "$RUNNER_TEMP/manifest.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          # Only the entries the manifest renders (galleryEntrySubset): the whole gallery would compile the broken
+          # file left out above and fail the build. None to render: nothing is built or rendered.
+          built=$(jq -r '[.[].params.entry] | unique | join(",")' "$RUNNER_TEMP/manifest.json")
+          [ -n "$built" ] && CMUX_GALLERY_ENTRIES="$built" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
           "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
           render() {
@@ -174,12 +184,16 @@ jobs:
                 --parent "$parent" > "$RUNNER_TEMP/overlays-$parent.txt" &&
               (while read -r commit path; do git -C "$at" checkout -q "$commit" -- "$path" || exit 1; done \
                 < "$RUNNER_TEMP/overlays-$parent.txt") &&
+              # Only build the entries this parent actually renders. An unrelated broken gallery file must not
+              # suppress every authentic before image for the planned highlights.
+              entries_at=$(jq -r --arg parent "$parent" '[.[] | select(.parent == $parent) | .entry] | unique | join(",")' "$out/plan.json") &&
               (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
+                bun scripts/gallery/manifest.ts --entries "$entries_at" --skip-broken --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
-              (cd "$at/webviews" && CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
+              (cd "$at/webviews" && CMUX_GALLERY_ENTRIES="$entries_at" CMUX_STRINGS_BEST_EFFORT=1 \
+                CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
               write_input_keys "$parent" "$out/input-keys-$parent.json" &&
               render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent" "$out/input-keys-$parent.json"
             } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"

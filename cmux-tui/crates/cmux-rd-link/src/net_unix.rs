@@ -4,7 +4,7 @@
 use super::UDP_BUFFER_SIZE;
 use std::io;
 use std::mem::size_of_val;
-use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, TcpStream, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
 
 /// What the driver and its caller wait on.
@@ -12,6 +12,11 @@ pub(super) type Raw = RawFd;
 
 pub(super) fn raw(socket: &UdpSocket) -> Raw {
     socket.as_raw_fd()
+}
+
+/// A stream TURN relay's socket (stream_relay.rs).
+pub(super) fn raw_stream(stream: &TcpStream) -> Raw {
+    stream.as_raw_fd()
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -66,8 +71,21 @@ impl Drop for Wake {
 
 /// Blocks until one of `fds` is readable or `timeout_ms` passes (-1: no timeout).
 pub(super) fn wait_readable(fds: &[Raw], timeout_ms: i32) {
-    let mut pfds: Vec<libc::pollfd> =
-        fds.iter().map(|&fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 }).collect();
+    let fds: Vec<(Raw, bool)> = fds.iter().map(|&fd| (fd, false)).collect();
+    wait_ready(&fds, timeout_ms);
+}
+
+/// Blocks until one of `fds` is readable (or, where its flag is set, writable, or failed)
+/// or `timeout_ms` passes (-1: no timeout).
+pub(super) fn wait_ready(fds: &[(Raw, bool)], timeout_ms: i32) {
+    let mut pfds: Vec<libc::pollfd> = fds
+        .iter()
+        .map(|&(fd, write)| libc::pollfd {
+            fd,
+            events: if write { libc::POLLIN | libc::POLLOUT } else { libc::POLLIN },
+            revents: 0,
+        })
+        .collect();
     // SAFETY: pfds is a valid array of pollfd for its length.
     unsafe { libc::poll(pfds.as_mut_ptr(), pfds.len() as libc::nfds_t, timeout_ms) };
 }
