@@ -1,12 +1,13 @@
 /** Recovery is confined to an intent's exact unique slug, authorized by its retained create proof. */
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
-import { logTimedEvent, timedPhase } from "../lib/timing.ts";
+import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
+import type { CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
-import { resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, type UpstreamClientService } from "./client.ts";
+import { CREATE_QUEUE_FULL, resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, type UpstreamClientService } from "./client.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { pendingVmCreationEvidenceOf, cancellingVmCreationEvidenceOf, type VmCreationEvidence } from "../proofs/vm-creation.ts";
 import { upstreamName } from "./naming.ts";
@@ -77,6 +78,33 @@ const providerTimings = (answer: unknown): { readonly providerTotalMs?: number; 
     ...(typeof total === "number" && Number.isFinite(total) ? { providerTotalMs: total } : {}),
     ...(phases.length === 0 ? {} : { providerTimingsMs: Object.fromEntries(phases) }),
   };
+};
+
+/**
+ * Takes a provider create slot for `holder` and answers how to give it back. A refusal (the wait ahead was past the
+ * budget, or no slot came within it) fails the create before anything is sent. A queue that cannot be reached does
+ * not stop creates: the create is sent as it was before the queue existed, and the line says so.
+ */
+const admitSend = (admission: CreateAdmissionClient | undefined, holder: string, phases: TimedPhases | undefined): Effect.Effect<Effect.Effect<void>, UpstreamError> => {
+  if (admission === undefined) return Effect.succeed(Effect.void);
+  return timedPhase(phases, "admitWaitMs", Effect.tryPromise(() => admission.admit(holder))).pipe(
+    Effect.matchEffect({
+      onFailure: () => logTimedEvent("vm_create_admission_unavailable", { vmId: holder }).pipe(Effect.as(Effect.void)),
+      onSuccess: (outcome) => {
+        if (phases !== undefined) {
+          phases["admitInFlight"] = outcome.inFlight;
+          phases["admitQueued"] = outcome.queued;
+          phases["admitQueueMs"] = outcome.waitedMs;
+        }
+        if (outcome.admitted) return Effect.succeed(Effect.tryPromise(() => admission.release(holder)).pipe(Effect.ignore));
+        if (phases !== undefined) {
+          phases["admission"] = outcome.reason;
+          phases["admitRetryAfterMs"] = Math.round(outcome.retryAfterMs);
+        }
+        return Effect.fail(new UpstreamError({ operation: CREATE_QUEUE_FULL, status: null }));
+      },
+    }),
+  );
 };
 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
@@ -229,12 +257,16 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
-      const token = yield* journal.beginSend();
+      // A provider create slot (limits/create-admission.ts) is taken before the send begins, so a refusal sent
+      // nothing and the same key's retry starts clean, like a failed image read above.
+      const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases);
+      const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
       return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
         Effect.tap(keep),
         Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
       )).pipe(
+        Effect.ensuring(release),
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
         Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => Option.isSome(found)
           ? Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; })
