@@ -2206,6 +2206,15 @@
       }
     },
     "Conversations": {
+      "requests": {
+        "conversation-list": {
+          "name": "ListConversationsRequest",
+          "doc": [
+            "`conversation-list`: every conversation, newest `updated_at` first."
+          ],
+          "response": "ConversationList"
+        }
+      },
       "objects": {
         "ConversationList": {
           "result": "conversation-list",
