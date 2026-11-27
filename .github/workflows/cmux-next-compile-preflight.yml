@@ -128,6 +128,22 @@ jobs:
           path: ${{ runner.temp }}/web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
+      # R2 holds only the keys a feat-cmux-next push built. The GitHub cache holds the keys this pull request already
+      # built: cmux-next.yml's web-bundles job and this job's own save below, under the same key. Every head of a pull
+      # request with a web change reaches a web bundle (the diff is against the base), so its next push that moves no
+      # web source, or a base merge, rebuilt the same sources: 67 of 186 preflight builds, 209 of 664 build minutes
+      # (11-26 22Z..11-27 05Z, ci140-pr-segment). A hit there passes the same way an R2 hit does, without a download.
+      - name: Look up the web bundles this pull request already built
+        id: web-bundle-cache
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true'
         shell: bash
@@ -176,6 +192,20 @@ jobs:
         env:
           CMUX_WEB_SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
         run: python3 -I scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT" "$RUNNER_TEMP/web-bundles-out"
+
+      # The build passed: keep it under its source key (the key and layout cmux-next.yml's web-bundles job saves), so
+      # this pull request's next head with the same web sources passes on the lookup above. A pull request's save is
+      # scoped to its own ref; R2 stays written by the feat-cmux-next push alone.
+      - name: Cache the web bundles under this source key
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # The same path string as the lookup: the GitHub cache's version hashes it.
+          path: ${{ runner.temp }}/web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Bind the artifact to its source key and output bytes
         if: steps.touched.outputs.web == 'true'
