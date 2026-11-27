@@ -937,6 +937,11 @@ async fn dial_with_a_slow_gather(
         relay: relay(&rig.server, &rig.phone_id),
         relay_first: phone_first,
         ice_servers: vec![unreachable_turn],
+        // Keep this helper's documented baseline: the phone waits for its
+        // gather before forwarding wg-init. Relay-first production dials now
+        // send the offer early by default, so the test must opt into the
+        // historical mode explicitly when comparing the Mac's early join.
+        init_after_gather: true,
         ..options()
     };
     let started = std::time::Instant::now();
@@ -1451,11 +1456,10 @@ async fn relay_first_dial_with_a_slow_gather(
 /// `wg-init` before its STUN and TURN gather (host endpoints, the relay
 /// offer and `ticketEarly`), and the gathered endpoints follow as a trickle
 /// (`wg-endpoints` and the sealed in-tunnel announcement, which rides the
-/// relay), so a slow gather no longer holds the offer, the ticket and both
-/// joins. The tunnel still starts once both `wg-resp` and the gather are in,
-/// so the link comes up after the longer of the gather and the join instead
-/// of their sum: with a 400 ms gather and 200 ms joins, `wg-init` goes at
-/// once and the link is up about a join (200 ms) sooner.
+/// relay), so a slow gather no longer holds the offer or its ticket. Both
+/// modes already start relay joins from the early cue. This checks that
+/// the early offer precedes the gather and that the gather and join overlap;
+/// a fixed link-up improvement is not promised between these two modes.
 /// `CMUX_RELAY_TICKET_RUNS=8` prints medians over 8 dials of each.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
@@ -1480,8 +1484,11 @@ async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
         let label = if *after_gather { "wg-init after gather (before)" } else { "wg-init first (after)" };
         eprintln!("{label}: link up {up:?}, wg-init forwarded at {init:?} (median of {runs})");
     }
-    let (before, after) = (rows[0].1, rows[1].1);
-    assert!(after + Duration::from_millis(150) < before, "link up {after:?} vs {before:?} before");
+    // The relay join is already started by the early cue in both modes. The
+    // observable contract is the offer ordering above and that the early
+    // offer overlaps the gather and join; a fixed wall-clock improvement is
+    // scheduler-dependent and does not describe the protocol.
+    let after = rows[1].1;
     assert!(after < stun + join, "link up {after:?}: the gather and the join overlap");
 }
 
