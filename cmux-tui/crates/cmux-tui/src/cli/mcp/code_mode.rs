@@ -625,6 +625,15 @@ fn exec_mode(
     for message in &from_script {
         match message {
             ToServer::Request(request, reply) => {
+                // The wrap-up's box, for the agent pane to draw from the transcript: built from
+                // the call's own input, because its answer no longer echoes it back to the agent
+                // (`acpmux_mcp_wrap_up.rs`, RFD 0087).
+                let drawn = match &request {
+                    Request::Call { name, arguments } if name.as_str() == WRAP_UP => {
+                        acpmux::acpmux_mcp::wrap_up_box(&Value::Object(arguments.clone()))
+                    }
+                    _ => None,
+                };
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
                     Request::ActivityStart { kind, .. } => Some(kind.clone()),
@@ -645,13 +654,8 @@ fn exec_mode(
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
                         }
-                        // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok
-                            && name == WRAP_UP
-                            && let Some(shown) =
-                                answered.get("value").filter(|value| value.is_object())
-                        {
-                            record.set("shown", shown.clone());
+                        if ok && let Some(shown) = drawn {
+                            record.set("shown", shown);
                         }
                         records.push(record);
                     }
