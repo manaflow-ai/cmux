@@ -100,7 +100,7 @@ jobs:
 
   run:
     needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: ${{ !cancelled() && !failure() && needs.plan.result == 'success' && (needs.plan.outputs.run == 'true') }}
     name: ${{ matrix.name }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 150
