@@ -139,9 +139,23 @@ jobs:
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           schema='{"type":"object","properties":{"translations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"value":{},"localization":{"type":"object"}},"required":["id"]}}},"required":["translations"]}'
           mkdir -p "$RUNNER_TEMP/empty"
+          rc=0
           (cd "$RUNNER_TEMP/empty" && claude -p \
             --disallowedTools "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task" \
-            --max-turns 4 --output-format json --json-schema "$schema" < "$RUNNER_TEMP/packet/prompt.txt") > "$RUNNER_TEMP/answer.json"
+            --max-turns 4 --output-format json --json-schema "$schema" < "$RUNNER_TEMP/packet/prompt.txt") > "$RUNNER_TEMP/answer.json" || rc=$?
+          # The CLI writes its error into the JSON answer, not stderr: print it, or a failure here says nothing.
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::claude -p exited $rc (CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && echo yes || echo no))"
+            python3 -I -c 'import json,sys
+          raw=open(sys.argv[1]).read()
+          try:
+              a=json.loads(raw)
+          except ValueError:
+              print("answer (not JSON):", raw[:2000]); raise SystemExit
+          print({k: a.get(k) for k in ("subtype","is_error","api_error_status","terminal_reason","stop_reason","num_turns")})
+          print("result:", str(a.get("result"))[:2000])' "$RUNNER_TEMP/answer.json" || true
+            exit "$rc"
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: localization-answer
