@@ -67,7 +67,7 @@ struct LinkConnectivityEvents: Sendable {
             fields["error_code"] = .safeCode(error.code)
             if !error.message.isEmpty { fields["error_message"] = .text(error.message) }
         } else {
-            fields["error_code"] = .code(error is any LinkServiceFailure ? "service_refused" : "other")
+            fields["error_code"] = .code(error is LiveAPI.Failure ? "service_refused" : "other")
             fields["error_type"] = .code(Self.word(String(describing: type(of: error))))
         }
         telemetry.record(.link, "dial_failed", outcome: .failure, fields: fields, detail: String(describing: error))

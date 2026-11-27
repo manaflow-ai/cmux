@@ -241,6 +241,9 @@ pub(super) fn initialize(
 ) -> Result<Value, RpcError> {
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
+    // Its ABI hello, counted once here for `_acpmux/status` (`note_initialize` runs twice per
+    // `initialize`); nothing in it can fail the connection.
+    crate::abi_hello::note(crate::abi_hello::read(params));
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
     // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
     if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
