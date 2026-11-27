@@ -188,7 +188,13 @@ class ChecksJobStructure(unittest.TestCase):
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
         verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
-        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        # The rollup runs the commit's blob of the verdict script, never the checkout's file, which an earlier step's
+        # code can rewrite (AppFfiPinStepJudgesWithTheBaseCopy.test_the_rollup_sources_no_file_from_the_checkout).
+        run = aggregate["run"]
+        self.assertIn(f'/usr/bin/git cat-file blob "$GITHUB_SHA:{verdict_path}"', run)
+        self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", run)
+        self.assertIn("GIT_NO_REPLACE_OBJECTS=1", run)
+        self.assertNotRegex(run, r"(^|[\s;&|])(bash|source|\.)\s+(\./)?" + re.escape(verdict_path))
         verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
         self.assertIn("GITHUB_STEP_SUMMARY", verdict)
         self.assertIn("exit 1", verdict)
@@ -490,12 +496,18 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         env = {key: value for key, value in os.environ.items() if key != "BASH_ENV"}
         for scope in (document.get("env") or {}, rollup.get("env") or {}):
             env.update({key: str(value) for key, value in scope.items() if "${{" not in str(value)})
+        # The commit holds the real verdict script; an earlier step then rewrites the checkout's copy to pass.
+        verdict = self.repo / "scripts/ci/cmux_next_checks_verdict.sh"
+        shutil.copy(ROOT / "scripts/ci/cmux_next_checks_verdict.sh", verdict)
+        self.commit("verdict")
+        commit = self.rev("HEAD")
+        verdict.write_text("#!/usr/bin/env bash\necho planted; exit 0\n")
         planted = self.repo / "scripts/ci/api_call_log/env.sh"
         planted.parent.mkdir(parents=True)
         planted.write_text("echo planted; exit 0\n")
         summary = self.tmp / "summary"
         env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
-                   OUTCOMES="failure|Check the app FFI pin\n")
+                   GITHUB_SHA=commit, OUTCOMES="failure|Check the app FFI pin\n")
         result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
                                 text=True, timeout=60)
         output = result.stdout + result.stderr
@@ -576,7 +588,10 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
                         f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+            # #51550: a slow check runs beside the rest, backgrounded and waited on with a warning.
+            beside = re.search(rf"bun run {re.escape(name)} [^\n]*&\n\s*(\w+)=\$!\n", warn_branch)
+            beside = bool(beside) and f'wait "${beside.group(1)}" || echo "::warning' in warn_branch
+            if not (name in looped or name in gated or beside or f"bun run {name} || status=1" in warn_branch):
                 missing.append(
                     f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
                     f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
@@ -929,18 +944,22 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
-        self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
+        # #55494: the router names the one job that checks the generated files (generated_host, 'none' when
+        # outputs.generated is not 'true'); the Mac job runs only when it is the host.
+        self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", jobs["generated-files"]["if"])
+        self.assertIn("steps.route.outputs.generated != 'true' && 'none' || ", route["outputs"]["generated_host"])
         self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
         # A same-repository PR runs its routed tiers; full-ci is what a fork PR needs
-        # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions).
+        # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions). The labels are the router's
+        # live ",a,b," read (#57329, note-97), not the event payload's.
         self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs["generated-files"]["if"])
+                      "contains(needs.path_route.outputs.labels, ',full-ci,')", jobs["generated-files"]["if"])
         # daemon-test runs after merge on feat-cmux-next (2026-11-26: 518 PR runs over 30 days, 9 reds, 0 real
         # catches; cmuxterm-hq docs/findings/2026-11-25-ci-value.md): a PR into another base keeps the old rule.
         self.assertIn("(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
                       "(github.event.pull_request.head.repo.full_name == github.repository || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))", jobs["daemon-test"]["if"])
+                      "contains(needs.path_route.outputs.labels, ',full-ci,')))", jobs["daemon-test"]["if"])
         # A pull request's Swift canary is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556).
         self.assertIn("needs.path_route.outputs.swift_canary == 'true'", jobs["swift-canary"]["if"])
         self.assertIn("&& github.event_name != 'pull_request')", jobs["swift-canary"]["if"])
@@ -951,7 +970,7 @@ class PathRoutingStructure(unittest.TestCase):
         # swift-test never runs on a PR into feat-cmux-next (its gate names the base since #49046).
         for job_id in HEAVY_COMPILES:
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
-                          "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
+                          "contains(needs.path_route.outputs.labels, ',full-ci,')", jobs[job_id]["if"], job_id)
         self.assertIn("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
                       jobs["swift-test"]["if"])
         for job_id in (*HEAVY_COMPILES, "swift-test"):
@@ -1122,13 +1141,22 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("generated-autofix", jobs)
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("Mint the autofix token", text)
-        fail = next(step for step in jobs["generated-files"]["steps"]
-                    if step.get("name") == "Fail on stale generated files")
+        fail = self.stale_verdict(jobs)
         self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
         self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
         self.assertIn("exit 1", fail["run"])
         # No autofix of its own: only the "autofixed" verdict of what the PR autofix repairs (next test).
         self.assertNotIn("autofix", fail["run"].replace("generated-autofixable", "").replace("autofixed", ""))
+
+    def stale_verdict(self, jobs: dict) -> dict:
+        """generated-files' "Fail on stale generated files" step, its run the body it executes: the step runs
+        generated-files-linux.sh's `verdict` case, the one the Linux pool's job runs too (#55494)."""
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertEqual(fail["run"].strip(), "bash scripts/ci/cmux-next-steps/generated-files-linux.sh verdict")
+        script = (ROOT / "scripts/ci/cmux-next-steps/generated-files-linux.sh").read_text(encoding="utf-8")
+        body = script.split("\n  verdict)\n", 1)[1].split("\n    ;;\n", 1)[0]
+        return {**fail, "run": body}
 
     def test_stale_generated_files_the_pr_autofix_repairs_report_autofixed(self):
         """Stale files the PR autofix regenerates from the pull request's own changes and pushes as a commit
@@ -1137,19 +1165,23 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         gate = ("github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
                 "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1'")
-        fail = next(step for step in jobs["generated-files"]["steps"]
-                    if step.get("name") == "Fail on stale generated files")
+        fail = self.stale_verdict(jobs)
         self.assertIn(gate, fail["env"]["AUTOFIXED_OK"])
         self.assertIn('[[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"', fail["run"])
         # The catalog failure (fresh exports fail too) stays red before the autofixed branch.
-        self.assertLess(fail["run"].index("a catalog failure"), fail["run"].index("AUTOFIXED_OK"))
+        self.assertLess(fail["run"].index("a catalog failure"), fail["run"].index('[[ "$AUTOFIXED_OK" == true ]]'))
         for name in ("Record this pass for the same inputs", "Save the pass"):
             step = next(s for s in jobs["generated-files"]["steps"] if s.get("name") == name)
             self.assertIn("steps.stale.outputs.autofixed != 'true'", step["if"])
         for host in ("swift-test", "daemon-test"):
             verdict = next(s for s in jobs[host]["steps"] if s.get("id") == "generated-files-verdict")
             self.assertIn(gate, verdict["env"]["AUTOFIXED_OK"])
-            self.assertIn("verdict=autofixed", verdict["run"])
+            run = verdict["run"]
+            # #58103 moved swift-test's body to a step script (the workflow size budget, moves only).
+            moved = re.fullmatch(r"bash -e (scripts/ci/cmux-next-steps/[\w.-]+\.sh)", run.strip())
+            if moved:
+                run = (ROOT / moved.group(1)).read_text(encoding="utf-8")
+            self.assertIn("verdict=autofixed", run)
         shared = jobs["generated-verdict"]["steps"][0]["run"]
         self.assertIn("autofixed)", shared)
         self.assertIn("(autofixed)", shared)
@@ -1296,8 +1328,10 @@ class PathRoutingStructure(unittest.TestCase):
                         else:
                             self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
-        # The workflow's comments moved to its notes file; the workflow points at the note that says it.
-        self.assertIn("# Why: docs/ci/cmux-next-workflow-notes.md#note-553\n", text)
+        # The workflow's comments moved to its notes file; the workflow points at the note that says it,
+        # as a bare note-N (#54404: the header's note-411 names the notes file for bare notes).
+        self.assertIn("a bare note-N is a note there too", text)
+        self.assertIn("\n# Why: note-553\njobs:\n", text)
         note = (ROOT / "docs/ci/cmux-next-workflow-notes.md").read_text(encoding="utf-8").split("## note-553\n", 1)[1]
         note = " ".join(note.split("\n## ", 1)[0].split())
         self.assertIn("The rescue re-admits a queued run after the five-minute queue alarm: placement first uses a free "
@@ -1708,6 +1742,12 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
 
     CHECKOUT_FAILED = "steps.checkout.outcome == 'failure'"
 
+    def on_failed_checkout(self, step: dict) -> bool:
+        """A step of the failed checkout's retry: its condition is the failure, or the failure and more
+        (#58337: release-compile re-borrows the host's git mirror on a glaeda runner before the retry)."""
+        condition = str(step.get("if", ""))
+        return condition == self.CHECKOUT_FAILED or condition.startswith("${{ " + self.CHECKOUT_FAILED + " && ")
+
     def test_every_submodule_free_checkout_on_an_owned_runner_resets_submodules(self):
         jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         checked = []
@@ -1722,12 +1762,12 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     continue
                 # A failed checkout's retry pair (tests/test_cmux_next_checkout_retry.py)
                 # sits between the checkout and the reset, which follows either way.
-                if step.get("if") == self.CHECKOUT_FAILED:
+                if self.on_failed_checkout(step):
                     continue
                 checked.append(job_id)
                 with self.subTest(job=job_id):
                     after = index + 1
-                    while after < len(job_steps) and job_steps[after].get("if") == self.CHECKOUT_FAILED:
+                    while after < len(job_steps) and self.on_failed_checkout(job_steps[after]):
                         after += 1
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
@@ -1821,13 +1861,23 @@ class SameTreeIsAnEvent(unittest.TestCase):
                 self.assertLessEqual(int(step["timeout-minutes"]), 2)
                 budget = int(step["env"]["CMUX_TUI_TREE_RUN_FETCH_SECONDS"])
                 self.assertLess(budget, 60 * int(step["timeout-minutes"]))
-        self.assertGreater(int(route["timeout-minutes"]), sum(int(step["timeout-minutes"]) for step in probes) + 2)
+        # #53863: the base-red read (and its token mint) is a probe too: bounded, fail-open, and an empty read
+        # names no job red ('[]'), so every routed job still starts.
+        base_red = [step for step in route["steps"] if step.get("id") in ("base-red-token", "base-red")]
+        self.assertEqual(len(base_red), 2)
+        for step in base_red:
+            with self.subTest(step=step["name"]):
+                self.assertIs(step.get("continue-on-error"), True)
+                self.assertLessEqual(int(step["timeout-minutes"]), 3)
+        self.assertEqual(route["outputs"]["base_red_jobs"], "${{ steps.base-red.outputs.red_jobs || '[]' }}")
+        self.assertGreater(int(route["timeout-minutes"]),
+                           sum(int(step["timeout-minutes"]) for step in probes + base_red) + 2)
         report = next(step for step in route["steps"] if step.get("name") == "Report a probe that failed open")
         self.assertIn("steps.tree.outcome == 'failure'", report["if"])
         self.assertIn("steps.tree-final.outcome == 'failure'", report["if"])
         # The routed tiers come from the step before the probes, never from a probe.
         for name, value in route["outputs"].items():
-            if not name.startswith("tree_"):
+            if not name.startswith("tree_") and name != "base_red_jobs":
                 with self.subTest(output=name):
                     self.assertTrue(value.strip().startswith("${{ steps.route.outputs."), value)
 
@@ -1967,11 +2017,13 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = one_runs_on(cargo)
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
-        self.assertTrue(runs_on.endswith(
-            "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-            "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-        ), runs_on)
+        # Its size is the one .github/runners.json linux_sizes names: linux_16, GCP-led with Blacksmith after and no
+        # Freestyle member, so no failover pool (#59548: on linux_8's Freestyle lead 243 of 653 runs timed out).
+        sizes = json.loads((ROOT / ".github/runners.json").read_text(encoding="utf-8"))
+        cargo_size = sizes["linux_sizes"]["jobs"]["cmux-next.yml#fast-tier-cargo"]
+        self.assertEqual(cargo_size.get("size"), 16)
+        self.assertNotIn("failover", cargo_size)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
         route_without_pools = re.sub(
             r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
         )
@@ -1980,9 +2032,11 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
         # The cargo route goes before the label guard, which stays last
         # (tests/test_ci_label_events_skip_full_ci.py).
+        # #58222: only an unlabel, or a label other than full-ci/ready-to-land, skips; adding full-ci runs.
         label_guard = (" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == "
-                       "'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
-                       "&& !contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), github.event.label.name)) }}")
+                       "'feat-cmux-next' && (github.event.action == 'labeled' && "
+                       "!contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), github.event.label.name) || "
+                       "github.event.action == 'unlabeled')) }}")
         self.assertTrue(mac["if"].endswith(label_guard), mac["if"])
         # The Mac half runs a pull request's fast tier in pr-pipeline.yml's `mac` job (note-556); the cargo half
         # stays here on both events.
@@ -1990,10 +2044,14 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
             "((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))",
             "((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || "
             "(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))")
+            # #58306: a route read needs the router's success; #53863: a base-red cargo half is not started.
             .replace(label_guard, " && (github.event_name != 'pull_request' || "
-                     "needs.path_route.outputs.fast_tier_cargo != 'false')" + label_guard))
+                     "needs.path_route.result == 'success' && needs.path_route.outputs.fast_tier_cargo != 'false')"
+                     " && !contains(fromJSON(needs.path_route.outputs.base_red_jobs || '[]'), "
+                     "'cmux-next fast tier (cargo)')" + label_guard))
         self.assertNotEqual(cargo["if"], mac["if"])
-        self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route"])
+        # #54976: both halves wait on the pure-checks coalescer.
+        self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route", "pure-checks-coalesce"])
         self.assertEqual(jobs["path_route"]["outputs"]["fast_tier_cargo"],
                          "${{ steps.route.outputs.fast_tier_cargo }}")
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
@@ -2332,13 +2390,25 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 start = index_of(steps, lambda s: s.get("name") == "Reuse that pass")
                 records = [i for i, s in enumerate(steps) if s.get("name") in (
                     "Record this pass for the same inputs", "Save the pass")]
+                # A step is guarded by the hit itself, or by needing an earlier guarded step to have run: on a hit
+                # that step skips, its outcome is `skipped` and its outputs empty (#58091, #59772: the R2 cargo
+                # restore's mtimes step, the workspace delta's pack and save).
+                guarded: set[str] = set()
                 for index, step in enumerate(steps[start + 1:], start + 1):
+                    condition = str(step.get("if", ""))
+                    ran = [match.group(1) for match in re.finditer(
+                        r"steps\.([A-Za-z0-9_-]+)\.(?:outcome == '(?:success|failure)'|outputs\.[A-Za-z0-9_-]+ "
+                        r"(?:!= ''|== '[^']+'))", condition)]
+                    if REUSE_GUARD in condition or any(name in guarded for name in ran):
+                        if step.get("id"):
+                            guarded.add(step["id"])
                     if index in records:
                         continue
                     if step.get("name") == "Request nightly-next promotion after this gate":
                         continue
                     with self.subTest(step=step.get("name") or step.get("uses")):
-                        self.assertIn(REUSE_GUARD, str(step.get("if", "")))
+                        self.assertTrue(REUSE_GUARD in condition or any(name in guarded for name in ran),
+                                        f"{condition!r} runs on a hit: it needs {REUSE_GUARD} or a guarded step's run")
                 # Nothing that builds, tests or reads a build cache comes before the lookup.
                 for step in steps[:start]:
                     text = json.dumps(step)
@@ -3161,6 +3231,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.repository_owner": "manaflow-ai",
             "github.event.pull_request.head.repo.full_name": head_repo,
             "github.event.pull_request.labels.*.name": list(labels),
+            # path_route hands the jobs the PR's live labels as ",a,b," (note-97, #57329).
+            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
@@ -3639,7 +3711,12 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         self.assertEqual(set(evaluate(expression, self.context(labels=("full-ci",))).split()),
                          {"cmux-scheme-compile", "release-compile", "swift-test", "daemon-test"})
         generated = self.context()
+        generated["needs.path_route.outputs.generated"] = "true"
         generated["needs.path_route.outputs.generated_host"] = "generated-files"
+        # #55494: the fleet's Linux pool checks the generated files (generated-files-linux), so the Mac job
+        # holds a cascade slot only with that pool off (vars.CI_GENERATED_FILES_LINUX == '0').
+        self.assertNotIn("generated-files", evaluate(expression, generated).split())
+        generated["vars.CI_GENERATED_FILES_LINUX"] = "0"
         self.assertIn("generated-files", evaluate(expression, generated).split())
         generated["needs.path_route.outputs.tree_state"] = "pending"
         self.assertNotIn("daemon-test", evaluate(expression, generated).split())
@@ -3754,6 +3831,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         context = {
             # The build fleet compiled the PR's head (app-compile-fleet), so no Mac Release compile is needed.
             "needs.app-compile-fleet.outputs.verdict": fleet,
+            # The cheap gate (note-cheap-gate): Linux cargo is not red.
+            "needs.fast-tier-cargo.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             "github.event_name": event, "github.ref": ref,
@@ -3771,6 +3850,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
                             "github.event.pull_request.labels.*.name": list(labels),
+                            # path_route hands the jobs the PR's live labels as ",a,b," (note-97, #57329).
+                            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": association})
         return context
 
@@ -3905,6 +3986,12 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "github.ref": "refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge",
             "github.run_attempt": attempt, "github.triggering_actor": "someone",
             "vars.CI_COMPILE_CHECK_GATEWAY": self.LIGHT, "vars.CI_PR_POOL_OWNED": "1",
+            # The router succeeded: on a pull request its `!= 'false'` reads need that (#58306).
+            "needs.path_route.result": "success",
+            # The PR's live labels as path_route hands them (note-97, #57329): none.
+            "needs.path_route.outputs.labels": ",,",
+            # The cheap gate (note-cheap-gate, #58899): Linux cargo is not red.
+            "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.native": "true", "needs.path_route.outputs.swift_canary": "true",
             # A change the Mac Release compile sees (path_route's mac_release): its fallback.
             "needs.path_route.outputs.mac_release": "true",
@@ -3989,6 +4076,8 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.event_name": event, "github.repository": "manaflow-ai/cmux",
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+            # The router succeeded: on a pull request its `!= 'false'` reads need that (#58306).
+            "needs.path_route.result": "success",
             "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
@@ -4648,8 +4737,10 @@ esac
                 # A tier placement listed for the fleet has no other route (no fast runner, Blacksmith list,
                 # owned list or retry runner): it still starts, to report its client's verdict. Without a
                 # client it still starts too (the base's deferred owned queue): it is never skipped.
+                # #53487: a pull request's Mac fast tier runs in pr-pipeline.yml's `mac` job (note-556), so
+                # this job's gate is the feat-cmux-next push.
                 unplaced = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
-                            "github.event_name": "pull_request", "github.base_ref": "feat-cmux-next",
+                            "github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
                             "github.run_attempt": 1, "github.triggering_actor": "someone",
                             "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
                             "vars.CI_PR_POOL_OWNED": "1", "inputs.same_tree_sha": "", "inputs.dev_daily": False,
@@ -4710,8 +4801,9 @@ esac
                 context = {**base, **extra}
                 self.assertEqual(evaluate(one_runs_on(tier), context), "blacksmith-6vcpu-macos-26")
                 # Above the cold Blacksmith 6 vCPU fast-tier p90 (19.8 min, #38181) with room: this run
-                # is its own job, so the client's queue wait does not eat into it.
-                self.assertEqual(evaluate(tier["timeout-minutes"], context), 35)
+                # is its own job, so the client's queue wait does not eat into it. #55298 raised 35 to 60
+                # after the 35-minute cap cut off passing hand-back runs.
+                self.assertEqual(evaluate(tier["timeout-minutes"], context), 60)
                 self.assertEqual(evaluate(job_env(tier)["CMUX_FAST_TIER_FLEET"], context), "")
         # The hand-back's own fresh placement (side_lane_placement.handback()) decides where it runs: an idle
         # owned Mac, Blacksmith 6 vCPU unless excluded, else the owned route. With no reading (the job skipped,
