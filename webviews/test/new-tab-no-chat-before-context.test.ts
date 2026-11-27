@@ -158,6 +158,15 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
   );
 
   test.each(engines.map(([name]) => name))(
+    "%s: a refused early context still lets the handshake identify a chat",
+    async (name) => {
+      const shown = await open(name, false, ".acpmux-dock", true);
+      expect(shown.at(-1)?.screen).toBe("chat");
+      expect(shown.some((entry) => entry.screen === "newTab" || entry.screen === "both")).toBe(false);
+    },
+  );
+
+  test.each(engines.map(([name]) => name))(
     "%s: a New Tab page with no injected context never draws the chat screen",
     async (name) => {
       const shown = await open(name, true, ".nt-field");
