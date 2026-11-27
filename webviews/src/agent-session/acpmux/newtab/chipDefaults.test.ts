@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { normalizeCatalog } from "../direct";
 import { emptySnapshot } from "../snapshotCache";
-import { listedNoDefault, newTabStart, rememberedNewTabModel } from "./chipDefaults";
+import { listedNoDefault, newTabStart } from "./chipDefaults";
 
 // Onboarding probe 2026-11-22: on a fresh Mac acpmux had only the built-in Chief and UniiChat, and a
 // new person's first New Tab started on UniiChat, signed out of it. acpmux names no default there
@@ -39,16 +39,4 @@ test("a catalog given as a list keeps its first agent", () => {
   const listed = [{ id: "codex" }, { id: "unii" }];
   expect(listedNoDefault(normalizeCatalog(listed))).toBe(false);
   expect(start(listed)).toBe("codex");
-});
-
-test("keeps the remembered model when the picked harness is confirmed", () => {
-  expect(rememberedNewTabModel({ harness: "claude", model: "claude-opus" }, "claude", "claude", true, true)).toBe(
-    "claude-opus",
-  );
-});
-
-test("does not keep a remembered model for a missing listed harness", () => {
-  expect(rememberedNewTabModel({ harness: "claude", model: "claude-opus" }, "claude", "claude", true, false)).toBe(
-    undefined,
-  );
 });

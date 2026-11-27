@@ -29,7 +29,7 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
-import { loadLastChips, rememberLastChips, shouldUseLastChips } from "./chipMemory";
+import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
@@ -953,17 +953,16 @@ export function ComposerPickers({
   const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
-  // Another chat's chips are no guess for an opened chat that ran before (opensListed).
-  // A fresh New Tab can have a session id before its effort option arrives. Keep the cached
-  // value through that attach gap so the first frame and settled frame show the same chip.
-  const effortAwaited = shouldUseLastChips({
-    chipHarness,
-    opensListed,
-    awaiting,
-    fresh,
-    effortKnown: effort !== undefined && efforts.length > 1,
-  });
-  const lastChips = effortAwaited && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // Attachment reports the session id before its options. Keep drawing the same cached
+  // Rust start answer until options arrive, including the compact label in a narrow row.
+  // A remote chat has its own start values; a reported options list without effort is final.
+  const effortComing =
+    fresh &&
+    snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud &&
+    summary?.configOptions === undefined &&
+    (catalogModel?.efforts === undefined || catalogModel.efforts.length > 1);
+  const effortAwaited = awaiting || effortComing;
+  const lastChips = effortAwaited && !opensListed && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
   // An opened chat that ran before names the level its listed row reports, never a start level.
@@ -993,13 +992,13 @@ export function ComposerPickers({
   // pane holds it for the session the pick starts (harnessSwitch.ts pickConfig).
   const [heldPick, setHeldPick] = useState<{ harness: string; value: string }>();
   useEffect(() => {
-    if (!awaiting) setHeldPick(undefined);
-  }, [awaiting]);
+    if (!effortAwaited) setHeldPick(undefined);
+  }, [effortAwaited]);
   const reported = effort !== undefined && efforts.length > 1;
   const heldOption =
-    !reported && awaiting ? harnessProfiles.get(chipHarness)?.configOptions?.find(isEffortOption) : undefined;
+    !reported && effortAwaited ? harnessProfiles.get(chipHarness)?.configOptions?.find(isEffortOption) : undefined;
   const heldModel =
-    !reported && awaiting
+    !reported && effortAwaited
       ? (catalogModel ??
         catalogRow(
           pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.models,
@@ -1007,7 +1006,7 @@ export function ComposerPickers({
         ))
       : undefined;
   const heldLevels =
-    !reported && awaiting
+    !reported && effortAwaited
       ? reasoningChoices(heldOption?.options ?? (heldModel?.efforts ?? []).map((value) => ({ value })), heldModel, t)
       : [];
   // With nothing kept or answered yet (the launch's first page), the chip model's own default level:
