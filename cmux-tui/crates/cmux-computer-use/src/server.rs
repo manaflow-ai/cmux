@@ -390,20 +390,28 @@ impl Outbox {
     }
 }
 
-/// `session` calls now: a detached one (no open attach) is kept until idle,
-/// and the detached sessions idle or crowded out end, each on its own lane
-/// after its calls in flight ([`detached::Detached::touch`]).
-fn end_idle_detached(shared: &Arc<Shared>, session: &str) {
-    let ended = {
-        let attached = lock(&shared.attached);
-        lock(&shared.detached)
-            .touch(session, std::time::Instant::now(), |s| attached.get(s).is_some_and(|n| *n > 0))
-    };
-    for session in ended {
-        let engine = Arc::clone(&shared.engine);
+/// Admit a call and its detached-session expiries together. Lifecycle locks
+/// always precede lane admission, so an expiry cannot overtake the call that
+/// refreshed its session. A queued expiry rechecks its ticket and attachment
+/// while holding those same locks through cleanup.
+fn submit_call(shared: &Arc<Shared>, session: &str, run: impl FnOnce() + Send + 'static) {
+    let attached = lock(&shared.attached);
+    let mut detached = lock(&shared.detached);
+    let ended = detached
+        .touch(session, std::time::Instant::now(), |s| attached.get(s).is_some_and(|n| *n > 0));
+    for (session, ticket) in ended {
+        let expiry = Arc::clone(shared);
         let ended = session.clone();
-        shared.lanes.submit(&session, move || engine.end_session(&ended));
+        shared.lanes.submit(&session, move || {
+            let attached = lock(&expiry.attached);
+            let mut detached = lock(&expiry.detached);
+            if detached.take_expiry(&ended, ticket) && !attached.get(&ended).is_some_and(|n| *n > 0)
+            {
+                expiry.engine.end_session(&ended);
+            }
+        });
     }
+    shared.lanes.submit(session, run);
 }
 
 /// A call's context from its request. `origin` is the bridge's (the only
@@ -459,11 +467,10 @@ fn handle(
                 return fail("invalid_request", "name is required".into());
             };
             let arguments = request.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            end_idle_detached(shared, &ctx.session);
             let (engine, stream, writer) =
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
-            shared.lanes.submit(&session, move || {
+            submit_call(shared, &session, move || {
                 let _ticket = ticket;
                 let out = engine.call(&ctx, &name, &arguments);
                 send(&stream, &writer, &json!({"id": id, "ok": true, "result": out.to_json()}));
@@ -482,7 +489,9 @@ fn handle(
         }
         "session/attach" => {
             if !conn.attached.contains(&ctx.session) {
-                *lock(&shared.attached).entry(ctx.session.clone()).or_insert(0) += 1;
+                let mut attached = lock(&shared.attached);
+                *attached.entry(ctx.session.clone()).or_insert(0) += 1;
+                lock(&shared.detached).forget(&ctx.session);
                 conn.attached.push(ctx.session);
             }
             send(stream, writer, &json!({"id": id, "ok": true, "result": {}}));

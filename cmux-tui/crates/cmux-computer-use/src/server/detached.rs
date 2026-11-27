@@ -21,6 +21,8 @@ pub const DETACHED_MAX: usize = 32;
 #[derive(Default)]
 pub struct Detached {
     last: HashMap<String, Instant>,
+    pending: HashMap<String, u64>,
+    next_ticket: u64,
 }
 
 impl Detached {
@@ -34,7 +36,8 @@ impl Detached {
         session: &str,
         now: Instant,
         is_attached: impl Fn(&str) -> bool,
-    ) -> Vec<String> {
+    ) -> Vec<(String, u64)> {
+        self.pending.remove(session);
         self.last.insert(session.to_string(), now);
         // One that attached since its last call is its attach's to end.
         self.last.retain(|s, _| !is_attached(s));
@@ -61,11 +64,28 @@ impl Detached {
         }
         ended.sort();
         ended
+            .into_iter()
+            .map(|session| {
+                self.next_ticket += 1;
+                self.pending.insert(session.clone(), self.next_ticket);
+                (session, self.next_ticket)
+            })
+            .collect()
+    }
+
+    /// Claims a queued expiry only while no later call or end invalidated it.
+    pub fn take_expiry(&mut self, session: &str, ticket: u64) -> bool {
+        if self.pending.get(session) != Some(&ticket) {
+            return false;
+        }
+        self.pending.remove(session);
+        true
     }
 
     /// The session ended another way (`session/end`): forget it.
     pub fn forget(&mut self, session: &str) {
         self.last.remove(session);
+        self.pending.remove(session);
     }
 
     #[cfg(test)]
