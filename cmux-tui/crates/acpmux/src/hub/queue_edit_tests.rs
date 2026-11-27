@@ -1,4 +1,5 @@
 use super::{Edit, checked_display_parts, moved_display_parts, same_words, stale_base};
+use serde_json::{Value, json};
 
 /// A long prompt edited from the list preview is rejected with its whole text.
 #[test]
@@ -14,7 +15,6 @@ fn an_edit_from_a_cut_preview_is_stale() {
     assert_eq!(data["reason"], "queue.stale");
     assert_eq!(data["text"], whole.as_str());
 }
-use serde_json::{Value, json};
 
 /// Image bytes `bytes` as an ACP image block, and its attachment id.
 fn image(bytes: &[u8], name: &str) -> (Value, String) {
