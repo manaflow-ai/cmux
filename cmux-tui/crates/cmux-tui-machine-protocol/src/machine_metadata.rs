@@ -17,7 +17,7 @@ pub struct MachineDescriptor {
     pub connectable: bool,
     pub workspace_create: WorkspaceCreatePolicy,
     /// Optional non-secret host metadata for agent and machine surfaces.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub platform: Option<MachinePlatform>,
     /// Stable capability names; credentials and account data stay outside the catalog.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
