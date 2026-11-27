@@ -299,10 +299,9 @@ public final class WebUpdater {
             } catch {
                 throw WebUpdateRefusal.transfer(error.localizedDescription)
             }
-            defer { try? FileManager.default.removeItem(at: file) }
             let tree: URL
             do {
-                tree = try await store.install(archive: file, pointer: pointer)
+                tree = try await store.install(archive: file, pointer: pointer, consuming: true)
             } catch {
                 // An archive that does not match its signed pointer stays wrong: not again until
                 // the pointer changes.
@@ -451,8 +450,6 @@ public final class WebUpdater {
             try? FileManager.default.removeItem(at: file)
             throw WebUpdateRefusal.transfer("archive status \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }
-        let kept = FileManager.default.temporaryDirectory.appending(path: "cmux-web-update-\(UUID().uuidString).tar.gz")
-        try FileManager.default.moveItem(at: file, to: kept)
-        return kept
+        return file
     }
 }

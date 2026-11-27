@@ -55,7 +55,9 @@ import Testing
             do { try process.run() } catch { continuation.resume(returning: -1) }
         }
         #expect(status == 0)
-        let (size, sha) = try WebUpdateStore.sizeAndDigest(of: archive)
+        let handle = try FileHandle(forReadingFrom: archive)
+        defer { try? handle.close() }
+        let (size, sha) = try WebUpdateStore.sizeAndDigest(of: handle)
         let pointer = WebUpdatePointer(channel: "every-merge", key: String(repeating: "d", count: 64), archive: "web-bundles-\(sha).tar.gz",
                                        sha256: sha, size: size, outputs: treeDigest, abi: 2, commit: String(repeating: "1", count: 40),
                                        committedAt: committedAt, publishedAt: committedAt + 60)
@@ -92,6 +94,23 @@ import Testing
             at: root.appending(path: /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/escape"),
             withDestinationURL: URL(fileURLWithPath: "/etc"))
         #expect(throws: WebUpdateRefusal.integrity("link escape")) { try WebUpdateTree(root: root).outputDigest() }
+    }
+
+    @Test func aDownloadHasNoFilenameWhileItIsBeingVerifiedAndUnpacked() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (file, pointer) = try await Self.makeArchive(in: root)
+        let handle = try WebUpdateStore.openArchive(file, consuming: true)
+        defer { try? handle.close() }
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        let (size, digest) = try WebUpdateStore.sizeAndDigest(of: handle)
+        #expect(size == pointer.size)
+        #expect(digest == pointer.sha256)
+        try handle.seek(toOffset: 0)
+        let tree = root.appending(path: "unpacked", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tree, withIntermediateDirectories: true)
+        try await WebUpdateStore.unpack(handle, into: tree)
+        #expect(try WebUpdateTree(root: tree).outputDigest() == pointer.outputs)
     }
 
     @Test func anInstallKeepsAMatchingArchiveAndItVerifiesAgain() async throws {

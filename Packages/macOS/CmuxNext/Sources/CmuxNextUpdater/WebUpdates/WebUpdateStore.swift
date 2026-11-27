@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -72,7 +73,13 @@ nonisolated public struct WebUpdateStore: Sendable {
     /// Checks `archive` (downloaded for `pointer`) against the pointer's size and SHA-256, unpacks
     /// it, checks the tree's digest and abi, and keeps it as `trees.noindex/<key>`. Returns the folder.
     @concurrent public func install(archive: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
-        let (size, digest) = try Self.sizeAndDigest(of: archive)
+        try await install(archive: archive, pointer: pointer, consuming: false)
+    }
+
+    @concurrent func install(archive: URL, pointer: WebUpdatePointer, consuming: Bool) async throws(WebUpdateRefusal) -> URL {
+        let handle = try Self.openArchive(archive, consuming: consuming)
+        defer { try? handle.close() }
+        let (size, digest) = try Self.sizeAndDigest(of: handle)
         guard size == pointer.size, digest == pointer.sha256 else { throw .integrity("archive digest") }
         let staging = base.appending(path: "staging-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: staging) }
@@ -81,7 +88,12 @@ nonisolated public struct WebUpdateStore: Sendable {
         } catch {
             throw .transfer("no staging folder: \(error.localizedDescription)")
         }
-        try await Self.unpack(archive, into: staging)
+        do {
+            try handle.seek(toOffset: 0)
+        } catch {
+            throw .integrity("unreadable archive")
+        }
+        try await Self.unpack(handle, into: staging)
         let unpacked = WebUpdateTree(root: staging)
         guard try unpacked.outputDigest() == pointer.outputs else { throw .integrity("tree digest") }
         guard unpacked.abi == pointer.abi else { throw .integrity("tree abi") }
@@ -112,9 +124,23 @@ nonisolated public struct WebUpdateStore: Sendable {
         }
     }
 
-    static func sizeAndDigest(of file: URL) throws(WebUpdateRefusal) -> (Int, String) {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { throw .integrity("unreadable archive") }
-        defer { try? handle.close() }
+    /// Remove a download's directory entry before installation. Its open handle feeds both the
+    /// digest and tar, so an app exit during either step releases the archive.
+    static func openArchive(_ file: URL, consuming: Bool) throws(WebUpdateRefusal) -> FileHandle {
+        let handle = try? FileHandle(forReadingFrom: file)
+        if consuming {
+            do {
+                try FileManager.checked.removeItem(at: file)
+            } catch {
+                try? handle?.close()
+                throw .transfer("could not remove downloaded archive: \(error.localizedDescription)")
+            }
+        }
+        guard let handle else { throw .integrity("unreadable archive") }
+        return handle
+    }
+
+    static func sizeAndDigest(of handle: FileHandle) throws(WebUpdateRefusal) -> (Int, String) {
         var hash = SHA256()
         var size = 0
         while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
@@ -125,11 +151,12 @@ nonisolated public struct WebUpdateStore: Sendable {
         return (size, WebUpdateTree.hex(hash.finalize()))
     }
 
-    /// `tar -xzf` into `folder`. The archive's digest was checked against the signed pointer first.
-    @concurrent static func unpack(_ archive: URL, into folder: URL) async throws(WebUpdateRefusal) {
+    /// Unpack the same open archive whose digest matched the signed pointer.
+    @concurrent static func unpack(_ archive: FileHandle, into folder: URL) async throws(WebUpdateRefusal) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["-xzf", archive.path, "-C", folder.path, "--no-same-owner", "--no-same-permissions"]
+        process.arguments = ["-xzf", "-", "-C", folder.path, "--no-same-owner", "--no-same-permissions"]
+        process.standardInput = archive
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         let status: Int32? = await withCheckedContinuation { continuation in
