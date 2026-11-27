@@ -1645,6 +1645,52 @@ mod prompt_tests {
         drop(dir);
     }
 
+    /// Both waiting send views must leave the same restart-replayable delivery as --no-wait.
+    /// Checking the execution log too detects a queue followed by an unkeyed second prompt.
+    #[tokio::test]
+    async fn waiting_sends_keep_one_delivery_and_execute_once() {
+        for stream in [false, true] {
+            let (hub, client, _dir) = daemon().await;
+            let session = client
+                .request(
+                    method::SESSION_NEW,
+                    json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+                )
+                .await
+                .unwrap();
+            let id = session["sessionId"].as_str().unwrap();
+            let prompt = PromptId::new(None);
+            let opts = CollectOpts {
+                timeout: Some(20),
+                deadline: None,
+                on_permission: OnPermission::Deny,
+                stall_secs: 0,
+                retries: 0,
+                steer: false,
+            };
+            if stream {
+                stream_prompt(client, id, "hello", false, true, false, opts, false, &prompt)
+                    .await
+                    .unwrap();
+            } else {
+                collect_reply(client, id, "hello", opts, &prompt).await.unwrap();
+            }
+            let deliveries = hub.outbox.list(None, 100).0;
+            assert_eq!(
+                deliveries.iter().filter(|d| d.prompt_id() == prompt.id).count(),
+                1,
+                "waiting send bypassed durable ingress (stream={stream})"
+            );
+            let messages = hub
+                .events(id, 0, 1000)
+                .unwrap()
+                .into_iter()
+                .filter(|e| e.kind == "user_message" && e.msg["promptId"] == prompt.id)
+                .count();
+            assert_eq!(messages, 1, "waiting send ran twice (stream={stream})");
+        }
+    }
+
     /// A reply holds at most `hub::MAX_PAGE_BYTES` of a chat's history: the CLI reads on through
     /// the older pages for the replies it asked for, past 12 MB of tool output.
     #[tokio::test]
