@@ -35,6 +35,10 @@
 #                   cores (hw.ncpu / 4 + 1 spinners), the same load as qos-load-bench.sh. They are stopped by PID when
 #                   the bench ends. The report gets `cpu_load`: {spinners, threads, ncpu}, or null without the option.
 #                   The perf cron never passes it; it is for a before/after pair under load ("idle and under load").
+#   --table         report-only (the per-PR split table, .github/workflows/cmux-next-split-table.yml): print the
+#                   report's row table (split_scale_metrics.row_table_markdown) as the log's last lines and exit 75
+#                   (neutral) instead of any failure, so a detached step's check run (cmux-ci --report-check, which
+#                   shows the log tail) carries the table and is never red. Measures nothing differently.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -43,12 +47,13 @@ set -euo pipefail
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
 SPLIT_SPRING_MEASURE_VERSION=5  # 5: workspace-scaling adds a dispatcher suite (historical commits without it must not be bisected as another suite); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-cpu_load=0 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
+cpu_load=0 build_only=0 app_cache=0 table=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --cpu-load) cpu_load=1 ;;
+    --table) table=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
@@ -58,6 +63,35 @@ for arg in "$@"; do
 done
 tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
+if (( table )); then
+  # The run itself is this script without --table, in the background and waited for, so a TERM (a cancelled step)
+  # reaches the trap at once and is passed on; its own traps tear the app down. The table comes after, whatever
+  # the run's exit (a failed build leaves no rows and says so).
+  inner=()
+  for arg in "$@"; do [[ "$arg" == --table ]] || inner+=("$arg"); done
+  bash "$0" ${inner[@]+"${inner[@]}"} &
+  run_pid=$!
+  trap 'kill -TERM "$run_pid" 2>/dev/null || true' TERM INT HUP  # the run this script started, by its PID
+  status=0
+  while :; do
+    wait "$run_pid" && { status=0; break; } || status=$?
+    kill -0 "$run_pid" 2>/dev/null || break  # wait returned for a trapped signal, not the run's end: wait again
+  done
+  trap - TERM INT HUP
+  echo
+  python3 - "$out/report.json" <<'PY' || echo "split table: could not read $out/report.json"
+import json, sys
+sys.path.insert(0, "scripts/cmux-next")
+import split_scale_metrics as ssm
+try:
+    rows = json.load(open(sys.argv[1])).get("row_table")
+except (OSError, ValueError):
+    rows = None
+print(ssm.row_table_markdown(rows) if rows else "split table: no row table in the report (the run failed or measured no rows; see the log above)")
+PY
+  (( status == 0 )) || { echo "split-spring: the run exited $status; reported as 75, neutral (report-only)"; exit 75; }
+  exit 0
+fi
 mkdir -p "$out"
 sha="$(git rev-parse HEAD)"
 # Keyed by the app's sources, not the commit: the bench's own scripts (scripts/cmux-next, scripts/measure) build

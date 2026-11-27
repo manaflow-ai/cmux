@@ -7,7 +7,8 @@ name: cmux-next split table
 # in place). A row over 16 ms, with a blank frame or unmeasured is marked. REPORT-ONLY: no job here fails on a row
 # and no required check reads it (no new blocking gate without data; the pull request that added it proposes one).
 # Same-repo, non-draft pull requests only (a fork's head cannot run on an owned Mac). A fleet step is queued
-# as a measurement on the bench Mac alone; no bench Mac in time leaves a note, not a red.
+# as a measurement on the bench Mac alone, detached: the table arrives as the check run "split table (bench Mac,
+# report-only)" (success or neutral, never red) and the comment links it; no runner waits on the queue.
 # Leo: "we can't be letting important rfds like that take breaks unless I put in fleet wide pauses, esp when this is
 # stuff that materially improves the app".
 
@@ -55,9 +56,24 @@ jobs:
     runs-on: mac-gateway # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     permissions: {}
+    env:
+      # Detached (the default), like nightly-pr-build.yml: the job submits the step, hands it to the controller as
+      # the check run REPORT_CHECK on the head (cmux-ci run --report-check --detach, report_check.go) and ends in
+      # about a minute. The step runs split-spring.sh --table, which prints the table as its log's last lines, so
+      # the check run's summary (its log tail) is the table; --table exits 75 for any failure, so the check run
+      # is success or neutral, never red (report-only). The PR comment below links that check run.
+      # Waiting here (11-27 16:30-20:30Z): 54 jobs, 1,631 runner-min on a Mac mini gateway, 12 of the 17 green
+      # ones exactly the 60 min queue timeout (the bench Mac's exclusive class has a p90 queue wait of 17-18 h,
+      # jobs 140592911793, 140625090551), so most runs returned no table anyway.
+      # CI_SPLIT_TABLE_DETACH=0 waits here as before (a client without --detach waits too).
+      DETACH: ${{ vars.CI_SPLIT_TABLE_DETACH || '1' }}
+      REPORT_CHECK: split table (bench Mac, report-only)
+    outputs:
+      detached: ${{ steps.measure.outputs.detached }}
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients. The bench Mac checks the sha out itself.
       - name: split-scale (quick) on the bench Mac
+        id: measure
         env:
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
           # The measure script's own build config (split-spring.sh --config=...): a bench build for the fleet step, never a shipped one.
@@ -76,12 +92,24 @@ jobs:
           out="$RUNNER_TEMP/split-table"
           mkdir -p "$out"
           log="$out/run.log"
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--report-check "$REPORT_CHECK" --detach --arg=--table)
+          fi
+          status=0
           "$client" run --class exclusive --measurement --label bench --display \
             --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout 3600 \
             --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/split-spring/report.json \
             --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
-            2>&1 | tee "$log" || echo "::warning title=Split table::the fleet step did not finish (report-only: nothing fails)"
+            ${detach[@]+"${detach[@]}"} 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            echo "::notice title=Split table::the bench Mac posts the table as check run \"$REPORT_CHECK\" on ${SHA:0:12}"
+            echo "detached=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$status" == 0 ]] || echo "::warning title=Split table::the fleet step did not finish (exit $status; report-only: nothing fails)"
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
@@ -121,6 +149,9 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SERVER: ${{ github.server_url }}
+          DETACHED: ${{ needs.measure-fleet.outputs.detached }}
+          REPORT_CHECK: split table (bench Mac, report-only)
         run: |
           # Report-only: a failed comment read or write warns, never fails the job (a bare `id="$(gh ...)"` under bash -e and pipefail exited 1 silently on #61185).
           set -uo pipefail
@@ -139,7 +170,15 @@ jobs:
               rows = None
           head = "<!-- cmux-next-split-table -->\n## Split table (report-only)\n\n"
           foot = f"\n\nSplit-scale quick (1 and 4 splits, empty and browser) at `{sha[:12]}`; [run]({run}). Report-only: no check reads it."
-          text = ssm.row_table_markdown(rows) if rows else "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
+          if rows:
+              text = ssm.row_table_markdown(rows)
+          elif os.environ.get("DETACHED") == "1":
+              checks = f"{os.environ['SERVER']}/{os.environ['GITHUB_REPOSITORY']}/commit/{sha}/checks"
+              text = (f"Queued on the bench Mac: the table comes as the check run "
+                      f"[`{os.environ['REPORT_CHECK']}`]({checks}) on `{sha[:12]}` when the run ends "
+                      "(its summary is the table, worst row first). The queue for that Mac can take hours.")
+          else:
+              text = "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
           open(out, "w").write(head + text + foot)
           PY
           cat "$body" >> "$GITHUB_STEP_SUMMARY"
