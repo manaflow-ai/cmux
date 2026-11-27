@@ -170,3 +170,35 @@ describe("SlackTimers", () => {
     expect(runs).toBe(2);
   });
 });
+
+// Leo (2026-11-26): "you guys can probably be aware of who's idle and who's not pretty reliably". A job
+// with nothing to do on a resting page (the frame budget's return to full motion) arms no timer while the
+// page rests, and runs on the wake that ends the rest.
+test("a whenAwake job never wakes a resting page, and runs on the wake that ends the rest", () => {
+  const { clock, advance, timers, wakes } = fakeClock();
+  const scheduler = new SlackTimers(clock);
+  scheduler.rest();
+  const runs: boolean[] = [];
+  scheduler.later((atRest) => runs.push(atRest), 2_000, undefined, { atRest: true, whenAwake: true });
+  expect(timers.size).toBe(0);
+  advance(60_000);
+  expect(wakes()).toBe(0);
+  expect(runs).toEqual([]);
+  scheduler.wake();
+  expect(runs).toEqual([false]);
+  expect(scheduler.size).toBe(0);
+});
+
+test("a whenAwake job not yet due when the page wakes keeps its timer", () => {
+  const { clock, advance, timers } = fakeClock();
+  const scheduler = new SlackTimers(clock);
+  scheduler.rest();
+  let ran = 0;
+  scheduler.later(() => ran++, 2_000, 0, { whenAwake: true });
+  advance(500);
+  scheduler.wake();
+  expect(ran).toBe(0);
+  expect(timers.size).toBe(1);
+  advance(2_000);
+  expect(ran).toBe(1);
+});

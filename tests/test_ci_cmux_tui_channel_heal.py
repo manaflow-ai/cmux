@@ -53,6 +53,23 @@ class Decide(unittest.TestCase):
         self.assertEqual((runs[0].id, runs[0].attempt, runs[0].created), (9, 2, 1800000000.0))
 
 
+class Alarm(unittest.TestCase):
+    """2026-11-25/26: every run failed the daemon tests for about 24 h and the healer stayed green."""
+
+    def test_lag_past_the_bound_is_red_and_names_the_failed_run(self):
+        line = heal.alarm(24 * 60, [run(7, conclusion="failure", attempt=3), run(6)], 180)
+        self.assertIsNotNone(line)
+        self.assertTrue(line.startswith("::error"))
+        self.assertIn("run 7", line)
+
+    def test_lag_under_the_bound_is_quiet(self):
+        self.assertIsNone(heal.alarm(120, [run(7, conclusion="failure")], 180))
+
+    def test_unknown_lag_or_alarm_off_is_quiet(self):
+        self.assertIsNone(heal.alarm(None, [], 180))
+        self.assertIsNone(heal.alarm(24 * 60, [], 0))
+
+
 class Gh(unittest.TestCase):
     def test_failed_call_names_what_gh_said(self):
         # 2026-11-25: two ticks died on a bare CalledProcessError; gh's stderr was captured and dropped.
