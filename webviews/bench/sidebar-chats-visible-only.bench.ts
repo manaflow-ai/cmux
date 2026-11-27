@@ -20,7 +20,8 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(index: number): void;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
     benchTick(): void;
   }
 }

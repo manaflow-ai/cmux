@@ -26,7 +26,8 @@ declare global {
     benchRowRenders: { mark(): void; since(): number };
     /** Changes the `index`th row's share or key and has the page read the list again. Other
      * harnesses declare it returning void (one global Window), so this one's promise is optional. */
-    benchChangeOne(index: number): Promise<void> | void;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
   }
 }
 

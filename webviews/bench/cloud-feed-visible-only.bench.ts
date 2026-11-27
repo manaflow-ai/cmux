@@ -21,7 +21,8 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(): Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
   }
 }
 
@@ -110,7 +111,7 @@ try {
         }, surface);
 
         await page.evaluate(() => window.benchRowRenders.mark());
-        await page.evaluate(() => window.benchChangeOne());
+        await page.evaluate(() => window.benchChangeOne(0));
         await page.evaluate(() => window.cmuxPaintFrame());
         await page.evaluate(() => window.cmuxPaintFrame());
         const change = await page.evaluate(() => window.benchRowRenders.since());

@@ -11,7 +11,8 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Marks the open item read and back unread: the page reads the feed again, the diff the same. */
-    benchChangeOne(index: number): void | Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
   }
 }
 
