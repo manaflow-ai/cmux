@@ -241,6 +241,9 @@ pub(super) fn initialize(
 ) -> Result<Value, RpcError> {
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
+    // Its ABI hello, counted once here for `_acpmux/status` (`note_initialize` runs twice per
+    // `initialize`); nothing in it can fail the connection.
+    crate::abi_hello::note(crate::abi_hello::read(params));
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
     // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
     if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
@@ -403,8 +406,6 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
     // The features it reads (`client_features.rs`); none listed: a client from before the list.
     conn.client_features.note(params);
-    // Its ABI hello, counted for `_acpmux/status`; nothing in it can fail the connection.
-    crate::abi_hello::note(crate::abi_hello::read(params));
     // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
