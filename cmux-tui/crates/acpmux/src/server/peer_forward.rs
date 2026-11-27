@@ -780,6 +780,11 @@ async fn forward_inner(
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
+        // A fork's top-level `name` beside its chat's id is the child's name, not a selector: it
+        // goes as `_meta.acpmux.name`, which the peer reads first (cmux#50023).
+        if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK) {
+            super::fork_through::name_to_meta(&mut p);
+        }
         if let Some(obj) = p.as_object_mut() {
             obj.remove(ROW_WILL_DO);
             obj.remove("session");
