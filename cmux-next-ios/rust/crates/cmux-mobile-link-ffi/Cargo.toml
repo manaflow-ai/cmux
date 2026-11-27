@@ -65,6 +65,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uniffi = "=0.31.1"
+# cmux link grammar (src/cmux_link.rs).
 url.workspace = true
 uuid.workspace = true
 
