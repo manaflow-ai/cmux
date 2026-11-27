@@ -1,6 +1,7 @@
 import { useParams, useSearch } from "@tanstack/react-router";
-import { shownSection } from "../categories";
+import { LANDING_KEY, landingCategory, shownSection } from "../categories";
 import { useSettingsState } from "../context";
+import { valueOf } from "../store";
 import type { SettingsSearch } from "../router";
 import { resolveSettingsLink } from "../settingsLinks";
 import { SectionView } from "./SectionView";
@@ -17,8 +18,11 @@ export function SectionRoute() {
   const { section } = useParams({ strict: false }) as { section?: string };
   const search = useSearch({ strict: false }) as SettingsSearch;
   const state = useSettingsState();
-  const link = resolveSettingsLink(section, search.focus);
-  const shown = shownSection(link.section, state.host?.dev_build === true);
+  const devBuild = state.host?.dev_build === true;
+  const resolved = resolveSettingsLink(section, search.focus);
+  // A bare open (no section: Cmd-comma, a Settings row) lands on the profile's page (window.settingsLanding).
+  const link = section || search.focus ? resolved : { ...resolved, section: landingCategory(valueOf(state, LANDING_KEY), devBuild) };
+  const shown = shownSection(link.section, devBuild);
   const same = shown === link.section;
   return (
     <SectionView

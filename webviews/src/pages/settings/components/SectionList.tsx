@@ -10,11 +10,11 @@ import {
 } from "react";
 import { type AnyRouter, createLink } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
-import { categoryRows, shownSidebarSections, type Category, type SidebarSection } from "../categories";
+import { categoryRows, LEAD_PAGES_KEY, leadPages, shownSidebarSections, type Category, type SidebarSection } from "../categories";
 import { settingsFileName } from "../format";
 import { Icon } from "../icons";
 import type { SettingsState } from "../store";
-import { managedOf } from "../store";
+import { managedOf, valueOf } from "../store";
 import { t, text } from "../strings";
 import { harnessesNeedAttention } from "../harnesses";
 import { isExperimentalCategory, useBetaChips } from "../betaChips";
@@ -174,7 +174,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
   // Swift `SettingsPageLayout.sidebarSections` exports; the lead run (General, Updates) has none.
   return (
     <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
-      {shownSidebarSections(state.host?.dev_build === true).map(({ section, categories }) =>
+      {shownSidebarSections(state.host?.dev_build === true, leadPages(valueOf(state, LEAD_PAGES_KEY))).map(({ section, categories }) =>
         section.collapsed ? (
           <CollapsedSection
             key={section.id}
