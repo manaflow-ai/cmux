@@ -550,6 +550,10 @@ path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_migrate_journey_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
