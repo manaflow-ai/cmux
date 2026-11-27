@@ -79,6 +79,7 @@ FILE_RULE = "whole settings file (fileRoot) over the bridge"
 SEED = re.compile(r"\bHomeRules\.call(Data)?\s*\(|\bHomeRust\.call\s*\(|(?<![\w.])welcomeRule\s*\(|(?<![\w.])dockRule\s*\("
                   r"|\bcmux_\w+_(call|apply)\s*\(|\b(CloudStartCore|CloudMachineRules|CloudMoveCore)\(\)\.call(Data)?\s*\("
                   r"|\bLaunchSnapshot\.rule\s*\(")
+BASE_SEED = SEED
 SEED_NAME = "Rust bridge"
 
 # Every other synchronous FFI call that crosses a serialized payload (bytes or a C string in, or a C string out):
@@ -117,8 +118,8 @@ def extend_seed(root: str) -> None:
     """Add the headers' payload FFI calls to SEED (once per run)."""
     global SEED
     names = payload_ffi(root)
-    if names:
-        SEED = re.compile(SEED.pattern + r"|(?<![\w.])(" + "|".join(map(re.escape, names)) + r")\s*\(")
+    SEED = BASE_SEED if not names else re.compile(
+        BASE_SEED.pattern + r"|(?<![\w.])(" + "|".join(map(re.escape, names)) + r")\s*\(")
 ALLOW = re.compile(r"//\s*bridge-ok:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 DECL = re.compile(r"(?<![\w.])(func\s+(?P<func>[A-Za-z_]\w*)|var\s+(?P<var>[A-Za-z_]\w*)\s*:|subscript\s*(?=\())")
