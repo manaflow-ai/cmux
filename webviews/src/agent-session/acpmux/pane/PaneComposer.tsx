@@ -223,6 +223,8 @@ export type PaneComposerDeps = {
   /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
   /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
   placeControl: React.ReactNode | undefined;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists; undefined with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -466,6 +468,7 @@ export function drawPaneComposer({
   switchStillTrying,
   composerHandle,
   placeControl,
+  newTabPlaceControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -1601,6 +1604,7 @@ export function drawPaneComposer({
             // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
             // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
             {...(placeControl ? { placeControl } : {})}
+            {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}

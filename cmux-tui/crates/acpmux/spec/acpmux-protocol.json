@@ -251,6 +251,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/callers",
       "params": true,
       "result": true
@@ -373,6 +385,26 @@
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/rooms",
+      "params": {
+        "$ref": "#/types/RoomsParams"
+      },
+      "result": {
+        "$ref": "#/types/RoomsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/follow",
+      "params": {
+        "$ref": "#/types/FollowParams"
+      },
+      "result": {
+        "$ref": "#/types/FollowResult"
       }
     },
     {
@@ -905,6 +937,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_hop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mesh_control",
       "params": true,
       "result": true
@@ -1108,6 +1146,24 @@
     {
       "kind": "request",
       "name": "_acpmux/retention",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true
     },
@@ -2703,6 +2759,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/autocloud_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/host_notice",
       "params": true,
       "result": true
@@ -2806,18 +2868,6 @@
     {
       "kind": "request",
       "name": "_acpmux/attachments_held",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/spans",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/status",
       "params": true,
       "result": true
     },
@@ -3107,6 +3157,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/room",
+      "params": {
+        "$ref": "#/types/RoomNote"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/peer_state_changed",
       "params": {
         "$ref": "#/types/PeerStateChanged"
@@ -3286,6 +3343,7 @@
         "personStop": true,
         "personVerified": true,
         "placeRedirect": true,
+        "placedBy": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -4595,6 +4653,42 @@
         }
       ]
     },
+    "FollowParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this\ndaemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the\nrecord's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FollowResult": {
+      "description": "`_acpmux/follow`'s answer: whom the caller follows now.",
+      "properties": {
+        "following": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "FooterFact": {
       "description": "One piece of the footer's quiet metadata.",
       "properties": {
@@ -5494,6 +5588,11 @@
         {
           "const": "paused",
           "description": "A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud\ncarrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.",
+          "type": "string"
+        },
+        {
+          "const": "idle",
+          "description": "Not dialed, on purpose: nothing has used it since this daemon started, or its link closed\nafter it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last\nlinked, unless it is `offline` instead. Folded to `connected` for an older app, which then\nlets a person pick it, and the pick connects it.",
           "type": "string"
         }
       ]
@@ -6660,6 +6759,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
@@ -7371,6 +7473,70 @@
         "promptId",
         "reason",
         "turnId"
+      ],
+      "type": "object"
+    },
+    "RoomNote": {
+      "description": "`_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or\none change of it (`presence` the records that joined, `deltas` one `cmux-presence` delta per\nrecord that stayed, `left` the ids that went).",
+      "properties": {
+        "deltas": {
+          "items": true,
+          "type": "array"
+        },
+        "left": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "presence": {
+          "items": true,
+          "type": "array"
+        },
+        "room": {
+          "description": "`{chat: id}` or `{workspace: id}`."
+        },
+        "snapshot": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "room",
+        "presence"
+      ],
+      "type": "object"
+    },
+    "RoomsParams": {
+      "description": "`_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it\nnamed before; both empty unsubscribes. A chat must be attached on this connection.",
+      "properties": {
+        "chats": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RoomsResult": {
+      "description": "`_acpmux/rooms`'s answer: how many rooms the connection watches now.",
+      "properties": {
+        "rooms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rooms"
       ],
       "type": "object"
     },
@@ -10321,6 +10487,30 @@
             "null"
           ]
         },
+        "cacheReadByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the rolling last hour.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cacheReadByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "cacheReadShare24h": {
           "description": "Of those calls' prompt tokens (input, cache read and cache write), the share the prompt\ncache served (0 to 1); null with no calls or when the day is not read whole.",
           "format": "double",
@@ -10457,6 +10647,8 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadByModel1h",
+        "cacheReadByModelPreviousUtcHour",
         "cacheReadShare24h",
         "calls24h",
         "compactions24h",
