@@ -7755,10 +7755,10 @@ a.cv-sha:focus-visible {
 }
 .acpmux-image-lightbox-backdrop {
   /* The standard lightbox dim: the chat reads behind it (Quick Look, a browser's image lightbox). */
-  background: var(--ds-lightbox-scrim);
+  background: var(--lightbox-scrim);
 }
 :root[data-reduce-transparency] .acpmux-image-lightbox-backdrop {
-  background: var(--ds-lightbox-scrim-solid);
+  background: var(--lightbox-scrim-solid);
 }
 .acpmux-image-lightbox .acpmux-image-viewer-body {
   position: absolute;
@@ -7797,7 +7797,7 @@ a.cv-sha:focus-visible {
   /* Its own size, scaled down only when it is larger than the stage. */
   flex: none;
   border-radius: 6px;
-  box-shadow: var(--elevation-lightbox);
+  box-shadow: var(--lightbox-image-shadow);
 }
 .acpmux-image-viewer-step {
   position: absolute;
