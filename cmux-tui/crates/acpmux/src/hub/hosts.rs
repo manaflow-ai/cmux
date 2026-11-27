@@ -763,6 +763,8 @@ impl Hub {
         let of = incarnation.clone();
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
+                // One fold of the log, which the reads below and recovery resume from.
+                hub.save_checkpoint_now(s, &of);
                 (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
             })
             .await?;
@@ -1197,7 +1199,11 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // Work below it waits for quiet (`restart_waits_for_work_below`).
+                        if s.route_switch.load(Ordering::SeqCst)
+                            && !hub.restart_waits_for_work_below(&s)
+                            && s.route_switch.swap(false, Ordering::SeqCst)
+                        {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the
