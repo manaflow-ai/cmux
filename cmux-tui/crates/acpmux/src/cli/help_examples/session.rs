@@ -55,27 +55,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "session place-set",
-        &[
-            (
-                "Pin a chat to a machine and move it there",
-                "acpmux session place-set review-27310 --mode machine --machine mini-3",
-            ),
-            (
-                "Let a chat run wherever placement decides",
-                "acpmux session place-set review-27310 --mode auto",
-            ),
-            (
-                "Say where a chat is pinned, changing nothing",
-                "acpmux session place-set review-27310 --status",
-            ),
-            (
-                "Move a chat back to where its last move came from",
-                "acpmux session place-set review-27310 --undo",
-            ),
-        ],
-    ),
-    (
         "session route",
         &[
             (
@@ -83,6 +62,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux session route --facts facts.json",
             ),
             ("Read the facts from stdin", "acpmux session route --facts -"),
+            (
+                "Name it: this machine's hub fills its host's state and its copy of the chat",
+                "acpmux session route vm-a/review-27 --facts fleet-facts.json --show-facts",
+            ),
             (
                 "Ask what to do with a dead session: restart, move or a successor",
                 "acpmux session route --facts /tmp/review-27-death.json",
@@ -330,6 +313,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux session tag review-27310 task=review pr=27310 --ttl 3600",
             ),
             ("Remove a label", "acpmux session tag review-27310 --remove pr"),
+        ],
+    ),
+    (
+        "session settle",
+        &[(
+            "Settle a finished chat: off the lists, on the Settled shelf",
+            "acpmux session settle fix-login",
+        )],
+    ),
+    (
+        "session unsettle",
+        &[("Bring a settled chat back to the lists", "acpmux session unsettle fix-login")],
+    ),
+    (
+        "session auto-settle",
+        &[
+            ("Never settle this chat on its own", "acpmux session auto-settle coord never"),
+            (
+                "Let the agents.autoSettle settings decide again",
+                "acpmux session auto-settle coord follow",
+            ),
         ],
     ),
     (

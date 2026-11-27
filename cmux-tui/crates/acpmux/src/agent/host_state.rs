@@ -72,6 +72,10 @@ impl ChildAgent {
             return false;
         }
         let lowered = self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false);
+        if class == crate::cpu_class::CpuClass::Dynamic {
+            // The pressure loop waits with no timer while no session is dynamic.
+            crate::hub::cpu_pressure::wake();
+        }
         if lowered && class == crate::cpu_class::CpuClass::Background {
             self.demotion.mark(true, crate::cpu_class::pressure::mono_ms());
         }

@@ -94,7 +94,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.5+,
 /// 27.0+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
@@ -104,7 +104,9 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("26.7", &[]));
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
-    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
+    assert!(gate("26.5.2", &[]), "26.5.2: the eval guest's image");
+    assert!(gate("26.5", &[]));
+    assert!(!gate("26.4.1", &[]), "before the verified 26 minor");
     // 27.0 and 27.0.1 verified live: on for every 27.
     assert!(gate("27.0", &[]), "27.0 verified live (TextEdit, a fleet Mac)");
     assert!(gate("27.0.1", &[]));
@@ -2956,6 +2958,52 @@ fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
     }
     let proxy = roles::WebField { width: 12.0, height: 6.0, ..plain.clone() };
     assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
+}
+
+/// A web slider (`<input type="range">`) takes set_value, which writes its
+/// number straight to it with no page-focus wait: its increment action
+/// moves it by 5% (WebKit), so 42 of 0-100 was out of reach in the
+/// background (cu suite form-slider, 0 of 3 on 2026-11-26: "the slider can
+/// only be set to multiples of 5 in the background"). Typing into one stays
+/// refused, and every other rule of the gate still holds.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn a_web_slider_takes_set_value_without_waiting_for_page_focus() {
+    assert_eq!(roles::web_kind("AXSlider", 0), roles::WebKind::Range);
+    assert_eq!(roles::web_kind("AXSlider", 1), roles::WebKind::Range, "WebKit's thumb child");
+    let slider = roles::WebField {
+        kind: roles::WebKind::Range,
+        secure: false,
+        width: 129.0,
+        height: 21.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let setting = roles::SecureField::Allow;
+    assert!(roles::web_value_gate(Some(&slider), setting).is_ok());
+    assert!(
+        roles::web_value_gate(Some(&slider), roles::SecureField::Refuse).is_err(),
+        "nothing types into a slider"
+    );
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { hidden: true, ..slider.clone() }), setting)
+            .is_err(),
+        "hidden"
+    );
+    assert!(
+        roles::web_value_gate(
+            Some(&roles::WebField { on_screen: false, ..slider.clone() }),
+            setting
+        )
+        .is_err(),
+        "off screen"
+    );
+    assert!(!roles::web_write_needs_page_focus(Some(roles::WebKind::Range)));
+    for kind in [None, Some(roles::WebKind::Plain), Some(roles::WebKind::Other)] {
+        assert!(roles::web_write_needs_page_focus(kind), "text inputs keep the focus rule");
+    }
 }
 
 /// Live in Safari (macOS 27.0.1): an <input> has no children; a native
