@@ -853,14 +853,14 @@
               "value": "claude",
               "title": {
                 "key": "settings.choice.sidebarLookClaude",
-                "text": "Claude"
+                "text": "Sienna"
               }
             },
             {
               "value": "codex",
               "title": {
                 "key": "settings.choice.sidebarLookCodex",
-                "text": "Codex"
+                "text": "Chalk"
               }
             },
             {

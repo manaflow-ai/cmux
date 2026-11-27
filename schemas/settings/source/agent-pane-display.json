@@ -1732,14 +1732,14 @@
               "value": "claude",
               "title": {
                 "key": null,
-                "text": "Claude"
+                "text": "Sienna"
               }
             },
             {
               "value": "codex",
               "title": {
                 "key": null,
-                "text": "Codex"
+                "text": "Chalk"
               }
             },
             {

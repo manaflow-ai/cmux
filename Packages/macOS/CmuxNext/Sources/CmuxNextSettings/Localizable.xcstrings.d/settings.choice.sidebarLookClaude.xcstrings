@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "settings.choice.sidebarLookClaude" : {
-      "comment" : "Sidebar Look choice: like the Claude app (product name, not translated).",
+      "comment" : "Sidebar Look choice: warm tones, project groups. A style name of our own.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sienna"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "シエナ"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "سيينا"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sijena"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sienna"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Siena"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Siena"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sienne"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Siena"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "ស៊ីយ៉ែណា"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "시에나"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sienna"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sjena"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Siena"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Сиена"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "เซียนนา"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Siena"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Сієна"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "Sienna"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "赭土"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Claude"
+            "value" : "赭土"
           }
         }
       }

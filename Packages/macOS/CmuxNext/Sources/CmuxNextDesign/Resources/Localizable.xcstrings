@@ -27341,133 +27341,133 @@
       }
     },
     "statusIconSet.codex": {
-      "comment": "Status icon set candidate (Debug menu, Debug Settings): marks like the Codex app's sidebar (a grey spinner, a blue done dot, thin line symbols). Codex is a product name.",
+      "comment": "Status icon set: a grey spinner, a blue done dot and thin line symbols. A style name of our own.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex-like"
+            "value": "Quiet"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "على طريقة Codex"
+            "state": "translated",
+            "value": "هادئ"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kao Codex"
+            "state": "translated",
+            "value": "Tiho"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Som Codex"
+            "state": "translated",
+            "value": "Stille"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wie Codex"
+            "state": "translated",
+            "value": "Ruhig"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo Codex"
+            "state": "translated",
+            "value": "Discreto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Style Codex"
+            "state": "translated",
+            "value": "Discret"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Stile Codex"
+            "state": "translated",
+            "value": "Discreto"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Codex 風"
+            "state": "translated",
+            "value": "控えめ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ដូច Codex"
+            "state": "translated",
+            "value": "ស្ងាត់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Codex 스타일"
+            "state": "translated",
+            "value": "차분함"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Som Codex"
+            "state": "translated",
+            "value": "Stille"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "W stylu Codex"
+            "state": "translated",
+            "value": "Cichy"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo Codex"
+            "state": "translated",
+            "value": "Discreto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Как в Codex"
+            "state": "translated",
+            "value": "Тихий"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แบบ Codex"
+            "state": "translated",
+            "value": "เรียบ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Codex benzeri"
+            "state": "translated",
+            "value": "Sakin"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Як у Codex"
+            "state": "translated",
+            "value": "Тихий"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kiểu Codex"
+            "state": "translated",
+            "value": "Tĩnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "类似 Codex"
+            "state": "translated",
+            "value": "安静"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "類似 Codex"
+            "state": "translated",
+            "value": "安靜"
           }
         }
       }

@@ -80,7 +80,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: String(localized: "statusIconSet.symbols", defaultValue: "Symbols", bundle: .localizedModule)
         case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .localizedModule)
         case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .localizedModule)
-        case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .localizedModule)
+        case .codex: String(localized: "statusIconSet.codex", defaultValue: "Quiet", bundle: .localizedModule)
         case .stillDots: String(localized: "statusIconSet.stillDots", defaultValue: "Static Dots", bundle: .localizedModule)
         case .stillPictograms: String(localized: "statusIconSet.stillPictograms", defaultValue: "Static Pictograms", bundle: .localizedModule)
         }

@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "statusIconSet.codex" : {
-      "comment" : "Status icon set candidate (Debug menu, Debug Settings): marks like the Codex app's sidebar (a grey spinner, a blue done dot, thin line symbols). Codex is a product name.",
+      "comment" : "Status icon set: a grey spinner, a blue done dot and thin line symbols. A style name of our own.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex-like"
+            "value" : "Quiet"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "على طريقة Codex"
+            "value" : "هادئ"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kao Codex"
+            "value" : "Tiho"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Som Codex"
+            "value" : "Stille"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wie Codex"
+            "value" : "Ruhig"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Estilo Codex"
+            "value" : "Discreto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Style Codex"
+            "value" : "Discret"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stile Codex"
+            "value" : "Discreto"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex 風"
+            "value" : "控えめ"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ដូច Codex"
+            "value" : "ស្ងាត់"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex 스타일"
+            "value" : "차분함"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Som Codex"
+            "value" : "Stille"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "W stylu Codex"
+            "value" : "Cichy"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Estilo Codex"
+            "value" : "Discreto"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Как в Codex"
+            "value" : "Тихий"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "แบบ Codex"
+            "value" : "เรียบ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex benzeri"
+            "value" : "Sakin"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Як у Codex"
+            "value" : "Тихий"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kiểu Codex"
+            "value" : "Tĩnh"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "类似 Codex"
+            "value" : "安静"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "類似 Codex"
+            "value" : "安靜"
           }
         }
       }

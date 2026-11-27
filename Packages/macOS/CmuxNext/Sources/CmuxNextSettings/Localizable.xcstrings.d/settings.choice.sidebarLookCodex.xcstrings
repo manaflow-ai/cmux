@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "settings.choice.sidebarLookCodex" : {
-      "comment" : "Sidebar Look choice: like the Codex app (product name, not translated).",
+      "comment" : "Sidebar Look choice: light, quiet thread list. A style name of our own.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Chalk"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "チョーク"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "طباشير"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Kreda"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Kridt"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Kreide"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Tiza"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Craie"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Gesso"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "ដីស"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "분필"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Kritt"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Kreda"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Giz"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Мел"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "ชอล์ก"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Tebeşir"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Крейда"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "Phấn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "粉笔"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex"
+            "value" : "粉筆"
           }
         }
       }
