@@ -161,11 +161,24 @@ def check(arguments):
     return failure['exit_code']
 
 
+# swift build prints diagnostics in color ("Foo.swift:6:15: \x1b[1;31merror:"), so every pattern reads the log
+# without its escape sequences: with them, 36 of 92 failed suite steps without a receipt (2026-11-27) were plain
+# compile errors that never matched.
+ANSI = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
+# A compiler diagnostic in a source file, or in a macro's expansion (a type-check timeout inside #expect).
+COMPILE_ERROR = re.compile(r'(?m)(?:\.(?:swift|c|h|m|mm|cc|cpp):\d+:\d+|^macro expansion [^\n]*:\d+:\d+): error:')
+# What fails on one host or one run and says nothing about the commit: never a receipt.
+HOST_FAILURE = re.compile(r'No space left on device|Killed: 9|Terminated: 15|Abort trap|unable to spawn process|'
+                          r'Resource temporarily unavailable|Too many open files|Could not resolve host|'
+                          r'Connection (?:reset|refused|timed out)|DaemonWireTypesPlugin needs')
+
+
 def eligible_failure(phase, status, output):
+    output = ANSI.sub('', output)
     if phase == 'passed':
         return status == 0
     if phase == 'compile':
-        return status == 1 and re.search(r'(?m)^.*\.swift:\d+:\d+: error:', output) is not None
+        return status == 1 and COMPILE_ERROR.search(output) is not None and HOST_FAILURE.search(output) is None
     if phase == 'discovery':
         return status in (1, 2) and ('no Swift tests discovered' in output or 'no discovered test matches' in output)
     if phase == 'assertion' and status == 1:
@@ -184,7 +197,11 @@ def record(arguments):
         with arguments.log.open('rb') as log:
             log.seek(max(0, arguments.log.stat().st_size - (2 << 20)))
             output = log.read(2 << 20).decode(errors='replace')
-    if not eligible_failure(arguments.phase, arguments.status, output):
+    # The worker names the phases a step shape may reuse (CMUX_CI_SUITE_FAILURE_PHASES): a GUI, display or
+    # artifact step's compile or discovery failure is its commit's, a test failure there may be its display's.
+    limited = [p for p in os.environ.get('CMUX_CI_SUITE_FAILURE_PHASES', '').split(',') if p]
+    unlisted = bool(limited) and arguments.phase != 'passed' and arguments.phase not in limited
+    if unlisted or not eligible_failure(arguments.phase, arguments.status, output):
         state['blocked'] = True
         write_json(arguments.state, state)
         Path(state['output']).unlink(missing_ok=True)
