@@ -221,6 +221,26 @@ class VerdictTests(unittest.TestCase):
         report = {"verdict": "fail", "pid": 4242, "failures": ["the harness failed"]}
         self.assertEqual(smoke.attempt_result(1, report), smoke.CANNOT_RUN)
 
+    def test_a_sigterm_from_another_process_is_not_a_launch_crash(self) -> None:
+        # Runs 45505381963, 45516460614 and 45522946100 (2026-11-24/25): on one signing Mac the app was ended by
+        # SIGTERM 0.1-0.4 s after launch on both attempts, with no crash report and no run.exception, and the
+        # gate held three NEXT nightlies as crashes. A crash ends an app by SIGSEGV, SIGBUS, SIGILL, SIGTRAP,
+        # SIGABRT or the crash watcher's SIGKILL; SIGTERM is always another process's kill.
+        killed = {"verdict": "fail", "pid": 4242, "exit": -15, "crash_reports": [], "run_exceptions": [],
+                  "failures": ["the app exited (signal 15) 1.8s after launch"]}
+        self.assertEqual(smoke.attempt_result(1, killed), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.attempt_result(124, killed), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, killed), (1, killed)]), smoke.CANNOT_RUN)
+        seeded = {**killed, "arm": "seeded", "arms": {"empty": {"verdict": "pass"},
+                                                      "seeded": {"verdict": "fail", "exit": -15}}}
+        self.assertEqual(smoke.attempt_result(1, seeded), smoke.CANNOT_RUN)
+        # A crash artifact still decides, whatever signal ended the app.
+        self.assertEqual(smoke.attempt_result(1, {**killed, "crash_reports": ["cmux.ips"]}), smoke.CRASH)
+        self.assertEqual(smoke.attempt_result(1, {**killed, "run_exceptions": ["run.exception"]}), smoke.CRASH)
+        # Every other signal is still the app's own end.
+        for signal_number in (6, 9, 10, 11, 4, 5):
+            self.assertEqual(smoke.attempt_result(1, {**killed, "exit": -signal_number}), smoke.CRASH, signal_number)
+
     def test_exit_1_without_the_harness_evidence_of_a_launch_is_not_a_crash(self) -> None:
         # The console-session hop failing, or an uncaught setup error: exit 1, no report or no pid.
         self.assertEqual(smoke.verdict([(1, {}), (1, {})]), smoke.CANNOT_RUN)
