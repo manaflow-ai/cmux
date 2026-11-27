@@ -141,6 +141,14 @@ fn zrle_tiles_pick_solid_rle_or_raw() {
 }
 
 #[test]
+fn zrle_rejects_incomplete_or_overflowing_rectangles_without_partial_output() {
+    assert!(zrle_tiles(&[1; 64], 65, 1).is_empty());
+    assert!(zrle_tiles(&[], usize::MAX, 2).is_empty());
+    assert!(zrle_tiles(&[], 0, usize::MAX).is_empty());
+    assert!(zrle_tiles(&[], usize::MAX, 0).is_empty());
+}
+
+#[test]
 fn zrle_tiles_round_trip_through_the_decoder() {
     use crate::framebuffer::{Framebuffer, Rect};
     let (width, height) = (130usize, 70usize);
