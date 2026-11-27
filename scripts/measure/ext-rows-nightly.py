@@ -332,7 +332,7 @@ def row_chat_widget(ctx: Ctx) -> dict:
     fixture = load("ext_rows_chat_widget", ROOT / "scripts/measure/ext-rows-chat-widget.py")
     drawing = fixture.row_chat_widget_drawn(ctx, sys.modules[__name__])
     return {"checks": {**{f"route_{key}": value for key, value in routing["checks"].items()},
-                       **drawing["checks"]},
+                       **drawing["checks"], "drawing_checks_present": bool(drawing["checks"])},
             "routing": routing, "drawing": drawing}
 
 
