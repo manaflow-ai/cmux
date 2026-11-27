@@ -443,13 +443,7 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
-/// A phone or tablet view that lists this in `set-client-info` shows a
-/// terminal grid larger than its own correctly (letterbox or pan). Without it
-/// the daemon never applies a PTY grid larger than that view's reported size
-/// while the view is attached with one (`mux/terminal_sizing/handheld_ceiling.rs`):
-/// such a phone renders the PTY's output into its own grid, so a wider PTY
-/// overprints and cuts its rows. The daemon advertises it in `identify`.
-pub const HOST_GRID_VIEW_CAPABILITY: &str = "host-grid-view-v1";
+pub use crate::server_protocol::HOST_GRID_VIEW_CAPABILITY;
 /// A client that lists this in `set-client-info` decodes every
 /// `device_kind` of a size state and reads a kind it does not know as
 /// `unknown`. It receives `linux` and `windows` (and later kinds) as they
@@ -491,7 +485,7 @@ pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const TERMINAL_PUBLIC_IDS_CAPABILITY: &str = "terminal-public-ids-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
-pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
+pub use crate::server_protocol::MAX_CREATION_SELECTOR_FALLBACKS;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
@@ -652,10 +646,7 @@ pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
-/// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
-/// `update-frontend-browser-tab`, and the `browser_renderer`,
-/// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
-pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+pub use crate::server_protocol::FRONTEND_BROWSER_TABS_CAPABILITY;
 pub use frontend_browser_history::{
     FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
 };
