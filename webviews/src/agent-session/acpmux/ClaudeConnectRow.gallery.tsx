@@ -142,6 +142,10 @@ function cardVariants() {
   const states: CardState[] = ["idle", "signingIn", "error", "done"];
   const name = (card: CardState) => (card === "signingIn" ? "signing-in" : card);
   const out: Record<string, { props: Props }> = {};
+  // Variant names are lower kebab case (gallery/format.ts VARIANT_NAME): `card-signing-in`.
+  const name = (card: CardState) => card.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  // Variant names are lower kebab case (gallery/format.ts VARIANT_NAME): `signingIn` names `signing-in`.
+  const name = (card: CardState) => (card === "signingIn" ? "signing-in" : card);
   for (const look of ["card", "row", "steps"] as const)
     for (const card of states) out[`${look}-${name(card)}`] = { props: { state: "card", look, card } };
   for (const card of states)
