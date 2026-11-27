@@ -7,6 +7,7 @@
 # (build the two binaries first in the same job, e.g. one per side of a patch).
 set -u
 before=$1 after=$2
+for v in "$before" "$after"; do [ -x "$v" ] || { echo "no binary at $v" >&2; exit 2; }; done
 H=$(mktemp -d)
 export HOME=$H XDG_CONFIG_HOME=$H/c XDG_STATE_HOME=$H/s XDG_DATA_HOME=$H/d XDG_RUNTIME_DIR=$H ACPMUX_SOCKET=$H/no.sock
 for v in "$before" "$after"; do
