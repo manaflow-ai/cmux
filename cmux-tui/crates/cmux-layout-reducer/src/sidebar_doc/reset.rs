@@ -119,17 +119,19 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
             .iter()
             .map(|&index| {
                 tx.doc
-                    .section(&layout[index].0.id)
+                    .section(&layout.get(index)?.0.id)
                     .filter(|existing| existing.region == *region)
                     .map(|existing| existing.order.clone())
             })
             .collect();
         let keys = match current {
-            Some(keys) if keys.windows(2).all(|pair| pair[0] < pair[1]) => keys,
+            Some(keys) if keys.windows(2).all(|pair| pair.first() < pair.get(1)) => keys,
             _ => order_key::spread(indexes.len()),
         };
         for (&index, key) in indexes.iter().zip(keys) {
-            layout[index].0.order = key;
+            if let Some((section, _)) = layout.get_mut(index) {
+                section.order = key;
+            }
         }
     }
     let kept: HashSet<SectionId> = layout.iter().map(|(section, _)| section.id.clone()).collect();

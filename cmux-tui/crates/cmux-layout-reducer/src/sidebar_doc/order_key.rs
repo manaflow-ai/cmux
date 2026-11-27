@@ -15,7 +15,7 @@ fn digit(byte: u8) -> usize {
 }
 
 fn char_of(value: usize) -> char {
-    DIGITS[value] as char
+    DIGITS.get(value).copied().unwrap_or(b'0') as char
 }
 
 /// Whether `key` is a well-formed order key.
@@ -32,42 +32,48 @@ fn after(a: &str) -> String {
     if first + 1 < BASE {
         return char_of(first + 1).to_string();
     }
-    format!("{}{}", char_of(first), after(&a[1..]))
+    format!("{}{}", char_of(first), after(a.get(1..).unwrap_or_default()))
 }
 
 /// A key before `b` (non-empty, no trailing zero).
 fn before(b: &str) -> String {
-    let first = digit(b.as_bytes()[0]);
+    let first = digit(b.as_bytes().first().copied().unwrap_or(b'0'));
     if first >= 2 {
         return char_of(first - 1).to_string();
     }
     if first == 1 {
         return if b.len() > 1 { "1".into() } else { "0z".into() };
     }
-    format!("0{}", before(&b[1..]))
+    format!("0{}", before(b.get(1..).unwrap_or_default()))
 }
 
 /// A key strictly between `a` and `b` (`a < b`; `a` may be empty).
 fn midpoint(a: &str, b: &str) -> String {
     let (a_bytes, b_bytes) = (a.as_bytes(), b.as_bytes());
     let mut shared = 0;
-    while shared < b_bytes.len() && a_bytes.get(shared).copied().unwrap_or(b'0') == b_bytes[shared]
+    while shared < b_bytes.len()
+        && a_bytes.get(shared).copied().unwrap_or(b'0')
+            == b_bytes.get(shared).copied().unwrap_or(b'0')
     {
         shared += 1;
     }
     if shared > 0 {
-        let rest_a = if shared <= a.len() { &a[shared..] } else { "" };
-        return format!("{}{}", &b[..shared], midpoint(rest_a, &b[shared..]));
+        let rest_a = a.get(shared..).unwrap_or_default();
+        return format!(
+            "{}{}",
+            b.get(..shared).unwrap_or_default(),
+            midpoint(rest_a, b.get(shared..).unwrap_or_default())
+        );
     }
     let low = a_bytes.first().map_or(0, |&byte| digit(byte));
-    let high = digit(b_bytes[0]);
+    let high = digit(b_bytes.first().copied().unwrap_or(b'0'));
     if high - low > 1 {
         return char_of((low + high).div_ceil(2)).to_string();
     }
     if b.len() > 1 {
-        return b[..1].to_string();
+        return b.get(..1).unwrap_or_default().to_string();
     }
-    let rest_a = if a.is_empty() { "" } else { &a[1..] };
+    let rest_a = a.get(1..).unwrap_or_default();
     format!("{}{}", char_of(low), after(rest_a))
 }
 
@@ -125,7 +131,9 @@ pub fn spread(count: usize) -> Vec<String> {
             let mut value = index * step;
             let mut digits = vec![b'0'; width];
             for slot in (0..width).rev() {
-                digits[slot] = DIGITS[(value % BASE as u128) as usize];
+                if let Some(digit) = digits.get_mut(slot) {
+                    *digit = DIGITS.get((value % BASE as u128) as usize).copied().unwrap_or(b'0');
+                }
                 value /= BASE as u128;
             }
             let text = String::from_utf8(digits).unwrap_or_default();

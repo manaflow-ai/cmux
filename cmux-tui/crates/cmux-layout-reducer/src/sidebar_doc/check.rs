@@ -397,9 +397,14 @@ pub fn repair(doc: &mut Doc) -> bool {
         lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
     }
     for indexes in lists.values() {
-        if indexes.iter().any(|&index| !order_key::is_valid(&items[index].order)) {
+        if indexes
+            .iter()
+            .any(|&index| items.get(index).is_none_or(|item| !order_key::is_valid(&item.order)))
+        {
             for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
-                items[index].order = key;
+                if let Some(item) = items.get_mut(index) {
+                    item.order = key;
+                }
             }
         }
     }
