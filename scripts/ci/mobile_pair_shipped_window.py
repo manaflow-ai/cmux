@@ -11,10 +11,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from email.utils import parsedate_to_datetime
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 
 DEFAULT_REGISTRY = Path(__file__).with_name("mobile_pair_shipped_window.json")
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -105,15 +111,191 @@ def resolve(registry, count=3):
     return {"include": rows, "fingerprint": fingerprint, "releases": selected}
 
 
+
+APPCAST = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+REPO = "manaflow-ai/cmux"
+CMUX_NS = "{https://cmux.com/xml-namespaces/cmux}"
+SPARKLE_NS = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+IOS_TITLE = re.compile(r"cmux-next-ios INTERNAL ([0-9a-f]{40})(?: \(submittable\))?$")
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class PublicationReader:
+    """One bounded snapshot, no retries/polling; never send GitHub auth to logs."""
+    def __init__(self, token=None):
+        self.token = token
+
+    def read(self, url, authenticated=False):
+        if not url.startswith("https://"):
+            raise ValueError("publication receipt URL must use HTTPS")
+        headers = {"User-Agent": "phone-compatibility-window/1"}
+        if authenticated:
+            if not url.startswith("https://api.github.com/"):
+                raise ValueError("GitHub token may only go to api.github.com")
+            if self.token:
+                headers["Authorization"] = f"Bearer {self.token}"
+            headers["Accept"] = "application/vnd.github+json"
+        request = urllib.request.Request(url, headers=headers)
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            with opener.open(request, timeout=30) as response:
+                data = response.read(10_000_001)
+        except urllib.error.HTTPError as error:
+            if error.code == 302 and authenticated and url.endswith("/logs"):
+                # Signed log URLs are fetched without the GitHub bearer token.
+                return self.read(error.headers["Location"])
+            raise
+        if len(data) > 10_000_000:
+            raise ValueError("publication response exceeds 10 MB bound")
+        return data.decode("utf-8")
+
+    def api(self, path, **query):
+        url = f"https://api.github.com/repos/{REPO}/{path}"
+        if query:
+            url += "?" + urllib.parse.urlencode(query)
+        return json.loads(self.read(url, authenticated=True))
+
+    def log(self, job_id):
+        return self.read(f"https://api.github.com/repos/{REPO}/actions/jobs/{job_id}/logs",
+                         authenticated=True)
+
+
+def receipt(platform, sha, release_id, published_at, url):
+    return validate_entry({
+        "platform": platform, "sha": sha, "release_id": release_id,
+        "published_at": published_at,
+        "evidence": {"kind": EVIDENCE[platform], "url": url},
+    })
+
+
+def appcast_receipts(text):
+    items = ET.fromstring(text).findall("./channel/item")
+    if not items:
+        raise ValueError("NIGHTLY appcast has no published items")
+    releases, previous = [], {}
+    for item in items:
+        sha = (item.findtext(CMUX_NS + "sourceCommit") or "").strip()
+        release_id = (item.findtext(SPARKLE_NS + "version") or "").strip()
+        enclosure = item.find("enclosure")
+        url = enclosure.get("url", "") if enclosure is not None else ""
+        date = parsedate_to_datetime(item.findtext("pubDate") or "").isoformat()
+        releases.append(receipt("mac", sha, release_id, date, url))
+        previous[release_id] = (item.findtext(CMUX_NS + "sinceCommit") or "").strip()
+    return releases, previous
+
+
+def ios_receipt(run, job, log):
+    title = IOS_TITLE.fullmatch(run.get("display_title", ""))
+    builds = re.findall(r"==> wait for App Store Connect to process ([0-9]+)", log)
+    processed = re.findall(r"- Uploaded to cmux INTERNAL at ([0-9TZ:.-]+); processed\.", log)
+    if not title or len(set(builds)) != 1 or not processed:
+        raise ValueError(f"iOS run {run['id']}: no processed TestFlight build receipt")
+    return receipt("ios", title[1], builds[0], processed[-1],
+                   f"https://github.com/{REPO}/actions/runs/{run['id']}/job/{job['id']}")
+
+
+def mac_receipt(run, job, log, expected_sha):
+    sources = re.findall(r"(?m)^.*?Z source_sha=([0-9a-f]{40})\s*$", log)
+    builds = re.findall(r"the live feed's newest build is ([0-9]+), the build this run published", log)
+    published = re.search(
+        r"(?m)^([0-9TZ:.-]+) the live feed's newest build is ([0-9]+), the build this run published",
+        log,
+    )
+    if not sources or sources[-1] != expected_sha or not builds or not published:
+        raise ValueError(f"Mac run {run['id']}: no matching live-feed publication receipt")
+    return receipt("mac", expected_sha, builds[-1], published[1],
+                   f"https://github.com/{REPO}/actions/runs/{run['id']}/job/{job['id']}")
+
+
+def successful_step(job, name):
+    return job.get("conclusion") == "success" and any(
+        step.get("name") == name and step.get("conclusion") == "success"
+        for step in job.get("steps", [])
+    )
+
+
+def refresh(registry, reader, count=3):
+    """Refresh releases; existing receipts save log/API reads, never mask failures.
+
+    The appcast's oldest sinceCommit identifies its predecessor, which still
+    needs a publication receipt. At most 20 iOS runs and 10 historical Mac runs
+    are inspected. Exhaustion, unavailable logs and rate limits fail closed.
+    """
+    validate_registry(registry)
+    if not 1 <= count <= 3:
+        raise ValueError("live refresh supports a window of 1 to 3 releases")
+    mac, previous = appcast_receipts(reader.read(APPCAST))
+    mac.sort(key=lambda r: timestamp(r["published_at"]), reverse=True)
+    mac = mac[:count]
+    if len(mac) < count:
+        oldest = mac[-1]
+        predecessor = previous[oldest["release_id"]]
+        if not SHA.fullmatch(predecessor):
+            raise ValueError("NIGHTLY feed does not identify the preceding source")
+        cached = sorted(
+            (r for r in registry["releases"]
+             if r["platform"] == "mac" and r["sha"] == predecessor
+             and timestamp(r["published_at"]) < timestamp(oldest["published_at"])),
+            key=lambda r: timestamp(r["published_at"]), reverse=True,
+        )
+        if cached:
+            mac.extend(cached[:count - len(mac)])
+        else:
+            runs = reader.api("actions/workflows/nightly.yml/runs",
+                              head_sha=predecessor, status="completed", per_page=10)["workflow_runs"]
+            for run in runs[:10]:
+                jobs = reader.api(f"actions/runs/{run['id']}/jobs", per_page=100)["jobs"]
+                job = next((j for j in jobs if j["name"] == "published-build" and
+                            successful_step(j, "Read the published build back from the live feed")), None)
+                if job:
+                    candidate = mac_receipt(run, job, reader.log(job["id"]), predecessor)
+                    if timestamp(candidate["published_at"]) >= timestamp(oldest["published_at"]):
+                        raise ValueError("historical Mac receipt is newer than its successor")
+                    mac.append(candidate)
+                    break
+
+    ios = []
+    runs = reader.api("actions/workflows/ios-internal-nightly.yml/runs",
+                      branch="rc/cnx-ios-builder", status="completed", per_page=20)["workflow_runs"]
+    for run in runs[:20]:
+        title = IOS_TITLE.fullmatch(run.get("display_title", ""))
+        if not title:
+            continue
+        prefix = f"https://github.com/{REPO}/actions/runs/{run['id']}/job/"
+        known = next((r for r in registry["releases"] if r["platform"] == "ios"
+                      and r["sha"] == title[1] and r["evidence"]["url"].startswith(prefix)), None)
+        if known:
+            ios.append(known)
+        else:
+            jobs = reader.api(f"actions/runs/{run['id']}/jobs", per_page=100)["jobs"]
+            job = next((j for j in jobs if j["name"] == "Sign, validate, upload to cmux INTERNAL"
+                        and successful_step(j, "Sign, validate, upload")), None)
+            if not job:
+                continue
+            ios.append(ios_receipt(run, job, reader.log(job["id"])))
+        if len(ios) == count:
+            break
+    # Discard unselected old entries: stale seed records cannot fill a live gap.
+    result = {"schema_version": 1, "releases": ios + mac}
+    resolve(result, count)
+    return result
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("resolve", "record"):
+    for name in ("resolve", "record", "refresh"):
         command = sub.add_parser(name)
         command.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY)
-        if name == "resolve":
+        if name in ("resolve", "refresh"):
             command.add_argument("--count", type=int, default=3)
-            command.add_argument("--github-output", type=Path)
+            if name == "resolve":
+                command.add_argument("--github-output", type=Path)
+            else:
+                command.add_argument("--output", type=Path, required=True)
         else:
             command.add_argument("--receipt", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -122,6 +304,9 @@ def main(argv=None):
         if args.command == "record":
             result = record(registry, json.loads(args.receipt.read_text()))
             args.registry.write_text(json.dumps(result, indent=2) + "\n")
+        elif args.command == "refresh":
+            result = refresh(registry, PublicationReader(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")), args.count)
+            args.output.write_text(json.dumps(result, indent=2) + "\n")
         else:
             result = resolve(registry, args.count)
             if args.github_output:
@@ -129,7 +314,7 @@ def main(argv=None):
                     output.write("matrix=" + json.dumps({"include": result["include"]}, separators=(",", ":")) + "\n")
                     output.write("fingerprint=" + result["fingerprint"] + "\n")
         print(json.dumps(result, sort_keys=True))
-    except (OSError, ValueError, TypeError) as error:
+    except (OSError, ValueError, TypeError, KeyError, ET.ParseError) as error:
         parser.exit(1, f"shipped-window: {error}\n")
 
 
