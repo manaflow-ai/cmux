@@ -40,8 +40,14 @@ def main() -> None:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"invalid manifest: {exc}")
+    if not isinstance(manifest, dict):
+        fail("manifest must be a JSON object")
     if manifest.get("schema_version") != 1:
         fail("unsupported manifest schema")
+    if manifest.get("build_profile") != "release":
+        fail(f"unsupported build profile ({manifest.get('build_profile')!r})")
+    if manifest.get("cargo_package") != "cmux-cas" or manifest.get("cargo_bin") != "cas-replay":
+        fail("artifact target mismatch")
     if manifest.get("source_sha") != args.source_sha:
         fail(f"source SHA mismatch ({manifest.get('source_sha')!r} != {args.source_sha!r})")
     for key, value in (("runner_os", os.environ.get("RUNNER_OS")), ("runner_arch", os.environ.get("RUNNER_ARCH"))):

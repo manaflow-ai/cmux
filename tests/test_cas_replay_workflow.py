@@ -25,10 +25,13 @@ CAS_PATHS = [
     "scripts/cas/**",
     "scripts/cmux-next/web-bundle-archive.py",
     ".github/workflows/cas-replay.yml",
+    "scripts/ci/verify_cas_replay_artifact.py",
     "tests/test_cas_web_ota_replay.py",
     "tests/test_cas_derived_data_replay.py",
     "tests/test_cas_mac_update_replay.py",
     "tests/test_cas_acpmux_update_replay.py",
+    "tests/test_cas_replay_workflow.py",
+    "tests/test_verify_cas_replay_artifact.py",
 ]
 
 
@@ -60,10 +63,13 @@ class CasReplayWorkflow(unittest.TestCase):
             "scripts/cmux-next/web-bundle-archive.py",
             "webviews/**",
             ".github/workflows/cas-replay.yml",
+            "scripts/ci/verify_cas_replay_artifact.py",
             "tests/test_cas_web_ota_replay.py",
             "tests/test_cas_derived_data_replay.py",
             "tests/test_cas_mac_update_replay.py",
             "tests/test_cas_acpmux_update_replay.py",
+            "tests/test_cas_replay_workflow.py",
+            "tests/test_verify_cas_replay_artifact.py",
         ])
         self.assertEqual(trigger["pull_request"]["paths"], CAS_PATHS)
         self.assertIn("workflow_dispatch", trigger)
