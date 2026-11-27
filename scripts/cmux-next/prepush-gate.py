@@ -557,6 +557,9 @@ RATCHET_BASELINES = {
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
     "visible-only-baseline.tsv": ((0, 1), 2),
 }
+# These two checks report a missing source file as a stale baseline row. Their complete row paths are therefore tree
+# context on every sparse scanner run; the other ratchets only need context when their baseline file changes.
+RATCHET_CONTEXT_BASELINES = ("state-roots-baseline.tsv", "classic-ids-baseline.tsv")
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
 # finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
@@ -768,28 +771,22 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
-    """Files named by rows in a changed RATCHET_BASELINES file, present at both revs.
+    """Files named by rows in the state/classic ratchets, present at both revs.
 
     The sparse scanner trees must include all listed files: the state-roots and classic-ids checks report a stale row
-    when a file is absent, even when the source file itself is unchanged. This context is needed when a baseline file
-    changes (including a row added for an untouched file), but must not make every source edit look like a full-tree
-    scanner run.
+    when a file is absent, even when the source file itself is unchanged. Keep this context limited to the two checks
+    that make that stale-row comparison; other ratchets add context only when their baseline file changes.
 
     The caller keeps these paths separate from the changed-file list: they populate the two scanner trees, while the
     changed files alone decide which checks run and which formatter inputs are charged to the push."""
-    changed = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", base, head, "--",
-                  *(f"{SCRIPTS}/{name}" for name in RATCHET_BASELINES)).decode().splitlines()
-    names = {Path(path).name for path in changed}
-    if not names:
-        return []
     # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
-        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in sorted(names)
+        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_CONTEXT_BASELINES
                                           for rev in (base, head)])
     except git_batch.GitError as error:
         raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
-    for name in sorted(names):
+    for name in RATCHET_CONTEXT_BASELINES:
         keys, count = RATCHET_BASELINES[name]
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]

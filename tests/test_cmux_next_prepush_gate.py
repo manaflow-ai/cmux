@@ -2612,8 +2612,8 @@ pub fn reset(snapshot: &Snapshot) {
             "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
 
     def test_ratchet_context_does_not_route_untouched_baselines(self):
-        # Baseline rows are tree context for the ratchet scanner only when that baseline changed. They must not turn an
-        # ordinary source edit into a full-tree sparse scan (or make SwiftFormat/rustfmt charge every listed path).
+        # Baseline rows are tree context for the ratchet scanners, not changed inputs. They must not turn an ordinary
+        # source edit into a full-tree sparse scan (or make SwiftFormat/rustfmt charge every listed path).
         spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_context", SOURCE / GATE)
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
@@ -2621,7 +2621,10 @@ pub fn reset(snapshot: &Snapshot) {
         self.write(f"{PKG}/Sources/CmuxNextKit/Unrelated.swift", "struct Unrelated {}\n")
         self.commit("change source without a baseline edit")
         head = self.git("rev-parse", "HEAD").stdout.strip()
-        self.assertEqual(gate.ratchet_row_files(self.repo, base, head), [])
+        changed = gate.changed_files(self.repo, base, head)
+        context = gate.ratchet_row_files(self.repo, base, head)
+        self.assertIn(f"{PKG}/Sources/CmuxNextKit/Unrelated.swift", changed)
+        self.assertNotIn(f"{PKG}/Sources/CmuxNextKit/Unrelated.swift", context)
 
         baseline_base = head
         baseline = self.repo / "scripts/cmux-next/classic-ids-baseline.tsv"
