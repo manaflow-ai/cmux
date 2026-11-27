@@ -380,8 +380,10 @@ class Produce(unittest.TestCase):
         import os  # noqa: PLC0415
 
         out = io.StringIO()
-        saved_cwd, saved = Path.cwd(), ci_receipt.produce_fast_gates
+        saved_cwd, saved, saved_records = Path.cwd(), ci_receipt.produce_fast_gates, ci_receipt.lane_records
         ci_receipt.produce_fast_gates = runner
+        # Off a runner lane_records is true, and a test on a lane VM recorded a real receipt with the controller.
+        ci_receipt.lane_records = lambda args, env=None: False
         try:
             os.chdir(repo)
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -389,6 +391,7 @@ class Produce(unittest.TestCase):
         finally:
             os.chdir(saved_cwd)
             ci_receipt.produce_fast_gates = saved
+            ci_receipt.lane_records = saved_records
         return code, out.getvalue()
 
     def test_a_failed_execution_mints_no_receipt(self):
@@ -415,13 +418,24 @@ class Produce(unittest.TestCase):
                                  .split("=", 1)[1])
             self.assertEqual(receipt["job"], "fast-gates")
 
-    def test_a_dirty_tracked_tree_mints_no_receipt(self):
+    def test_a_dirty_tracked_tree_tests_and_names_the_commit_not_the_edit(self):
         with tempfile.TemporaryDirectory() as scratch:
             repo, _ = self.repo(scratch)
+            committed = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True,
+                                       text=True).stdout.strip()
             (repo / "a").write_text("edited, not committed")
-            code, out = self.run_produce(repo, lambda work, head, base: 0)
-            self.assertEqual(code, 2)
-            self.assertNotIn("CMUX_CI_RECEIPT=", out)
+            seen = []
+
+            def gates(work, head, base):
+                seen.append(((work / "a").read_text(), head))
+                return 0
+            code, out = self.run_produce(repo, gates)
+            self.assertEqual(code, 0)
+            self.assertNotEqual(seen[0][0], "edited, not committed")
+            self.assertEqual(seen[0][1], committed)
+            receipt = json.loads(next(line for line in out.splitlines() if line.startswith("CMUX_CI_RECEIPT="))
+                                 .split("=", 1)[1])
+            self.assertEqual(receipt["head"], committed)
 
     def test_tested_head_is_the_snapshot_parent_with_the_same_tree(self):
         with tempfile.TemporaryDirectory() as scratch:
