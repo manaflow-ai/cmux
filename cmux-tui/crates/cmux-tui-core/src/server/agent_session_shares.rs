@@ -888,9 +888,12 @@ impl LinkShares {
     ) -> Option<Value> {
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
         let shares = slot.get_or_insert_with(|| self.load(directory));
+        let now = self.now();
         let shares: Vec<_> = shares
             .iter()
-            .filter(|share| share.session == session && share.live().is_ok())
+            .filter(|share| {
+                share.session == session && share.expires_at > now && share.live().is_ok()
+            })
             .cloned()
             .collect();
         (!shares.is_empty()).then(|| serde_json::to_value(shares).ok()).flatten()
@@ -1579,13 +1582,6 @@ pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
     let directory = mux.session_state_directory();
     shares.close_chat(directory.as_deref(), session);
     shares.settle(mux);
-}
-
-/// Starts the hosted-room sockets for shares imported with a moved chat.
-pub(crate) fn start_transferred_share_hosts(mux: &Arc<Mux>, share_ids: &[String]) {
-    for share_id in share_ids {
-        room::host(mux, share_id);
-    }
 }
 
 /// Link shares are protected while their chat is in an outgoing transfer. The acpmux list closes
