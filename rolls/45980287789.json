@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45980287789",
+  "recorded_at": "2026-11-27T10:45:50Z",
+  "reason": "image inputs changed in e42fbc3393972bfba3153ebda2fdd77620b7f759..189189a0876e8ee179c6e82c51c4a46067a33949; cmux-tui stays a3ea2d0abd6a (latest build 3c89e2b3be80 is not on HEAD; none of the 71 newest commits after the pin has a published build)",
+  "dry_run": false,
+  "cmux_tui": "a3ea2d0abd6a93c0074a561d2bbeed55c58cd2af",
+  "fixes": [
+    {
+      "sha": "189189a0876e8ee179c6e82c51c4a46067a33949",
+      "mergedAt": "2026-11-27T10:13:27+00:00",
+      "subject": "Image roll: a push roll asks every commit since the pin for a published build, not only the 40 newest (#61111)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T10:45:50Z",
+    "snapshot_id": "sh-8f8d57fb2745495fa58bd07a1eff1572",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45980287789): 34 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-a3ea2d0a-45980287789-1",
+    "revision": "ci-45980287789-1",
+    "at": null
+  },
+  "rolled_back": false
+}
