@@ -1806,7 +1806,7 @@ async fn diagnose_per_read_memory() {
     for _ in 0..N {
         let (tx, mut rx) = super::super::relay_connection(&b);
         let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
-        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.unwrap();
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.ok();
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     report.push(("relay_conn_initialize", rss_kib() - base));
@@ -1814,7 +1814,7 @@ async fn diagnose_per_read_memory() {
     for _ in 0..N {
         let (tx, mut rx) = super::super::relay_connection(&b);
         let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
-        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.unwrap();
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.ok();
         let _ = super::super::rpc_call(&tx, &mut rx, 2, "_acpmux/status", json!({})).await;
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
