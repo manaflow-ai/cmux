@@ -1,10 +1,10 @@
 /** The tenant ledger keeps digests and public VM ids, never request bodies. */
-import { Effect } from "effect";
+import { Duration, Effect, Fiber } from "effect";
 import type { GeneratedCreation } from "../domain/generated-creation.ts";
 import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import type { Principal } from "../domain/principal.ts";
 import { conflict, unavailable } from "../errors.ts";
-import type { IdempotencyProgress } from "../limits/ledger.ts";
+import { IDEMPOTENCY_HEARTBEAT_MS, type IdempotencyProgress } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { OwnershipStore } from "../db/stores.ts";
 
@@ -51,7 +51,10 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
       break;
   }
   const resumeFrom = claim.state === "resume" ? claim.progress : null;
-  return yield* run(resumeFrom, scoped).pipe(
+  // The claim's lease is short and renewed while this request lives: if the isolate dies
+  // (deploy, eviction) the heartbeat stops and a same-key resend takes the claim over soon.
+  const heartbeat = limits.renew(principal.tenantId, scoped).pipe(Effect.delay(Duration.millis(IDEMPOTENCY_HEARTBEAT_MS)), Effect.forever);
+  return yield* Effect.acquireUseRelease(Effect.forkDaemon(heartbeat), () => run(resumeFrom, scoped), (fiber) => Fiber.interruptFork(fiber)).pipe(
     Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.mapError(unavailable))),
     Effect.tapError(() => limits.abandon(principal.tenantId, scoped)),
   );
