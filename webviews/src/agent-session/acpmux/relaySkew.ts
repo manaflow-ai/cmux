@@ -9,18 +9,18 @@
 
 const UNKNOWN_PARAM = /^unknown param "([^"]{1,64})"$/;
 
-/// Keys a retry never drops: the request without one asks something else, and its reply would read as
-/// the answer to what was asked. `sessionId` names the chat; `hold` makes `_acpmux/attach` a row-store
-/// hold, and the same attach without it answers a plain page that the page would take as the hold's
-/// (cmux#44792 F1). Their refusal goes to the caller, which owns the fall (`holdAttachRefused`: v1).
-const KEPT_PARAMS = new Set(["sessionId", "hold"]);
+/// Keys that name what the request asks, never dropped: the same request without one is another
+/// request, whose answer its caller would read as the one it asked. An attach without `hold` is a
+/// plain page, which the row store would take for its hold and discard (cmux#44792 F1); its refusal
+/// reaches the caller, which falls to v1 (`holdAttachRefused`).
+const MEANING_KEYS: ReadonlySet<string> = new Set(["sessionId", "hold"]);
 
 /// The top-level key of `params` an older relay refused as unknown in `error`, or undefined.
 export function unknownParamRefused(error: unknown, params: Record<string, unknown>): string | undefined {
   const failure = error as { code?: unknown; detail?: unknown } | undefined;
   if (failure?.code !== "transport.intent_invalid" || typeof failure.detail !== "string") return undefined;
   const key = UNKNOWN_PARAM.exec(failure.detail.trim())?.[1];
-  return key !== undefined && !KEPT_PARAMS.has(key) && Object.hasOwn(params, key) ? key : undefined;
+  return key !== undefined && !MEANING_KEYS.has(key) && Object.hasOwn(params, key) ? key : undefined;
 }
 
 /// `params` without `key`.
