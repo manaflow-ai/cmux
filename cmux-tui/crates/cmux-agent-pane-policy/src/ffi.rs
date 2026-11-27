@@ -45,7 +45,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
