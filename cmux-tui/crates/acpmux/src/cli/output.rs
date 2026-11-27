@@ -119,20 +119,23 @@ where
 }
 
 async fn reconnect_prompt(
+    client: &Client,
     deadline: Option<tokio::time::Instant>,
     id: &str,
     original: anyhow::Error,
 ) -> Result<Arc<Client>> {
-    before_deadline(deadline, id, reconnect_after_update()).await.map_err(|reconnect| {
-        if reconnect
-            .downcast_ref::<crate::cli::errors::AppError>()
-            .is_some_and(|a| a.code == crate::cli::errors::Code::Timeout)
-        {
-            reconnect
-        } else {
-            original.context(format!("reconnecting after daemon update: {reconnect}"))
-        }
-    })
+    before_deadline(deadline, id, redial(client.socket(), update_reconnect_deadline()))
+        .await
+        .map_err(|reconnect| {
+            if reconnect
+                .downcast_ref::<crate::cli::errors::AppError>()
+                .is_some_and(|a| a.code == crate::cli::errors::Code::Timeout)
+            {
+                reconnect
+            } else {
+                original.context(format!("reconnecting after daemon update: {reconnect}"))
+            }
+        })
 }
 
 /// A daemon going away: its connection closed, or it answered that it is shutting down
@@ -419,17 +422,17 @@ pub(crate) async fn queue_prompt(
     provenance: Option<&Value>,
     prompt: &PromptId,
 ) -> Result<Value> {
-    match queue_prompt_once(client, id, text, steer, provenance, prompt).await {
-        Ok(value) => Ok(value),
-        Err(error) if daemon_closed_error(&error) => {
-            let client = reconnect_after_update().await.map_err(|reconnect| {
-                error.context(format!("reconnecting after daemon update: {reconnect}"))
-            })?;
-            let mut retry = prompt.clone();
-            retry.resend = true;
-            queue_prompt_once(client, id, text, steer, provenance, &retry).await
+    let mut client = client;
+    let mut prompt = prompt.clone();
+    loop {
+        match queue_prompt_once(client.clone(), id, text, steer, provenance, &prompt).await {
+            Ok(value) => return Ok(value),
+            Err(error) if daemon_closed_error(&error) => {
+                client = reconnect_prompt(&client, None, id, error).await?;
+                prompt.resend = true;
+            }
+            Err(error) => return Err(error),
         }
-        Err(error) => Err(error),
     }
 }
 
@@ -700,44 +703,50 @@ pub(crate) async fn stream_prompt(
         None => caller_deadline(opts.timeout)?,
     };
     let mut progress = StreamProgress::default();
-    match stream_prompt_once(
-        client,
-        id,
-        text,
-        steer,
-        quiet,
-        json_out,
-        opts,
-        suppress_reads,
-        prompt,
-        &mut progress,
-        deadline,
-    )
-    .await
-    {
-        Ok(()) => Ok(()),
-        Err(error) if daemon_closed_error(&error) => {
-            let replacement = reconnect_prompt(deadline, id, error).await?;
-            let mut retry = prompt.clone();
-            retry.resend = true;
-            progress.reconnecting = true;
-            stream_prompt_once(
-                replacement,
-                id,
-                text,
-                steer,
-                quiet,
-                json_out,
-                opts,
-                suppress_reads,
-                &retry,
-                &mut progress,
-                deadline,
-            )
-            .await
+    let mut client = client;
+    let mut prompt = prompt.clone();
+    loop {
+        match stream_prompt_once(
+            client.clone(),
+            id,
+            text,
+            steer,
+            quiet,
+            json_out,
+            opts,
+            suppress_reads,
+            &prompt,
+            &mut progress,
+            deadline,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if daemon_closed_error(&error) => {
+                client = reconnect_prompt(&client, deadline, id, error).await?;
+                prompt.resend = true;
+                progress.reconnecting = true;
+            }
+            Err(error) => return Err(error),
         }
-        Err(error) => Err(error),
     }
+}
+
+/// Persist the prompt before starting its waiting request. The outbox replays an unacknowledged
+/// handoff after a restart; both requests use the same prompt id and consult its durable outcome.
+/// The second request follows that outcome (and permissions), whether it or the outbox gets to
+/// the session first. Use the delivery's message id too, so both carry the same provenance.
+async fn durable_wait(client: &Client, mut params: Value) -> Result<Value> {
+    params["_meta"]["acpmux"]["resend"] = json!(true);
+    let receipt = client
+        .request(method::MUX_SEND_QUEUE, json!({"request": params, "waitForTurn": true}))
+        .await?;
+    let delivery = receipt
+        .get("deliveryId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("daemon did not return a durable delivery receipt"))?;
+    params["_meta"]["acpmux"]["messageId"] = json!(delivery);
+    Ok(params)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -763,7 +772,9 @@ async fn stream_prompt_once(
     )
     .await?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer, None);
+    let params =
+        before_deadline(deadline, id, durable_wait(&client, prompt.params(id, text, steer, None)))
+            .await?;
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
@@ -1103,7 +1114,6 @@ pub(crate) async fn collect_reply(
     };
     let mut attempt = 0u32;
     let mut client = client;
-    let mut update_retry = false;
     // A retry after an agent error is a new turn on purpose, so it gets a
     // new prompt id; the daemon would otherwise answer with the failure.
     let mut prompt = prompt.clone();
@@ -1111,9 +1121,8 @@ pub(crate) async fn collect_reply(
         match collect_once(client.clone(), id, text, opts, &prompt, deadline).await {
             Ok(r) => return Ok(r),
             Err(e) => {
-                if !update_retry && daemon_closed_error(&e) {
-                    update_retry = true;
-                    client = reconnect_prompt(deadline, id, e).await?;
+                if daemon_closed_error(&e) {
+                    client = reconnect_prompt(&client, deadline, id, e).await?;
                     prompt.resend = true;
                     continue;
                 }
@@ -1167,6 +1176,7 @@ async fn collect_once(
     if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
         mux.set(READS_REPLY_META, json!(true));
     }
+    let params = before_deadline(deadline, id, durable_wait(&client, params)).await?;
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
@@ -1685,7 +1695,7 @@ mod prompt_tests {
                 .events(id, 0, 1000)
                 .unwrap()
                 .into_iter()
-                .filter(|e| e.kind == "user_message" && e.msg["promptId"] == prompt.id)
+                .filter(|e| e.kind == "user_message")
                 .count();
             assert_eq!(messages, 1, "waiting send ran twice (stream={stream})");
         }
