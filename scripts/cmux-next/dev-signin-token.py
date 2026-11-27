@@ -18,6 +18,11 @@ This signs the agent account in over Stack's password API. The pair comes from t
                        PBKDF2 key from a random secret) and DIR/key.enc (that secret, RSA-OAEP): the
                        only thing the workflow uploads. The private key never leaves the machine that
                        made it, which decrypts the session into credentials.json itself.
+  --token access|refresh --out FILE
+                       write that one token to FILE (0600, this user's): the iPhone-to-Linux screen
+                       sharing job (ios-linux-screen-e2e.yml), whose Linux host reads the access token
+                       (`cmux-rd linux-host enable --stack-token-file FILE`) and whose iOS simulator
+                       restores from the refresh token (CMUX_MOBILE_STACK_REFRESH_TOKEN), never argv.
 
 --backend production signs in on the production Stack project instead (the pair from the
 cmux-next-cloud-journey environment) and names com.cmuxterm.app.nightly in the payload: for a fleet
@@ -106,16 +111,25 @@ def encrypt(session: dict, pubkey: Path, out: Path, backend: str = "staging") ->
                         "-in", str(secret), "-out", str(out / "key.enc")], check=True, stderr=subprocess.DEVNULL)
 
 
+def write_token(session: dict, kind: str, out: Path) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(session["accessToken" if kind == "access" else "refreshToken"] + "\n")
+    os.chmod(out, 0o600)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--seed", action="store_true", help="write the app's credentials.json for this user")
     parser.add_argument("--pubkey", type=Path, help="an RSA public key (PEM) to encrypt the session to")
-    parser.add_argument("--out", type=Path, help="where session.enc and key.enc go (with --pubkey)")
+    parser.add_argument("--out", type=Path, help="where session.enc and key.enc go (with --pubkey), or the token file (with --token)")
+    parser.add_argument("--token", choices=("access", "refresh"), help="write just this token to --out (0600)")
     parser.add_argument("--backend", choices=sorted(BACKENDS), default="staging",
                         help="the Stack project to sign in on (production: the NIGHTLY's; --pubkey only)")
     args = parser.parse_args()
-    if args.seed == bool(args.pubkey) or (args.pubkey and not args.out):
-        parser.error("give --seed, or --pubkey FILE --out DIR")
+    if sum((args.seed, bool(args.pubkey), bool(args.token))) != 1 or ((args.pubkey or args.token) and not args.out):
+        parser.error("give --seed, --pubkey FILE --out DIR, or --token access|refresh --out FILE")
     if args.seed and args.backend != "staging":
         parser.error("--seed writes the staging DEV app's store only; use --pubkey for production")
     email = os.environ.get("CMUX_DOGFOOD_STACK_EMAIL", "")
@@ -125,6 +139,9 @@ def main() -> int:
     session = sign_in(email, password, args.backend)
     if args.seed:
         print(f"dev-signin-token: seeded {seed(session, Path.home())}")
+    elif args.token:
+        write_token(session, args.token, args.out)
+        print(f"dev-signin-token: wrote the {args.token} token to {args.out}")
     else:
         encrypt(session, args.pubkey, args.out, args.backend)
         print(f"dev-signin-token: wrote {args.out}/session.enc and key.enc")
