@@ -563,10 +563,21 @@ class NeverBoundTests(unittest.TestCase):
                                          "bind_file": "x"}, "power": {"call_ms": 3}, "total_ms": 31000}))
         self.assertEqual(row["log"], {"msg": "cloud.create.trace", "machine": logs.base.tag(VM), "outcome": "ok",
                                       "attempt": 1, "total_ms": 31000,
-                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800}})
+                                      "steps": {"driver": 400, "edge": 900, "ensure": 24800},
+                                      "power": {"call_ms": 3}})
         self.assertEqual(list(row["log"]["steps"]), ["driver", "edge", "ensure"])
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
+
+    def test_a_slow_start_trace_keeps_its_power_split_typed(self):
+        row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "steps": {"driver": 217, "power": 121058},
+                               "power": {"find_ms": 40, "call_ms": 120900, "verify_ms": "x", "provider_ms": 118000,
+                                         "vm_id": "vm_secret"}, "total_ms": 121058}))
+        self.assertEqual(row["log"]["power"], {"find_ms": 40, "call_ms": 120900, "provider_ms": 118000})
+        bare = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                                "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
+        self.assertNotIn("power", bare["log"])
 
     def test_a_never_bound_line_keeps_the_probe_as_typed_facts_only(self):
         row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,
