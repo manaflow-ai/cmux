@@ -108,10 +108,10 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
-        if let tree = SidebarSessionTree.shared.drawn {
+        if let tree = SidebarSessionTree.shared.drawn(keeping: model.selection) {
             o.sessionTree = tree
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
-            // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
+            // Lineage alone (an agent started a session) nests or hides rows; the keycaps and the chat history
             // stay `sidebar.sessionTree`'s.
             if DesignSettings.shared.sidebarSections.sessionTree {
                 o.keycaps = model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation)
@@ -656,6 +656,7 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
+        chatHistory.followScroll()
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]

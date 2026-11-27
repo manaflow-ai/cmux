@@ -9,7 +9,6 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
     case tool(ACPToolCall)
     case toolGroup(id: String, calls: [ACPToolCall])
     case edit(ACPToolCall)
-    case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(String)
     case subagents(id: String, ids: [String])
@@ -26,7 +25,6 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
         // row is updated in place, never crossfaded with a new row.
         case .toolGroup(let id, _): "c-\(id)"
         case .edit(let call): "e-\(call.id)"
-        case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"
         case .question(let id): "q-\(id)"
         }
@@ -80,9 +78,6 @@ extension AgentTurn {
             case .message(let id, let markdown):
                 flush()
                 rows.append(.message(id: id, markdown: markdown))
-            case .plan(let id, let entries):
-                flush()
-                rows.append(.plan(id: id, entries: entries))
             case .permission(let record):
                 flush()
                 rows.append(.permission(record))
@@ -99,6 +94,51 @@ extension AgentTurn {
         }
         flush()
         return rows
+    }
+}
+
+extension TurnRow {
+    /// Port of the Mac transcript's `lateSteersLast` (turns.ts), for an ended turn: a person's steer
+    /// with no tool call started after it draws under the turn's work and over its final reply (Leo,
+    /// 2026-11-25: "worked for above my message and then yours and then boom that's it"). The agent's
+    /// message rows just above the first such steer move with the reply. `rows` itself when none move.
+    static func lateSteersLast(_ rows: [TurnRow]) -> [TurnRow] {
+        func calls(_ row: TurnRow) -> [ACPToolCall] {
+            switch row {
+            case .tool(let call), .edit(let call): [call]
+            case .toolGroup(_, let calls): calls
+            default: []
+            }
+        }
+        func isLateSteer(_ row: TurnRow) -> Bool {
+            if case .steer(let message) = row { return message.incoming == nil }
+            return false
+        }
+        func isMessage(_ row: TurnRow) -> Bool {
+            if case .message = row { return true }
+            return false
+        }
+        var late = -1
+        scan: for at in stride(from: rows.count - 1, through: 0, by: -1) {
+            if isLateSteer(rows[at]), case .steer(let steer) = rows[at] {
+                // A call below it that started after the send (or has no start time) was the agent's work on it.
+                for below in rows[(at + 1)...] {
+                    for call in calls(below) where call.startedAt.map({ $0 >= steer.at }) ?? true { break scan }
+                }
+                late = at
+            }
+        }
+        guard late >= 0 else { return rows }
+        var from = late
+        while from > 0, isMessage(rows[from - 1]) { from -= 1 }
+        let region = Array(rows[from...])
+        guard let reply = rows.lastIndex(where: isMessage), reply >= from else { return rows }
+        let steers = region.filter(isLateSteer)
+        let said = region.filter(isMessage)
+        let work = region.filter { !isLateSteer($0) && !isMessage($0) }
+        let reordered = work + steers + said
+        guard reordered != region else { return rows }
+        return Array(rows[..<from]) + reordered
     }
 }
 
@@ -219,7 +259,7 @@ extension Array where Element == TurnRow {
         case .permission(let record):
             return record.resolution != nil
         // A message just steered in: the agent is still working on it.
-        case .plan, .subagents, .steer:
+        case .subagents, .steer:
             return true
         }
     }

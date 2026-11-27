@@ -16,6 +16,10 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-transport-rewrite.workspace = true
+# What a Cloud machine state frame means (machine_state_push.rs, apps-machine-state-watch).
+cmux-cloud-machine.workspace = true
+cmux-presence.workspace = true
 cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true
@@ -45,6 +49,7 @@ cmux-process.workspace = true
 # cmux Remote's stop intent: a person's Quit never respawns (remote_host/unix.rs, F17).
 cmux-supervise-core.workspace = true
 cmux-flow-trace.workspace = true
+cmux-interactivity.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
@@ -119,6 +124,8 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server (server/forum_routed.rs).
+cmux-egress = { workspace = true, features = ["capture"] }
 # The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
 cmux-output-paint.workspace = true
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }

@@ -1,30 +1,68 @@
-// A local presentation preference, keyed by conversation. Missing/invalid values keep today's look.
+// Each conversation's place on the chat detail ladder, the same four levels the agent chat's menu
+// has (agent-session/acpmux/chatDetail.ts): Messages, Normal, Thinking, Verbose. Home Channels starts
+// at Messages; a pick is this conversation's only (localStorage `cmux.home.detail`). The old
+// Messages | Transcript choice (`cmux.home.presentation:<id>`) still reads: Transcript is Normal.
 import { useSyncExternalStore } from "react";
+import { CHAT_DETAILS, isChatDetail, type ChatDetail } from "../../agent-session/acpmux/chatDetail";
 import type { Strings } from "../shared/i18n";
 
-export type Presentation = "messages" | "transcript";
-const prefix = "cmux.home.presentation:";
-const listeners = new Set<() => void>();
-const fallback = new Map<string, Presentation>();
+export type { ChatDetail } from "../../agent-session/acpmux/chatDetail";
 
-export function readPresentation(conversation?: string): Presentation {
-  if (!conversation) return "messages";
-  if (fallback.has(conversation)) return fallback.get(conversation)!;
+const STORAGE_KEY = "cmux.home.detail";
+const LEGACY_PREFIX = "cmux.home.presentation:";
+/// The conversations whose own level is kept; the oldest choice goes first.
+const LIMIT = 200;
+/// Home Channels is the Chief's minimalist surface: it starts at Messages.
+const DEFAULT_DETAIL: ChatDetail = "messages";
+
+const listeners = new Set<() => void>();
+/// Choices storage refused: this page keeps them for its lifetime.
+const fallback = new Map<string, ChatDetail>();
+
+function storedMap(): Record<string, unknown> {
+  const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null") as unknown;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+export function readDetail(conversation?: string): ChatDetail {
+  if (!conversation) return DEFAULT_DETAIL;
+  const kept = fallback.get(conversation);
+  if (kept) return kept;
   try {
-    return window.localStorage.getItem(prefix + conversation) === "transcript" ? "transcript" : "messages";
+    if (typeof window === "undefined") return DEFAULT_DETAIL;
+    const own = storedMap()[conversation];
+    if (isChatDetail(own)) return own;
+    return window.localStorage.getItem(LEGACY_PREFIX + conversation) === "transcript" ? "normal" : DEFAULT_DETAIL;
   } catch {
-    return fallback.get(conversation) ?? "messages";
+    return DEFAULT_DETAIL;
   }
 }
 
-export function setPresentation(conversation: string, value: Presentation): void {
+export function setDetail(conversation: string, level: ChatDetail): void {
   try {
-    if (value === "messages") window.localStorage.removeItem(prefix + conversation);
-    else window.localStorage.setItem(prefix + conversation, value);
+    const map = storedMap();
+    delete map[conversation];
+    map[conversation] = level;
+    const keys = Object.keys(map);
+    for (const key of keys.slice(0, Math.max(0, keys.length - LIMIT))) delete map[key];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    // The new map wins; the old key is no longer needed.
+    window.localStorage.removeItem(LEGACY_PREFIX + conversation);
     fallback.delete(conversation);
   } catch {
     // Storage can be unavailable; the choice still works for this page's lifetime.
-    fallback.set(conversation, value);
+    fallback.set(conversation, level);
+  }
+  for (const listener of listeners) listener();
+}
+
+/// Test reset: every conversation starts at Messages again.
+export function resetDetails(): void {
+  fallback.clear();
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing stored.
   }
   for (const listener of listeners) listener();
 }
@@ -32,7 +70,7 @@ export function setPresentation(conversation: string, value: Presentation): void
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   const changed = (event: StorageEvent) => {
-    if (event.key === null || event.key.startsWith(prefix)) listener();
+    if (event.key === null || event.key === STORAGE_KEY || event.key.startsWith(LEGACY_PREFIX)) listener();
   };
   window.addEventListener("storage", changed);
   return () => {
@@ -41,27 +79,28 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-export function usePresentation(conversation?: string): Presentation {
+export function useDetail(conversation?: string): ChatDetail {
   return useSyncExternalStore(
     subscribe,
-    () => readPresentation(conversation),
-    () => "messages",
+    () => readDetail(conversation),
+    // Static renders (tests, galleries) read storage the same way; readDetail survives no window.
+    () => readDetail(conversation),
   );
 }
 
-export function PresentationToggle({ conversation, strings }: { conversation: string; strings: Strings }) {
-  const presentation = usePresentation(conversation);
+export function DetailToggle({ conversation, strings }: { conversation: string; strings: Strings }) {
+  const detail = useDetail(conversation);
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div className="lg-presentation" role="group" aria-label={strings.t("presentation.label")}>
-      {(["messages", "transcript"] as const).map((value) => (
+      {CHAT_DETAILS.map((value) => (
         <button
           key={value}
           type="button"
-          aria-pressed={presentation === value}
-          onClick={() => setPresentation(conversation, value)}
+          aria-pressed={detail === value}
+          onClick={() => setDetail(conversation, value)}
         >
-          {strings.t(`presentation.${value}`)}
+          {strings.t(`detail.${value}`)}
         </button>
       ))}
     </div>

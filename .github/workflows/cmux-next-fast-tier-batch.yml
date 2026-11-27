@@ -43,7 +43,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           ref: ${{ inputs.sha || '' }}
@@ -62,26 +62,34 @@ jobs:
       - name: Run every cargo and script entry
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/fast-tier-cargo.json"
 
-  swift:
+  swift-fleet:
     name: fast tier (Swift entries, build fleet)
     if: ${{ (inputs.only == '' || inputs.only == 'swift') && github.repository == 'manaflow-ai/cmux' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
-    # The gateway only runs the fleet client; the suites build and run on a fleet Mac.
-    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    # The gateway only runs the fleet client; the suites build and run on a fleet Mac, so the gateway is Linux
+    # (tests/test_ci_gateway_jobs_on_linux.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     # The client's queue wait (20 min) and run limit (25 min), and the report.
     timeout-minutes: 50
     steps:
       - name: Checkout the registry
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
           submodules: false
           fetch-depth: 1
-          sparse-checkout: scripts/cmux-next/fast-tier.json
+          sparse-checkout: |
+            scripts/cmux-next/fast-tier.json
+            .github/actions/fleet-client
+            .gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
       - name: Run every Swift entry on the build fleet
         env:
@@ -99,7 +107,7 @@ jobs:
             echo "::warning title=Fast tier batch (Swift): no verdict::$client is not installed on runner $RUNNER_NAME"
             exit 0
           fi
-          # Each package's suites, from the registry (the same entries fast-tier.py --kind swift runs).
+          # Each package's suites, from the registry (the same Swift entries fast-tier.py runs; here they run on the build fleet, not this runner).
           mapfile -t packages < <(python3 -I -c 'import json, sys
           suites = {}
           for e in json.load(open(sys.argv[1]))["entries"]:
@@ -138,9 +146,9 @@ jobs:
               if [[ "$json" =~ $state_re ]]; then state="${BASH_REMATCH[1]}"; fi
               if [[ "$json" =~ $code_re ]]; then code="${BASH_REMATCH[1]}"; fi
             fi
-            if [[ "$status" == 0 && "$state" == done && "$code" == 0 ]]; then
+            if [[ "$status" == 0 && "$state" == "done" && "$code" == 0 ]]; then
               echo "$package: every suite passed at $REF (step $id)" | tee -a "$GITHUB_STEP_SUMMARY"
-            elif [[ ( "$state" == failed || "$state" == done ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
+            elif [[ ( "$state" == failed || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
               echo "::error title=Fast tier batch (Swift)::$package: a suite failed or did not build at $REF (step $id, exit $code)"
               failed=1
             else

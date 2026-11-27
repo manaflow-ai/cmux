@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "newTab.widgets.meter" : {
+      "comment" : "New Tab edit mode: a widget's refresh meter; {every} is seconds between refreshes, {ticks} refreshes so far, {held} updates held back",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل {every} ث · {ticks} تحديث · {held} مؤجل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svakih {every} s · {ticks} osvj. · {held} zadržano"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvert {every}. s · {ticks} opdat. · {held} holdt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle {every} s · {ticks} Ticks · {held} gehalten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every {every} s · {ticks} ticks · {held} held"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada {every} s · {ticks} act. · {held} retenidas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Toutes les {every} s · {ticks} màj · {held} retenues"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ogni {every} s · {ticks} agg. · {held} trattenuti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{every}秒ごと · {ticks}回更新 · {held}件保留"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រៀងរាល់ {every} វិ · {ticks} ដង · {held} រង់ចាំ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{every}초마다 · {ticks}회 갱신 · {held}개 보류"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvert {every}. s · {ticks} oppd. · {held} holdt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Co {every} s · {ticks} odśw. · {held} wstrzym."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A cada {every} s · {ticks} atualiz. · {held} retidas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Каждые {every} с · {ticks} обн. · {held} задерж."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทุก {every} วิ · อัปเดต {ticks} · พัก {held}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her {every} sn · {ticks} güncelleme · {held} bekleyen"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кожні {every} с · {ticks} онов. · {held} затрим."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mỗi {every} giây · {ticks} lần · {held} đang giữ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每 {every} 秒 · 已更新 {ticks} 次 · 暂缓 {held} 个"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每 {every} 秒 · 已更新 {ticks} 次 · 暫緩 {held} 個"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

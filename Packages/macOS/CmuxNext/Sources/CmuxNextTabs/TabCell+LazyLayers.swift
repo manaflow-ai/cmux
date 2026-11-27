@@ -56,9 +56,9 @@ extension TabCell {
 
     func applyCloseColors() {
         guard let closeBackgroundLayer, let closeGlyphLayer else { return }
+        if metrics.closeColors.isSet { return TabCloseThemeColors(cell: self).apply() } // the theme's close colors (`appearance.tabClose.*`)
         themeScope.perform {
-            // Helium (Chromium's tab_close_button.cc): the x is the title's color, hovered or not; the hover fill is the
-            // tab's most-contrasting ink at 16 % (pressed 14 %), shown at once.
+            // Helium (Chromium's tab_close_button.cc): the x is the title's color, hovered or not; the hover fill is the tab's most-contrasting ink at 16 % (pressed 14 %), shown at once.
             closeGlyphLayer.strokeColor = (isSelected ? Palette.textPrimary : Palette.textSecondary).cgColor
             // The `disc` treatment draws the fill while the x stands in for the status, so it reads as a button there.
             let disc = metrics.hoverCloseSwap == .disc && visibility.closeReplacesStatus

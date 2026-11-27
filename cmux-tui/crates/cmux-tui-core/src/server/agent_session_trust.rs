@@ -215,7 +215,7 @@ pub(super) fn owner_cloud_cwd_in(
             .is_some_and(|(home, cwd)| home == cwd),
     };
     no_folder
-        .then(|| super::agent_session_folders::chat_folder(home, chat_id, true))
+        .then(|| super::agent_session_folders::own_chat_folder(home, chat_id))
         .flatten()
         .map(|path| path.to_string_lossy().into_owned())
 }

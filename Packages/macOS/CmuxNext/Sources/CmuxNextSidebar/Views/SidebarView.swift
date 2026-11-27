@@ -80,12 +80,12 @@ public final class SidebarView: NSView {
     let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = OverlayScrollView()
     let belowScroll = OverlayScrollView()
-    /// Fade the bands' rows out at an edge while more are hidden there.
-    // Built in the sections setup (no IUOs).
+    /// Fade the bands' rows out at an edge while more are hidden there; built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
     lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
-    /// The hairline between the top band and the list (quiet look). The
-    /// footer has none (SIDEBAR-FOOTER-MINIMAL).
+    /// The theme's header picture (`appearance.sidebarHeader.*`, `SidebarView+HeaderArt`); nil makes no view.
+    var headerArt: BackdropPictureView?
+    /// The hairline between the top band and the list (quiet look). The footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
@@ -116,6 +116,16 @@ public final class SidebarView: NSView {
         didSet {
             oldValue?.removeFromSuperview()
             liveModeBadge.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
+    /// The "Experiment on · #N" mark (CmuxNextPages `CustomizeExperimentsMarkView`), floating over the sidebar
+    /// just above the footer row (``SidebarFooterBand/placeExperimentsMark(above:)``); it shows and hides itself and asks for a layout.
+    /// It never fades with the footer.
+    public var experimentsMark: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            experimentsMark.map { addSubview($0) }
             needsLayout = true
         }
     }
@@ -241,6 +251,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
+            listReplacement = appSections?.workspaceList
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
@@ -248,6 +259,16 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+
+    /// The person's own workspace list (`cmux.sidebar/1`, `sidebar.workspaceListApp`); the App
+    /// injects it. The built-in list draws while it is nil or its content is not drawn (SidebarListSwap).
+    public var listReplacement: (any SidebarListReplacement)? {
+        didSet {
+            listReplacement?.onContentChange = { [weak self] in self?.needsLayout = true }
+            needsLayout = true
+        }
+    }
+    let listSwap = SidebarListSwap()
 
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
     /// popover and the "cmux Updated!" card. Set by the App; without them the
@@ -333,7 +354,7 @@ public final class SidebarView: NSView {
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
-        SystemScrollers.followThin(scrollView)
+        SystemScrollers.followThin(scrollView, scrollOnly: true)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -405,8 +426,8 @@ public final class SidebarView: NSView {
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
-        // The list starts right under the titlebar row: no search field.
-        let y = titlebarHeight
+        // The list starts right under the titlebar row (and a theme's header picture under it): no search field.
+        let y = titlebarHeight + layoutHeaderArt(top: titlebarHeight, width: b.width)
 
         // Titlebar row: buttons trail the traffic lights at a stable frame.
         // Every control in the row centers on the traffic lights' line (the
@@ -512,7 +533,11 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
+        // The experiments mark over the sidebar, above the footer row and its cards: placed after the row,
+        // from nothing in it.
+        footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
+        listSwap.apply(listReplacement?.content, in: self, frame: listFrame, native: edgeFade)
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)

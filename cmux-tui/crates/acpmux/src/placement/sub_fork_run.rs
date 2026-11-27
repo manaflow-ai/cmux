@@ -342,12 +342,14 @@ pub async fn job_main() -> anyhow::Result<()> {
 
 /// The Cloud link: `resume_machine`, then one ssh connection on the route the platform answers
 /// for a key made for this run.
+#[cfg(unix)]
 pub struct CloudLink {
     pub request: cmux_cloud_api::Request,
     /// The key, known-hosts file and the ssh process live here for the run.
     dir: std::sync::Mutex<Option<tempfile::TempDir>>,
 }
 
+#[cfg(unix)]
 impl CloudLink {
     pub fn new(request: cmux_cloud_api::Request) -> Self {
         Self { request, dir: std::sync::Mutex::new(None) }
@@ -385,6 +387,7 @@ pub fn ssh_route(endpoint: &Value) -> Result<(String, u16, String, String), Stri
     ))
 }
 
+#[cfg(unix)]
 impl ForkLink for CloudLink {
     async fn start(&self, fork: &str) -> Result<(), String> {
         cmux_cloud_api::machine_resume::resume_machine(&self.request, fork)
@@ -420,7 +423,7 @@ impl ForkLink for CloudLink {
         let (host, port, user, host_key) = ssh_route(&endpoint)?;
         let known = dir.path().join("known_hosts");
         let name = if port == 22 { host.clone() } else { format!("[{host}]:{port}") };
-        std::fs::write(&known, format!("{name} {host_key}\n"))
+        crate::home_fs::write(&known, format!("{name} {host_key}\n"))
             .map_err(|e| format!("known hosts: {e}"))?;
         let mut ssh = cmux_process::Command::new("ssh");
         ssh.arg("-i").arg(&key);
@@ -491,6 +494,7 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Owned<R> {
     }
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_run_tests.rs"]
 mod tests;

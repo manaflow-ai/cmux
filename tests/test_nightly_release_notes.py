@@ -263,14 +263,14 @@ class CollectionTests(unittest.TestCase):
         self.assertIn("pr10: pullRequest(number: 10)", details[0])
         self.assertIn("pr11: pullRequest(number: 11)", details[0])
         self.assertNotIn("pr12:", details[0])
-        self.assertIn("files(first: 100)", details[0])
+        self.assertIn("files(first: 30)", details[0])
 
     def test_details_are_read_in_batches(self):
         shas = [f"{n:040x}" for n in range(1, 121)]
         picked = [self.merged(n, sha) for n, sha in enumerate(shas, start=1)]
         github = self.github([self.compare(*shas)], [(picked, False)])
         self.assertEqual(len(NOTES.collect_prs(github, BASE, HEAD, "main")), 120)
-        self.assertEqual(len(github.calls), 1 + 3)
+        self.assertEqual(len(github.calls), 1 + -(-len(shas) // NOTES.PR_DETAIL_BATCH))
 
     def test_a_picked_pr_without_details_fails_into_the_fallback(self):
         sha = "c" * 40
@@ -335,6 +335,26 @@ class CollectionTests(unittest.TestCase):
             sleep.assert_not_called()
 
 
+class DetailQuerySizeTests(unittest.TestCase):
+    def test_every_connection_bound_is_numeric_and_small(self):
+        # Run 45858610960 (main) timed out on a 100-label/100-file query.
+        bounds = {name: int(re.search(name + r"\(first: (\d+)", NOTES.PR_FIELDS).group(1)) for name in ("labels", "files")}
+        self.assertEqual(bounds, {"labels": 20, "files": 30})
+        self.assertLessEqual(NOTES.PR_DETAIL_BATCH, 10)
+
+    def test_a_call_label_past_the_first_label_page_is_found(self):
+        pr = {**pull_request(10, "fix: x"), "labels": {"pageInfo": {"hasNextPage": True, "endCursor": "l2"},
+                                                        "nodes": [{"name": f"area-{n}"} for n in range(20)]}}
+        github = Mock(repo=REPO)
+        github.graphql.side_effect = [
+            {"pr10": pr},
+            {"pr": {"labels": {"pageInfo": {"hasNextPage": False}, "nodes": [{"name": "default-call"}]}}},
+        ]
+        [found] = NOTES.pr_details(github, "repository(owner: \"o\", name: \"n\")", [10])
+        self.assertEqual(NOTES.category(found), "Changed defaults")
+        self.assertIn('after: "l2"', github.graphql.call_args.args[0])
+
+
 class AppcastTests(unittest.TestCase):
     def write_feeds(self, directory, build="102"):
         for name in APPCASTS:
@@ -367,6 +387,22 @@ class AppcastTests(unittest.TestCase):
                     self.assertEqual(items[0].findtext("title"), old_items[0].findtext("title"))
                     self.assertEqual(items[0].find("enclosure").attrib, old_items[0].find("enclosure").attrib)
                     self.assertEqual(ET.tostring(items[1]), ET.tostring(old_items[1]))
+
+    def test_the_item_names_its_span_and_its_pull_requests(self):
+        """The feed item says which PRs it carries (Leo 2026-11-26: "do we display which prs go into which
+        nightly"): the commit it starts after and the PR numbers, newest first, beside its sourceCommit."""
+        cmux = "https://cmux.com/xml-namespaces/cmux"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for _ in range(2):  # a rerun replaces the elements, never adds a second copy
+                NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=APPCASTS,
+                                      since=BASE, pull_requests=[705, 701])
+            for name in APPCASTS:
+                items = ET.parse(directory / name).getroot().findall("channel/item")
+                self.assertEqual([e.text for e in items[0].iter(f"{{{cmux}}}sinceCommit")], [BASE])
+                self.assertEqual([e.text for e in items[0].iter(f"{{{cmux}}}pullRequests")], ["705 701"])
+                self.assertEqual(list(items[1].iter(f"{{{cmux}}}pullRequests")), [])
 
     def test_the_arm64_only_track_updates_its_one_feed(self):
         """nightly-next publishes only the arm64 variant: one feed, and a missing one still fails."""

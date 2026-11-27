@@ -607,7 +607,7 @@ const sleepVariants = {
 // Other devices (Austin, 2026-11-12, after another product's "Run on" menu: "Cloud ✓", "Other
 // devices 1 ›"): a new chat's one control lists This Mac, Cloud and Other devices, with the count of
 // the person's machines a chat can start on now; the row opens them in place, each with its online
-// dot and how it connects, the ones still connecting greyed, then Add Machine….
+// dot and how it connects, the ones still connecting drawn the same (a pick), then Add Machine….
 const otherDevicesMachines = {
   ...stripMachines,
   stripLayout: "combined" as const,
@@ -632,13 +632,13 @@ const openOtherDevices: Play = async (ctx) => {
 const otherDevicesVariants = {
   "other-devices-row": {
     height: 260,
-    note: "A new chat's control open: This Mac, Cloud, then Other devices with 2 (studio-mini and gpu-box can take a chat; laptop is still connecting and the Cloud machine is Cloud's) and a chevron.",
+    note: "A new chat's control open: This Mac, Cloud, then Other devices with 3 (studio-mini, gpu-box and laptop, still connecting, can take a chat; the Cloud machine is Cloud's) and a chevron.",
     props: otherDevicesMachines,
     play: openCombined,
   },
   "other-devices-list": {
     height: 320,
-    note: "Other devices open: its heading, the ready machines first with a green dot and SSH under the name, laptop greyed saying it is connecting, Add Machine… last. No Cloud machine.",
+    note: "Other devices open: its heading, the ready machines first with a green dot and SSH under the name, then laptop, still connecting, drawn the same with no state word and a pick; Add Machine… last. No Cloud machine.",
     props: otherDevicesMachines,
     play: openOtherDevices,
   },
@@ -650,7 +650,7 @@ const otherDevicesVariants = {
   },
   "where-other-devices-list": {
     height: 320,
-    note: "The shipped strip's Where menu, Other devices open: studio-mini and gpu-box ready with the green dot and SSH under the name, laptop greyed saying it is connecting, Add Machine… last; no Cloud machine.",
+    note: "The shipped strip's Where menu, Other devices open: studio-mini and gpu-box ready with the green dot and SSH under the name, laptop still connecting drawn the same and a pick, Add Machine… last; no Cloud machine.",
     props: { ...otherDevicesMachines, stripLayout: "where-machine" as const },
     play: openWhereDevices,
   },
@@ -1306,7 +1306,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-fleet": {
       height: 760,
-      note: "Machines…: every machine acpmux lists (21, from `host ls`): This Mac, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      note: "Machines…: every machine acpmux lists (21, from `host ls`): This Mac, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the connected machines come first, in number order, then the ones still connecting (drawn the same, a pick, no Connecting or Reconnecting word), and only machines down for 5 minutes are greyed, under Unavailable.",
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
@@ -1547,6 +1547,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-browse-error-tray": {
+      // retry-prompt-ok: Retry opens the folder chooser again, a modal only the person's click may raise.
       note: "Tray style keeps the folder chooser recovery row below the raised composer, with Retry and Dismiss visible.",
       props: {
         ...baseProps,
@@ -1569,6 +1570,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-browse-error": {
+      // retry-prompt-ok: Retry opens the folder chooser again, a modal only the person's click may raise.
       note: "A refused folder chooser leaves a started chat in place with a localized reason and direct Retry and Dismiss actions.",
       props: {
         ...baseProps,

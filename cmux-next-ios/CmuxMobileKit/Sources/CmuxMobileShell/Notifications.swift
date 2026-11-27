@@ -199,9 +199,13 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     private var apnsObserver: APNsActivationObserver?
 
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        LaunchMarks.shared.mark("did_finish_launching")
+        defer { LaunchMarks.shared.mark("did_finish_launching_done") }
         UNUserNotificationCenter.current().delegate = self
         // A terminal page turns with the phone.
         TerminalPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.terminalShown($0) }
+        // So does an agent chat pushed on Home or the Feed, like a workspace's chat tab page.
+        AgentChatPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.tabPage("pushed-agent-chat", shows: $0) }
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()

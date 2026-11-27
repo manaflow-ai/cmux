@@ -64,6 +64,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        proxyOnly: endpoint.proxyOnly, dropWireguard: endpoint.dropWireGuard,
                                         forceRelay: endpoint.forceRelay,
                                         noVideoLane: endpoint.browserVideoOnChannel,
                                         ultra: Self.ultra()),
@@ -136,6 +137,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     }
 
     var connectedPath: LinkPathKind? { handle.path().kind }
+
+    var ffiLinkHandle: AnyObject? { handle }
 
     var peerScope: String { handle.peerScope() }
 

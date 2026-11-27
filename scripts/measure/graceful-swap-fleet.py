@@ -8,7 +8,7 @@ The scenario of the capture-Mac runs (scripts/measure/graceful-swap.py on air-bl
 
 1. A fresh HOME (DIR/scratch/home): cmux-next.json at HOME/.config/cmux/cmux-next.json (CMUX_NEXT_CONFIG_FILE),
    web-dev.json beside it, and the fake ACP agent (cmux-tui/crates/acpmux/tests/fake_agent.py) as a harness
-   profile in HOME/.config/cmux/harnesses/gswfake.toml (and `agent.harness.add`, which the app reads at once).
+   profile in HOME/.config/cmux-next/harnesses/gswfake.toml (and `agent.harness.add`, which the app reads at once).
    The app is launched directly (a fleet step has no LaunchServices session), as bench_memory.launch does.
 2. One window: sidebar | Settings | chat-a (focused: a half-typed draft and an image chip) | chat-b (unfocused: a
    two-line draft), with chat-c (a draft) as a hidden tab behind chat-b. Chats are `cmux agents chat new --harness
@@ -114,6 +114,8 @@ class Scenario:
         self.scratch = self.out / "scratch"
         self.home = self.scratch / "home"
         self.config = self.home / ".config" / "cmux" / "cmux-next.json"
+        # Harness profiles: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+        self.harnesses = self.home / ".config" / "cmux-next" / "harnesses"
         self.work = self.scratch / "work"
         self.tree = Path(opts.tree).resolve()
         self.cli_path = os.path.join(self.app, "Contents/Resources/bin/cmux")
@@ -154,10 +156,10 @@ class Scenario:
         log(f"GSW-FLEET session: {json.dumps(session, default=str)[:400]}")
         if not session.get("ok"):
             sys.exit(f"graceful-swap-fleet: no GUI session on this host ({bl.no_session_detail(session)})")
-        for d in (self.home / "Library", self.config.parent / "harnesses", self.work, self.scratch / "tmp"):
+        for d in (self.home / "Library", self.config.parent, self.harnesses, self.work, self.scratch / "tmp"):
             d.mkdir(parents=True, exist_ok=True)
         fake = ROOT / "cmux-tui/crates/acpmux/tests/fake_agent.py"
-        (self.config.parent / "harnesses" / f"{HARNESS_ID}.toml").write_text(
+        (self.harnesses / f"{HARNESS_ID}.toml").write_text(
             f'schema = 1\nid = "{HARNESS_ID}"\nname = "GS test agent"\nprotocol = "acp"\n'
             f'command = {json.dumps(sys.executable)}\nargs = [{json.dumps(str(fake))}]\n')
         bm.clear_saved_state(self.app)

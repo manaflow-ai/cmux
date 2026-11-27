@@ -356,6 +356,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CHANNEL],
         cli_name: "settings switch-update-channel",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -373,6 +374,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -511,6 +513,20 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action customize-revert",
+        ..Action::DEFAULT
+    },
+    // The settings history's undo (settings-history-v1) as the person: the newest change of any
+    // writer (Settings, an agent, the CLI, a hand edit), user-only rows included. The CLI's own
+    // `cmux settings undo` and MCP `settings_undo` are its other surfaces.
+    Action {
+        id: "settings.undo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.settings.undo", "Undo Settings Change"),
+        keywords: &["settings", "undo", "revert", "put back", "recover", "history", "cmux-next.json", "customization"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action settings-undo",
         ..Action::DEFAULT
     },
     Action {

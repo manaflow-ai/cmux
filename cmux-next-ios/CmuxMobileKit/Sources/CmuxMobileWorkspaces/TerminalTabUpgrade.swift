@@ -13,9 +13,11 @@ public struct TerminalTabUpgrade: Sendable {
 
     public init() {}
 
-    /// A tab's host was built, on a live session or a placeholder.
-    public mutating func built(tabID: String, workspaceID: String, live: Bool) {
-        placeholders[tabID] = live ? nil : workspaceID
+    /// A tab's host was built, on a live session or a placeholder. Card-only
+    /// placeholders are deliberately excluded because they must wait for the
+    /// page to request their live session.
+    public mutating func built(tabID: String, workspaceID: String, live: Bool, upgradable: Bool = true) {
+        placeholders[tabID] = live || !upgradable ? nil : workspaceID
     }
 
     /// The tab's host went away (closed, cooled, reset).

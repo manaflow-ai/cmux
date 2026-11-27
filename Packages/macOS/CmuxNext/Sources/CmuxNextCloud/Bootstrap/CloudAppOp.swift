@@ -12,19 +12,31 @@ public nonisolated struct CloudAppOpFailure: LocalizedError, Equatable, Sendable
     public var code: String
     public var message: String
     public var details: JSONValue?
+    /// The server's `retryable`: the same op may answer when asked again (a backend blip,
+    /// `owner.unreachable`, a busy relay). Reads use it to ask again quietly.
+    public var retryable: Bool
 
     public static let approvalPending = "cmux.cloud.approval_pending"
     /// The op needs a paid plan (`cloud.plan.required`).
     public static let planRequired = "cmux.cloud.plan_required"
 
-    public init(code: String, message: String, details: JSONValue? = nil) {
+    public init(code: String, message: String, details: JSONValue? = nil, retryable: Bool = false) {
         self.code = code
         self.message = message
         self.details = details
+        self.retryable = retryable
     }
 
     /// The approval request id (`apr_…`) of an approval code.
     public var approvalRequest: String? { details?["request"]?.stringValue }
+    /// `code: message` of a pending answer's `details.last_run_error`: the backend's refusal of the approved
+    /// run that sent it back to pending (cmux-platform#2180), or nil when it has none.
+    public var lastRunError: String? {
+        guard let last = details?["last_run_error"] else { return nil }
+        let code = last["code"]?.stringValue ?? "", message = last["message"]?.stringValue ?? ""
+        let text = code.isEmpty || message.isEmpty || message == code ? (message.isEmpty ? code : message) : "\(code): \(message)"
+        return text.isEmpty ? nil : text
+    }
 
     public var description: String { message.isEmpty ? code : message }
     public var errorDescription: String? { description }

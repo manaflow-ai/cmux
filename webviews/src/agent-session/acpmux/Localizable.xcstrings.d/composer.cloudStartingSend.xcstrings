@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cloudStartingSend" : {
+      "comment" : "Agent pane Send button tooltip while a new chat starts on a Cloud machine: Send waits; what is typed moves to the Cloud chat as a draft, to send there",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "محادثة السحابة قيد البدء. ما تكتبه ينتقل إليها كمسودة لترسلها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaš Cloud chat se pokreće. Ono što upišete prelazi tamo kao skica koju šaljete vi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Din Cloud-chat starter. Det, du skriver, flyttes dertil som en kladde, du selv sender."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Cloud-Chat startet. Was du schreibst, kommt dort als Entwurf an, den du sendest."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Cloud chat is starting. What you type moves there as a draft for you to send."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu chat en la nube se está iniciando. Lo que escribas pasará allí como borrador para que lo envíes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ton chat Cloud démarre. Ce que tu écris y passe comme brouillon, à envoyer toi-même."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La tua chat Cloud si sta avviando. Quello che scrivi passa lì come bozza da inviare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud チャットを起動中です。入力した内容は下書きとして移るので、そこで送信してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែក Cloud របស់អ្នកកំពុងចាប់ផ្ដើម។ អ្វីដែលអ្នកវាយនឹងផ្លាស់ទៅទីនោះជាសេចក្ដីព្រាងសម្រាប់អ្នកផ្ញើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud 채팅을 시작하는 중입니다. 입력한 내용은 초안으로 옮겨지며 직접 보내면 됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud-chatten starter. Det du skriver, flyttes dit som et utkast du sender selv."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Czat w Cloud się uruchamia. To, co wpiszesz, trafi tam jako szkic do wysłania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seu chat na nuvem está iniciando. O que você digitar vai para lá como rascunho para você enviar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чат Cloud запускается. Набранный текст перейдёт туда черновиком, отправите его сами."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชท Cloud กำลังเริ่ม ข้อความที่พิมพ์จะย้ายไปเป็นฉบับร่างให้คุณส่งเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud sohbetiniz başlıyor. Yazdıklarınız oraya, sizin göndereceğiniz bir taslak olarak geçer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чат Cloud запускається. Набраний текст перейде туди чернеткою, надішлете його самі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuộc trò chuyện Cloud đang khởi động. Nội dung bạn gõ sẽ chuyển sang đó thành bản nháp để bạn gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud 聊天正在启动。你输入的内容会作为草稿移过去，由你发送。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud 聊天正在啟動。你輸入的內容會以草稿移過去，由你傳送。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
