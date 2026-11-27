@@ -55,6 +55,7 @@ mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
 mod bg_notify;
+mod bg_registry;
 mod bg_tasks;
 pub(crate) mod book_tee;
 mod bookmarks;
@@ -139,6 +140,7 @@ mod cache_alarm;
 pub(crate) mod cpu_pressure;
 pub(crate) mod github_owner;
 mod goal_tools;
+mod goal_watch;
 mod handoff;
 mod harness_key;
 pub(crate) mod harness_magic;
@@ -290,6 +292,7 @@ mod permissions;
 pub mod person;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+mod wait_edges;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -304,6 +307,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
+mod move_interrupts;
 pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
@@ -1251,7 +1255,7 @@ pub struct Hub {
     /// Leased peers by name, with the generation of the peer each lease
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
-    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    pub(super) peer_leases: StdMutex<HashMap<String, PeerLease>>,
     /// Per-peer cache writers; held through the write so removal cannot be followed by an older
     /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
     /// a save writes only what changed. Entries are removed with the peer.
@@ -1585,6 +1589,7 @@ pub struct Hub {
     pub(super) cpu_pressure: StdMutex<crate::cpu_class::pressure::Controller>,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub(crate) subscriptions: Arc<crate::subscriptions::Service>,
     pub chatgpt: Arc<crate::chatgpt::Service>,
     /// One-click Claude Code tokens (`claude setup-token` in the daemon's own pty).
     pub claude_token: Arc<crate::claude_token::Service>,
@@ -1625,6 +1630,8 @@ pub struct Hub {
     pub(super) lane_reports: lane_reports::LaneReports,
     /// Authenticated parents already receiving a lane result through wait/history.
     lane_report_reads: lane_report_reads::LaneReportReads,
+    /// Who waits on whom now, for class inheritance (`wait_edges.rs`).
+    wait_edges: wait_edges::WaitEdges,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
@@ -2040,6 +2047,7 @@ impl Hub {
             git_watch: Default::default(),
             cpu_pressure: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            subscriptions: Arc::default(),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             claude_token: Arc::new(crate::claude_token::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
@@ -2064,6 +2072,7 @@ impl Hub {
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
+            wait_edges: Default::default(),
             subsessions: Default::default(),
             races_running: Default::default(),
             admitting: Default::default(),
@@ -2693,6 +2702,8 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            prompt_heard: AtomicU64::new(0),
+            goal_watch: StdMutex::new(Default::default()),
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
@@ -3730,6 +3741,11 @@ impl Hub {
         let stored = |id: &str| {
             known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
         };
+        // The index is still loading and new spawns have yet to be released. A durable host
+        // can outlive this process, so keep its launch files until it exits.
+        if let Some(live) = Self::read_live_host_sessions() {
+            crate::agent::copilot_auth::sweep_inactive(&live);
+        }
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;
