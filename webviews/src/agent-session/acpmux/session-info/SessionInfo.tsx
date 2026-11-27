@@ -112,7 +112,6 @@ import {
   type SessionInfoPlacement,
   type RailLayout,
   DISMISS_KEEPERS,
-  RAIL_LAYOUT,
   SESSION_INFO_TOGGLE,
   toolCallIds,
   openOutputFile,
@@ -120,6 +119,7 @@ import {
 import { tooltipProps } from "../shortcuts";
 import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 import { useLiveSummary } from "../liveSummary";
+import { useSessionInfoLayout } from "../chatDisplay";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -404,7 +404,7 @@ export function SessionInfo({
   usageCacheLayout,
   banner,
   agent,
-  layout = RAIL_LAYOUT,
+  layout: layoutProp,
   projectRowLook,
   remoteControlIcon,
   more,
@@ -526,7 +526,8 @@ export function SessionInfo({
   banner?: ReactNode;
   /// The subagent it lists: its Context is the tokens and tool uses the harness reports for it.
   agent?: Subagent;
-  /// How its sections are laid out (`RAIL_LAYOUT`); the gallery shows the others.
+  /// How its sections are laid out: the gallery's pick, else Settings' Session Info Layout
+  /// (`agentPane.display.sessionInfo.layout`, `RAIL_LAYOUT` unless a look picks another).
   layout?: RailLayout;
   /// How Environment's project row reads (EnvironmentSection's `name`); the gallery shows the others.
   projectRowLook?: ProjectRowLook;
@@ -547,6 +548,8 @@ export function SessionInfo({
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
+  const settingLayout = useSessionInfoLayout();
+  const layout: RailLayout = layoutProp ?? settingLayout;
   const showMore = more ?? sessionInfoState.more;
   const setMore = onMore ?? setSessionInfoMore;
   const stored = sessionInfoState.sections;

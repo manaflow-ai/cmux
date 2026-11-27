@@ -106,7 +106,7 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// Info; and the transcript look and its tokens
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 47] = [
+const LOOK_KEYS: [&str; 48] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -143,6 +143,7 @@ const LOOK_KEYS: [&str; 47] = [
     "layout.cornerPadding",
     "layout.paneBorderWidth",
     "agentPane.display.sessionInfo.placement",
+    "agentPane.display.sessionInfo.layout",
     "agentPane.display.font.preset",
     "agentPane.display.font.ui",
     "agentPane.display.font.size",

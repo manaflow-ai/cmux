@@ -318,6 +318,7 @@ export const ROW_LEVELS: {
     "agentPane.display.rail.show": "more",
     "agentPane.display.rail.control": "more",
     "agentPane.display.sessionInfo.placement": "more",
+    "agentPane.display.sessionInfo.layout": "more",
     "agentPane.display.font.ui": "more",
     "agentPane.display.font.uiFamily": "more",
     "agentPane.display.font.proseFamily": "more",
