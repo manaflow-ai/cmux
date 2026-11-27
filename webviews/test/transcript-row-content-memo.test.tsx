@@ -15,6 +15,7 @@ import { RowContent } from "../src/agent-session/acpmux/VirtualTranscript";
 import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel";
 import { MessageRow } from "../src/agent-session/acpmux/rows/MessageRow";
 import { teardownDom } from "./support/domTeardown";
+import { LiveUpdatesContext } from "../src/ui/liveUpdates";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -82,6 +83,30 @@ test("a live line whose recipient changes under the same version draws the new r
 test("the live line's frame redraws when its recipient changes under the same version", () => {
   expect(sameRowFrame({ row: line("tests") }, { row: line("reviewer") })).toBe(false);
   expect(sameRowFrame({ row: line("tests") }, { row: line("tests") })).toBe(true);
+});
+
+test("offscreen row bodies retain state without reconciling status changes and reveal the latest row", async () => {
+  const root = createRoot(document.getElementById("root")!);
+  const props = { Component: Recipient, onToggleActivity: () => {}, expanded: false };
+  const render = (active: boolean, to: string) =>
+    root.render(
+      <LiveUpdatesContext.Provider value={active}>
+        <RowContent {...props} row={line(to)} />
+      </LiveUpdatesContext.Provider>,
+    );
+  try {
+    await act(async () => render(true, "visible"));
+    await act(async () => render(false, "hidden"));
+    const before = drawn.length;
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(false, `update-${tick}`));
+    expect(drawn.length).toBe(before);
+    expect(document.body.textContent).toBe("visible");
+    await act(async () => render(true, "latest"));
+    expect(document.body.textContent).toBe("latest");
+    expect(drawn.length).toBe(before + 1);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 test("a recreated reply passes both memo boundaries even when its row id and version repeat", async () => {

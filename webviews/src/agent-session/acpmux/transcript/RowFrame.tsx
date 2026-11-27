@@ -52,24 +52,39 @@ type RowContentProps = {
 /// across snapshots, so a scroll still draws none of them again.
 export const RowContent = React.memo(
   function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
-    const live = useLiveUpdates() && liveTools;
-    // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
-    useLayoutEffect(() => {
-      if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
-    });
+    const active = useLiveUpdates();
+    const live = active && liveTools;
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
     const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
-    return (
-      <RowBoundary row={row}>
-        <Component {...props} row={row} />
-      </RowBoundary>
-    );
+    return <RowBody {...props} Component={Component} active={active} row={row} />;
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
     if (keys.length !== Object.keys(previous).length) return false;
     return keys.every((key) => Object.is(previous[key], next[key]));
+  },
+);
+
+// Retain the rendered body (and its local disclosure state) while offscreen. Structural agent
+// updates still reach the small subscription owner above, but cannot reconcile a hidden body.
+// On reveal the latest props pass through, before the frame measures its restored contents.
+type RowBodyProps = Omit<RowContentProps, "liveTools"> & { active: boolean };
+const RowBody = React.memo(
+  function RowBody({ Component, active: _active, ...props }: RowBodyProps) {
+    useLayoutEffect(() => {
+      if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
+    });
+    return (
+      <RowBoundary row={props.row}>
+        <Component {...props} />
+      </RowBoundary>
+    );
+  },
+  (previous, next) => {
+    if (!next.active) return true;
+    const keys = Object.keys(next) as (keyof RowBodyProps)[];
+    return keys.length === Object.keys(previous).length && keys.every((key) => Object.is(previous[key], next[key]));
   },
 );
 
