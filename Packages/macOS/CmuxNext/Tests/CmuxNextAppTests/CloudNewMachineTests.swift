@@ -25,6 +25,17 @@ struct CloudNewMachineTests {
         #expect(request.memoryMb == nil)
     }
 
+    @Test func explicitProviderReachesTheCreateRequest() throws {
+        for provider in ["gcp", "own-host", "freestyle"] {
+            let request = try CloudHandlers.newMachineRequest(Self.invocation(["provider": .string(provider)]))
+            #expect(request.provider == provider)
+            #expect(!request.takesPlainPath)
+        }
+        for provider in [ActionValue.bool(true), .string(""), .string("gce")] {
+            #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["provider": provider])) }
+        }
+    }
+
     @Test func theLaneOptionsParseIntoOneRequest() throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation([
             "name": .string("lane-vm-1"), "size": .string("medium"), "persistent": .bool(true),
