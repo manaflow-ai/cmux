@@ -5,6 +5,7 @@ use crate::policy::Pressure;
 use crate::procs::parse_lsof;
 use crate::procs::{Open, Process, Uses};
 use crate::store::care_tests::scratch;
+use std::io::Write;
 
 /// Writes `bytes` to `file`.
 fn write(file: &Path, bytes: &[u8]) {
@@ -237,7 +238,7 @@ fn duress_ten_thousand_transcripts_while_a_session_writes() {
     let session = || -> Result<Vec<Process>, String> {
         Ok(vec![Process { pid: 1, cwd: "/w".into(), session_id: Some("live-session".into()) }])
     };
-    let mut family = family("claude-transcripts", root.clone(), 90);
+    let mut family = family("claude-transcripts", root, 90);
     if std::env::var_os("DURESS_FAKE_LSOF").is_some() {
         family.source = Source::Transcripts { open: OpenCheck(fake_open) };
     }

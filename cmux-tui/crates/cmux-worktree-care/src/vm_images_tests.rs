@@ -126,7 +126,7 @@ fn an_unused_old_image_is_removed_and_a_running_one_kept() {
             ("ghcr.io/acme/runner@sha256:bbb", &busy),
         ],
     );
-    let family = family("tart-images", root.clone(), Vm::Tart, Shape::OciImages, tart, 30);
+    let family = family("tart-images", root, Vm::Tart, Shape::OciImages, tart, 30);
     let report =
         run(&options(&home, vec![family], &no_uses, &not_open, &crate::never_delete::NONE, None));
     assert!(!old.exists() && std::fs::symlink_metadata(&old_tag).is_err(), "{report:?}");
@@ -161,7 +161,7 @@ fn a_stopped_old_vm_is_archived_first_and_a_running_or_protected_one_kept() {
     ]"#;
     let tart =
         fake_tart(&home, list, &[("old-runner", &stopped), ("busy", &running), ("golden", &kept)]);
-    let family = family("tart-vms", root.clone(), Vm::Tart, Shape::Machines, tart.clone(), 30);
+    let family = family("tart-vms", root.clone(), Vm::Tart, Shape::Machines, tart, 30);
     let never = NeverDelete::from_globs(["~/.tart/vms/golden".to_string()]);
     let report =
         run(&options(&home, vec![family.clone()], &no_uses, &not_open, &never, Some(&store)));

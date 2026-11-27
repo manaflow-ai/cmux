@@ -17,7 +17,7 @@
 //! Nothing named `memory` (Claude Code's auto-memory) is ever an entry.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -188,7 +188,7 @@ fn keep(reason: impl Into<String>) -> Verdict {
 }
 
 /// The running session that owns the transcript at `path`, if any.
-fn owner<'a>(processes: &'a [crate::procs::Process], root: &Path, path: &Path) -> Option<u32> {
+fn owner(processes: &[crate::procs::Process], root: &Path, path: &Path) -> Option<u32> {
     let rel = path.strip_prefix(root).ok()?;
     let stem = path.file_stem()?.to_string_lossy().into_owned();
     processes.iter().find_map(|p| {
@@ -200,7 +200,10 @@ fn owner<'a>(processes: &'a [crate::procs::Process], root: &Path, path: &Path) -
     })
 }
 
-static OPEN_CACHE: Mutex<Option<HashMap<PathBuf, (Instant, HashSet<PathBuf>)>>> = Mutex::new(None);
+/// Each root's open files and when they were read.
+type OpenByRoot = HashMap<PathBuf, (Instant, HashSet<PathBuf>)>;
+
+static OPEN_CACHE: Mutex<Option<OpenByRoot>> = Mutex::new(None);
 
 /// The open files under `root`, from a recent answer or a fresh one.
 fn open_under(check: OpenIn, root: &Path) -> Result<HashSet<PathBuf>, String> {
