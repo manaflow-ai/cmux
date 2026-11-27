@@ -457,7 +457,7 @@ fn a_refusal_that_made_no_machine_gives_the_retry_a_new_key() {
             && renewed.approved_request.is_none()
             && renewed.answering_request.is_none()
     );
-    assert_eq!(renewed.route.as_deref(), Some("relay"), "the route stays as the app kept it");
+    assert!(renewed.route.is_none(), "a new key's first send picks its route again");
 }
 
 #[test]
