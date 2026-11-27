@@ -17,6 +17,8 @@ export type RowFrameInputs = {
   sendThinking: boolean;
   enter: boolean;
   loadFade: boolean;
+  /// The row's placed height while its contents are shelved (conversation/shelvedRows.ts), else 0.
+  shelved: number;
   older: unknown;
   repository: string | undefined;
   scope: unknown;
@@ -36,6 +38,7 @@ const INPUT_KEYS = [
   "sendThinking",
   "enter",
   "loadFade",
+  "shelved",
   "older",
   "repository",
   "scope",
@@ -83,6 +86,7 @@ export class RowFrameCache {
     sendThinking: false,
     enter: false,
     loadFade: false,
+    shelved: 0,
     older: undefined,
     repository: undefined,
     scope: undefined,
