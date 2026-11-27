@@ -192,6 +192,8 @@ public final class DeviceHub {
         let task = Task { [weak self] in // task-owner: stop/start cancel and join kindTask
             guard let self else { return }
             defer { kindTask = nil }
+            // wakeup-allow: each iteration awaits URLSession registration; success drains the pending kind,
+            // repeating only for a newer report received during that await. Failure, cancellation or restart ends it.
             while !Task.isCancelled, run == generation, status == .ready, ownsDevice,
                   let kind = deviceKind, kind != registeredKind {
                 guard (try? await client.registerDevice(name: deviceName, platform: platform, kind: kind,
