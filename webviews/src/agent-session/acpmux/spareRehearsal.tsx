@@ -161,7 +161,11 @@ export function SpareRehearsal() {
     let frames = HOLD_FRAMES;
     let frame = requestAnimationFrame(function tick() {
       if (--frames > 0) frame = requestAnimationFrame(tick);
-      else setRows(undefined);
+      else {
+        setRows(undefined);
+        // When it ended, for the restart bench's A/B (it adopts only after this).
+        document.documentElement.dataset.spareRehearsed = String(Math.round(performance.now()));
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [rows]);

@@ -1576,6 +1576,20 @@ try {
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
       );
+      // The app's spare sits parked for seconds or more, so its warm-up ends before a real adopt: wait for it.
+      if (process.env.REHEARSE !== "off")
+        await page
+          .waitForFunction(
+            (quietMs) => {
+              const at = Number(document.documentElement.dataset.spareRehearsed);
+              return at > 0 && performance.now() - at > quietMs;
+            },
+            SETTLE_QUIET_MS,
+            { timeout: 15_000, polling: 100 },
+          )
+          .catch(() => console.log("reopen-spare: no rehearsal finished within 15 s"));
+      // The off side idles as long, so only the warm-up differs between the two.
+      else await page.waitForTimeout(3_000);
       if (TRACE) console.log(`reopen-spare daemon calls before its adopt event: ${spareCalls.splice(0).join(", ")}`);
       if (TRACE)
         console.log(
