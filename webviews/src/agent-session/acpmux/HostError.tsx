@@ -219,7 +219,7 @@ export function HostLineSlot({ children }: { children?: ReactNode }) {
 
 /// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
 /// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back, as a ConnectionChip (out of flow). No button and no card: nothing
+/// a lost connection comes back and a sent prompt waits for it, as a ConnectionChip (out of flow). No button and no card: nothing
 /// waits on the person. Otherwise
 /// (`otherwise`) the host's other line, if any.
 export function HostRecoveringLine({
