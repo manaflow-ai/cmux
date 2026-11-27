@@ -122,6 +122,57 @@ fi
         'builtin' 'typeset' -ag precmd_functions
         precmd_functions=(_cmux_omz_update_done "${(@)precmd_functions:#_cmux_omz_update_done}")
     fi
+    # A command that macOS refused a protected folder (Desktop, Documents, Downloads) prints only "Operation not
+    # permitted"; the person who answered Don't Allow to macOS's prompt has no way to tell why or how to undo it
+    # (first-run findings row 18). After a command that failed (not one the shell could not find or run) and named
+    # one of these folders as a path (`~/Desktop`, `$HOME/Desktop`, the home's full path), a check of that folder that
+    # fails the same way prints one line that says where to allow it. Each folder is checked at most once in a
+    # shell. The command already touched the folder, so macOS has its answer and the check never raises a prompt of
+    # its own. Only this app's layer carries it: macOS refuses folders per app, and the daemon's own integration also
+    # serves terminals off the Mac. scripts/cmux-next/tests/cli-path-folder-access.test.sh checks it.
+    if [[ -o 'interactive' ]]; then
+        _cmux_folder_access_line() {
+            'builtin' 'typeset' -g _cmux_folder_access_typed="${3:-$1}"
+        }
+        # Only macOS refuses a folder per app; elsewhere nothing is refused this way. `ls -d` would not read the
+        # folder: listing it is what macOS refuses. Its output goes nowhere; a large folder is read once a shell.
+        _cmux_folder_access_probe() {
+            [[ "${OSTYPE-}" == darwin* ]] || 'builtin' 'return' 0
+            /bin/ls -- "$1"
+        }
+        _cmux_folder_access_hint() {
+            'builtin' 'local' '-i' ret=$?
+            'builtin' 'emulate' '-L' 'zsh' '-o' 'no_aliases'
+            'builtin' 'local' typed="${_cmux_folder_access_typed-}" name err settings
+            'builtin' 'typeset' -g _cmux_folder_access_typed=
+            if (( ret != 0 && ret != 126 && ret != 127 )) && [[ -n $typed ]]; then
+                for name in Desktop Documents Downloads; do
+                    [[ $typed == *(\~|\$HOME|\$\{HOME\}|$HOME)/$name(|[/\"\'[:space:]]*) ]] || continue
+                    [[ " ${_cmux_folder_access_checked-} " != *" $name "* ]] || continue
+                    'builtin' 'typeset' -g _cmux_folder_access_checked="${_cmux_folder_access_checked-} $name"
+                    err="$(_cmux_folder_access_probe "$HOME/$name" 2>&1 >/dev/null)"
+                    [[ $err == *'Operation not permitted'* ]] || continue
+                    settings='System Settings > Privacy & Security > Files & Folders'
+                    if [[ "${TERM-}" != 'dumb' ]]; then
+                        settings=$'\e]8;;x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders\e\\'"$settings"$'\e]8;;\e\\'
+                    fi
+                    'builtin' 'print' -r -u2 -- "cmux: macOS blocks this app from your $name folder. To allow it, open $settings and turn on $name Folder for cmux."
+                done
+            fi
+            'builtin' 'return' ret
+        }
+        # Registered from the first precmd, after .zshrc, as the agent shims are.
+        _cmux_folder_access_install() {
+            'builtin' 'local' '-i' ret=$?
+            'builtin' 'typeset' -ag precmd_functions preexec_functions
+            precmd_functions=("${(@)precmd_functions:#_cmux_folder_access_install}" _cmux_folder_access_hint)
+            preexec_functions=("${(@)preexec_functions:#_cmux_folder_access_line}" _cmux_folder_access_line)
+            'builtin' 'unfunction' '_cmux_folder_access_install'
+            'builtin' 'return' ret
+        }
+        'builtin' 'typeset' -ag precmd_functions
+        precmd_functions+=(_cmux_folder_access_install)
+    fi
     if [[ -o 'interactive' && -n "${_cmux_replay_file-}" ]]; then
         _cmux_replay_first() {
             'builtin' 'local' file="${_cmux_replay_file-}"
