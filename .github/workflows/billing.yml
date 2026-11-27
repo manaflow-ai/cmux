@@ -502,7 +502,7 @@ jobs:
           printf '%s\n' "$rows" > "$RUNNER_TEMP/billing-linux-rows.txt"
           docker run --rm -v "$GITHUB_WORKSPACE:/w" -v "$RUNNER_TEMP:/rt" -w /w \
             -e CMUX_SWIFTPM_TARGET_LINUX=1 -e OWNER="$(id -u):$(id -g)" "$SWIFT_IMAGE" bash -c '
-              bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
+              apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
               status=0
               while read -r dir targets; do
                 echo "::group::$dir ($targets)"

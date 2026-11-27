@@ -45,7 +45,7 @@ extension WebKitTab: WKNavigationDelegate {
             if navigationAction.targetFrame?.isMainFrame ?? true {
                 let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
                 BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, firstPage: first,
-                                                tab: ObjectIdentifier(self), close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
+                                                close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
             }
             return
         }

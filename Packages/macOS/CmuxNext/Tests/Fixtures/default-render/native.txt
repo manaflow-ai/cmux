@@ -216,6 +216,7 @@ tunable sidebar.sections.localPrototype = false
 tunable sidebar.sections.look = .quiet
 tunable sidebar.spaceSwitcher = .ring
 tunable sidebar.subagents.fixture = false
+tunable sidebar.subagents.look = .both
 tunable sidebar.taskProgress = true
 tunable sidebar.toggleIcon = .panel
 tunable sidebar.updateCard.automaticControl = .switch

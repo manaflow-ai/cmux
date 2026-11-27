@@ -440,7 +440,7 @@ extension AgentPaneCloudRepositoryRefusal {
     /// account, so they know to sign in with one that can (or add the repository on GitHub).
     nonisolated static func needsAccessMessage(_ repository: String, login: AgentPaneGitHubLogin) -> String {
         guard case .carried(let user?) = login else { return needsAccessMessage(repository) }
-        return String(format: String(localized: "agentPane.github.cloneLoginCantReach", defaultValue: "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it.", bundle: .localizedModule), user, repository)
+        return String(format: String(localized: "agentPane.github.cloneLoginCantReach", defaultValue: "Your GitHub login %1$@ can't reach %2$@. Sign in with GitHub to give Cloud access to it.", bundle: .localizedModule), user, repository)
     }
 
     /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.

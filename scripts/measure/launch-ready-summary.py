@@ -213,7 +213,7 @@ def layout_line(side, runs, params=""):
 
 def summarize(rows, case="kept", seeded="", params="", keys=False):
     """Prints the summary; returns the lines' data: {side: {"failed": [...], "surface": first}}."""
-    expect, result, meds = EXPECT[case], {}, {}
+    expect, result = EXPECT[case], {}
     print("LR-CASE", case, f"expect={expect}" + (f" front={seeded}" if seeded else ""), flush=True)
     for side in dict.fromkeys(r["side"] for r in rows if not r["side"].startswith("foreign-")):  # not a donor
         own = [r for r in rows if r["side"] == side]
@@ -238,9 +238,7 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
         failed, prev, prev_label, measured, usable, anchor, skipped = [], None, None, 0, 0, None, 0
         drifted, anchor_drew_home, not_judged = [], False, None
-        plain = bool(own) and all(r.get("plain") for r in own)
-        meds[side] = med
-        if seeded and not plain:  # front=: the priming launch's front is the front every measured launch must reopen
+        if seeded:  # front=: the priming launch's front is the front every measured launch must reopen
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
             anchor_drew_home = "home.first_page" in (prime.get("marks") or {})
@@ -253,6 +251,7 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
         # that changed it fails the arm even when a later one changes it back. With that front unreadable the arm is
         # not judged at all: comparing with the launch before instead is the same blind spot.
         anchored = not seeded and case in PRIME_ANCHORED
+        plain = bool(own) and all(r.get("plain") for r in own)
         for r in ([] if plain else own):  # a plain app has no front to reopen: its restore is not judged
             # The stress3 seed sets the front every later launch must reopen, with front= too: it makes the session
             # and leaves its last workspace's tab (front=tab) in front, so the prime's front is no longer the anchor.
@@ -329,7 +328,6 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
             print("LR-FRAMES", side, json.dumps(frames), flush=True)
         perceived_line(side, runs)
         result[side] = {"failed": failed, "surface": first, "layout": layout, "judged": not not_judged, "plain": plain}
-    over_floor(meds, result)
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items() if not data["plain"]}
     if len(set(firsts.values())) > 1:
@@ -343,24 +341,6 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
     else:
         print("LR-SAME-FRONT ok: " + ", ".join(result), flush=True)
     return result
-
-
-def over_floor(meds, result):
-    """floor=1: LR-OVER-FLOOR SIDE, each cmux side's finished_launching median minus the floor side's (the empty AppKit
-    app, launched between them in the same run), the number goals/dock-no-bounce.md is held to. Returns {side: ms}."""
-    floor = meds.get("floor") or {}
-    if floor.get("finished_launching") is None:
-        if "floor" in meds:
-            print("LR-OVER-FLOOR none: the floor side has no finished_launching", flush=True)
-        return {}
-    out = {}
-    for side, med in meds.items():
-        if side == "floor" or result.get(side, {}).get("plain") or med.get("finished_launching") is None:
-            continue
-        out[side] = round(med["finished_launching"] - floor["finished_launching"], 1)
-        print("LR-OVER-FLOOR", side, f"finished_launching={out[side]} side={med['finished_launching']}",
-              f"floor={floor['finished_launching']} n={med['n']} floor_n={floor['n']}", flush=True)
-    return out
 
 
 def perceived(runs):

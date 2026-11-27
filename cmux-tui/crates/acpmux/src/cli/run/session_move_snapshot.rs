@@ -328,7 +328,6 @@ async fn one(
     Ok(row)
 }
 
-// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 #[path = "session_move_snapshot_tests.rs"]
 mod tests;

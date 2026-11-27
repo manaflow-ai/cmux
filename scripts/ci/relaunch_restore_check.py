@@ -72,10 +72,6 @@ sys.path.insert(0, str(HERE))
 SCROLLBACK_LINES = 2000
 POLL_S = 0.05
 HARNESS = "l5fake"
-# The folders under ~/.config a Mac build reads harness profiles from: NEXT's own `cmux-next` (cmux_config::NEXT_DIR
-# since #56195) and `cmux` (builds before it, which a base= bench can be). With only `cmux` every chat round
-# answered "unknown harness l5fake" and the restart-to-chat bench reported no row.
-HARNESS_DIRS = ("cmux-next", "cmux")
 KEYS = ("workspaces", "terminal_pid", "scrollback_sha256", "chat")
 PROMPT = "l5 hello"
 DEFAULT_FAKE_AGENT = HERE.parent.parent / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py"
@@ -188,13 +184,12 @@ def wait(probe, seconds: float, every: float = 0.25):
 
 def write_harness(home: str, fake_agent: str) -> None:
     """The acpmux test agent as harness `l5fake`, a profile in the instance's own HOME (cmux reads it live)."""
-    for name in HARNESS_DIRS:
-        folder = Path(home) / ".config" / name / "harnesses"
-        folder.mkdir(parents=True, exist_ok=True)
-        profile = folder / f"{HARNESS}.toml"
-        profile.write_text(f'schema = 1\nid = "{HARNESS}"\nname = "L5 test agent"\nprotocol = "acp"\n'
-                           f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(fake_agent))}]\n')
-        profile.chmod(0o600)
+    folder = Path(home) / ".config" / "cmux" / "harnesses"
+    folder.mkdir(parents=True, exist_ok=True)
+    profile = folder / f"{HARNESS}.toml"
+    profile.write_text(f'schema = 1\nid = "{HARNESS}"\nname = "L5 test agent"\nprotocol = "acp"\n'
+                       f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(fake_agent))}]\n')
+    profile.chmod(0o600)
 
 
 def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True) -> dict:

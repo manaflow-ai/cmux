@@ -157,9 +157,6 @@ set_runs "$active"
 expect "push, publisher active" push deferred
 set_head "$newer"; set_runs "$cancelled"
 expect "push, superseded" push superseded "$newer"
-# A tip daemon suite (CMUX_TUI_TREE_TIP_SUITE): no newer run tests this exact commit, so a cancelled
-# publisher defers to the tree's next publish instead of skipping daemon-test (2026-11-27).
-CMUX_TUI_TREE_TIP_SUITE=daemon expect "tip suite, publisher cancelled by a newer push" workflow_dispatch deferred "tip suite tests this exact commit"
 set_head "$sha"; set_runs "$failed_run"
 expect "push, publish failed" push failed "failure: u3"
 # A coalesced push (base-coalesce.yml: the window's build ran on an earlier push) ends success with

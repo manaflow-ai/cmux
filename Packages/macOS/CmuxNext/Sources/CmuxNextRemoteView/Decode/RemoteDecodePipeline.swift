@@ -8,28 +8,22 @@ public nonisolated struct RemoteViewerFrameTimes: Sendable, Equatable {
     public var releasedAtNanos: UInt64
     public var decodedAtNanos: UInt64
     public var presentedAtNanos: UInt64
-    /// False when macOS recorded no presented time for the drawable: the frame never reached the
-    /// glass (a window hidden or not on screen, the first drawable on a layer just sized), and
-    /// `presentedAtNanos` is only the handler's own time.
-    public var onGlass: Bool
 
-    public init(frame: UInt32, releasedAtNanos: UInt64, decodedAtNanos: UInt64, presentedAtNanos: UInt64,
-                onGlass: Bool = true) {
+    public init(frame: UInt32, releasedAtNanos: UInt64, decodedAtNanos: UInt64, presentedAtNanos: UInt64) {
         self.frame = frame
         self.releasedAtNanos = releasedAtNanos
         self.decodedAtNanos = decodedAtNanos
         self.presentedAtNanos = presentedAtNanos
-        self.onGlass = onGlass
     }
 
     /// A frame's times once the presenter's handler ran, `presentedAtMicros` the drawable's
-    /// presented time: 0 when macOS did not record one, and then `nowNanos`, the handler's own
-    /// time, with `onGlass` false so no glass measure counts it.
+    /// presented time: 0 when macOS did not record one (the first drawable on a layer just
+    /// sized, a window not on screen), and then `nowNanos`, the handler's own time, so a static
+    /// screen's one frame still gives Present and Decode + Present a value.
     public static func shown(frame: UInt32, releasedAtNanos: UInt64, decodedAtNanos: UInt64,
                              presentedAtMicros: UInt64, nowNanos: UInt64) -> Self {
         Self(frame: frame, releasedAtNanos: releasedAtNanos, decodedAtNanos: decodedAtNanos,
-             presentedAtNanos: presentedAtMicros > 0 ? presentedAtMicros &* 1_000 : nowNanos,
-             onGlass: presentedAtMicros > 0)
+             presentedAtNanos: presentedAtMicros > 0 ? presentedAtMicros &* 1_000 : nowNanos)
     }
 }
 

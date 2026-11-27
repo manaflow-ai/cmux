@@ -327,8 +327,6 @@ BUNDLE_INPUTS = (
     "schemas/composer-status/peek-pin.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
-    # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
-    "examples/setups/*/cmux-setup.json",
     # The key styles the key presentation imports (src/ui/keyStyle.ts).
     "schemas/keymap/key-styles.json",
     # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).

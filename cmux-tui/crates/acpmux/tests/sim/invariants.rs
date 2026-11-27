@@ -95,7 +95,6 @@ pub const INVARIANTS: &[Invariant] = &[
         name: "a resumed chat ends as an uninterrupted one",
         check: resumed_equals_uninterrupted,
     },
-    Invariant { name: "every hub is gone with its simulation", check: hubs_dropped },
     Invariant {
         name: "every send is answered within the liveness budget once faults heal",
         check: answered_within_budget,
@@ -155,17 +154,6 @@ pub const NOT_CHECKED: &[&str] =
 pub fn check(run: &Run) -> Result<(), String> {
     for inv in INVARIANTS {
         (inv.check)(run).map_err(|e| format!("{}: {e}", inv.name))?;
-    }
-    Ok(())
-}
-
-/// A hub kept alive past its simulation keeps its audit thread, runtime and fds (~13 MB a
-/// seed): the known-gap sweep's runner ran out of memory on it (a strong `Hub` in the session
-/// tap, `hub/tap.rs`).
-fn hubs_dropped(run: &Run) -> Result<(), String> {
-    let (alive, built) = run.hubs;
-    if alive > 0 {
-        return Err(format!("{alive} of {built} hubs outlived the simulation"));
     }
     Ok(())
 }

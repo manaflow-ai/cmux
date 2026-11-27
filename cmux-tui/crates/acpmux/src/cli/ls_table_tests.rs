@@ -457,16 +457,3 @@ fn an_alias_is_the_name_ls_shows() {
         first(tagged("Mochi"))
     );
 }
-
-#[test]
-fn archived_chats_leave_the_default_list_and_are_counted() {
-    let rows = vec![
-        lane("live"),
-        with(lane("shelved"), json!({"tags": {"archived": "true", "archivedBy": "lifecycle"}})),
-    ];
-    let out = compact(&rows);
-    assert!(!out.lines().any(|l| l.starts_with("shelved")), "{out}");
-    assert!(out.contains("1 more hidden (1 archived)"), "{out}");
-    let all = render(&rows, Some(&[]), View { all: true, wide: false }, false, NOW);
-    assert!(all.lines().any(|l| l.starts_with("shelved")), "{all}");
-}

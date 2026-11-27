@@ -104,8 +104,6 @@ pub(super) fn fire(args: &[String], out: &Out) -> Outcome {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let delivery = format!("cli-{}", uuid::Uuid::new_v4().simple());
     let headers = signed_headers(&shot.secret, timestamp, &delivery, &shot.body);
-    // --platform or CMUX_PLATFORM_URL names the origin: a host the person named passes the gate.
-    cmux_egress::allow_named(&origin);
     let url = format!("{origin}{TRIGGERS_PATH}/{}/webhook", shot.trigger);
     match post(&url, &headers, shot.body) {
         Ok((status, answer)) => {
@@ -134,12 +132,12 @@ pub(super) fn fire(args: &[String], out: &Out) -> Outcome {
 }
 
 fn post(url: &str, headers: &[(&str, String)], body: Vec<u8>) -> Result<(u16, Value), String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
-    // Through the egress gate (docs/privacy.md); it installs the TLS provider too.
     let client = cmux_egress::client_builder("cmux_tui::cli::automation_webhook_fire")
         .default_headers(space)
         .redirect(reqwest::redirect::Policy::none())

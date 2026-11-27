@@ -93,18 +93,6 @@ jobs:
       # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
       # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
 
-      # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
-      # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
-      # GitHub's, built on base 2dae74e007e (05:23Z), 73 min and two web PRs (#46544, #60849: the second
-      # `layoutGeometry` import) behind the live tip. So the head is merged onto the base as it is now.
-      - name: Merge the head onto the live base
-        if: github.event_name == 'pull_request'
-        env:
-          GIT_AUTH_TOKEN: ${{ github.token }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
-
       - name: Does this change reach a web bundle
         id: touched
         env:
@@ -123,12 +111,6 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         if: steps.touched.outputs.web == 'true'
         run: cd "$WEB_SOURCE_ROOT" && scripts/ci/reset-stale-submodules.sh
-
-      # Seconds, before any install: the parse-class break (a binding imported twice in one statement) fails here, not
-      # after the 2-3 min build.
-      - name: Fast fail - no webviews import names a binding twice
-        if: steps.touched.outputs.web == 'true'
-        run: python3 -I tests/test_webviews_no_duplicate_import_names.py
 
       - name: Source key of the web bundles
         id: web-bundle-key
@@ -154,7 +136,7 @@ jobs:
       # built: cmux-next.yml's web-bundles job and this job's own save below, under the same key. Every head of a pull
       # request with a web change reaches a web bundle (the diff is against the base), so its next push that moves no
       # web source, or a base merge, rebuilt the same sources: 67 of 186 preflight builds, 209 of 664 build minutes
-      # (11-26 22Z..11-27 05Z, ci140-pr-segment). A hit there passes the same way an R2 hit does, without a download.
+      # (11-26 22Z..11-27 05Z, ci140-pr-segment). Restore the bytes on a hit so consumers can reuse them.
       - name: Look up the web bundles this pull request already built
         id: web-bundle-cache
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true'
@@ -273,14 +255,14 @@ jobs:
         env:
           WEB: ${{ steps.touched.outputs.web }}
           HIT: ${{ steps.web-bundle-r2.outputs.cache-hit }}
-          PR_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+          GITHUB_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
         run: |
           if [ "$WEB" != true ]; then
             echo "no web bundle source changed: nothing to build" | tee -a "$GITHUB_STEP_SUMMARY"
           elif [ "$HIT" = true ]; then
             echo "this merged tree's web sources already built (R2 cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
-          elif [ "$PR_HIT" = true ]; then
-            echo "this merged tree's web sources already built on this pull request (cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "$GITHUB_HIT" = true ]; then
+            echo "this merged tree's web sources already built (GitHub cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "the web bundles built from this merged tree" | tee -a "$GITHUB_STEP_SUMMARY"
           fi

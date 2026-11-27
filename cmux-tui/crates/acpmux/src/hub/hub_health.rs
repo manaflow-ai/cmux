@@ -34,9 +34,6 @@ pub(crate) struct HubHealth {
     asked: BTreeMap<String, u64>,
     /// The machines whose ask is still out.
     out: BTreeSet<String>,
-    /// When each machine's newest ask failed (ms), cleared by an answer: a reading older than
-    /// it is not believed (`placement/reach.rs`, `healthFailedAt`).
-    failed: BTreeMap<String, u64>,
     /// Until when a placement wants fresh readings (ms).
     interest_until: u64,
 }
@@ -66,31 +63,19 @@ impl HubHealth {
         due
     }
 
-    /// `host`'s ask ended at `now`: with its reading, or with none (the reading kept as it was,
-    /// and the failure's time kept, so placement passes the host over until one answers).
+    /// `host`'s ask ended at `now`: with its reading, or with none (kept as it was).
     pub(crate) fn answered(&mut self, host: &str, reading: Option<Value>, now: u64) {
         self.out.remove(host);
-        let Some(v) = reading else {
-            if self.failed.contains_key(host) || self.failed.len() < MAX_HOSTS {
-                self.failed.insert(host.to_owned(), now);
-            }
-            return;
-        };
-        self.failed.remove(host);
-        if self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS {
+        if let Some(v) = reading
+            && (self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS)
+        {
             self.readings.insert(host.to_owned(), (now, v));
         }
-    }
-
-    /// When `host`'s newest ask failed, if it did and none answered since.
-    pub(crate) fn failed_at(&self, host: &str) -> Option<u64> {
-        self.failed.get(host).copied()
     }
 
     /// Only the machines `listed` names are kept.
     pub(crate) fn retain(&mut self, listed: &BTreeSet<String>) {
         self.readings.retain(|h, _| listed.contains(h));
-        self.failed.retain(|h, _| listed.contains(h));
         self.asked.retain(|h, _| listed.contains(h) || self.out.contains(h));
     }
 
@@ -108,17 +93,13 @@ impl HubHealth {
     }
 }
 
-/// One address-book snapshot. Fresh pushes suppress pulls but still belong to the cache.
-#[derive(Default)]
-pub(crate) struct HealthHosts {
-    pub(crate) listed: BTreeSet<String>,
-    pub(crate) pull: Vec<String>,
-}
-
-impl HealthHosts {
-    pub(crate) fn due(&self, cache: &mut HubHealth, now: u64) -> Vec<String> {
-        cache.retain(&self.listed);
-        cache.due(&self.pull, now)
+impl Hub {
+    /// The machines only the hub lists (`mesh_book_hosts`), by name.
+    pub(crate) fn hub_only_hosts(&self) -> Vec<String> {
+        self.mesh_book_hosts()
+            .iter()
+            .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
+            .collect()
     }
 }
 

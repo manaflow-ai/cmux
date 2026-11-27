@@ -20,17 +20,17 @@ enum CmuxAppLinks {
     @discardableResult
     static func open(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
-        if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return DeepLink.noteLink(url, "showed a settings route", (try? services.settingsWindow.show(section: nil, route: route)) != nil) }
+        if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
         if let action = DeepLink.linkAction(for: url, linkScheme: services.linkScheme) { // settings, Fork and customize
             return action.ran(from: url, done: services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user)))
         }
-        if let agent = openAgentWeb(url, services: services, click: click) { return DeepLink.noteLink(url, "opened an agent chat", agent) }
+        if let agent = openAgentWeb(url, services: services, click: click) { return agent }
         // A pull request link clicked in an agent chat: the native GitHub page when `browser.openPullRequestsInGitHubPage` is on.
         if !click.otherTarget, !click.background, let tab = click.source, services.agentTabs.isAgentTab(tab),
-           let pane = services.linkOpener.source(tab: tab), let opened = WebPageTab.openGitHub(url, from: pane, services: services) { return DeepLink.noteLink(url, "opened the GitHub page", opened) }
+           let pane = services.linkOpener.source(tab: tab), let opened = WebPageTab.openGitHub(url, from: pane, services: services) { return opened }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
-              let text = link.url(scheme: services.linkScheme)?.absoluteString else { return DeepLink.noteLink(url, "is no app link", false) }
-        return DeepLink.noteLink(url, "ran link.open", services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)].merging(click.source.map { ["source": .string($0)] } ?? [:]) { $1 }, origin: .user)))
+              let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
+        return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)].merging(click.source.map { ["source": .string($0)] } ?? [:]) { $1 }, origin: .user))
     }
 
     /// An agent session link's web form (`https://cmux.com/deeplink/agent?harness=&session=…`, or

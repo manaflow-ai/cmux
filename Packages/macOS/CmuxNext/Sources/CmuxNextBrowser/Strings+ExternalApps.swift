@@ -15,10 +15,10 @@ extension Strings {
     static func externalAppNone(origin: String, scheme: String) -> String {
         guard !origin.isEmpty else {
             return String(localized: "browser.externalApp.none.thisPage",
-                          defaultValue: "No app on this Mac opens this page’s “\(scheme):” link.", bundle: .localizedModule)
+                          defaultValue: "This page tried to open a “\(scheme):” link, but no app on this Mac opens it.", bundle: .localizedModule)
         }
         return String(localized: "browser.externalApp.none",
-                      defaultValue: "No app on this Mac opens \(origin)’s “\(scheme):” link.", bundle: .localizedModule)
+                      defaultValue: "\(origin) tried to open a “\(scheme):” link, but no app on this Mac opens it.", bundle: .localizedModule)
     }
     static var externalAppOpen: String { String(localized: "browser.externalApp.open", defaultValue: "Open", bundle: .localizedModule) }
 }

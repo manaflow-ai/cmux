@@ -65,15 +65,12 @@ pub(super) async fn set(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
 }
 
 /// `{"chat"?: ID, "mode"?: ... (a mode to weigh instead of the chat's), "account"?: {plan, flag,
-/// cloudDisabled, signedIn}, "need"?: {caps, team, agent}, "cloudPool"?: bool}` → `{v: 3, chat,
-/// mode: {mode, machine?}, picked, place: {on: "this-mac"|"cloud"|"machine"|"nowhere", hybrid?,
-/// id?}, why, chip, tier?: "this-mac"|"enrolled"|"cloud-pool"|"freestyle", local: {name, busy,
-/// room, ramFree, caps}, enrolled: [{name, autoCloud, room, ramFree, folder}]}`. Version 2 added
-/// `v`, `tier`, `enrolled`, `need` and `local.caps`; a version 1 reader ignores them and reads
-/// the rest as before (an enrolled pick is a `machine` place, which it already starts on).
-/// Version 3 split `tier: "cloud"` into `cloud-pool` (our pool, when `cloudPool` says it can
-/// take the chat) and `freestyle`; `place` is the same `cloud` either way, so a version 2 reader
-/// starts the same chat, and a version 2 `cloud` reads as [`Tier::Freestyle`].
+/// cloudDisabled, signedIn}, "need"?: {caps, team, agent}}` → `{v: 2, chat, mode: {mode,
+/// machine?}, picked, place: {on: "this-mac"|"cloud"|"machine"|"nowhere", hybrid?, id?}, why,
+/// chip, tier?: "this-mac"|"enrolled"|"cloud", local: {name, busy, room, ramFree, caps},
+/// enrolled: [{name, autoCloud, room, ramFree, folder}]}`. Version 2 added `v`, `tier`,
+/// `enrolled`, `need` and `local.caps`; a version 1 reader ignores them and reads the rest as
+/// before (an enrolled pick is a `machine` place, which it already starts on).
 pub(super) async fn read(hub: &Hub, params: &Value) -> Value {
     let verdict = super::place::place(hub, &json!({"hubHealth": false})).await;
     // An existing chat's stored pin, for a read with no pick of its own.
@@ -84,9 +81,8 @@ pub(super) async fn read(hub: &Hub, params: &Value) -> Value {
     answer(params, &verdict, &hub.peers(), crate::placement::auto_cloud_on(), stored)
 }
 
-/// The `_acpmux/chat_place` answer's version: 2 added the AutoCloud enrolled tier; 3 split Cloud
-/// into `cloud-pool` and `freestyle` (RFD 0172, "Explicit order").
-pub(crate) const CHAT_PLACE_VERSION: u32 = 3;
+/// The `_acpmux/chat_place` answer's version: 2 added the AutoCloud enrolled tier.
+pub(crate) const CHAT_PLACE_VERSION: u32 = 2;
 
 /// [`read`] from the placement verdict, the peer rows, and whether AutoCloud is on here.
 /// `stored`: an existing chat's mode and whether it was pinned, weighed when the request names
@@ -125,15 +121,7 @@ fn answer(
     };
     let need =
         params.get("need").and_then(|n| serde_json::from_value(n.clone()).ok()).unwrap_or_default();
-    let cloud_pool = params.get("cloudPool").and_then(Value::as_bool).unwrap_or(false);
-    let facts = Facts {
-        local: place_mode::local_of(verdict),
-        account,
-        machines,
-        enrolled,
-        need,
-        cloud_pool,
-    };
+    let facts = Facts { local: place_mode::local_of(verdict), account, machines, enrolled, need };
     let decision = place_mode::decide(&mode, &facts);
     json!({
         "v": CHAT_PLACE_VERSION,
@@ -255,24 +243,14 @@ mod tests {
         let account: Value = serde_json::from_str(PRO).unwrap();
         let p = json!({"chat": "c-enr-1", "account": account});
         let v = answer(&p, &verdict_enrolled(), &peers(), true, None);
-        assert_eq!(v["v"], 3);
+        assert_eq!(v["v"], 2);
         assert_eq!(v["place"], json!({"on": "machine", "id": "studio"}), "{v:#}");
         assert_eq!(v["tier"], "enrolled");
         assert_eq!(v["chip"], "Auto · studio: 40 GB free");
         assert_eq!(v["enrolled"].as_array().map(Vec::len), Some(1), "{v:#}");
         let off = answer(&p, &verdict_enrolled(), &peers(), false, None);
         assert_eq!(off["place"], json!({"on": "cloud", "hybrid": true}), "{off:#}");
-        assert_eq!(off["tier"], "freestyle");
-        // Our pool, when the caller says it can take the chat: the same Cloud place, its tier.
-        let pooled = json!({"chat": "c-enr-1", "account": account, "cloudPool": true});
-        let v = answer(&pooled, &verdict_enrolled(), &peers(), false, None);
-        assert_eq!(v["place"], json!({"on": "cloud", "hybrid": true}), "{v:#}");
-        assert_eq!(v["tier"], "cloud-pool");
-        // A version 2 answer's tier still reads.
-        assert_eq!(
-            serde_json::from_value::<place_mode::Tier>(json!("cloud")).unwrap(),
-            place_mode::Tier::Freestyle
-        );
+        assert_eq!(off["tier"], "cloud");
         // Its link down: not a candidate.
         let down = vec![json!({"name": "studio", "connected": false, "state": "offline"})];
         let v = answer(&p, &verdict_enrolled(), &down, true, None);

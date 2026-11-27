@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import runpy
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -3474,52 +3473,6 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
         index += 1
 
 
-# Share inventory's offset-preserving Rust test-module reader. This also keeps
-# public SDK declarations after an inline test module visible to the checker.
-strip_rust_test_modules = runpy.run_path(
-    str(Path(__file__).with_name("check-spec-inventory.py"))
-)["strip_rust_test_modules"]
-
-# A docs topic names an area of the app (sidebar, theme, widget, ...).
-# Recognize the topic in its command syntax and prose. Match phrases within
-# one literal so a resource selector elsewhere in the same help still fails.
-CUSTOMIZE_DOCS_PHRASES = re.compile(
-    r"\bcmux customize docs (?:\[SURFACE\]|SURFACE\b)"
-    r"|\b(?:customization|settings|extension) surfaces?\b"
-    r"|\breference for each surface\b|\bEach surface's reference\b"
-    r"|\bis not a surface; the surfaces are\b|\bcustomize docs takes one surface\b"
-    r"|\bOmit `surface` for the list\b|\bOne surface, like sidebar or section\b"
-)
-
-CLI_ROOT = Path("crates/cmux-tui/src/cli")
-CUSTOMIZE_DOCS_FILES = {
-    CLI_ROOT / "customize.rs", CLI_ROOT / "customize/docs.rs",
-    CLI_ROOT / "ext.rs", CLI_ROOT / "mcp/customize_tools.rs",
-}
-
-# Fixed JSON/descriptor fields are allowed only at their respective producer.
-# Match the source expression so another literal with the same key still fails.
-UI_FIELD_EXPRESSIONS = {
-    CLI_ROOT / "customize/docs.rs": re.compile(
-        r'"(surfaces)"\s*:\s*all\.iter\(\)\.map\(surface_json\)'
-    ),
-    CLI_ROOT / "ext/headless.rs": re.compile(
-        r'\bcontext\["(surface)"\]\s*=\s*json!\(\s*"widget"\s*\)'
-    ),
-    CLI_ROOT / "mcp/customize_tools.rs": re.compile(
-        r'\bname:\s*"customize_docs",\s*verb:\s*"docs",\s*'
-        r'description:\s*"(?:\\.|[^"\\])*",\s*argument:\s*Some\(\(\s*"(surface)"'
-    ),
-}
-
-
-def ui_surface_offsets(relative: Path, source: str) -> set[int]:
-    expression = UI_FIELD_EXPRESSIONS.get(relative)
-    if expression is None:
-        return set()
-    return {match.start(1) for match in expression.finditer(source)}
-
-
 def _identifier_parts(identifier: str) -> list[str]:
     value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", identifier)
     return [part.lower() for part in re.split(r"[_-]+", value) if part]
@@ -3532,8 +3485,6 @@ def _scan_region(
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
     terminal_env_names: frozenset[str] = frozenset(),
-    ui_fields: set[int] | frozenset[int] = frozenset(),
-    customize_docs: bool = False,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3543,8 +3494,6 @@ def _scan_region(
         for exception in private_identity_exceptions
         for match in re.finditer(rf"(?i)\b{re.escape(exception)}\b", region)
     ]
-
-    docs_spans = [phrase.span() for phrase in CUSTOMIZE_DOCS_PHRASES.finditer(region)] if customize_docs else []
 
     for match in IDENTIFIER_RE.finditer(region):
         parts = _identifier_parts(match.group(0))
@@ -3560,10 +3509,6 @@ def _scan_region(
             if match.group(0) in terminal_env_names:
                 continue
             offset = start + match.start()
-            if offset in ui_fields or any(
-                left <= match.start() and match.end() <= right for left, right in docs_spans
-            ):
-                continue
             message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
             if re.fullmatch(r"CMUX_[A-Z0-9_]+", match.group(0)):
                 message += (
@@ -3658,10 +3603,6 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
             text = _read(path, diagnostics)
             if text is None:
                 continue
-            if path.suffix == ".rs" and "cfg" in text and "test" in text:
-                text = strip_rust_test_modules(text)
-            relative = path.relative_to(tui)
-            ui_fields = ui_surface_offsets(relative, text)
             regions: Iterable[tuple[int, int]]
             if rule.cli_literals_only:
                 regions = _rust_string_regions(text)
@@ -3676,8 +3617,6 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         end,
                         rule.private_identity_exceptions,
                         terminal_env_names,
-                        ui_fields,
-                        relative in CUSTOMIZE_DOCS_FILES,
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)

@@ -196,8 +196,6 @@ JOBS = {
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
         "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
         "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
-        # Says why the compile runs on a Mac (the build fleet gave no verdict).
-        "scripts/ci/fleet_fallback.py",
     ), whole_tree=True),
     "cmux-tui-artifacts": Job(
         required=(),

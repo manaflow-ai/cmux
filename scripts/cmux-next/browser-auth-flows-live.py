@@ -402,10 +402,8 @@ try:
         before = {r.get("id") for r in downloads()}
         click("#go")
         row = new_download(before)
-        # A miss says what the popup became (its panel's address, or no panel) and every listed row.
-        miss = "" if row else f"no download listed; popups {[(p.get('url'), p.get('title')) for p in popups()]}; rows {downloads()}"
         check(bool(row) and row.get("status") == "finished",
-              f"a popup sent to an attachment downloads it ({row or miss})")
+              f"a popup sent to an attachment downloads it ({row or 'no download listed'})")
         check(ev("location.pathname") == "/dlflow", "the opener stays on the login page after the popup's download")
 
     def c15():

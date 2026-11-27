@@ -207,8 +207,6 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
-      - "schemas/sidebar-hover-card-rules/vectors.json"
-      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -402,8 +400,6 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
-      - "schemas/sidebar-hover-card-rules/vectors.json"
-      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
   workflow_dispatch:
 

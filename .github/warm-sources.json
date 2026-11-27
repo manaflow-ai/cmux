@@ -10,7 +10,6 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
-    "accounts-nightly-probe.yml:probe": {"class": "mac-run-product", "warm": [], "exempt": "downloads and exercises the published signed NIGHTLY app; compiles no app or package"},
     "agent-pane-acpmux-cache.yml:save": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:b1": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:u2": {"class": "linux-rust", "warm": ["actions-cache"]},

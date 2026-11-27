@@ -76,17 +76,6 @@ grep -qE '^ +Fresh side ' "$TMP/build.log" || fail "an unrelated crate stays fre
 leg
 [[ $compiled == 0 ]] || fail "after the change the delta is warm again, got $compiled"
 
-# rustc's incremental cache hard-links a reused codegen unit into its new session directory with the
-# old mtime: pack keeps it (by ctime), and leaves an incremental file nobody touched.
-inc="$target/debug/incremental/crate-x"; mkdir -p "$inc/s-old" "$inc/s-other"
-echo reused > "$inc/s-old/cgu.o"; echo idle > "$inc/s-other/cgu.o"
-sleep 1.1; touch "$stamp"; : > "$stamp.list"
-mkdir -p "$inc/s-new"; ln "$inc/s-old/cgu.o" "$inc/s-new/cgu.o"
-delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
-[[ -f "$TMP/out/debug/incremental/crate-x/s-new/cgu.o" ]] || fail "pack keeps a hard-linked incremental unit"
-[[ ! -e "$TMP/out/debug/incremental/crate-x/s-other/cgu.o" ]] || fail "pack leaves an untouched incremental file"
-rm -rf "$target/debug/incremental" "$TMP/out"
-
 rm -f "$stamp"
 delta pack "$target" "$stamp" "$TMP/none" | grep -q "nothing packed" || fail "pack without apply packs nothing"
 [[ ! -e "$TMP/none" ]] || fail "and writes no tree"

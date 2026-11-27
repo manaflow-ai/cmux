@@ -9,13 +9,11 @@ summary.md with each number's change against an earlier run's results.json.
                                         an external contender's host and viewer, measured from the
                                         viewer's marker readback (EXTERNAL below; README.md)
   eval.py readback READBACK.jsonl OUT.json   one readback file into a target
-  eval.py owed RESULTS.json             each target's owed numbers it did not bring (OWED below); exit 6
-                                        and a last line naming the target and the field when any is missing
 
 Schema (SCHEMA below; README.md): results.json is
   {"schema", "run": {...}, "scenarios": [...], "targets": {NAME: TARGET}}
 and each TARGET is
-  {"ok", "errors": [...], "owes": ["ocr" | "skips" | "budget-bpp", ...],
+  {"ok", "errors": [...],
    "latency": {"key"|"pointer": {"p50_ms", "p95_ms", "n", "lost"}},
     "kbps": {"idle"|"typing"|"scroll"|"video": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
@@ -123,7 +121,7 @@ def video_error(request, media, phase) -> str | None:
 def empty_target(errors: list[str]) -> dict:
     """A target with every schema field present and null: what a run that measured nothing reports."""
     return {
-        "ok": False, "errors": errors, "owes": [],
+        "ok": False, "errors": errors,
         "latency": {k: {"p50_ms": None, "p95_ms": None, "n": None, "lost": None} for k in ("key", "pointer")},
         "kbps": dict.fromkeys(WINDOW_PHASES), "fps": dict.fromkeys(WINDOW_PHASES),
         "sampled_fps": dict.fromkeys(WINDOW_PHASES),
@@ -268,73 +266,8 @@ def target(name: str, folder: Path, out: Path) -> None:
     if not result["extra"]["video_complete"]:
         for field in ("kbps", "fps", "sampled_fps"):
             result[field]["video"] = None
-    result["owes"] = owes_of(folder)
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-
-
-# ---------------------------------------------------------------- owed numbers
-
-OWED = """A target's `caps` verb names the numbers it owes every run (`owes-ocr`, `owes-skips`,
-`owes-budget-bpp`); the harness writes them to DIR/owes before the build, so a target whose build,
-host or scene failed still owes them, and target.json keeps them as "owes". `eval.py owed` reads
-results.json and names each owed number that is not there: the OCR error (a finite cer whose
-calibration held, comparison_ready true), the encoder's skips and the ladder's budget bits per pixel
-(in every repeat's window_netem_metrics). The quality ladder (cmuxterm-hq screen_share_fast) reads
-these same fields; a run without one of them is a failed run, never a null on the board."""
-OWED_FIELDS = {"ocr": "ocr error", "skips": "encoder skips", "budget-bpp": "budget bpp"}
-
-
-def owes_of(folder: Path) -> list[str]:
-    path = folder / "owes"
-    if not path.exists():
-        return []
-    return sorted({line.strip() for line in path.read_text().splitlines() if line.strip()})
-
-
-def _finite(value) -> bool:
-    return type(value) in (int, float) and math.isfinite(value)
-
-
-def missing_fields(t: dict) -> list[str]:
-    """The owed numbers this target did not bring, in words."""
-    repeats = [r for r in ((t.get("extra") or {}).get("repeats") or []) if isinstance(r, dict)]
-    netem = [r.get("window_netem_metrics") if isinstance(r.get("window_netem_metrics"), dict) else {} for r in repeats]
-    missing = []
-    for field in t.get("owes") or []:
-        if field == "ocr":
-            ocr = t.get("ocr") or {}
-            cer = ocr.get("cer")
-            if not _finite(cer):
-                missing.append("ocr error")
-            elif ocr.get("comparison_ready") is not True:
-                missing.append(f"ocr error (calibration did not hold, cer {cer})")
-        elif field == "skips":
-            if not netem or not all(type(m.get("skips")) is int for m in netem):
-                missing.append("encoder skips")
-        elif field == "budget-bpp":
-            if not netem or not all(_finite(m.get("budget_bits_per_pixel_min")) for m in netem):
-                missing.append("budget bpp")
-        else:
-            missing.append(f"{field} (unknown owed field)")
-    return missing
-
-
-def owed(results_path: Path) -> int:
-    targets = (load(results_path) or {}).get("targets") or {}
-    short = []
-    for name, t in targets.items():
-        missing = missing_fields(t if isinstance(t, dict) else {})
-        if not missing:
-            continue
-        errors = [e for e in (t.get("errors") or []) if e]
-        why = f" ({errors[0][:200]})" if errors else ""
-        print(f"SCREEN-STREAM-EVAL-MISSING {name}: {', '.join(missing)}{why}")
-        short.append(f"{name}: {', '.join(missing)}")
-    if not short:
-        return 0
-    print(f"screen-stream-eval: owed numbers missing, {'; '.join(short)}")
-    return 6
 
 
 # ---------------------------------------------------------------- external contenders
@@ -633,8 +566,6 @@ def main(argv: list[str]) -> int:
         previous = Path(argv[4]) if len(argv) == 5 and argv[3] == "--previous" else None
         summary(Path(argv[1]), Path(argv[2]), previous)
         return 0
-    if len(argv) == 2 and argv[0] == "owed":
-        return owed(Path(argv[1]))
     if len(argv) == 3 and argv[0] == "readback":
         take = {"take": 1, **readback_numbers(read_records(Path(argv[1])))}
         Path(argv[2]).write_text(json.dumps(external_target([take], []), indent=2, sort_keys=True) + "\n")

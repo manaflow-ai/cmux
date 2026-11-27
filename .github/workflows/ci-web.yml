@@ -1366,16 +1366,6 @@ jobs:
           PR_SCOPED_RULES: &pr-scoped-rules |
             check=scripts/tests/test_pr_scoped_webviews_checks.py
             if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
-            # The fixture commits the real webviews tree as its base, so a pull request's own webview code is only
-            # ever a base warning there: the test checks the scoping (prScope.ts) and the fixture, and only a change
-            # to those inputs can turn it red. It was 4,333 runner min in 24 h of pull request jobs (764 runs, median
-            # 335 s, 11-26); 23 of 167 merged react-apps pull requests touched the test's own files. A push still runs
-            # it in full, and no changed-files list runs it too. Inputs: the test and its helpers, webviews/test, scripts
-            # and dev-server, gallery files (the fixture loads every entry), webviews' manifests and this workflow.
-            if [ -f "${CMUX_PR_CHANGED_FILES:-}" ] && ! grep -qE '^(scripts/tests/test_pr_scoped_webviews_checks\.py|tests/git_fixture_env\.py|scripts/ci/(unittest_results|guards_new_reds|shard1_background)\.(py|sh)|webviews/(test|scripts|dev-server)/.*|webviews/src/gallery/.*|webviews/src/.*\.gallery\.[^/]*|webviews/(package\.json|bun\.lock|tsconfig\.json)|\.github/workflows/ci-web\.yml)$' "$CMUX_PR_CHANGED_FILES"; then
-              echo "::notice title=PR-scoped webview rules::No input of $check changed in this pull request; a push runs it."
-              exit 0
-            fi
             base="$RUNNER_TEMP/pr-scoped-base"
             base_run() {
               git worktree add -q --detach "$base" HEAD^1 &&
@@ -1578,10 +1568,7 @@ jobs:
       # files the change between the two heads cannot reach (Test webviews). Best effort: no list runs every file.
       - name: Download the files that passed at the previous head
         id: passed-before
-        # A full-ci head whose pick ran (react_class sampled or fast) runs the pick's files as any pull request does
-        # (Test webviews), so it reuses the same way: over 11-26 04Z to 11-27 05Z a full-ci branch's second and later
-        # heads ran 9,818 react-apps-check minutes with nothing reused.
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (!contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.web-subarea-scope.outputs.react_class == 'sampled' || needs.web-subarea-scope.outputs.react_class == 'fast') }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -1774,7 +1761,7 @@ jobs:
             export CMUX_WEB_TEST_PASSED_OUT="$passed/files"
             : > "$CMUX_WEB_TEST_PASSED_OUT"
             before="$(cat "$PASSED_BEFORE/commit" 2> /dev/null || true)"
-            if { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; } && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
+            if [ "$FULL_CI" != true ] && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
               { git cat-file -e "$before^{commit}" 2> /dev/null || timeout 60 git fetch --no-tags --depth=1 origin "$before"; }; then
               reach="$(python3 ../scripts/ci/webviews_affected.py --base "$before" --head HEAD)" || reach=""
               if [ -n "$reach" ]; then
@@ -2914,8 +2901,6 @@ jobs:
           sparse-checkout: |
             scripts/ci/webviews_test_history.py
             scripts/ci/web_subareas.py
-            .github/actions/cache-restore
-            .github/actions/cache-save
             .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false

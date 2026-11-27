@@ -14,7 +14,7 @@
 //!
 //! | `t` | fields | effect |
 //! | --- | --- | --- |
-//! | `init` | `app {id, version}`, `settings`, `api_version`, `ops`, `known_ops`, `locale?`, `strings`, `main`, `state?` | first message; calls `__cmuxAppInit` (`state` seeds `cmux.state`), then evaluates `main` (so its top level reads settings); answers `ready` or `init-failed` |
+//! | `init` | `app {id, version}`, `settings`, `api_version`, `ops`, `known_ops`, `locale?`, `strings`, `main` | first message; calls `__cmuxAppInit`, then evaluates `main` (so its top level reads settings); answers `ready` or `init-failed` |
 //! | `mount` | `mount`, `export`, `ctx` | `__cmuxAppMount`; the first `scene` batches, then `mounted {mount, error?}` |
 //! | `unmount` | `mount` | `__cmuxAppUnmount` |
 //! | `dispatch` | `mount`, `node`, `event`, `payload` | `__cmuxAppDispatch`; the supervisor puts the gesture token in `payload.gesture` |
@@ -36,7 +36,6 @@
 //! | `subscribe` / `unsubscribe` | `sub`, `stream`, `filter` / `sub` |
 //! | `scene` | `mount`, `ops` (ABI scene ops) |
 //! | `log` | `level`, `message` |
-//! | `state` | `values`: every `cmux.state` value, one object (64 KiB, 256 keys; over the cap the host logs and sends nothing) |
 //! | `done` | `cb`, `ok`, `body` |
 //! | `fatal` | `reason` (`memory`, `interrupt`, `cpu-budget`, `engine`), `entry`; the host exits 70 right after |
 //!

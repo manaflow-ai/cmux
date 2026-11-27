@@ -185,7 +185,7 @@ fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
 echo "acpmux $*" >> "$HOME/calls"
 case "$*" in
 --version) if [ "${{0##*/}}" = acpmux ]; then echo "acpmux 1.0.0 ({build})"; else echo "cmux 1.0.0"; fi;;
-"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": %s,\n  "personInstance": "{PEER_DAEMON}"%s\n}}\n' "$(cat "$HOME/daemon")" "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)" "$(cat "$HOME/abi-$(cut -d' ' -f1 "$HOME/daemon")" 2>/dev/null)"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
+"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": %s,\n  "personInstance": "{PEER_DAEMON}"\n}}\n' "$(cat "$HOME/daemon")" "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
 "--json ls") cat "$HOME/sessions.json";;
 "daemon shutdown"*) rm -f "$HOME/daemon"; if [ -f "$HOME/unit-takes-over" ]; then rm -f "$HOME/unit-takes-over"; touch "$HOME/active-acpmux.service"; echo 5252 > "$HOME/daemon-pid"; echo 5252 > "$HOME/unit-main-pid"; ~/.local/bin/acpmux __start; fi;;
 "--json daemon start"|__start) if [ -f "$HOME/launchd-host" ] && [ -f "$HOME/daemon" ]; then echo 'daemon.lock held' >> "$HOME/calls"

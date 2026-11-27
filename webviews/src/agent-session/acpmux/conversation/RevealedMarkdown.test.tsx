@@ -466,44 +466,6 @@ test("a reply's stream end shows all of it in that commit, with nothing left to 
   expect(frames(48, 30).every((seen) => seen === text)).toBe(true);
 });
 
-// Many replies revealing at once run on one display-frame callback (revealedMarkdownModel.ts
-// revealClock), not one loop each, and it stops once nothing reveals: a page streaming into ten
-// chats asked for ten frame callbacks a frame, each with its own commit (chat-instant-under-load.md
-// piece 4).
-test("every revealing reply shares one frame callback, which stops when all are shown", () => {
-  const { pending, frame } = cancellableFrames();
-  let requests = 0;
-  const request = revealFrames.request;
-  revealFrames.request = (callback) => {
-    requests += 1;
-    return request(callback);
-  };
-  root = createRoot(container);
-  const replies = (texts: string[]) =>
-    act(() => {
-      root!.render(
-        <>
-          {texts.map((text, index) => (
-            <RevealedMarkdown key={index} text={text} streaming artifactIdentity={`reply-${index}`} />
-          ))}
-        </>,
-      );
-    });
-  replies(["", "", "", "", ""]);
-  const words = "Each of these replies streams the same long sentence at the same time as the others do.";
-  replies([words, words, words, words, words]);
-  expect(pending.size).toBe(1);
-  for (let index = 0; index < 10; index++) {
-    requests = 0;
-    frame(index * 16);
-    expect(pending.size).toBeLessThanOrEqual(1);
-    expect(requests).toBeLessThanOrEqual(1);
-  }
-  for (let index = 10; index < 200 && pending.size; index++) frame(index * 16);
-  expect(pending.size).toBe(0);
-  for (const node of container.querySelectorAll(".cv-md")) expect(node.textContent).toBe(words);
-});
-
 // agentPane.display.streaming (streamingStyle.ts): `words` is the reveal above; `instant` shows text as
 // it arrives with no fade; `lines` ends at a whole line.
 test("the streaming style reads its key and keeps words for anything else", () => {

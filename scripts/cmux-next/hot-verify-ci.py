@@ -391,8 +391,6 @@ def render(out: Path, pr: int, head: str, repo: str = REPO, uploaded: list[str] 
 QUOTA_WAIT_SECONDS = 1800
 QUOTA_RETRY_SECONDS = 60  # a secondary limit, or the reset unreadable: try again after this
 RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
-GH_TIMEOUT_SECONDS = 120
-GH_TIMEOUT_ATTEMPTS = 3  # one initial call and at most two retries for an idempotent read
 
 
 def quota_wait() -> float:
@@ -406,45 +404,10 @@ def quota_wait() -> float:
     return max(5.0, reset - time.time() + 5) if remaining == 0 else QUOTA_RETRY_SECONDS
 
 
-def gh_read_only(args: tuple[str, ...], body: str | None) -> bool:
-    """Whether a timed-out call can be retried without risking a duplicate GitHub write."""
-    if body is not None:
-        return False
-    return not any(arg in {"-X", "--method", "--input", "--field", "--raw-field", "-f"} for arg in args)
-
-
-def gh_timeout_tokens() -> list[str]:
-    """The alternate identities a timed-out read may try, without exposing tokens in logs."""
-    current = os.environ.get("GH_TOKEN", "")
-    return list(dict.fromkeys(token for token in (
-        os.environ.get("GH_TOKEN_SPARE", ""), *os.environ.get("GH_TOKEN_SPARES", "").split()
-    ) if token and token != current))
-
-
 def gh(*args: str, body: str | None = None) -> str:
     waited = 0.0
-    timed_out = 0
-    alternate_tokens = gh_timeout_tokens()
-    retry_env = None
-    read_only = gh_read_only(args, body)
     while True:
-        try:
-            done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True,
-                                  timeout=GH_TIMEOUT_SECONDS, env=retry_env)
-        except subprocess.TimeoutExpired as error:
-            what = f"gh {args[0]} {args[1] if len(args) > 1 else ''}"
-            timed_out += 1
-            if not read_only or timed_out >= GH_TIMEOUT_ATTEMPTS:
-                raise Refused(f"{what} timed out after {GH_TIMEOUT_SECONDS}s on attempt {timed_out}") from error
-            if timed_out <= len(alternate_tokens):
-                retry_env = os.environ.copy()
-                retry_env["GH_TOKEN"] = alternate_tokens[timed_out - 1]
-                identity = "an alternate GitHub token"
-            else:
-                retry_env = None
-                identity = "the original GitHub token"
-            print(f"hot-verify-ci: {what} timed out; retrying the read with {identity}", file=sys.stderr)
-            continue
+        done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True, timeout=120)
         if done.returncode == 0:
             return done.stdout
         why = (done.stderr or "").strip()[:300]

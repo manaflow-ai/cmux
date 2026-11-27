@@ -42,12 +42,3 @@ bindgen = { version = "0.72", optional = true }
 
 [profile.release]
 debug = 1
-
-# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
-# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
-# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
-# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
-# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
-# is unchanged.
-[profile.release.build-override]
-strip = false

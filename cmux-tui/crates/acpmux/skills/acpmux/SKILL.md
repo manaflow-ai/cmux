@@ -531,8 +531,7 @@ workflow run with one shared poller), `scorecard` (tokens and steering per settl
 another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
 teammate's agent address while its grant lets you), `memory` (the memory mount shared by your machines, ~/.cmux/memory), `succeed`
 (make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
-addresses), `exec-router` (where heavy commands like cargo ran and why: `acpmux exec-router trace`;
-`CMUX_EXEC_ROUTE=local|routed` forces a side), and `skill` (this guide).
+addresses), and `skill` (this guide).
 
 ## 8. Output
 

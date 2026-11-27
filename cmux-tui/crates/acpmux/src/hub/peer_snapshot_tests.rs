@@ -69,48 +69,6 @@ fn a_copy_survives_a_restart_and_keeps_each_seq_once() {
     assert!(again.copies[&key("m1")].head.from_start);
 }
 
-/// A write serializes only records that came or changed since the last one
-/// (`disk::encode_with`), and what it writes is always what encoding the copy afresh writes:
-/// after a record changed under the same seq, after the bound cut the oldest, after an unload.
-#[test]
-fn a_write_reuses_unchanged_lines_and_writes_what_a_fresh_encode_writes() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    let mut store = store_at(dir.path());
-    let path = file(dir.path(), "m1");
-    let fresh = |store: &Store| {
-        let c = &store.copies[&key("m1")];
-        disk::encode(&c.head, c.records.as_ref().unwrap())
-    };
-    let check = |store: &mut Store, what: &str| {
-        store.write_due(None, When::Last);
-        let c = &store.copies[&key("m1")];
-        let held: Vec<u64> = c.records.as_ref().unwrap().keys().copied().collect();
-        assert_eq!(c.lines.keys().copied().collect::<Vec<_>>(), held, "{what}: a line a record");
-        let on_disk = std::fs::read(&path).unwrap();
-        let body = |b: &[u8]| b[b.iter().position(|x| *x == b'\n').unwrap()..].to_vec();
-        assert_eq!(body(&on_disk), body(&fresh(store)), "{what}: as a fresh encode");
-    };
-    keep(&mut store, "m1", 1..=10);
-    check(&mut store, "first write");
-    // The same seq with other content (a peer's page again, edited): its line is new.
-    let mut changed = rec("m1", 4);
-    changed["msg"]["text"] = json!("line 4, edited");
-    store.add(&key("m1"), vec![changed]);
-    check(&mut store, "a record changed");
-    assert!(String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("line 4, edited"));
-    // Past the bound the oldest go, their lines with them.
-    keep(&mut store, "m1", 11..=(SESSION_EVENTS as u64 + 5));
-    check(&mut store, "the bound cut");
-    // Unloaded and read back in: the lines start over and come back whole.
-    let c = store.copies.get_mut(&key("m1")).unwrap();
-    store.memory -= std::mem::take(&mut c.memory);
-    (c.records, c.lines) = (None, disk::Lines::new());
-    assert!(store.load(&key("m1")));
-    assert!(store.copies[&key("m1")].lines.is_empty(), "nothing cached after a load");
-    keep(&mut store, "m1", (SESSION_EVENTS as u64 + 6)..=(SESSION_EVENTS as u64 + 6));
-    check(&mut store, "after a load");
-}
-
 /// The file's inode, mtime and bytes: what a rewrite (a temporary file renamed in) changes.
 #[cfg(unix)]
 fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
@@ -120,7 +78,6 @@ fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
 }
 
 #[test]
-#[cfg(unix)] // compares inodes
 #[cfg(unix)]
 fn a_write_with_the_same_content_touches_nothing_and_a_changed_one_rewrites_the_file() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");

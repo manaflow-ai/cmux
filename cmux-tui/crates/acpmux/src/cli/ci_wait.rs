@@ -522,8 +522,6 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
         .ok()
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| "https://api.github.com".into());
-    // GITHUB_API_URL names the person's GitHub Enterprise host when set.
-    cmux_egress::allow_named(&api);
     let cache = Cache::new(Cache::default_dir().ok_or_else(|| anyhow!("no cache folder"))?);
     let mut reader = Reader::new(api.trim_end_matches('/').to_owned(), token().await?, cache)?;
     let started = Instant::now();

@@ -166,6 +166,8 @@ REGENERATE: dict[str, Regen] = {
     "web/services/vms/hygiene/script.generated.ts": here(in_dir("web", "bun", "scripts/generate-machine-hygiene-script.ts")),
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift": here(
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift": here(
+        (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
     # A host cargo build of cmux-mobile-link-ffi (rustup reads cmux-next-ios/rust/rust-toolchain.toml).
     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift": here(
         ("bash", "scripts/ios-ffi-bindings.sh")),

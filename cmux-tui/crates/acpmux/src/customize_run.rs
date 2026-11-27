@@ -127,7 +127,7 @@ pub(crate) fn pushed_branch(status: &str, remote_url: &str) -> Option<String> {
 }
 
 fn cmux_binary() -> std::ffi::OsString {
-    crate::login_env::cmux_cli()
+    std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into())
 }
 
 async fn output_of(mut command: tokio::process::Command) -> Result<std::process::Output, String> {

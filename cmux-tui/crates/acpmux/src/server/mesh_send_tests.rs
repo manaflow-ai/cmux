@@ -29,7 +29,6 @@ async fn a_handle_the_hub_lists_is_sent_to_by_id() {
             host: "machine-b".into(),
             user: "person-1".into(),
             last_seen_at: 5,
-            ..Default::default()
         }],
         sessions: vec![crate::mesh::BookSession {
             name: "claude-sr2-coord-old".into(),

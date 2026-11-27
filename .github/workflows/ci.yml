@@ -321,8 +321,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          REF_NAME: ${{ github.ref_name }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Reject superseded manual dispatch before routing
         if: github.event_name == 'workflow_dispatch'
@@ -1237,8 +1236,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          REF_NAME: ${{ github.ref_name }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Run the fast guard tests
         if: steps.line.outputs.next_line != 'true'
@@ -1271,8 +1269,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          REF_NAME: ${{ github.ref_name }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Run the contributor static preflight
         if: steps.line.outputs.next_line != 'true'

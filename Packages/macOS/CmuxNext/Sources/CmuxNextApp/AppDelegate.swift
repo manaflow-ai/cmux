@@ -121,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
-            guard let services = self?.services else { return NSApplication.terminateFromRunLoop() }
+            guard let services = self?.services else { return NSApp.terminate(nil) }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()

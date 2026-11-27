@@ -20,7 +20,6 @@ pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
-pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
@@ -378,7 +377,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_HISTORY_DELETE, Request),
         untyped(method::MUX_HISTORY_OFFLOAD, Request),
-        untyped(method::MUX_LIFECYCLE, Request),
         untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
@@ -408,7 +406,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
-        untyped(method::MUX_SCORECARD_REPLAY, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),

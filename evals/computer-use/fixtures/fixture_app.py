@@ -189,8 +189,6 @@ class Person(Base):
         self.widgets["notes"] = self.text
         self.text.bind("<Key>", self.on_key)
         self.root.bind("<FocusOut>", self.on_focus_out, add="+")
-        # Write has_focus as soon as it changes, so the harness can wait for the person to hold focus.
-        self.root.bind("<FocusIn>", lambda *_: self.root.after(50, self.save), add="+")
         self.pos = 0
 
     def on_key(self, e):
@@ -206,15 +204,8 @@ class Person(Base):
 
     def _check_focus(self):
         if self.root.focus_get() is None:
-            if os.path.exists(self.args.state + ".armed"):
-                self.state["focus_lost"] += 1
-            else:  # still in setup (a cold app's window can appear late): the person takes focus back
-                self.root.after(100, self._take_focus)
-        self.save()
-
-    def _take_focus(self):
-        self.root.focus_force()
-        self.text.focus_set()
+            self.state["focus_lost"] += 1
+            self.save()
 
     def tick(self):
         ch = self.SCRIPT[self.pos % len(self.SCRIPT)]
@@ -226,7 +217,7 @@ class Person(Base):
         self.root.after(self.args.type_interval_ms, self.tick)
 
     def run(self):
-        self.root.after(100, self._take_focus)
+        self.root.after(100, lambda: (self.root.focus_force(), self.text.focus_set()))
         self.root.after(300, self.tick)
         super().run()
 

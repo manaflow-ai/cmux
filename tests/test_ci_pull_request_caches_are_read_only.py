@@ -155,8 +155,6 @@ def main() -> int:
     # enters it only on main.
     signing_writer = "${{ github.ref == 'refs/heads/main' && 'release' || '' }}"
     next_writer = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
-    next_push_writer = ("${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' "
-                        "&& 'next-cache-writer' || '' }}")
     store_signer = ("${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || "
                     "github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}")
     signing_secret = ("IOS_", "ASC_API_", "APPLE_")
@@ -198,9 +196,7 @@ def main() -> int:
             # cmux NEXT writes its own bucket through its own environment, whose
             # deployment branches are feat-cmux-next only; it never names main's
             # bucket (cmux-next-fast-tier-seed.yml).
-            # Some jobs further restrict credentials to pushes. Accept that
-            # exact form with the same bucket checks, never a partial match.
-            if environment in ({"name": next_writer}, {"name": next_push_writer}):
+            if environment == {"name": next_writer}:
                 bucket = workflow_jobs.effective_env(document, job).get("CI_CACHE_R2_BUCKET")
                 if bucket == "cmux-ci-cache-next" and "vars.CI_CACHE_R2_BUCKET" not in path.read_text(encoding="utf-8"):
                     continue

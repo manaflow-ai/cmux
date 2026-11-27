@@ -91,10 +91,6 @@ export class TenantLimitsObject extends DurableObject {
     catch (cause) { return cause instanceof Error && cause.message !== "" ? cause.message : "allocation journal write was not confirmed"; }
   }
 
-  renew(key: string, nowMs: number): Promise<void> {
-    return this.ledger.renew(key, nowMs);
-  }
-
   abandon(key: string, nowMs: number): Promise<void> {
     return this.ledger.abandon(key, nowMs);
   }

@@ -13,21 +13,10 @@ public final class SlackPageProvider: PageProvider {
     /// read/write for the default Chief (`nil`: read; `.some(nil)`: the default allowance; `.some(n)`: n seconds).
     public init(request: @escaping @MainActor (String, SlackOwnBot?) async throws -> Data,
          open: @escaping @MainActor (URL) -> Void,
-         awake: @escaping @MainActor (Int??) async throws -> Data) {
+         awake: @escaping @MainActor (Int??) async throws -> Data = { _ in throw PageError.unavailable("no Chief") }) {
         self.request = request
         self.open = open
         self.awake = awake
-    }
-
-    /// No Chief to keep awake: every awake-time read or write throws. An overload, not an async closure default
-    /// argument (crash_ratchet.py async_closure_default_arg, cx-bsue).
-    public convenience init(request: @escaping @MainActor (String, SlackOwnBot?) async throws -> Data,
-                            open: @escaping @MainActor (URL) -> Void) {
-        self.init(request: request, open: open, awake: Self.noChief)
-    }
-
-    private static func noChief(_: Int??) async throws -> Data {
-        throw PageError.unavailable("no Chief")
     }
 
     /// The most a non-owner may keep the Chief awake a day (the API's `SLACK_ALLOWANCE_MAX_SECONDS`).

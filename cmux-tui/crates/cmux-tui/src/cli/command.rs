@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::path::PathBuf;
-use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -149,15 +148,6 @@ impl Flags {
         self.values.remove(name).flatten()
     }
 
-    fn take_hook_emit_budget(&mut self) -> Result<Option<Duration>, UsageError> {
-        let Some(value) = self.values.remove("deadline-ms") else { return Ok(None) };
-        let millis = value
-            .as_deref()
-            .and_then(|s| s.parse::<std::num::NonZeroU64>().ok())
-            .ok_or_else(|| UsageError::new("--deadline-ms needs a positive integer"))?;
-        Ok(Some(Duration::from_millis(millis.get())))
-    }
-
     fn required(&mut self, name: &str) -> Result<String, UsageError> {
         self.take(name).ok_or_else(|| UsageError::new(format!("--{name} is required")))
     }
@@ -184,21 +174,6 @@ struct Tokens {
     words: Vec<String>,
     flags: Flags,
     argv: Option<Vec<String>>,
-}
-
-/// Inspect an emit budget before the command parser reads the native payload from stdin.
-pub(super) fn hook_emit_budget(args: &[String]) -> Result<Option<Duration>, UsageError> {
-    if args.first().is_none_or(|word| word != "agent" && !word.starts_with('-'))
-        || !args.iter().any(|word| word == "--deadline-ms" || word.starts_with("--deadline-ms="))
-    {
-        return Ok(None);
-    }
-    // The regular parser reports tokenization errors before reading the payload.
-    let Ok(mut tokens) = tokenize(args) else { return Ok(None) };
-    if tokens.words != ["agent", "hook", "emit"] || tokens.argv.is_some() {
-        return Ok(None);
-    }
-    tokens.flags.take_hook_emit_budget()
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
@@ -1188,7 +1163,6 @@ fn parse_agent(
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
             let native_event = flags.required("event")?;
-            let _ = flags.take_hook_emit_budget()?;
             let native = match flags.take("payload-json") {
                 Some(payload) => serde_json::from_str(&payload).map_err(|error| {
                     UsageError::new(format!("invalid --payload-json JSON: {error}"))

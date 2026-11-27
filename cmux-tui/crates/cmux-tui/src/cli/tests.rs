@@ -518,26 +518,6 @@ fn global_value_options_accept_inline_equals_values() {
     assert_eq!(command, strings(&["workspace", "list"]));
 }
 
-/// `cmux file open --machine B --path P` (own-machine parity's file step):
-/// the `--machine` after `file open` is the action's own argument, sent
-/// beside the path, so the app opens that machine's file in a file page.
-#[cfg(unix)]
-#[test]
-fn file_open_takes_its_own_machine_beside_the_path() {
-    let line = strings(&["file", "open", "--machine", "studio", "--path", "/Users/me/hello.txt"]);
-    let (global, command) = parse_action_globals(&line).unwrap();
-    assert_eq!(global.machine, None);
-    assert_eq!(command, line);
-    let app::AppCommand::Call { params, .. } =
-        app::run_action("file open", &command[2..], app::ActionName::Cli).unwrap()
-    else {
-        panic!("expected a call")
-    };
-    assert_eq!(params["action"], "file open", "{params}");
-    assert_eq!(params["args"]["machine"], "studio", "{params}");
-    assert_eq!(params["args"]["path"], "/Users/me/hello.txt", "{params}");
-}
-
 /// `cmux workspace new-on-machine --machine m`: an app action run by its CLI
 /// name keeps a `--machine` after its words as its own argument (the global
 /// option swallowed it, so the app answered "requires --machine"). Before

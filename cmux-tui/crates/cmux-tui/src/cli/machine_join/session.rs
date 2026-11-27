@@ -28,9 +28,6 @@ impl Command {
     }
 }
 
-/// A signed-in run's token, the team it is for and the API origin it came from.
-type SignedIn = (String, Option<String>, Option<String>);
-
 /// The credential a run signs in with: the one a flag or variable names; else, with none, the
 /// app's Add Machine card for a plain `machine add` (`Err(Ok(exit code))`) or the app's session.
 /// Returns the token, the team it is for and the API origin it came from.
@@ -38,7 +35,7 @@ pub(super) fn sign_in(
     command: &Command,
     env: &dyn Fn(&str) -> Option<String>,
     args: &[String],
-) -> Result<SignedIn, Result<i32, Failure>> {
+) -> Result<(String, Option<String>, Option<String>), Result<i32, Failure>> {
     let given = if command.auth.app_session {
         Ok(None)
     } else {
@@ -62,7 +59,7 @@ pub(super) fn sign_in(
 /// The app's own session, minted for its current team the way `cmux auth token` asks for one:
 /// the token goes from the app's socket straight into the call, never to the caller's terminal,
 /// environment or logs. Returns the token, its team and the API origin it came from.
-fn app_session() -> Result<SignedIn, Failure> {
+fn app_session() -> Result<(String, Option<String>, Option<String>), Failure> {
     match crate::cli::auth_token::app_token_in(None) {
         Ok(token) => Ok((token.token.to_string(), Some(token.team), Some(token.api_origin))),
         Err(why) => Err(Failure::new(

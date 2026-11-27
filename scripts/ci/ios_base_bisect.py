@@ -241,7 +241,7 @@ def gh(args: Sequence[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def already_commented(repo: str, pr: int, marker: str) -> bool:
-    proc = gh(["api", f"repos/{repo}/issues/{pr}/comments?per_page=100", "--jq", ".[].body"])
+    proc = gh(["api", f"repos/{repo}/issues/{pr}/comments?per_page=100", "--paginate", "--jq", ".[].body"])
     return proc.returncode == 0 and marker in proc.stdout
 
 

@@ -360,22 +360,13 @@ python3 tests/test_ci_cdn_user_agent.py
 [step.ci-group-guards]
 job = "linux"
 timeout = 300
-title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, proof record and UI proof, routed jobs, pair scope)"
-about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, the proof record and UI proof verdict, routed job dependencies and pair-run attachment selection"
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs, pair scope)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, routed job dependencies and pair-run attachment selection"
 inputs = [
   ".github/workflows/**",
   "scripts/ci/ci_timing_readout.py",
   "scripts/ci/check_repo_variables.py",
   "scripts/ci/ios_fast_verdict.*",
-  "scripts/ci/proof_record.py",
-  "scripts/ci/ui_proof_verdict.py",
-  "scripts/cmux-next/hot-verify.py",
-  "scripts/ci/ios_verify.py",
-  "scripts/ci/ios-verify.sh",
-  "ci/proof-record/**",
-  "cmux-next-ios/FlowSuite/**",
-  "tests/test_ci_proof_record.py",
-  "tests/test_ci_ui_proof_verdict.py",
   "tests/test_ci_timing_readout.py",
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
@@ -388,8 +379,6 @@ status=0
 python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
-python3 -I tests/test_ci_proof_record.py || status=1
-python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
 python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
 exit "$status"
@@ -619,29 +608,6 @@ rc=0
 # Red on a planted drifted method, pane method and param key, and on a stale allowlist entry.
 python3 -I tests/test_check_swift_acpmux_protocol.py || rc=1
 python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
-exit "$rc"
-'''
-
-# cmux-tui-windows-check (cargo check --target x86_64-pc-windows-gnu) runs only in the post-merge
-# batch, so a unix-only use in acpmux reached feat-cmux-next three times (batches 45693869119,
-# 45720080410, 45726394764; fixed forward by #54573). This names the same uses on the PR in seconds.
-[step.unix-only-on-windows]
-job = "linux"
-timeout = 120
-title = "acpmux builds on Windows (unix-only uses)"
-about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
-inputs = [
-  "cmux-tui/Cargo.toml",
-  "cmux-tui/crates/acpmux/**",
-  "cmux-tui/crates/cmux-fault/**",
-  "scripts/ci/unix_only_on_windows.py",
-  "scripts/ci/libc_windows_gnu.txt",
-  "tests/test_ci_unix_only_on_windows.py",
-]
-run = '''
-rc=0
-python3 -I tests/test_ci_unix_only_on_windows.py || rc=1
-python3 -I scripts/ci/unix_only_on_windows.py --github || rc=1
 exit "$rc"
 '''
 

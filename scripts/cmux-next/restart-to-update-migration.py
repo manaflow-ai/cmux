@@ -326,8 +326,7 @@ def seed(app, work):
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FAKE_AGENT = os.path.join(REPO, "cmux-tui/crates/acpmux/tests/fake_agent.py")
 HARNESS = "rtufake"
-# NEXT's own folder (`cmux-next` on macOS since #56195), and `cmux` for builds before it.
-HARNESS_FILES = [os.path.join(HOME, ".config", name, "harnesses", f"{HARNESS}.toml") for name in ("cmux-next", "cmux")]
+HARNESS_FILE = os.path.join(HOME, ".config/cmux/harnesses", f"{HARNESS}.toml")
 attachers = []  # the `terminal attach` CLIs this run started; only these are ended at the end
 
 
@@ -382,20 +381,16 @@ def seed_tabless(app, work, count):
 
 
 def write_harness(work):
-    """The files this run wrote (only these are removed at the end); one already there is not ours: left."""
-    written = []
-    for path in HARNESS_FILES:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if os.path.exists(path):
-            continue
-        with open(path, "w") as f:
-            f.write(f'schema = 1\nid = "{HARNESS}"\nname = "Restart to Update test agent"\nprotocol = "acp"\n'
-                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(FAKE_AGENT)}]\n'
-                    f'[env]\nFAKE_STEP_LOG = {json.dumps(os.path.join(work, "steps.log"))}\n'
-                    f'FAKE_CLASS_LOG = {json.dumps(os.path.join(work, "agents.jsonl"))}\n')
-        os.chmod(path, 0o600)
-        written.append(path)
-    return written
+    os.makedirs(os.path.dirname(HARNESS_FILE), exist_ok=True)
+    if os.path.exists(HARNESS_FILE):
+        return False  # not ours: leave it
+    with open(HARNESS_FILE, "w") as f:
+        f.write(f'schema = 1\nid = "{HARNESS}"\nname = "Restart to Update test agent"\nprotocol = "acp"\n'
+                f'command = "/usr/bin/python3"\nargs = [{json.dumps(FAKE_AGENT)}]\n'
+                f'[env]\nFAKE_STEP_LOG = {json.dumps(os.path.join(work, "steps.log"))}\n'
+                f'FAKE_CLASS_LOG = {json.dumps(os.path.join(work, "agents.jsonl"))}\n')
+    os.chmod(HARNESS_FILE, 0o600)
+    return True
 
 
 def agent_pids(work):
@@ -572,10 +567,8 @@ def main():
         for proc in attachers:
             if proc.poll() is None:
                 proc.terminate()
-        if opts.agents:
-            for path in (report.get("agents") or {}).get("profile_written") or []:
-                if path in HARNESS_FILES and os.path.exists(path):
-                    os.unlink(path)
+        if opts.agents and os.path.exists(HARNESS_FILE) and (report.get("agents") or {}).get("profile_written"):
+            os.unlink(HARNESS_FILE)
         failed = [r for r in results if r["state"] == "FAIL"]
         report["processes_end"] = processes(app) if app else []
         report["crash_reports"] = keep_crash_reports(report.get("film_started", time.time() - 3600) - 60, opts.out)

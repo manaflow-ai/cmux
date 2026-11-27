@@ -237,7 +237,7 @@ jobs:
               echo "::warning::fetch of $SHA stalled or failed; asking again in $wait s"
               sleep "$wait"
             fi
-            if timeout 600 git -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
+            if git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=45 \
                  -c "http.https://github.com/.extraheader=$auth" \
                  fetch --no-tags --prune --no-recurse-submodules --depth=1 --filter=blob:none origin "$SHA"; then
               fetched=1

@@ -234,35 +234,7 @@ fn auto_order_is_this_mac_then_enrolled_then_cloud() {
     assert!(d.why.contains("the folder already there"), "{}", d.why);
 
     let d = decide(&PlaceMode::Auto, &with(true, vec![], Need::default()));
-    assert_eq!((d.place, d.tier), (Place::Cloud { hybrid: true }, Some(Tier::Freestyle)));
-
-    let pooled = Facts { cloud_pool: true, ..with(true, vec![], Need::default()) };
-    let d = decide(&PlaceMode::Auto, &pooled);
-    assert_eq!((d.place, d.tier), (Place::Cloud { hybrid: true }, Some(Tier::CloudPool)));
-    assert!(d.why.contains("in our pool"), "{}", d.why);
-}
-
-/// RFD 0172's explicit order: this Mac, enrolled, our cloud pool, Freestyle, as `ORDER`, `Ord`
-/// and the wire names say; a version 2 `cloud` reads as Freestyle.
-#[test]
-fn tier_order_is_explicit() {
-    use Tier::*;
-    assert_eq!(Tier::ORDER, [ThisMac, Enrolled, CloudPool, Freestyle]);
-    assert!(Tier::ORDER.windows(2).all(|w| w[0] < w[1]));
-    let wire: Vec<Value> = Tier::ORDER.iter().map(|t| serde_json::to_value(t).unwrap()).collect();
-    assert_eq!(
-        wire,
-        [json!("this-mac"), json!("enrolled"), json!("cloud-pool"), json!("freestyle")]
-    );
-    assert_eq!(serde_json::from_value::<Tier>(json!("cloud")).unwrap(), Freestyle);
-    // Every Auto answer that starts somewhere carries its tier; one that starts nowhere, none.
-    for busy in [false, true] {
-        for pool in [false, true] {
-            let f = Facts { cloud_pool: pool, ..with(busy, vec![], Need::default()) };
-            let d = decide(&PlaceMode::Auto, &f);
-            assert_eq!(d.tier.is_some(), d.place != Place::Nowhere, "{d:?}");
-        }
-    }
+    assert_eq!((d.place, d.tier), (Place::Cloud { hybrid: true }, Some(Tier::Cloud)));
 }
 
 /// The owner wins and the policy holds: no machine whose owner is at it, none that is full,

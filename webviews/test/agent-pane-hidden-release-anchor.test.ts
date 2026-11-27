@@ -8,8 +8,7 @@
 // The page hides as the app's hidden chat pages do (`visibilityState` "hidden", `visibilitychange`,
 // no frame callbacks). Checked: hidden, the transcript mounts no row and marks its scroller; shown
 // again, the first painted frame has the rows back with the same top row at the same offset and the
-// same scroll position, for a reader scrolled up into the middle and one following the latest row;
-// that frame mounts fewer rows than before the hide (only those it shows), and the rest come back after it.
+// same scroll position, for a reader scrolled up into the middle and one following the latest row.
 // That no chat copy is written from the released transcript: chatSnapshot/live.test.ts.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-hidden-release-anchor.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -222,13 +221,6 @@ await requireBrowserLane("agent-pane-hidden-release-anchor.test.ts", async () =>
         expect({ top: shown.top }).toEqual({ top: before.top });
         expect(Math.abs(shown.offset - before.offset)).toBeLessThanOrEqual(1);
         expect(Math.abs(shown.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
-        // That frame built only the rows it shows: the warm rows and the history above mount after it
-        // (a 26 ms synchronous render of all of them missed the frame's vsync, settled-page bench).
-        expect(shown.count).toBeLessThan(before.count);
-        await settle(page);
-        const after = await read(page);
-        expect({ count: after.count, top: after.top }).toEqual({ count: before.count, top: before.top });
-        expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(1);
         await page.close();
       });
   });

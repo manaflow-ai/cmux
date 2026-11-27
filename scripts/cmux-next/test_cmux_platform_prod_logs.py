@@ -244,31 +244,6 @@ class GuardTests(unittest.TestCase):
         for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
             self.assertNotIn(leak, text)
 
-    def test_cmux_vm_window_keeps_the_create_queues_fields(self):
-        # cmux#61073 limits/create-admission.ts: a refused create's line and a create sent without the queue.
-        refused = event({"event": "vm_create", "vmId": VM, "ok": False, "preMs": 4, "admitWaitMs": 61, "admitQueueMs": 0,
-                         "admitInFlight": 3, "admitQueued": 2, "admission": "queue_full", "admitRetryAfterMs": 28000,
-                         "totalMs": 70})
-        odd = event({"event": "vm_create", "vmId": VM, "ok": True, "admission": "hunter2", "admitQueued": "7"})
-        unavailable = event({"event": "vm_create_admission_unavailable", "vmId": VM})
-        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_create"})
-        try:
-            code, _, _, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
-                                          response={"result": {"events": {"events": [refused, odd, unavailable]}}})
-        finally:
-            os.unlink(path)
-        self.assertEqual(code, 0)
-        _, _, rows = upload.call_args.args
-        logs_kept = sorted((r["log"] for r in rows), key=json.dumps)
-        self.assertIn({"event": "vm_create", "ok": False, "preMs": 4, "admitWaitMs": 61, "admitQueueMs": 0,
-                       "admitInFlight": 3, "admitQueued": 2, "admission": "queue_full", "admitRetryAfterMs": 28000,
-                       "totalMs": 70}, logs_kept)
-        self.assertIn({"event": "vm_create", "ok": True}, logs_kept)
-        self.assertIn({"event": "vm_create_admission_unavailable"}, logs_kept)
-        text = json.dumps(rows)
-        for leak in (VM, "hunter2"):
-            self.assertNotIn(leak, text)
-
     def test_cmux_vm_refuses_an_id_scoped_read(self):
         path = event_file({"service": VM_STAGING, "id": VM, "needles": "pause"})
         try:

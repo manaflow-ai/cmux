@@ -127,23 +127,6 @@ class CaptureSplit(unittest.TestCase):
         self.assertIn("capture_start_us", rows_named(b)[" Readback"]["cmux"]["null"])
         self.assertEqual(rows_named(b)["Capture"]["cmux"]["p50"], 5.0)  # sck 2 + gate 3, unchanged
 
-    def test_mac_frame_lead_explains_a_capture_below_zero(self):
-        # ScreenCaptureKit hands the frame over 3 ms before the vsync it is composited for; the
-        # gate releases at once (release before capture start, the Mac order).
-        row = self.breakdown({"shown_us": 9_000, "arrived_us": 6_000, "capture_start_us": 6_200,
-                              "encode_start_us": 6_500})
-        self.assertEqual((row["lead"], row["gate_wait"], row["readback"]), (3.0, 0.2, 0.3))
-        b = vs.build_budget({"rows": [row]}, None)
-        named = rows_named(b)
-        self.assertEqual(named[" Frame lead"]["cmux"]["p50"], 3.0)
-        self.assertEqual(named["Capture"]["cmux"]["p50"], -2.5)
-        self.assertGreaterEqual(named[" Readback"]["cmux"]["p50"], 0)
-
-    def test_without_a_display_time_frame_lead_says_why(self):
-        row = self.breakdown({"damage_us": 6_000})
-        b = vs.build_budget({"rows": [row]}, None)
-        self.assertIn("shown_us", rows_named(b)[" Frame lead"]["cmux"]["null"])
-
     def test_a_record_from_before_the_split_still_tables_beside_a_new_one(self):
         old = vs.build_budget({"rows": [breakdown_row()]}, None, link="old")
         old["rows"] = [r for r in old["rows"] if r["row"] not in (" Gate wait", " Readback")]

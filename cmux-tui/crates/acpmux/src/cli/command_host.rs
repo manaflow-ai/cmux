@@ -41,19 +41,6 @@ pub enum PeerCmd {
     /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
     /// and the registry, and changes nothing.
     Cells,
-    /// A transfer to a machine failed (a launcher's scp or ssh to its pick): `machine pick`
-    /// passes it over for 10 minutes, then tries it again. `--clear` forgets the failure once
-    /// it answers. A file in acpmux's home on this machine (`placement/reach.rs`).
-    Unreachable {
-        /// The machine the transfer could not reach.
-        name: String,
-        /// What failed, shown in the pick's reason.
-        #[arg(long)]
-        why: Option<String>,
-        /// It answers again: forget its failure.
-        #[arg(long)]
-        clear: bool,
-    },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said

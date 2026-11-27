@@ -88,8 +88,6 @@ FULL_CI_ONLY_JOBS = ("web-browser",)
 def full_ci_only_jobs() -> tuple[str, ...]:
     """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
     return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
-
-
 # A land_handoff_only callee (the machine channel PR head build) skips the label handoff itself and builds only
 # the merge train's tip and land's update-branch head. 13-17Z 2026-11-26: 72 of 112 PR head builds (1,769 of
 # 3,002 runner-min) came from a ready-to-land or full-ci label being added, 66 of the 102 PRs built had not merged
@@ -102,20 +100,6 @@ def full_ci_only_jobs() -> tuple[str, ...]:
 def handoff_label_skip() -> bool:
     """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
     return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
-
-
-def full_ci_kept(event: dict) -> bool:
-    """Whether the PR asks for FULL_CI_ONLY_JOBS: `full-ci` in the payload's own label list, the label as it stands
-    when GitHub sends the event. land-judge's lane-VM pulse (label_lane_pulse: full-ci added and taken off 2 s later)
-    is the land handoff, as ready-to-land is (head_tier.labels_of keeps it for the tier), not a request for the
-    browser suites: its `labeled` payload no longer lists full-ci, so it routes the land tier without them. After
-    #58223 (2026-11-26 12:28Z) the pulse was most of what web-browser still ran: 5 of 8 sampled runs 15-17Z, about
-    4-6k runner-min a day. A full-ci someone keeps on the PR is in the list and still routes them; a pulse GitHub
-    sends before the take-off lands routes them too (more, never less). Leo, 2026-11-21: "de facto, im asking for
-    99% fewer minutes of ci time, period."
-    """
-    pr = event.get("pull_request") or {}
-    return FULL_CI in {str(label.get("name") or "") for label in pr.get("labels") or []}
 
 
 MANIFEST = HERE / "pr_router.json"
@@ -291,7 +275,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         if "table_jobs" in config:
             steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
-                                full_ci=full_ci_kept(event))
+                                full_ci=FULL_CI in labels or added == FULL_CI)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -512,26 +496,6 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
 
 
-def ui_status(event: dict, files: list[str] | None) -> tuple[str, str]:
-    """The `cmux/ui-proof` commit status for EVENT's head (pr-router.yml posts it; its ui-proof-status job replaces a
-    `pending` one with the proof record's verdict, scripts/ci/ui_proof_verdict.py): ("", "") where the land rule does
-    not apply. `success` at once for a head that changes nothing a desktop user sees, so a ruleset can require it;
-    `pending` for a visual head until a look at that head is on the PR. Leo, 2026-11-27: "obviously for visuals
-    we'll need to do better before getting them in but you know"."""
-    if not head_tier.land_rule_applies(event):
-        return "", ""
-    if os.environ.get("CI_UI_PROOF", "").strip() == "0":
-        return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
-    try:
-        import ui_proof_verdict
-        need = "app" if files is None else ui_proof_verdict.affects(files)
-    except Exception:  # noqa: BLE001 - unreadable routes more, never less
-        need = "app"
-    if not need:
-        return "success", "Touches nothing a user sees (docs, copy, tests, CI, iOS has cmux/ios-fast)"
-    return "pending", f"Visual change ({need}): waiting for a look at this head (hot-verify.py look --record)"
-
-
 def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
     """rerun_plan for this head when the red-head base merge rule reached the router: the head only merges the base
     onto a previous head where some run was not green and the router's own run there was not green either (a green
@@ -547,16 +511,13 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
-                  ui: tuple[str, str] = ("", "")) -> None:
+                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
-        out.write(f"ui_status={ui[0]}\n")
-        out.write(f"ui_status_description={ui[1]}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -581,8 +542,9 @@ def main(argv: list[str]) -> int:
                            carried=carried)
         labels = head_tier.labels_of(event)
         full = decided[0] == "full" or FULL_CI in labels
+        added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
         table = [job for job in table_jobs_routed(callees, files, full=full,
-                                                  full_ci=full_ci_kept(event)) if job not in rows]
+                                                  full_ci=FULL_CI in labels or added == FULL_CI) if job not in rows]
         if rows:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
@@ -591,8 +553,7 @@ def main(argv: list[str]) -> int:
         # rule's rerun is the land tier itself, on the label land pulsed, so it keeps success (else land pulses again).
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
-        write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files))
+        write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

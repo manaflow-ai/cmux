@@ -26,15 +26,7 @@ for k in ("x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix"):
 
 build=false
 mine="" base="" head=""
-# PR_HEAD_ONLY_TRAIN (goal ci-runner-min-per-day-50k; Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of
-# ci time, period."): the two musl builds of a PR head were 25.3k runner-min/day (13.2k aarch64 + 12.1k x86_64) for
-# at most about 27 takes a day (the base takes a commit every ~36 s, so the push run coalesces nearly every merge and
-# the head's tree is rarely the merged tree). Only the merge train's tip (lane/merge-train: its last member squashes
-# to the tip's tree) builds by default; MACHINE_CHANNEL_PR_HEAD_ALL=1 (vars.CI_MACHINE_CHANNEL_PR_HEAD_ALL) restores
-# every landed head. The push run builds whatever no PR build has.
-if [[ "${MACHINE_CHANNEL_PR_HEAD_ALL:-0}" != 1 && "${HEAD_REF:-}" != lane/merge-train ]]; then
-  echo "::notice title=machine channel PR head build::not the merge train's tip and CI_MACHINE_CHANNEL_PR_HEAD_ALL is not 1: the push run builds this tree"
-elif [[ "${GITHUB_REPOSITORY:-}" == manaflow-ai/cmux && "${HEAD_REPO:-}" == "${GITHUB_REPOSITORY:-}" \
+if [[ "${GITHUB_REPOSITORY:-}" == manaflow-ai/cmux && "${HEAD_REPO:-}" == "${GITHUB_REPOSITORY:-}" \
       && "${GITHUB_BASE_REF:-}" == feat-cmux-next ]]; then
   tk="$here/cmux_tui_tree_key.py"
   mine="$("$here/timeout.sh" 60 python3 "$tk" --version v2 HEAD 2>/dev/null)" || mine=""

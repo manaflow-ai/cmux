@@ -30,14 +30,9 @@ nonisolated enum ScreenshotsFFI {
         return String(cString: string)
     }
 
-    /// A JSON value as text, keys sorted (`[]` when it cannot be written).
+    /// A JSON value as text (`[]` when it cannot be written).
     static func json(_ value: Any) -> String {
-        (try? JSONSerialization.data(withJSONObject: value, options: .sortedKeys)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-    }
-
-    /// A JSON object the library returned, freed; empty for null or anything else.
-    static func object(_ string: UnsafeMutablePointer<CChar>?) -> [String: Any] {
-        take(string).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+        (try? JSONSerialization.data(withJSONObject: value)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
     }
 
     /// The C ABI's kinds, raw value 1 first (0: not listed).

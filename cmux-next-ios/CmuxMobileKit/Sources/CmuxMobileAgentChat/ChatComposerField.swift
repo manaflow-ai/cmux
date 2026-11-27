@@ -164,7 +164,6 @@ struct ChatComposerField: UIViewRepresentable {
 /// permission bar or sudo card that takes its place. A chat whose kept history is in its first frame
 /// (#57970) and waits on the person opens on its permission bar and never builds a composer; marked
 /// at the composer only, that open never took the mark (LaunchTTIUITests' chat flow on `ws-s0`).
-@MainActor
 enum ChatReadyMark {
     static func take() {
         LaunchMarks.shared.markNextFrame("chat_composer_ready")

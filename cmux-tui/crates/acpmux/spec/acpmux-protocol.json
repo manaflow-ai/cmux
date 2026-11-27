@@ -1356,12 +1356,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/scorecard_replay",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/session_files",
       "params": true,
       "result": true
@@ -4355,7 +4349,6 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4366,7 +4359,6 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "attachments": true,
         "sessionId": true,
         "text": true
       },

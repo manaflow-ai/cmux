@@ -153,7 +153,6 @@ export const turnEndCrossLook = defineExperiment({
     snap: { label: "Snap (before)", description: "No motion: the folded turn is drawn in the frame it ends." },
     quick: {
       label: "Quick (shipped)",
-      // motion-allow: prose naming the shipped arm's timing for the reviewer, not a duration anything plays
       description: "The work fades out over 120 ms on an ease-out, then the rows under it move up as one over 180 ms.",
     },
     even: {

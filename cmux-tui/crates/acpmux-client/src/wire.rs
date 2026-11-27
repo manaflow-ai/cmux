@@ -1153,26 +1153,15 @@ impl Frame {
     }
 
     pub fn from_encoded(encoded: &[u8]) -> Result<Self, FrameError> {
-        // One whole frame, the client core's every read: its payload is copied once, straight
-        // out of `encoded`. Anything else (short, or more after it) takes the decoder, which
-        // names the same errors it always did.
-        if let Some((header, rest)) = encoded.split_first_chunk::<HEADER_BYTES>() {
-            let len = u32::from_be_bytes(*header) as usize;
-            if (KIND_BYTES..=MAX_FRAME_BYTES - HEADER_BYTES).contains(&len) && rest.len() == len {
-                let (kind, payload) = rest.split_first().ok_or(FrameError::Truncated)?;
-                return Self::new(FrameKind::try_from(*kind)?, payload.to_vec());
-            }
-        }
         let mut decoder = FrameDecoder::default();
         let frames = decoder.push(encoded)?;
         if !decoder.is_empty() {
             return Err(FrameError::Truncated);
         }
-        let mut frames = frames.into_iter();
-        match (frames.next(), frames.next()) {
-            (Some(frame), None) => Ok(frame),
-            (None, _) => Err(FrameError::Truncated),
-            (Some(_), Some(_)) => Err(FrameError::TrailingBytes),
+        match frames.as_slice() {
+            [frame] => Ok(frame.clone()),
+            [] => Err(FrameError::Truncated),
+            _ => Err(FrameError::TrailingBytes),
         }
     }
 }
@@ -1218,11 +1207,13 @@ impl FrameDecoder {
             if self.bytes.len().saturating_sub(self.head) < expected {
                 break;
             }
-            let start = self.head;
+            let body = self
+                .bytes
+                .get(self.head..self.head + expected)
+                .ok_or(FrameError::Truncated)?
+                .to_vec();
             self.head += expected;
             self.expected = None;
-            // The payload is copied once, from the read buffer into its frame.
-            let body = self.bytes.get(start..self.head).ok_or(FrameError::Truncated)?;
             let (kind, payload) = body.split_first().ok_or(FrameError::Truncated)?;
             frames.push(Frame::new(FrameKind::try_from(*kind)?, payload.to_vec())?);
         }

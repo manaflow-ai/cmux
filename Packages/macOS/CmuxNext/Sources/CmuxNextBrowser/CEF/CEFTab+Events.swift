@@ -136,7 +136,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, engine: engineKind, userGesture: userGesture, firstPage: firstCommittedURL ?? committedURL, requestedPage: firstRequestedURL, tab: ObjectIdentifier(self), close: { [weak self] in self?.closeAfterHandoff() }, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, engine: engineKind, userGesture: userGesture, firstPage: firstCommittedURL ?? committedURL, requestedPage: firstRequestedURL, close: { [weak self] in self?.closeAfterHandoff() }, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)

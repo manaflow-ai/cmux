@@ -239,14 +239,12 @@ jobs:
           # 141 MB and 31-34 s of fetch per plan, 7 days 20 MB and 6 s, and 5 open PRs planned the same JSON with
           # either (2026-11-23). A nightly older than the window fetches the 45 days below.
           since="$(date -u -d '7 days ago' +%Y-%m-%d)"
-          # A fetch from github.com that stalls is tried three times: one stall failed this step and the head waited
-          # 32 min for a rerun by hand (run 45787715231, 2026-11-26). The abort is 1 B/s for 60 s, not 1000 B/s: GitHub
-          # sends only keepalives while it builds a pack, so 1000 B/s for 30 s killed healthy fetches on every try
-          # (handbook network-transfer-stalls-the-whole-job).
+          # A fetch from github.com that stalls fails in 30 s, not git's own 60 s, and is tried three times: one stall
+          # failed this step and the head waited 32 min for a rerun by hand (run 45787715231, 2026-11-26).
           fetch_retry() {
             local bound="$1" try; shift
             for try in 1 2 3; do
-              timeout "$bound" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch "$@" && return 0
+              timeout "$bound" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch "$@" && return 0
               echo "hot verify plan: fetch attempt $try failed" >&2; [[ $try == 3 ]] || sleep $((try * 5))
             done
             return 1
@@ -413,7 +411,7 @@ jobs:
       pr: ${{ steps.check.outputs.pr }}
       head: ${{ steps.check.outputs.head }}
       pr_head: ${{ steps.check.outputs.pr_head }}
-      publish_web: ${{ steps.check.outputs.publish_web }}
+      web: ${{ steps.check.outputs.web }}
       rust: ${{ steps.check.outputs.rust }}
       layers: ${{ steps.check.outputs.layers }}
       kind: ${{ steps.check.outputs.kind }}
@@ -517,14 +515,14 @@ jobs:
         run: |
           bash scripts/cmux-next/hot-verify-pr.sh
 
-  # An open PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
+  # The PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
   # build job runs the PR's web build with no secret; its publish job holds its own credentials). Nothing waits
   # for it here: the look does not need it (the worker serves the head's web itself when latest.json does not name
   # the head yet), and the wait for latest.json held a Linux runner for up to 40 minutes per look.
   web:
     name: web layer
     needs: target
-    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.publish_web == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -877,14 +875,8 @@ jobs:
           git config gc.auto 0
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          # 1 B/s for 60 s, a 240 s bound, 3 tries (handbook network-transfer-stalls-the-whole-job); the mirror holds the
-          # objects, so a retry into this repository is safe.
-          for try in 1 2 3; do
-            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
-            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
-            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
-          done
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q --detach "$SHA"
@@ -1059,10 +1051,6 @@ jobs:
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         uses: ./.github/actions/pr-media-publish
         env:
-          # hot-verify-ci.py retries timed-out reads with these identities. The action's Publish step
-          # overwrites GH_TOKEN from github-token, so pass the alternates explicitly through this step.
-          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
-          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           OUT: ${{ steps.stage.outputs.out }}

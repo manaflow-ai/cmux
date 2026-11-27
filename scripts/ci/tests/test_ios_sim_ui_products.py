@@ -119,23 +119,6 @@ class UIProductsTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertEqual(self.builds(), [])
 
-    def test_selection_names_a_real_target_and_suite_before_any_build(self):
-        # dd16fd89 (2026-11-27): ui=CmuxMobileUITests/X (a target name, not a suite) built everything, ran the whole
-        # UI target and matched no test; only=CmuxMobileKitTests/X names no kit test target. Both refuse first now.
-        (self.root / "cmux-next-ios/UITests").mkdir(parents=True, exist_ok=True)
-        (self.root / "cmux-next-ios/UITests/KeyRowUITests.swift").write_text("final class KeyRowUITests: XCTestCase {}\n")
-        (self.root / "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests").mkdir(parents=True, exist_ok=True)
-        for args, message in [
-            (("ui=CmuxMobileUITests/KeyRowUITests",), "no UI test suite class CmuxMobileUITests"),
-            (("ui=KeyRowUITest",), "no UI test suite class KeyRowUITest"),
-            (("only=CmuxMobileKitTests/ReturnHighlightTests",), "is not a CmuxMobileKit test target"),
-        ]:
-            with self.subTest(args=args):
-                result = self.run_script("test", *args)
-                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-                self.assertIn(message, result.stderr)
-                self.assertEqual(self.builds(), [])
-
 
 if __name__ == "__main__":
     unittest.main()

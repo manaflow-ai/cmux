@@ -2618,8 +2618,6 @@ impl Terminal {
             value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
         };
         let mut out = sys::GhosttyGridRef::default();
-        #[cfg(test)]
-        GRID_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
         let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
         (result == sys::GHOSTTY_SUCCESS).then_some(out)
     }
@@ -3300,8 +3298,6 @@ thread_local! {
     static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Tests: history grid lookups `styled_history_rows` made.
     static HISTORY_GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-    /// Tests: grid lookups (`grid_ref`, each a page-list walk) since the thread started.
-    pub(crate) static GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]

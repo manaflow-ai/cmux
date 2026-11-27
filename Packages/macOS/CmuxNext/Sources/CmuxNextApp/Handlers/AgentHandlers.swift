@@ -87,7 +87,7 @@ enum AgentHandlers {
                              let pane: PaneController?
                              if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
                                  pane = context.paneController(invocation)
-                             } else { let focused = try context.pane(invocation); pane = context.explicitTarget(invocation, kinds: [.pane]) != nil ? focused : context.services.windowController(showing: focused)?.content?.pageTabPane(from: focused) ?? focused }  // beside Home's dock, as the sidebar's open
+                             } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
                          }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
@@ -206,20 +206,6 @@ enum AgentHandlers {
         })
         gatePointerInspectorMenuRows(in: registry)
         registry.bindEffect(.fileOpen, effect: { invocation in
-            // `--machine`: that machine's file in a page here, read there (`MachineFileOpener`).
-            if let machine = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue {
-                // The page refuses a relative path or a preview-only kind (`FilePageOpener`); a place but a tab is refused here.
-                let path = invocation["path"]?.stringValue ?? "", place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
-                guard place == AgentPaneFileTarget.tab.rawValue else { return .refused(MiscHandlerStrings.invalidPlace(place)) }
-                let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true"), services = context.services
-                // action-wait-allow: the page needs that machine's session, which a joined Mac's dial opens over the network first.
-                return .waiting(.network) {
-                    switch await MachineRowActions.fileOpener(services).pane(machine: machine) {
-                    case .failure(let refusal): ActionWorkFailure(refusal.message ?? MiscHandlerStrings.noPane)
-                    case .success(let pane): services.viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, from: pane, userChose: false, asText: asText).map { ActionWorkFailure($0) }
-                    }
-                }
-            }
             do {
                 try openFile(invocation, context: context)
                 return .done

@@ -16,7 +16,6 @@ import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER 
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
 import { useLiveThoughtRow } from "../liveThought";
-import { useLiveLineRow } from "../liveCallLine";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
@@ -55,9 +54,8 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // What moved on without the pane (a running command's output, a thought, the live line's call):
-    // this row alone draws it.
-    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
+    // What moved on without the pane (a running command's output, a thought): this row alone draws it.
+    const row = useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools);
     return (
       <RowBoundary row={row}>
         <Component {...props} row={row} />

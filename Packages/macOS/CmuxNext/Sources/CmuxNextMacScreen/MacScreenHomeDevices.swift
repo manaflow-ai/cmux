@@ -67,14 +67,9 @@ struct MacScreenHomeSnapshot: Equatable {
         var session: MacScreenHubHost.Session?
         var lastError: String?
         var showFirstUse: Bool
-        /// Why the switch waits: this Mac is not on the device hub yet (connecting, or why it could not). nil once
-        /// it is. This Mac is drawn either way, so a person (or a probe) sees the section and the permissions while
-        /// the hub reconnects, not a page with only Your Devices (chevron run 45954248647).
-        var hubNote: String?
 
         init(isSharing: Bool, busy: Bool, screenRecordingGranted: Bool, accessibilityGranted: Bool,
-             session: MacScreenHubHost.Session? = nil, lastError: String? = nil, showFirstUse: Bool = false,
-             hubNote: String? = nil) {
+             session: MacScreenHubHost.Session? = nil, lastError: String? = nil, showFirstUse: Bool = false) {
             self.isSharing = isSharing
             self.busy = busy
             self.screenRecordingGranted = screenRecordingGranted
@@ -82,7 +77,6 @@ struct MacScreenHomeSnapshot: Equatable {
             self.session = session
             self.lastError = lastError
             self.showFirstUse = showFirstUse
-            self.hubNote = hubNote
         }
     }
 
@@ -134,17 +128,14 @@ struct MacScreenHomeSnapshot: Equatable {
                                     setup: source.setup.row(id: device.id, isMac: device.platform != .ios, online: device.online))
                     })
                 }
-                // This Mac is drawn whenever signed in: before this device is registered, the switch waits and
-                // says why. Gating the section on registration hid it (and its permissions) for as long as the
-                // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
-                let registered = hub.thisDevice != nil || hub.status == .ready
-                let hubHost = source.hubHost
-                sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
-                                  screenRecordingGranted: home.host.screenRecordingGranted,
-                                  accessibilityGranted: home.host.accessibilityGranted,
-                                  session: hubHost.session, lastError: hubHost.lastError,
-                                  showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                if hub.thisDevice != nil || hub.status == .ready {
+                    let hubHost = source.hubHost
+                    sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy,
+                                      screenRecordingGranted: home.host.screenRecordingGranted,
+                                      accessibilityGranted: home.host.accessibilityGranted,
+                                      session: hubHost.session, lastError: hubHost.lastError,
+                                      showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing))
+                }
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -166,14 +157,6 @@ struct MacScreenHomeSnapshot: Equatable {
         case let .failed(reason, detail):
             return reason.words(detail: detail)
         }
-    }
-
-    /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
-    static func hubNote(_ status: DeviceHub.Status) -> String {
-        if case let .failed(reason) = status {
-            return L.t("macScreen.home.thisMacHubFailed", "This Mac could not reach the device hub: \(reason). cmux keeps trying.")
-        }
-        return L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")
     }
 
     /// One hub device as the page shows it.

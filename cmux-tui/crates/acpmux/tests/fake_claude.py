@@ -184,14 +184,13 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
     # question's chat and attachments are cmux-*-context blocks Claude must read.
     text = block.get("text", "")
     return isinstance(text, str) and text.lstrip().startswith(
-        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
-         "<cmux-card-context>"))
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>"))
 
 
 def command_text(content):

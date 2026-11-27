@@ -167,9 +167,7 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("for attempt");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("sleep 5");
-    // The fallback is bounded by a stall (30 s with no bytes), not by a total a slow link overruns (roll 45961450781).
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 300s apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q --error-on=any");
-    expect(bake.APT_UPDATE_COMMAND).not.toContain("timeout 60s");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
     const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
     expect(payload).toBeDefined();

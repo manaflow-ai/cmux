@@ -170,21 +170,6 @@ fn a_force_push_or_an_old_archive_makes_a_new_archive() {
 }
 
 #[test]
-fn a_quiet_branch_rewrites_its_old_archive() {
-    let fixture = Fixture::new();
-    let Published::Archive { commit: first, .. } = fixture.publish() else { panic!("no archive") };
-    assert_eq!(fixture.publish(), Published::Unchanged { commit: first.clone() });
-    let later = SystemTime::now() + Duration::from_secs(7200);
-    let Published::Archive { commit: again, why, .. } = fixture.publish_at(later) else {
-        panic!("an old archive of an unmoved branch was not rewritten")
-    };
-    assert_eq!(again, first);
-    assert!(why.contains("old"), "{why}");
-    let (_, fetched) = fixture.fetch("vm", Some("main"));
-    assert_eq!(checked_out(&fetched), first);
-}
-
-#[test]
 fn an_increment_needing_history_the_archive_lacks_makes_a_new_archive() {
     let fixture = Fixture::new();
     let base = sh(&fixture.source, &["rev-parse", "HEAD"]);

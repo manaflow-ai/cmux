@@ -96,46 +96,10 @@ async fn place_once(
 ) -> (Duration, Arc<StdMutex<HubHealth>>) {
     let cache: Arc<StdMutex<HubHealth>> = Arc::default();
     let hosts: Vec<String> = (0..MACHINES).map(|i| format!("lane-{i}")).collect();
-    let hosts: Hosts = Arc::new(move |_| HealthHosts {
-        listed: hosts.iter().cloned().collect(),
-        pull: hosts.clone(),
-    });
     let via: Via = Arc::new(|host| Some(format!("{host}-session")));
     let began = tokio::time::Instant::now();
     refresh_drawn(scope, Arc::new(fleet), cache.clone(), hosts, via, FIRST_WAIT, SEED).await;
     (began.elapsed(), cache)
-}
-
-#[tokio::test(start_paused = true)]
-async fn background_refresh_pulls_a_newly_listed_host_and_preserves_a_pushers_pull() {
-    let cache: Arc<StdMutex<HubHealth>> = Arc::default();
-    let now = crate::store::now_ms();
-    cache.lock().unwrap().answered("pusher", Some(serde_json::json!({"cpus": 8})), now);
-    let joined = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let hosts: Hosts = {
-        let joined = joined.clone();
-        Arc::new(move |_| {
-            let mut listed = BTreeSet::from(["pusher".to_owned()]);
-            let mut pull = Vec::new();
-            if joined.load(std::sync::atomic::Ordering::SeqCst) {
-                listed.insert("new".into());
-                pull.push("new".into());
-            }
-            HealthHosts { listed, pull }
-        })
-    };
-    let (asked, mut received) = tokio::sync::mpsc::unbounded_channel();
-    let via: Via = Arc::new(move |host| {
-        asked.send(host.to_owned()).unwrap();
-        Some(format!("{host}-session"))
-    });
-    let scope = cmux_scope::Scope::new("hub health membership test");
-    let mesh = Arc::new(Fleet { after: BTreeMap::new() });
-    refresh_drawn(&scope, mesh, cache.clone(), hosts, via, FIRST_WAIT, SEED).await;
-    joined.store(true, std::sync::atomic::Ordering::SeqCst);
-    let next = tokio::time::timeout(Duration::from_millis(2 * EVERY_MS), received.recv()).await;
-    assert_eq!(next.expect("background refresh saw the new host").as_deref(), Some("new"));
-    assert_eq!(cache.lock().unwrap().reading("pusher").unwrap().0, now);
 }
 
 #[tokio::test(start_paused = true)]

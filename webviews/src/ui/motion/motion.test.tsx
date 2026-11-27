@@ -399,25 +399,3 @@ test("a parallax layer mounted while the page is hidden starts leaning when the 
   expect(layer.style.getPropertyValue("--ui-depth-x")).toBe("1.000");
   expect(layer.style.getPropertyValue("--ui-depth-y")).toBe("1.000");
 });
-
-test("motionMode asks one reduced-motion query per window, and a new matchMedia afresh", () => {
-  const win = new JSDOM("<!doctype html>").window as unknown as Window & typeof globalThis;
-  let built = 0;
-  let reduced = false;
-  const query = {
-    get matches() {
-      return reduced;
-    },
-  };
-  win.matchMedia = (() => ((built += 1), query)) as never;
-  expect(motionMode(win.document)).toBe("full");
-  // The first call also builds the token cache's change listener (motionTokens.ts), once.
-  const first = built;
-  reduced = true;
-  // The kept query follows the setting live, and no call after the first builds one.
-  for (let call = 0; call < 5; call += 1) expect(motionMode(win.document)).toBe("reduced");
-  expect(built).toBe(first);
-  win.matchMedia = (() => ({ matches: false })) as never;
-  expect(motionMode(win.document)).toBe("full");
-  win.close();
-});

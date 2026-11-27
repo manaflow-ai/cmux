@@ -127,7 +127,6 @@
       "id": "pairing-mac-identity",
       "title": "Pairing keeps the Mac's identity across relaunch; no false 'Mac's identity changed'",
       "source": ["regression:9"],
-      "pair_e2e": true,
       "kit": [],
       "ui": [],
       "swift": [
@@ -156,7 +155,6 @@
       "id": "workspaces-empty-mac-loads",
       "title": "A Mac with no workspaces shows an empty list, not Loading forever, and the route does not flap",
       "source": ["regression:11"],
-      "pair_e2e": true,
       "kit": ["CmuxMobileWorkspacesTests/WorkspaceInboxTests", "CmuxMobileTransportTests/NetworkPathFilterTests"],
       "ui": [],
       "paths": [

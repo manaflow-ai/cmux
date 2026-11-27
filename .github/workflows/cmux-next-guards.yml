@@ -154,10 +154,7 @@ jobs:
   fast-check-route:
     name: fast check route
     if: ${{ ((github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    # Route this control-plane classifier to the 2-vCPU pool: it only reads the
-    # sparse router checkout and emits two strings, so the general cmux-linux
-    # pool's larger shared host adds no throughput.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -201,15 +198,8 @@ jobs:
           git config gc.auto 0
           git remote add origin "https://github.com/$GITHUB_REPOSITORY"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
-          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
-          # the objects, so this repository is complete without a failed try and a retry into it is safe.
-          for try in 1 2 3; do
-            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
-            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
-            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
-          done
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           git checkout -q --detach "$SHA"
@@ -234,9 +224,7 @@ jobs:
   security-holes:
     name: workflow security holes and secrets this change adds
     if: ${{ ((github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    # Security analysis is explicitly bounded to a 2-vCPU job (about 30 s of
-    # offline checks); keep it off the larger shared cmux-linux pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Two 5-minute checkout attempts plus about a minute of guards.
     timeout-minutes: 16
     permissions:
@@ -970,13 +958,6 @@ jobs:
         timeout-minutes: 5
         run: python3 tests/test_cmux_next_static_capability_runtime_only.py
 
-      # Two pull requests that each import one name into a webviews file merge into
-      # "Identifier has already been declared" and a red web bundle (layoutGeometry, 2026-11-23..27).
-      - name: No webviews file imports one name twice
-        if: ${{ !cancelled() }}
-        timeout-minutes: 1
-        run: python3 tests/test_webviews_no_duplicate_import_names.py
-
       - name: The defaults snapshot tests
         id: defaults-snapshot
         if: ${{ !cancelled() }}
@@ -1338,10 +1319,8 @@ jobs:
   workflow-start-lint:
     name: workflow start lint (a change that stops a workflow starting)
     if: ${{ github.event.action != 'ready_for_review' }}
-    # A fork pull request runs on a hosted runner. The local workflow lint is
-    # a control-plane check, so own-branch runs use the 2-vCPU pool rather than
-    # occupying a larger cmux-linux host.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

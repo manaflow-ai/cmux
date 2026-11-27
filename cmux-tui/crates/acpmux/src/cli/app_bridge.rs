@@ -10,8 +10,9 @@ use std::process::Stdio;
 use super::command::AppOpenArgs;
 
 pub async fn run(args: AppOpenArgs, tab: bool, json_out: bool) -> Result<()> {
-    // The app's own CLI, never a bare `cmux` that may be classic's (ask-3b6366d31e).
-    let binary = crate::login_env::cmux_cli();
+    let binary = std::env::var_os("CMUX_BIN")
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "cmux".into());
     let mut command = tokio::process::Command::new(binary);
     if json_out {
         command.arg("--json");

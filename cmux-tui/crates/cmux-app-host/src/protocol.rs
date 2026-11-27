@@ -11,33 +11,6 @@ use serde_json::Value;
 /// Largest line either side accepts (scene batches dominate).
 pub const MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
 
-/// Largest `state` object (`cmux.state`), as JSON bytes. Over it the host
-/// logs a warning and keeps the last state it sent.
-pub const MAX_KEPT_STATE_BYTES: usize = 64 * 1024;
-/// Most keys in one `state` object.
-pub const MAX_KEPT_STATE_KEYS: usize = 256;
-
-/// Why a `state` object is refused, or `None` when it is within the caps:
-/// an object of at most [`MAX_KEPT_STATE_KEYS`] keys and
-/// [`MAX_KEPT_STATE_BYTES`] bytes of JSON.
-pub fn kept_state_refusal(values: &Value, json_bytes: usize) -> Option<String> {
-    let Some(map) = values.as_object() else {
-        return Some("cmux.state: the kept values are not an object".into());
-    };
-    if map.len() > MAX_KEPT_STATE_KEYS {
-        return Some(format!(
-            "cmux.state: {} keys is over the {MAX_KEPT_STATE_KEYS} key cap; the last kept values stay",
-            map.len()
-        ));
-    }
-    if json_bytes > MAX_KEPT_STATE_BYTES {
-        return Some(format!(
-            "cmux.state: {json_bytes} bytes is over the {MAX_KEPT_STATE_BYTES} byte cap; the last kept values stay"
-        ));
-    }
-    None
-}
-
 /// `cmux-app-host --profile script`: a script session
 /// (plans/cmux-next/scripting-runtime.md) instead of an app.
 pub const SCRIPT_PROFILE: &str = "script";
@@ -78,11 +51,6 @@ pub enum ToHost {
         /// syntax or load error names it (`main.js:2:12`). Absent: `eval_script`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         main_name: Option<String>,
-        /// The values the last host of this app kept with `cmux.state`
-        /// (`state` below), handed back when the supervisor restarts it for a
-        /// local reload or a grant change. Absent on a first start.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        state: Option<Value>,
     },
     Mount {
         mount: String,
@@ -195,13 +163,6 @@ pub enum FromHost {
     Log {
         level: String,
         message: String,
-    },
-    /// Every value the app keeps with `cmux.state(key, initial)`, as one
-    /// object (at most [`MAX_KEPT_STATE_BYTES`] and [`MAX_KEPT_STATE_KEYS`]).
-    /// The supervisor holds the last one in memory and hands it to the next
-    /// host's `init` when it restarts the app (a local reload).
-    State {
-        values: Value,
     },
     Done {
         cb: u64,

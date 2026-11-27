@@ -59,15 +59,14 @@ def command_text(blocks):
         mux = (block.get("_meta") or {}).get("acpmux", {})
         source = mux.get("contextSource")
         text = block.get("text", "")
-        if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+        if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
             continue
         # Who wrote it (hub/prompt_attribution.rs): a workflow's prompt is another agent's.
         if mux.get("attribution") is True:
             continue
         if isinstance(text, str) and text.startswith(("<cmux-default-context>",
                                                        "<cmux-user-context>",
-                                                       "<cmux-project-context>", "<cmux-guidance-context>",
-                                                       "<cmux-card-context>")):
+                                                       "<cmux-project-context>", "<cmux-guidance-context>")):
             continue
         out.append(text)
     return "".join(out)

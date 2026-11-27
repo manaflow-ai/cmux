@@ -7,8 +7,7 @@ status says whether the JSON equals what the Swift gives (the cmux-next checks j
 
 Read from Packages/macOS/CmuxNext/Sources/CmuxNextDesign:
 - BackdropArt.swift: each work's id (its raw value) in catalog order, and its English title;
-- BackdropArt+Entries.swift (written at build time, so rendered here by
-  scripts/cmux-next/art/generate_backdrop_art.py from art/manifest.json, as the build does): artist, year, museum, collection, source, license, sha256, bundled, and
+- BackdropArt+Entries.swift: artist, year, museum, collection, source, license, sha256, bundled, and
   the framing and color hints the app's tint and crop use: focal (the crop's focal anchor, x and y
   in 0...1), subject (the box the window keeps whole and in view, from the top-left, 0...1), tint (the preferred tint opacity), darkest and lightest (the image's range, #RRGGBB);
 - BackdropArt+Library.swift: the collections in picker order with their titles, and retired ids;
@@ -24,7 +23,6 @@ Mac at run time, so the JSON describes those sources, not entries.
 """
 import argparse
 import hashlib
-import importlib.util
 import json
 import re
 import sys
@@ -47,14 +45,6 @@ def unescape(text: str) -> str:
 
 def read(name: str) -> str:
     return (DESIGN / name).read_text(encoding="utf-8")
-
-
-def entries_swift() -> str:
-    """BackdropArt+Entries.swift as the build writes it (BackdropArtEntriesPlugin): not in git."""
-    spec = importlib.util.spec_from_file_location("generate_backdrop_art", ROOT / "scripts/cmux-next/art/generate_backdrop_art.py")
-    generator = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(generator)
-    return generator.render_entries(json.loads(generator.MANIFEST.read_text(encoding="utf-8"))["works"])
 
 
 def block(text: str, start: str, name: str) -> str:
@@ -85,7 +75,7 @@ def works() -> list[dict]:
                           + r'tone: \.\w+, palette: \[[^\]]*\], quietLeft: (?:true|false), tint: ([0-9.]+), '
                           + r'darkest: 0x([0-9A-F]{6}), lightest: 0x([0-9A-F]{6})\)$', re.M)
     for (case, artist, year, museum, collection, source, license, sha, bundled,
-         focal_x, focal_y, sub_x0, sub_y0, sub_x1, sub_y1, tint, darkest, lightest) in entry_re.findall(entries_swift()):
+         focal_x, focal_y, sub_x0, sub_y0, sub_x1, sub_y1, tint, darkest, lightest) in entry_re.findall(read("BackdropArt+Entries.swift")):
         entries[case] = dict(artist=unescape(artist), year=unescape(year), museum=unescape(museum), collection=collection,
                              source=unescape(source), license=unescape(license), sha256=sha, bundled=bundled == "true",
                              focal={"x": float(focal_x), "y": float(focal_y)},

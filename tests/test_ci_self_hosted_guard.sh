@@ -737,12 +737,6 @@ check_web_db_behavior_tests() {
     exit 1
   fi
 
-  if ! grep -Fq 'temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"' "$db_runner" ||
-     ! grep -Fq 'mktemp "$temp_root/cmux-db-behavior-test.XXXXXX"' "$db_runner"; then
-    echo "FAIL: DB behavior runner must use the per-job temp root when a shared /tmp is unavailable"
-    exit 1
-  fi
-
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 

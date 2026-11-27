@@ -67,7 +67,7 @@
 
 /* A compact chip: one pill. */
 .acpmux-computer-status[data-look="chip"] {
-  padding: var(--grid-half-step) var(--ds-space-2, 8px);
+  padding: 2px var(--ds-space-2, 8px);
   border-radius: 999px;
   background: var(--ds-surface-card);
 }
@@ -111,7 +111,7 @@
 .acpmux-computer-choice[data-on="true"] {
   background: color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
-.acpmux-computer-choice-label { color: var(--agent-muted); padding-inline: var(--grid-half-step); }
+.acpmux-computer-choice-label { color: var(--agent-muted); padding-inline: 2px; }
 .acpmux-computer-pin { flex: none; color: var(--agent-muted); }
 .acpmux-computer-buttons { display: flex; gap: var(--ds-space-2, 8px); padding-top: var(--ds-space-1, 4px); }
 

@@ -7674,6 +7674,7 @@ CmuxNextDesign	extension	Array	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/Cmu
 CmuxNextDesign	extension	Array	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Diagnostics/FrameLayoutCounts.swift	#35076 (Lawrence Chen): sortedPercentile, the nearest-rank percentile of debug.frames' per-frame counts (its only callers are FrameLayoutCounts and DebugFrameProbe); debug tooling
 CmuxNextDesign	extension	Array	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardRow.swift	from enum HoverCardTone:6: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	BackdropAdjustOverlay.Choice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropAdjustOverlay.swift	choice-to-value mapping of the backdrop adjust overlay
+CmuxNextDesign	extension	BackdropArt	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift	generated from art/manifest.json by generate_backdrop_art.py (header)
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Accent.swift	art accent pick rule
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Daily.swift	daily art pick rule
 CmuxNextDesign	extension	BackdropArt	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+DailyRotation.swift	daily rotation of art

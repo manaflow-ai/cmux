@@ -104,13 +104,11 @@ extension ScreenContentView {
         clip.addSubview(picture)
         addSubview(clip, positioned: .above, relativeTo: nil)
         // From the split pane's right edge to the fixed end: additive on x, so the model value is the end throughout.
-        // motion: allow the snapshot split open (default off) is the split's own measured transition, SplitSnapshotOpen.slide
         let slide = CABasicAnimation(keyPath: "position.x")
         slide.fromValue = giver.frame.width - picture.frame.minX
         slide.toValue = 0
         slide.isAdditive = true
         slide.duration = SplitSnapshotOpen.slide
-        // motion: allow same slide as above
         slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
         slide.fillMode = .backwards
         let state = SplitSnapshotOpen(view: clip, end: end)
@@ -121,7 +119,6 @@ extension ScreenContentView {
         }
         perform(#selector(dropSnapshotOpenFailsafe), with: nil, afterDelay: SplitSnapshotOpen.failsafe)
         markSnapshotSplit(giver: giver)
-        // perf-gate-ok: hands the split's first frame over in the key's turn (rightSplitOpen timing ends at this commit)
         CATransaction.flush()
     }
 

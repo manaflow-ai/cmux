@@ -27,9 +27,6 @@ pub(crate) struct MeshBook {
     left: BTreeMap<String, Bare>,
     /// Each machine listed, with its newest heartbeat (ms since the epoch).
     hosts: BTreeMap<String, u64>,
-    /// The health each machine's daemon pushed on its heartbeat (RFD 0181 T1), with when the hub
-    /// took it (ms): placement weighs a hub-only machine from it with no ask.
-    pushed: BTreeMap<String, (u64, Value)>,
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
     /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
@@ -215,30 +212,6 @@ pub(crate) fn mine(
     (hosts, sessions)
 }
 
-/// How old a pushed reading may be and still stand in for a pull: a few heartbeats.
-pub(crate) const PUSHED_FRESH_MS: u64 = 2 * 60_000;
-
-/// The newest reading each of this person's machines pushed (`BookDaemon::health`), by host.
-/// Taken from the same daemons `mine` lists.
-pub(crate) fn pushed_health(
-    book: &AddressBook,
-    own_user: &str,
-    own_daemon: Option<&str>,
-    skip: &dyn Fn(&str) -> bool,
-) -> BTreeMap<String, (u64, Value)> {
-    let mut out: BTreeMap<String, (u64, Value)> = BTreeMap::new();
-    for d in &book.daemons {
-        let (Some(health), Some(at)) = (&d.health, d.health_at) else { continue };
-        if !health.is_object() || !is_mine(d, own_user, own_daemon, skip) {
-            continue;
-        }
-        if out.get(&d.host).is_none_or(|(was, _)| at > *was) {
-            out.insert(d.host.clone(), (at, health.clone()));
-        }
-    }
-    out
-}
-
 /// The keys every session row lists, from this machine or another: a hub row lists each one,
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
@@ -324,9 +297,8 @@ impl Hub {
             book.machines_read = true;
             book.machines_changed.notify_waiters();
         }
-        let pushed = pushed_health(&book, own_user, own_daemon, &skip);
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
-        self.set_mesh_book_with_health(hosts, sessions, pushed);
+        self.set_mesh_book(hosts, sessions);
     }
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
@@ -397,15 +369,6 @@ impl Hub {
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
     /// the shared list is rebuilt once (`list_guard.rs`). Empty when the relay stops.
     pub(crate) fn set_mesh_book(&self, hosts: BTreeMap<String, u64>, sessions: Vec<BookSession>) {
-        self.set_mesh_book_with_health(hosts, sessions, BTreeMap::new());
-    }
-
-    fn set_mesh_book_with_health(
-        &self,
-        hosts: BTreeMap<String, u64>,
-        sessions: Vec<BookSession>,
-        pushed: BTreeMap<String, (u64, Value)>,
-    ) {
         let now = now_ms();
         let (gone, changed, moved, came, left) = {
             let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
@@ -486,7 +449,6 @@ impl Hub {
                 Default::default()
             };
             book.hosts = hosts;
-            book.pushed = pushed;
             (gone, changed, moved, came, left)
         };
         if !gone.is_empty() || !changed.is_empty() || moved {
@@ -568,7 +530,6 @@ impl Hub {
     /// With each one's last health reading through the hub and when it came (`hub_health.rs`),
     /// as a direct peer's row carries its link's (`health`, `healthAt`), so placement weighs it.
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {
-        let now = now_ms();
         let mut rows: Vec<Value> = {
             let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
             // One walk of the rows for every host, not one per host.
@@ -580,27 +541,14 @@ impl Hub {
                 .iter()
                 .map(|(host, seen)| {
                     let count = counts.get(host.as_str()).copied().unwrap_or(0);
-                    let mut row = json!({
+                    json!({
                         "name": host,
                         "connected": true,
                         "state": "connected",
                         "via": "hub",
                         "lastSeen": seen,
                         "sessions": count,
-                    });
-                    // What the machine's own heartbeat carried; a pulled reading newer than it
-                    // replaces it below.
-                    if let Some((at, reading)) = book.pushed.get(host)
-                        && let Some(fields) = row.as_object_mut()
-                    {
-                        // Keep the time after the metrics expire: placement distinguishes a
-                        // machine that has gone stale from one it has never heard from.
-                        fields.insert("healthAt".into(), json!(at));
-                        if now.saturating_sub(*at) <= PUSHED_FRESH_MS {
-                            fields.insert("health".into(), reading.clone());
-                        }
-                    }
-                    row
+                    })
                 })
                 .collect()
         };
@@ -608,40 +556,14 @@ impl Hub {
         let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut rows {
             let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
-            let failed_at = health.failed_at(name);
-            let pushed_at = row.get("healthAt").and_then(Value::as_u64);
             if let Some((at, reading)) = health.reading(name)
-                && pushed_at.is_none_or(|pushed| at > pushed)
                 && let Some(fields) = row.as_object_mut()
             {
                 fields.insert("health".into(), reading);
                 fields.insert("healthAt".into(), json!(at));
             }
-            // Its newest read failed: placement passes it over (`placement/reach.rs`).
-            if let Some(failed) = failed_at
-                && let Some(fields) = row.as_object_mut()
-            {
-                fields.insert("healthFailedAt".into(), json!(failed));
-            }
         }
         rows
-    }
-
-    /// Members and machines due for a pull, taken from the same book revision.
-    pub(crate) fn mesh_health_hosts(&self, now: u64) -> super::hub_health::HealthHosts {
-        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
-        let listed = book.hosts.keys().cloned().collect();
-        let pull = book
-            .hosts
-            .keys()
-            .filter(|host| {
-                book.pushed
-                    .get(*host)
-                    .is_none_or(|(at, _)| now.saturating_sub(*at) > PUSHED_FRESH_MS)
-            })
-            .cloned()
-            .collect();
-        super::hub_health::HealthHosts { listed, pull }
     }
 
     /// A session the hub lists on machine `host`, the one a machine read goes through: the hub

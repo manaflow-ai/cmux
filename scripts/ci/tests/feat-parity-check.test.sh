@@ -299,7 +299,6 @@ PY
 printf 'import sys\nsys.exit(0)\n' >"$C/.github/scripts/test_cmux_tui_clippy_changed.py"
 : >"$C/.github/scripts/cmux-tui-fmt-changed.py"
 printf 'import sys\nsys.exit(1)\n' >"$C/scripts/ci/cargo_test_verdict.py"
-printf '#!/bin/bash\necho "clippy-base-seed $*" >> "%s/calls"\n' "$TMP" >"$C/scripts/ci/clippy-base-seed.sh"
 : >"$C/ghostty-next/build.zig"
 echo 1.24.0 >"$C/cmux-tui/crates/cmux-tailnet/go-version"
 git_fixture_init "$C" && git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm base
@@ -327,8 +326,6 @@ grep -q '^Rust panic ratchet on changed cmux-tui packages *skip (clippy red)' <<
 out=$(crun) || fail "clippy-changed with a green clippy step: $out"
 grep -q -- '--panic-ratchet' "$TMP/calls" || fail "the ratchet did not run after a green clippy step: $(calls)"
 grep -q '^Rust panic ratchet on changed cmux-tui packages *pass' <<<"$out" || fail "no ratchet row: $out"
-# A cold target is seeded from the base's build before clippy runs.
-[[ "$(grep -n -m1 -e '^clippy-base-seed restore' -e '^clippy-changed' "$TMP/calls" | cut -d: -f2 | cut -c1-17)" == 'clippy-base-seed ' ]] || fail "clippy-base-seed must run before clippy: $(calls)"
 # Not incremental: sccache cannot cache an incremental unit, so each workspace crate would be checked from nothing.
 [[ "$(grep -c '^clippy-changed incremental=0 ' "$TMP/calls")" == 2 ]] || fail "clippy and the ratchet must run with CARGO_INCREMENTAL=0: $(calls)"
 rm -f "$TMP/bin/go" "$TMP/bin/zig" "$TMP/calls"

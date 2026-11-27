@@ -79,9 +79,6 @@ export type CloudStartProgress = {
   repository?: string;
   /// The environment whose setup status is being reported by cmux-platform.
   environmentId?: string;
-  /// The environment selected for this start. Kept separately from `environmentId` because a failed
-  /// plan may not have returned the resolved id yet; Retry must still name the same target.
-  environment?: string;
   /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
   machineStartedAt?: number;
   machineFinishedAt?: number;
@@ -270,7 +267,6 @@ export function cloudStartBegun(
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
   pick?: CloudStartPick,
-  environment?: string,
 ): CloudStartProgress {
   const whole = cwd?.replace(/\/+$/, "");
   const folder = whole?.split("/").pop();
@@ -283,7 +279,6 @@ export function cloudStartBegun(
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
-    ...(environment ? { environment } : {}),
     ...(pick ? { pick } : {}),
   };
 }

@@ -136,25 +136,6 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
       expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
     });
 
-  test("the reported remote chat shows its folder and machine on the first composer strip", async () => {
-    const page = await browser!.newPage({ viewport: { width: 720, height: 640 } });
-    await page.addInitScript(() => {
-      const observer = new MutationObserver(() => {
-        const strip = document.querySelector(".acpmux-composer-strip");
-        if (!strip?.querySelector(".acpmux-location-button")) return;
-        document.documentElement.dataset.firstComposerPlace = strip.textContent ?? "";
-        observer.disconnect();
-      });
-      observer.observe(document, { childList: true, subtree: true });
-    });
-    await page.goto(stageURL("remote"));
-    await page.waitForFunction(() => document.documentElement.dataset.firstComposerPlace !== undefined);
-    const place = await page.evaluate(() => document.documentElement.dataset.firstComposerPlace);
-    await page.close();
-    expect(place).toContain("relay");
-    expect(place).toContain("studio-mac");
-  });
-
   // Codex's look keeps its tray (composerLook.css); the card over it is the started Codex chat's.
   test("codex: the card keeps its four corners and its rim over the tray", async () => {
     const started = await card("started-codex");

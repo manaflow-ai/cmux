@@ -385,10 +385,8 @@ def is_attribution(block):
 
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
-# blocks too, and the agent must read them, so their tests read them in the echo. The "where
-# you are" card (`agent_card.rs`) is hidden first-turn context the same way.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
-                 "<cmux-card-context>")
+# blocks too, and the agent must read them, so their tests read them in the echo.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>")
 
 
 def guidance_text(text):
@@ -405,7 +403,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -903,16 +901,6 @@ def handle_prompt(rid, params):
     if sid in rate_failures and rate_failures[sid][0] > 0:
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
-        return
-    # "interim-then-final: A | B" says A, calls a tool, then ends the turn saying B: a turn whose
-    # interim text and final reply differ (durable_watch_lifecycle: a match on the final reply).
-    if text.startswith("interim-then-final: "):
-        interim, final = text[len("interim-then-final: "):].split(" | ", 1)
-        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": interim}})
-        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "interim-1", "title": "Read file",
-                     "kind": "read", "status": "completed"})
-        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": final}})
-        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
     # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).

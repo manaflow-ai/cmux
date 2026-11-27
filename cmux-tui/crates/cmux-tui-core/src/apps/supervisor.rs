@@ -235,11 +235,6 @@ pub(super) struct Host {
     /// Kept up by the manifest's `activation` (`activation.rs`): stopped
     /// when the app may no longer run in the background.
     pub background: bool,
-    /// The last `state` the host sent (`cmux.state`), in memory only. A
-    /// restart of this record (a local reload, a grant change) hands it to
-    /// the next host's `init`; a crash drops it, and it goes with the record
-    /// when the app stops, is removed or idles out.
-    pub kept_state: Option<Value>,
 }
 
 #[derive(Debug, Clone)]

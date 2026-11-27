@@ -1,14 +1,7 @@
 use super::*;
 
 fn here(health: Value) -> [Candidate; 1] {
-    [Candidate {
-        name: "box".into(),
-        local: true,
-        health,
-        health_at: None,
-        via_hub: false,
-        unreachable: None,
-    }]
+    [Candidate { name: "box".into(), local: true, health, health_at: None, via_hub: false }]
 }
 
 fn health(ram_gb: u64, live: u64) -> Value {
@@ -124,7 +117,7 @@ fn a_machine_only_the_hub_reaches_is_weighed_by_its_hub_reading() {
             "via": "hub", "lastSeen": 1, "sessions": 0});
         if let Some(live) = live {
             row["health"] = health(40, live);
-            row["healthAt"] = json!(crate::store::now_ms());
+            row["healthAt"] = json!(1);
         }
         row
     };
@@ -167,7 +160,6 @@ fn off_interactive_drops_the_machines_people_work_at() {
         health: Value::Null,
         health_at: None,
         via_hub: false,
-        unreachable: None,
     };
     let kept = off_interactive_hosts(
         vec![c("mac", true), c("laptop", false), c("desk", false), c("lane", false)],
@@ -198,14 +190,7 @@ fn dispatch_registry() -> Value {
 }
 
 fn named(name: &str, local: bool, health: Value) -> Candidate {
-    Candidate {
-        name: name.into(),
-        local,
-        health,
-        health_at: None,
-        via_hub: false,
-        unreachable: None,
-    }
+    Candidate { name: name.into(), local, health, health_at: None, via_hub: false }
 }
 
 /// design/agent-dispatch.md: `dispatch --host auto` never starts a new lane on a person's

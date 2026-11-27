@@ -259,24 +259,6 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
         self.assertEqual(h.waited(), 1)
 
-    def test_a_dispatch_github_could_not_read_the_workflow_for_is_tried_again(self) -> None:
-        # Run 45798252585: dispatch-published-in got "HTTP 422 ... twirp error resource_exhausted: gitmon refuses
-        # to schedule us"; GitHub never read the workflow file, so nothing ran and the same call is tried again.
-        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
-                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Invalid Argument - failed to parse "
-                                    "workflow: failed to fetch workflow: getting blob contents: twirp error resource_exhausted: "
-                                    "gitmon refuses to schedule us: fail-fast:network")
-        result = h.gh("workflow", "run", "nightly.yml")
-        self.assertEqual(result.returncode, 0, result)
-        self.assertEqual(h.calls(), ["call workflow run nightly.yml"] * 2)
-
-    def test_another_422_is_not_tried_again(self) -> None:
-        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
-                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Unexpected inputs provided")
-        result = h.gh("workflow", "run", "nightly.yml")
-        self.assertNotEqual(result.returncode, 0, result)
-        self.assertEqual(h.calls(), ["call workflow run nightly.yml"])
-
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
@@ -567,9 +549,6 @@ SHARED_TOKEN_ONLY = {
     # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
     ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
-    # A git fetch of the notes span with the job token (#58154), like published-in's "Fetch the published span":
-    # git's own limit, not the REST core budget.
-    ("sign-release-notes", "Fetch the commits since the newest published notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
     ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
@@ -640,17 +619,6 @@ class WorkflowTests(unittest.TestCase):
             script = step["with"]["script"]
             self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
             script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
-            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
-            self.assertIn("x-ratelimit-reset", script, step.get("name"))
-            self.assertIn("deadline", script, step.get("name"))
-
-    def test_the_failure_close_waits_through_a_rate_limit(self) -> None:
-        # Run 45823496118's close-nightly-failure-issue died on "API rate limit exceeded" (2026-11-26). It has no
-        # checkout, so its github-script carries the same wrap inline.
-        scripts = [s for s in self.jobs["close-nightly-failure-issue"]["steps"] if "github-script" in str(s.get("uses", ""))]
-        self.assertTrue(scripts)
-        for step in scripts:
-            script = step["with"]["script"]
             self.assertIn("github.hook.wrap('request'", script, step.get("name"))
             self.assertIn("x-ratelimit-reset", script, step.get("name"))
             self.assertIn("deadline", script, step.get("name"))

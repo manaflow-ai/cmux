@@ -202,7 +202,7 @@
   background: var(--page-text-2);
 }
 .hc-chief-work__plan p {
-  margin: var(--grid-half-step) 0 0;
+  margin: 2px 0 0;
 }
 .hc-chief-work__plan-label {
   color: var(--page-text-3);

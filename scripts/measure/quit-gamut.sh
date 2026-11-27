@@ -64,9 +64,6 @@ ab() {
   echo "GAMUT setup build helpers"
   # Keep the carrier's timeout available while the builds check out historical commits.
   cp scripts/ci/timeout.sh "$out/timeout.sh" || exit 3
-  # The bounded build starts a new shell after checkout: preserve the carrier's progress helper too.
-  cp scripts/measure/build-progress.sh "$out/build-progress.sh" || exit 3
-  export NFL_BUILD_PROGRESS="$out/build-progress.sh"
   # nightly-fresh-launch.sh's build_dmg, without running its main (as launch-ready.sh sources it).
   sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
   source "$out/nightly-fresh-launch-lib.sh"

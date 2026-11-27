@@ -61,27 +61,6 @@ class WhichWindowsCount(unittest.TestCase):
         self.assertEqual(self.over([win("Anything", everywhere, alpha=0.0)]), [])
         self.assertEqual(self.over([win("Anything", [100, 100, 1, 500])]), [])  # a hairline
 
-    def test_the_recorders_cursor_overlay_does_not(self):
-        # The overlay's real CGWindowList owner name has a space; the old list named only CuaDriver and cua-driver.
-        self.assertEqual(self.over([win("Cua Driver", [40, 40, 1000, 600], layer=25)]), [])
-
-    def test_only_windows_above_the_apps_window_count(self):
-        # CGWindowList is front to back: a banner before the app's window covers it; Finder's desktop and
-        # WindowManager's strip after it are behind it, though their bounds overlap the content.
-        app = win("cmux NIGHTLY", WINDOW, pid=APP_PID)
-        marker = win("tab-switch-tools", [0, 0, 24, 24], pid=MARKER_PID, layer=25)
-        banner = win("NotificationCenter", [400, 300, 300, 100], layer=23)
-        behind = [win("Finder", [0, 0, 2000, 1200]), win("WindowManager", [40, 200, 80, 300])]
-        found = self.over([marker, banner, app, *behind])
-        self.assertEqual([w["owner"] for w in found], ["NotificationCenter"])
-        self.assertEqual(self.over([marker, app, *behind]), [])
-        # A window between the marker and the app's window still counts: the marker is not the app's window.
-        self.assertEqual([w["owner"] for w in self.over([marker, banner, app])], ["NotificationCenter"])
-
-    def test_a_sample_without_the_apps_window_keeps_every_window(self):
-        found = self.over([win("Finder", [0, 0, 2000, 1200]), win("cmux NIGHTLY", [40, 40, 30, 30], pid=APP_PID)])
-        self.assertEqual([w["owner"] for w in found], ["Finder"])
-
     def test_a_window_outside_the_measured_rects_does_not(self):
         # Over the window's top band (above the content, right of the sidebar) and off the window: no measured rect.
         above = [300, 40, 200, 8]  # y 40..48 points = 0..3.8 px, content starts at 20 px
@@ -109,13 +88,6 @@ class RoundsInTime(unittest.TestCase):
 
     def test_the_apps_own_windows_are_never_kept(self):
         self.assertEqual(self.log().samples[0][1], [])
-
-    def test_a_window_behind_the_app_is_never_kept(self):
-        log = foreign.ForeignLog({APP_PID, MARKER_PID}, WINDOW, SCALE)
-        log.add(1.0, [win("securityd", [400, 300, 300, 150]), win("cmux NIGHTLY", WINDOW, pid=APP_PID),
-                      win("Finder", [0, 0, 2000, 1200]), win("WindowManager", [40, 200, 80, 300])])
-        self.assertEqual(foreign.owners(log.samples[0][1]), ["securityd"])
-        self.assertEqual(foreign.owners(log.between(0.0, 2.0, [CONTENT, SIDEBAR])), ["securityd"])
 
     def test_exclude_splits_the_rounds(self):
         log = self.log()

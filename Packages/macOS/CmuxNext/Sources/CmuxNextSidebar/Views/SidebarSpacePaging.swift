@@ -207,7 +207,7 @@ import QuartzCore
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         model.expanded = host.model.expanded
         model.detailedStatus = host.model.detailedStatus
-        (model.showsTimestamps, model.relativeTimestamps) = (host.model.showsTimestamps, host.model.relativeTimestamps)
+        model.showsTimestamps = host.model.showsTimestamps
         model.settlesFinished = host.model.settlesFinished
         (model.showsColors, model.colorIndicator) = (host.model.showsColors, host.model.colorIndicator)
         model.showsLocalMachine = host.model.showsLocalMachine

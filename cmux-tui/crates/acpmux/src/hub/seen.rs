@@ -66,22 +66,10 @@ impl Look {
 
 impl Hub {
     /// A client attached (`delta` > 0) or detached; `visible` says whether
-    /// it shows the chat. Attaching to show it is seeing it. A person's client.
+    /// it shows the chat. Attaching to show it is seeing it.
     pub fn attach_count(&self, session: &Session, delta: i32, visible: bool) {
-        self.attach_count_from(session, delta, visible, true);
-    }
-
-    /// [`Self::attach_count`] for a client that is a person's (`person`) or not: an agent's
-    /// CLI or tool reading another chat (`acpmux last`, `wait`, `tail`), or a peer daemon's link.
-    /// Only a person showing the chat restarts its idle period: arriving, or letting go of it.
-    /// An agent's or a link's look is no use of the chat, and peeks at a finished chat every few
-    /// minutes held its harness up for good: each look gave it a full idle period again (7 min
-    /// with a background task), so most idle chats a fleet kept up were ones another agent had
-    /// read since their last turn.
-    pub fn attach_count_from(&self, session: &Session, delta: i32, visible: bool, person: bool) {
-        if person && visible {
-            self.touch(session);
-        }
+        // A client letting go starts the idle period; one arriving resets it.
+        self.touch(session);
         let was_attended = self.attended(session);
         let seen = session.seq.load(Ordering::SeqCst);
         let n = delta.unsigned_abs() as usize;

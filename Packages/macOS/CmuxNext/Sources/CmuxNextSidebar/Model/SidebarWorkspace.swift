@@ -193,7 +193,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
-    /// Its agent chats' subagents, which the hover card counts and the row's failed mark reads; nil without any.
+    /// Its agent chats' subagents, which the row lists under its name (`SidebarSubagentStrip`); nil without any.
     public var subagents: SidebarSubagents?
     /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
     /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.

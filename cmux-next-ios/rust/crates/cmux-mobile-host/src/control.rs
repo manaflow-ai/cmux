@@ -290,19 +290,6 @@ pub enum Inbound {
         desktops: bool,
         links: Vec<CloudLink>,
     },
-    /// The person's "hand sign-ins to iPhone" switch (`site_data.rs`); off until this line.
-    SiteDataHandoff {
-        enabled: bool,
-    },
-    /// What the app read from a tab's store for `need_site_data` `request`. Never logged.
-    SiteData {
-        request: u64,
-        data: Box<crate::site_data::FromApp>,
-    },
-    SiteDataFailed {
-        request: u64,
-        reason: String,
-    },
 }
 
 impl Inbound {
@@ -423,14 +410,6 @@ pub enum Event {
     NeedCloudLinks {
         request: u64,
     },
-    /// Read the cookies and local storage of browser tab `surface` for `site` only
-    /// (`site_data.rs`); answer `site_data` or `site_data_failed` for `request`.
-    NeedSiteData {
-        request: u64,
-        surface: u64,
-        site: String,
-        url: String,
-    },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -523,11 +502,6 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::SurfaceFailed { request, reason }) => surfaces.answer(request, Err(reason)),
                 Some(Inbound::SurfaceGone { tab }) => surfaces.gone(&tab),
-                Some(Inbound::SiteDataHandoff { enabled }) => crate::site_data::set_enabled(enabled),
-                Some(Inbound::SiteData { request, data }) => crate::site_data::answer(request, Ok(*data)),
-                Some(Inbound::SiteDataFailed { request, reason }) => {
-                    crate::site_data::answer(request, Err(reason));
-                }
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }

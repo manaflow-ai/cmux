@@ -277,11 +277,6 @@ Every button and text field on those pages (`ui/controls.css`):
 | `--cmux-input-border` | `0` | every text field's border |
 | `--cmux-input-shadow` | `none` | every text field's shadow: an inset well, say |
 
-These are part of the component tokens (`webviews/src/ui/README.md`, "Component tokens";
-`schemas/component-tokens/component-tokens.json`), which also size buttons (`--cmux-button-height-md`,
-`--cmux-button-padding-inline-md`, ...) and shape menus, tooltips and dialogs (`--cmux-tooltip-radius`,
-`--cmux-dialog-radius`, `--cmux-dialog-padding`).
-
 A shadow token loses to a variant's own edge (the outline field's hairline) and to every focus ring,
 so focus stays visible in any look.
 

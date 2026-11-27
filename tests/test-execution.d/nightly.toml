@@ -336,10 +336,6 @@ path = "tests/test_nightly_publish_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_published_feed_check.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_nightly_release_downloads.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_release_downloads.py"

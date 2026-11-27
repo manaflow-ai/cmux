@@ -1355,10 +1355,7 @@ impl Progress {
 /// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
-    // `CMUX_CLOUD_FAULT` (start_fault.rs, unset by default): the probe's fault drill answers that class's error in
-    // place of this start, so the table below is measured on it against production.
-    let outcome = start_fault::take()
-        .map_or_else(|| run_once(runner, request), |class| start_fault::error(class, request));
+    let outcome = run_once(runner, request);
     // Every failure goes through the one recovery table (recover.rs): a new machine this run made that never came
     // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
     // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
@@ -3450,24 +3447,17 @@ pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Resu
             step_result(&runner.cmux(&resume))?;
             // The resume can answer before the machine's record runs: a refusal for its state while it comes up
             // is asked again, every RESUME_PAUSE, for at most RESUME_BOUND (and never past the run's deadline).
-            // A try is only made when it can end inside the bound: the pause and the last try's own time both count,
-            // so the final ask never runs past RESUME_BOUND.
             let woke = runner.now();
             loop {
-                let asked = runner.now();
-                let ran = runner.cmux(&args);
-                let took = runner.now().saturating_duration_since(asked);
-                match step_result(&ran) {
+                match step_result(&runner.cmux(&args)) {
                     Err(error)
                         if (machine_not_running(&error)
                             || at(&error, "code").as_str() == Some("vm_state_conflict"))
-                            && runner.now().saturating_duration_since(woke)
-                                + RESUME_PAUSE
-                                + took
+                            && runner.now().saturating_duration_since(woke) + RESUME_PAUSE
                                 < RESUME_BOUND
                             && runner
                                 .until()
-                                .is_none_or(|until| runner.now() + RESUME_PAUSE + took < until) =>
+                                .is_none_or(|until| runner.now() + RESUME_PAUSE < until) =>
                     {
                         runner.pause(RESUME_PAUSE);
                     }
@@ -3776,7 +3766,6 @@ mod folder;
 mod fresh;
 mod internal;
 mod recover;
-mod start_fault;
 use folder::local_folder;
 use internal::link_wait;
 mod support;

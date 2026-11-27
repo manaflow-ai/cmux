@@ -210,8 +210,8 @@
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
-              "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.relativeTimestamps",
-              "sidebar.settleFinished", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
+              "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarPriority", "text": "Priority View"}, "note": "The Priority view's keys (the Codex app's activity list) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [

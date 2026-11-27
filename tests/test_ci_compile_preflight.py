@@ -146,61 +146,6 @@ class BuildErrors(unittest.TestCase):
         self.assertEqual(receipt["source_key"], "bundle-key")
 
 
-class LiveBase(unittest.TestCase):
-    """cmux#51044: the preflight built GitHub's stale merge commit and passed; the base had moved."""
-
-    def git(self, cwd, *args):
-        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(cwd), *args],
-                              check=True, capture_output=True, text=True).stdout.strip()
-
-    def test_a_stale_merge_commit_is_rebuilt_on_the_live_tip(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            origin = Path(tmp) / "origin"
-            origin.mkdir()
-            self.git(origin, "init", "-q", "-b", "main")
-            (origin / "a.tsx").write_text("import {\n  x,\n} from './m';\n")
-            self.git(origin, "add", ".")
-            self.git(origin, "commit", "-qm", "base")
-            self.git(origin, "checkout", "-qb", "head")
-            (origin / "a.tsx").write_text("import {\n  x,\n  layoutGeometry,\n} from './m';\n")
-            self.git(origin, "commit", "-qam", "pr adds the import")
-            head = self.git(origin, "rev-parse", "HEAD")
-            self.git(origin, "update-ref", "refs/pull/7/head", head)
-            self.git(origin, "checkout", "-q", "main")
-            self.git(origin, "checkout", "-q", "-B", "stale", "main")
-            self.git(origin, "merge", "--no-ff", "-qm", "stale merge", head)
-            stale = self.git(origin, "rev-parse", "HEAD")
-            self.git(origin, "checkout", "-q", "main")
-            (origin / "b.txt").write_text("base moved\n")
-            self.git(origin, "add", ".")
-            self.git(origin, "commit", "-qm", "base moves")
-            tip = self.git(origin, "rev-parse", "HEAD")
-            work = Path(tmp) / "work"
-            self.git(tmp, "clone", "-q", "--no-local", "--depth=2", "--branch", "stale", f"file://{origin}", str(work))
-            self.assertEqual(self.git(work, "rev-parse", "HEAD"), stale)
-            out = subprocess.run([sys.executable, "-I", str(SCRIPT), "merge-live-base", str(work), "main", "7"],
-                                 capture_output=True, text=True)
-            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-            self.assertEqual(self.git(work, "rev-parse", "HEAD^1"), tip)
-            self.assertEqual(self.git(work, "rev-parse", "HEAD^2"), head)
-            self.assertTrue((work / "b.txt").exists())
-            again = subprocess.run([sys.executable, "-I", str(SCRIPT), "merge-live-base", str(work), "main", "7"],
-                                   capture_output=True, text=True)
-            self.assertEqual(again.returncode, 0)
-            self.assertIn("live tip", again.stderr)
-
-    def test_the_callee_merges_onto_the_live_base_then_fails_fast(self) -> None:
-        block = job_block(CALLEE.read_text(), "web")
-        merge = block.index("compile_preflight.py merge-live-base")
-        touched = block.index("compile_preflight.py web-touched")
-        dup = block.index("tests/test_webviews_no_duplicate_import_names.py")
-        install = block.index("name: Setup Bun")
-        self.assertLess(merge, touched)
-        self.assertLess(dup, install, "the parse check runs before any install")
-        self.assertLess(block.index("name: Fast fail"), block.index("name: Source key"))
-
-
 class NeverSkipped(unittest.TestCase):
     def test_router_calls_it_on_every_tier(self) -> None:
         block = job_block(ROUTER.read_text(), "compile-preflight")
@@ -341,6 +286,24 @@ class SharedWebArtifact(unittest.TestCase):
         save = text[text.index("- name: Cache the web bundles under this source key") :]
         save = save[:save.index("\n      - name: ", 1)]
         self.assertIn("path: ${{ runner.temp }}/web-bundles-out", save)
+
+    def test_github_cache_hit_skips_the_preflight_build(self) -> None:
+        import yaml
+        job = yaml.safe_load(CALLEE.read_text())['jobs']['web']
+        gated = {
+            step['name']: step['if']
+            for step in job['steps']
+            if step.get('name') in {
+                'Restore pinned Bun 1.4.4 from the CI cache bucket',
+                'Setup Bun', 'Give this job its own bun',
+                'Restore pinned Node 24.22.1 from the CI cache bucket',
+                'Setup Node', 'Restore the webviews Bun package cache',
+                'Build the web bundles (the build NIGHTLY runs)',
+            }
+        }
+        self.assertEqual(len(gated), 7)
+        for condition in gated.values():
+            self.assertIn("steps.web-bundle-cache.outputs.cache-hit != 'true'", condition)
 
     def test_outage_is_not_hidden_by_rebuilding_or_switching_transport(self) -> None:
         import yaml

@@ -64,7 +64,6 @@ extension SidebarListViewComponents {
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
-        scheduleRelativeTimesTick()
     }
     /// The rows' caches (workspaces, groups and their subtrees, sections, listed items) from the sections the list draws.
     private func rebuildRowCaches() {

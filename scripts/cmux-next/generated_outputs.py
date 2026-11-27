@@ -53,9 +53,6 @@ SETTINGS_INPUTS = (
     r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
     # A settings row is its JSON source; the SwiftPM plugin writes the Swift (#50929).
     r"|schemas/settings/source/|scripts/cmux-next/gen-settings-sources\.py$"
-    # The backdrop art's artist and collection (linux-exports/swift_data.py reads them from the manifest: the
-    # build writes BackdropArt+Entries.swift, BackdropArtEntriesPlugin).
-    r"|art/manifest\.json$"
 )
 
 

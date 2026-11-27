@@ -20,14 +20,7 @@ fn health(cpus: u64, load: f64, pressure: &str, avail: f64, live: u64) -> Value 
 }
 
 fn peer(name: &str, health: Value, at: Option<u64>) -> Candidate {
-    Candidate {
-        name: name.into(),
-        local: false,
-        health,
-        health_at: at,
-        via_hub: false,
-        unreachable: None,
-    }
+    Candidate { name: name.into(), local: false, health, health_at: at, via_hub: false }
 }
 
 #[test]
@@ -195,7 +188,6 @@ fn daemon_status_gives_the_inputs_placement_builds() {
         health: local_health(&readings, pressure.clone()),
         health_at: Some(9_000_000),
         via_hub: false,
-        unreachable: None,
     };
     // `daemon status`'s `host_pressure`: the verdict, this daemon's own keys,
     // then the readings.

@@ -22,7 +22,6 @@ fn book() -> AddressBook {
         host: format!("{id}-host"),
         user: user.into(),
         last_seen_at: 1,
-        ..Default::default()
     };
     let session = |id: &str, daemon: &str, name: &str, state: &str| BookSession {
         name: name.into(),

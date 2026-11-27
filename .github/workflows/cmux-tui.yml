@@ -1470,9 +1470,6 @@ jobs:
           # acpmux builds for Windows (the port lands in steps): every
           # target, tests included, so no Unix-only code comes back ungated.
           cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
-          # cmux-cas (acpmux's content store) on its own, tests included:
-          # its Unix inode/block reads stay behind cfg(unix).
-          cargo check --locked --target x86_64-pc-windows-gnu -p cmux-cas --all-targets
           # acpmux on Windows through its CLI and socket: daemon run, status,
           # the start lock, the saved token, shutdown.
           cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \

@@ -32,8 +32,8 @@ in runs 43338660731 to 43342364793), and the split counted it as no load, so sha
 after a balanced sibling every run. The split starts that shard's plan at those seconds.
 
 DURATIONS is a JSON object {file: seconds}; a missing or unreadable file is no durations. The
-runner writes each file's first-run seconds, unless that run failed (CMUX_WEB_TEST_DURATIONS_OUT);
-`merge` averages them with the prior manifest, so one noisy run moves a file's weight by half.
+runner writes each file's first-run seconds (CMUX_WEB_TEST_DURATIONS_OUT); `merge` averages them
+with the prior manifest, so one noisy run moves a file's weight by half.
 """
 from __future__ import annotations
 
@@ -48,10 +48,6 @@ import sys
 # then dev-server files (jobs / 4), then alone files.
 PLAIN_AT_ONCE, BROWSER_AT_ONCE, DEV_AT_ONCE = 24, 8, 8
 ALONE_MARK = "// cmux-web-test-alone"
-# The least a known file weighs in the split, in milliseconds: the runner records whole seconds.
-MIN_COST_MS = 1000
-# A dev-server file recorded at or under this took no real run (see assign).
-DEV_PLAUSIBLE_MS = 2000
 # run-webviews-tests.sh's browser_files: a plain file that drives a real browser.
 BROWSER_MARK = re.compile(r'from "playwright"|import\("playwright"\)|requireBrowserLane\(')
 
@@ -199,15 +195,6 @@ def assign(files: list[str], serial: set[str], durations: dict[str, float], coun
             kind = "browser" if runs_browser(name) else "plain"
         config = vite_config(name) if kind == "dev" else ""
         known.append((round(durations[name] * 1000), name, kind, config, index))
-    # A 0 s file grows no shard's wall or work, so every one went to the same shard (run 45937345076:
-    # 1452 files and 372 dev-server ones on shard 2, cancelled at 90 min, beside shards of 22 to 59 min).
-    # Each file weighs at least MIN_COST_MS, and a dev-server file at least the median of the dev-server
-    # files that took over DEV_PLAUSIBLE_MS: one that starts a Vite server is not done in a second, yet
-    # the 11-27 manifest held 406 of 481 at 1 s or less (the rest: median 19 s).
-    plausible = sorted(cost for cost, _, kind, _, _ in known if kind == "dev" and cost > DEV_PLAUSIBLE_MS)
-    dev_floor = max(MIN_COST_MS, plausible[len(plausible) // 2] if plausible else 0)
-    known = [(max(dev_floor if kind == "dev" else MIN_COST_MS, cost), name, kind, config, index)
-             for cost, name, kind, config, index in known]
     for cost, _, kind, config, index in sorted(known, key=lambda item: (-item[0], item[1])):
         target = min(range(count), key=lambda shard: (plans[shard].wall(kind, cost, config), plans[shard].total, shard))
         plans[target].add(kind, cost, config)
@@ -225,30 +212,13 @@ def order(names: list[str], durations: dict[str, float], direction: str) -> list
     return sorted(names, key=key)  # stable: equal keys keep the git index order
 
 
-VERDICTS = ("PASS", "TIMEOUT", "FAIL")
-
-
 def record(lines: str) -> dict[str, float]:
-    """Each file's first run: a retry runs alone and says nothing about the file among the others.
-    A line is `SECONDS FILE` or `SECONDS VERDICT FILE`. A first run that FAILed records nothing: a
-    file that dies at once (a broken base, a missing module) took 0 s, and `merge` halved its weight
-    each such run, so the 11-27 manifest held 772 of 3256 files at 0 s, accent-glass-invariants
-    (549 s) among them. The prior manifest keeps the file's weight instead."""
+    """Each file's first run: a retry runs alone and says nothing about the file among the others."""
     found: dict[str, float] = {}
-    failed: set[str] = set()
     for line in lines.splitlines():
         seconds, _, name = line.partition(" ")
-        verdict, _, rest = name.partition(" ")
-        if verdict in VERDICTS and rest:
-            name = rest
-        else:
-            verdict = ""
-        if not (name and seconds.isdigit()) or name in found or name in failed:
-            continue
-        if verdict == "FAIL":
-            failed.add(name)
-        else:
-            found[name] = float(seconds)
+        if name and seconds.isdigit():
+            found.setdefault(name, float(seconds))
     return found
 
 

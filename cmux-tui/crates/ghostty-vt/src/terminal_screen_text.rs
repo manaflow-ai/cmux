@@ -24,45 +24,18 @@ impl Terminal {
         if cols == 0 {
             return None;
         }
-        // A screen lookup walks the page list from the top of the history, so
-        // the row is looked up once and each cell is the same row's ref at its
-        // column (Cmd-F and copy mode read every row of a long history this
-        // way). Only when both ends resolve to the same page row is every column
-        // in between on it; a row whose page is narrower than the terminal (a
-        // reflow not done yet) takes the checked lookup for each cell.
-        let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
-        let first = self.grid_ref(tag, 0, row)?;
-        let whole_row = cols == 1
-            || self.grid_ref(tag, cols - 1, row).is_some_and(|last| {
-                last.node == first.node && last.y == first.y && last.x == cols - 1
-            });
         let mut cells = Vec::with_capacity(usize::from(cols));
         let mut codepoints = Vec::new();
         for column in 0..cols {
-            let grid_ref = if whole_row {
-                sys::GhosttyGridRef { x: column, ..first }
-            } else {
-                self.grid_ref(tag, column, row)?
-            };
+            let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, column, row)?;
             let mut raw = sys::GhosttyCell::default();
             check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
             let width = crate::render::cell_width(raw);
             let text = grid_ref_text(&grid_ref, &mut codepoints)?;
             cells.push(ScreenTextCell { text, width });
         }
-        // The wrap flag is the row's, read from the first cell's ref: no third walk.
-        // A failed read is no wrap, as `row_flag` reads it.
-        let mut grid_row = sys::GhosttyRow::default();
-        let mut wraps = false;
-        let wraps = check(unsafe { sys::ghostty_grid_ref_row(&first, &mut grid_row) }).is_ok()
-            && unsafe {
-                sys::ghostty_row_get(
-                    grid_row,
-                    sys::GHOSTTY_ROW_DATA_WRAP,
-                    (&mut wraps as *mut bool).cast(),
-                )
-            } == sys::GHOSTTY_SUCCESS
-            && wraps;
+        let wraps = self.row_flag(sys::GHOSTTY_POINT_TAG_SCREEN, row, sys::GHOSTTY_ROW_DATA_WRAP)
+            == Some(true);
         Some(ScreenRowText { cells, wraps })
     }
 
@@ -253,35 +226,6 @@ fn grid_ref_text(grid_ref: &sys::GhosttyGridRef, codepoints: &mut Vec<u32>) -> O
     .ok()?;
     Some(codepoints.iter().take(len).map(|&cp| char::from_u32(cp).unwrap_or('\u{FFFD}')).collect())
 }
-
-#[cfg(test)]
-impl Terminal {
-    /// Tests: `screen_row_text` as it was, a page-list walk per cell and one more for the wrap
-    /// flag: the oracle the one-walk-per-row read is checked against, and the bench's "before".
-    pub(crate) fn screen_row_text_per_cell(&self, row: u64) -> Option<ScreenRowText> {
-        let cols = self.cols();
-        if cols == 0 {
-            return None;
-        }
-        let mut cells = Vec::with_capacity(usize::from(cols));
-        let mut codepoints = Vec::new();
-        for column in 0..cols {
-            let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, column, row)?;
-            let mut raw = sys::GhosttyCell::default();
-            check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
-            let width = crate::render::cell_width(raw);
-            let text = grid_ref_text(&grid_ref, &mut codepoints)?;
-            cells.push(ScreenTextCell { text, width });
-        }
-        let wraps = self.row_flag(sys::GHOSTTY_POINT_TAG_SCREEN, row, sys::GHOSTTY_ROW_DATA_WRAP)
-            == Some(true);
-        Some(ScreenRowText { cells, wraps })
-    }
-}
-
-#[cfg(test)]
-#[path = "screen_row_text_tests.rs"]
-mod screen_row_text_tests;
 
 #[cfg(test)]
 mod tests {

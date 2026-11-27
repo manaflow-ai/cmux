@@ -32,7 +32,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 104,
+   "acpmux": 111,
    "acpmux-tui": 5,
    "chatmux-relay": 7,
    "cmux-remote": 4,
@@ -47,7 +47,7 @@
  },
  "swift": {
   "async_closure_default_arg": {
-   "CmuxAuthRuntime": 6,
+   "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
    "CmuxNextApp": 2,
    "CmuxNextBrowserHost": 1,
@@ -72,6 +72,7 @@
   },
   "unchecked": {
    "CMUXAuthCore": 3,
+   "CmuxAuthRuntime": 1,
    "CmuxHomeCore": 1,
    "CmuxHomeRender": 5,
    "CmuxNextAgentPane": 2,
@@ -130,7 +131,7 @@
     "CmuxNextBrowser": 20,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
-    "CmuxNextPages": 6,
+    "CmuxNextPages": 5,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
@@ -153,7 +154,6 @@
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 11,
     "CmuxNextCrashReporting": 11,
-    "CmuxNextDaemon": 1,
     "CmuxNextDesign": 12,
     "CmuxNextFiles": 2,
     "CmuxNextFilesUI": 1,

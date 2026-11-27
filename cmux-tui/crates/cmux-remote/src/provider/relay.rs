@@ -118,7 +118,6 @@ pub use registration_state::RegistrationState;
 #[cfg(test)]
 pub(crate) use registration_state::test_wall;
 use registration_state::wall_now;
-pub use standby::EARLY_CONNECT_NOT_INLINE;
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -527,8 +526,6 @@ pub struct RelayProvider {
     /// `control_timeout`, for the daemon to join its circuit once the relay
     /// allocated it ([`RelayProvider::with_peer_join_wait`]).
     peer_join_wait: Option<Duration>,
-    /// Whether a first lane's Connect is early ([`RelayProvider::with_early_connect`]).
-    early_connect: bool,
     /// When set, a lane allocated before any other lane of its group waits
     /// no later than this: the first lane is the one a relay parks for a
     /// daemon that has not registered, and a caller may give up on that park
@@ -559,7 +556,6 @@ impl RelayProvider {
             allocation_deadline: None,
             peer_join_wait: None,
             first_allocation_deadline: None,
-            early_connect: standby::early_connect_wanted(),
         })
     }
 
@@ -583,16 +579,6 @@ impl RelayProvider {
     /// circuit's socket keeps its own bound.
     pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
         self.peer_join_wait = Some(wait);
-        self
-    }
-
-    /// Send a first lane's inline Connect and hand its socket back as the link at once, the
-    /// Connect's `Ready` read by the link's first receive, so the caller's first frame (Noise
-    /// msg1) rides right behind the Connect rather than a round trip after it. A relay that
-    /// answers `Allocated` (no Standby free) fails the link with [`EARLY_CONNECT_NOT_INLINE`],
-    /// and the caller dials again with this off. Default: `CMUX_RELAY_EARLY_CONNECT=1` (off).
-    pub fn with_early_connect(mut self, on: bool) -> Self {
-        self.early_connect = on;
         self
     }
 
@@ -662,7 +648,6 @@ impl TransportProvider for RelayProvider {
             allocation_deadline: self.allocation_deadline,
             peer_join_wait: self.peer_join_wait,
             first_allocation_deadline: self.first_allocation_deadline,
-            early_connect: self.early_connect,
             allocated: AtomicBool::new(false),
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
@@ -682,7 +667,6 @@ struct RelayLinkGroup {
     allocation_deadline: Option<Instant>,
     peer_join_wait: Option<Duration>,
     first_allocation_deadline: Option<Instant>,
-    early_connect: bool,
     /// Whether one of this group's lanes has been allocated: from then on no
     /// lane waits the first allocation's deadline.
     allocated: AtomicBool,
@@ -734,9 +718,6 @@ enum RelayCircuitSender {
 struct RelayCircuitReceiver {
     stream: RelayCircuitStream,
     pending: VecDeque<Bytes>,
-    /// An early Connect's lane and generation (`RelayProvider::with_early_connect`): the socket's
-    /// first answer is still to come, and only its `Ready` makes this the circuit.
-    awaiting: Option<(LaneToken, u64)>,
 }
 
 enum RelayCircuitCommand {
@@ -770,18 +751,10 @@ impl RelayCircuitLink {
             receiver: Mutex::new(RelayCircuitReceiver {
                 stream: receiver,
                 pending: VecDeque::new(),
-                awaiting: None,
             }),
             terminal,
             closed: AtomicBool::new(false),
         }
-    }
-
-    /// This circuit before the relay answered its early Connect: the first receive reads the
-    /// `Ready` for `lane` and `generation` (or fails on `Allocated`) before any frame.
-    fn awaiting_ready(mut self, lane: LaneToken, generation: u64) -> Self {
-        self.receiver.get_mut().awaiting = Some((lane, generation));
-        self
     }
 
     async fn send_control(&self, control: &RelayControl) -> Result<(), LinkError> {
@@ -1058,31 +1031,6 @@ impl FrameLink for RelayCircuitLink {
                         ));
                     }
                     match serde_json::from_str(&text) {
-                        Ok(RelayControl::Ready { lane, generation, .. })
-                            if receiver
-                                .awaiting
-                                .as_ref()
-                                .is_some_and(|(l, g)| *l == lane && *g == generation) =>
-                        {
-                            receiver.awaiting = None;
-                        }
-                        Ok(RelayControl::Parked { .. }) if receiver.awaiting.is_some() => {}
-                        // No Standby was free (`Allocated`), or the relay refused the Connect
-                        // (a ticket to renew, a slot gone offline, a relay to pass): the caller
-                        // dials again with early Connect off, which handles each of these.
-                        Ok(RelayControl::Allocated { .. }) if receiver.awaiting.is_some() => {
-                            let error = LinkError::Transport(EARLY_CONNECT_NOT_INLINE.into());
-                            self.publish_terminal(error.clone());
-                            return Err(error);
-                        }
-                        Ok(RelayControl::Error { code, .. }) if receiver.awaiting.is_some() => {
-                            let error = LinkError::Transport(format!(
-                                "{EARLY_CONNECT_NOT_INLINE}: {}",
-                                sanitize_relay_code(&code)
-                            ));
-                            self.publish_terminal(error.clone());
-                            return Err(error);
-                        }
                         Ok(RelayControl::Error { retryable: true, .. }) => {
                             return Err(LinkError::Transport(
                                 "relay circuit became unavailable".into(),
@@ -1214,21 +1162,6 @@ impl LinkGroup for RelayLinkGroup {
                         .await?
                 }
             };
-            if self.early_connect(request.generation) {
-                // The link is this socket from here: its first receive reads the Connect's answer
-                // (`Ready`), and what the caller sends rides right behind the Connect.
-                send_connect(
-                    &mut control,
-                    &self.config,
-                    &self.credentials,
-                    &lane,
-                    request.generation,
-                )
-                .await
-                .map_err(AllocationError::into_provider_error)?;
-                self.allocated.store(true, Ordering::Release);
-                return Ok(self.inline_link_awaiting(control, lane, request.generation));
-            }
             match request_allocation(
                 &mut control,
                 &self.config,
@@ -1382,20 +1315,6 @@ async fn request_allocation(
     lane: &LaneToken,
     generation: u64,
 ) -> Result<Allocation, AllocationError> {
-    send_connect(socket, config, credentials, lane, generation).await?;
-    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
-        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
-    )?
-}
-
-/// A client's Connect for `lane`, its answer not read.
-async fn send_connect(
-    socket: &mut RelaySocket,
-    config: &RelayClientConfig,
-    credentials: &RelayCredentialSource,
-    lane: &LaneToken,
-    generation: u64,
-) -> Result<(), AllocationError> {
     let (credential, grant) =
         credentials.fetch_with_grant().await.map_err(AllocationError::Authentication)?;
     send_control(
@@ -1413,7 +1332,10 @@ async fn send_connect(
         },
     )
     .await
-    .map_err(AllocationError::Reconnect)
+    .map_err(AllocationError::Reconnect)?;
+    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
+        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
+    )?
 }
 
 async fn read_until_allocation(
@@ -2270,15 +2192,10 @@ fn relay_unavailable(message: &str, code: &str) -> ProviderError {
              renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
         ));
     }
-    relay_carrier_error(format!("{message} (relay code {})", sanitize_relay_code(code)))
-}
-
-/// A relay's error code as shown: a short word as is, anything else `other`.
-fn sanitize_relay_code(code: &str) -> &str {
     let word = code.len() <= 32
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if word { code } else { "other" }
+    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
 }
 
 fn relay_rejection() -> ProviderError {

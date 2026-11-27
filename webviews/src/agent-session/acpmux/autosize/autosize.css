@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--text-detail);
+  font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary, rgba(127, 127, 127, 0.95));
   min-width: 0;
@@ -65,11 +65,16 @@
   margin-left: auto;
   font: inherit;
   font-weight: 500;
-  padding: var(--grid-half-step) 10px;
+  padding: 2px 10px;
   border-radius: 6px;
   border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
   background: var(--surface-raised, transparent);
   color: var(--text-primary, inherit);
+  cursor: pointer;
+}
+
+.autosize-row-upgrade:disabled {
+  cursor: default;
 }
 
 /* chip: one centered pill per row, like a timestamp divider */
@@ -91,7 +96,7 @@
   align-items: flex-start;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border-radius: var(--surface-card-radius);
+  border-radius: 10px;
   border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
   background: var(--surface-subtle, rgba(127, 127, 127, 0.06));
 }
@@ -103,7 +108,7 @@
 .autosize-row[data-look="card"] .autosize-row-body {
   flex: 1 1 200px;
   flex-direction: column;
-  gap: var(--grid-half-step);
+  gap: 2px;
 }
 
 .autosize-row[data-look="card"] .autosize-row-why::before,
@@ -112,5 +117,5 @@
 }
 
 .autosize-row[data-look="card"] .autosize-row-title {
-  font-size: var(--text-body);
+  font-size: 13px;
 }

@@ -168,7 +168,8 @@ fn result_text(result: &Value) -> String {
 /// the same socket as `cmux cloud repo`.
 async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
     // The chat's env where the daemon's gateway serves it, else this process's.
-    let binary = crate::login_env::cmux_cli_or(crate::tool_env::var("CMUX_BIN"));
+    let binary: std::ffi::OsString =
+        crate::tool_env::var("CMUX_BIN").unwrap_or_else(|| "cmux".into()).into();
     let socket = crate::tool_env::var("CMUX_SOCKET_PATH").map(std::ffi::OsString::from);
     run_cli_with(&binary, socket.as_deref(), action, request).await
 }

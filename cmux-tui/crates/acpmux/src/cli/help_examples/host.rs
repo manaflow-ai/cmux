@@ -54,16 +54,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "machine unreachable",
-        &[
-            (
-                "Keep a machine out of the pick after a copy to it failed",
-                "acpmux machine unreachable build-1 --why 'scp: Connection closed'",
-            ),
-            ("Let the pick use it again", "acpmux machine unreachable build-1 --clear"),
-        ],
-    ),
-    (
         "machine dedicated",
         &[
             (

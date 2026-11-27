@@ -99,6 +99,16 @@ import Testing
         #expect(model.visibleItems.map(\.name) == ["missed.png"])
     }
 
+    @Test func eventsOutsideTheRuleAreIgnored() throws {
+        let folder = URL(fileURLWithPath: "/s", isDirectory: true)
+        let preview = Self.source("p", folder, rule: ScreenshotScanRule(depth: 1, folderPrefix: "NSIRD_"))
+        #expect(ScreenshotsModel.isListed("/s/top.png", in: preview))
+        #expect(ScreenshotsModel.isListed("/s/NSIRD_1/a.png", in: preview))
+        #expect(!ScreenshotsModel.isListed("/s/Other/a.png", in: preview))
+        #expect(!ScreenshotsModel.isListed("/s/NSIRD_1/deep/a.png", in: preview))
+        #expect(!ScreenshotsModel.isListed("/elsewhere/a.png", in: preview))
+    }
+
     @Test func removingASourceDropsItsFilesAndItsSelection() async throws {
         let first = try TemporaryFolder()
         let second = try TemporaryFolder()

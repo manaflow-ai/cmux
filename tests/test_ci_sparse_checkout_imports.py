@@ -43,7 +43,6 @@ Run: python3 tests/test_ci_sparse_checkout_imports.py
 from __future__ import annotations
 
 import ast
-import functools
 import os
 import posixpath
 import re
@@ -271,18 +270,10 @@ def import_closure(script: str, root: Path) -> dict[str, str]:
 # --- workflows --------------------------------------------------------------------------------
 
 
-@functools.lru_cache(maxsize=None)
-def _load_workflow(path: Path):
-    """A workflow's parsed YAML, once per run and with libyaml when present: the pure-Python parser
-    spent 74 of the action scan's 102 s on the 310 workflows (2026-11-27)."""
-    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=loader) or {}
-
-
 def non_cone_sparse_steps(root: Path):
     """(workflow, job, step name, entries) for each actions/checkout step with a non-cone sparse list."""
     for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
-        doc = _load_workflow(path)
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
         for job_id, job in (jobs or {}).items():
             for index, step in enumerate((job or {}).get("steps") or []):
@@ -325,90 +316,6 @@ def find_misses(root: Path) -> list[str]:
                 + ("" if importer == script else f" (via {script})")
             )
     return misses
-
-
-# --- local actions a job uses ------------------------------------------------------------------
-
-# A composite action reaches its sibling actions by path: setup-cmux-tui-rust runs
-# `bash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"` (#38580). A job whose
-# non-cone sparse checkout lists the action's own folder but not that sibling fails the step with
-# exit 127: cmux-next-web-bundle-publish.yml's `cas` job (RFD 0166, #55931) did so on every run
-# from its first, so no web update pointer ever named its cas/1 objects. Only siblings under
-# .github/actions/ count: a script elsewhere in the repo an action reaches is an optional extra
-# there (toolchain-r2.sh is run only `[[ -f ]]`), and the import and read checks above cover scripts.
-ACTIONS_DIR = ".github/actions"
-_ACTION_PATH_REF = re.compile(
-    r"""(?:\$GITHUB_ACTION_PATH|\$\{GITHUB_ACTION_PATH\}|\$\{\{\s*github\.action_path\s*\}\})/([A-Za-z0-9_./-]+)"""
-)
-_LOCAL_USES = re.compile(r"""uses:\s*["']?\./(\.github/actions/[A-Za-z0-9_.-]+)""")
-
-
-def action_files(action_dir: str, root: Path, seen: set[str] | None = None) -> set[str]:
-    """Repo files under .github/actions/ a local action needs: its action.yml, every sibling file
-    it names by $GITHUB_ACTION_PATH/.., and the same for each local action it uses, transitively."""
-    seen = set() if seen is None else seen
-    if action_dir in seen:
-        return set()
-    seen.add(action_dir)
-    out: set[str] = set()
-    for name in ("action.yml", "action.yaml"):
-        if (root / action_dir / name).is_file():
-            out.add(f"{action_dir}/{name}")
-            text = (root / action_dir / name).read_text(encoding="utf-8")
-            break
-    else:
-        return out
-    for ref in _ACTION_PATH_REF.findall(text):
-        rel = _norm(posixpath.join(action_dir, ref))
-        if rel and rel.startswith(ACTIONS_DIR + "/") and (root / rel).is_file():
-            out.add(rel)
-    for used in _LOCAL_USES.findall(text):
-        out |= action_files(used.rstrip("/"), root, seen)
-    return out
-
-
-def find_action_misses(root: Path) -> list[str]:
-    """One line per (job, missing file) for local actions a job uses after a non-cone sparse checkout.
-
-    One git probe per (checkout, actions after it), not per action: the probe is the cost.
-    """
-    misses = []
-
-    def flush(entries, wanted):
-        if entries is None or not wanted:
-            return
-        present = checked_out(entries, set().union(*wanted.values()), root)
-        for uses, needed in wanted.items():
-            for rel in sorted(needed - present):
-                misses.append(f"{path.name} {job_id}: {uses} needs {rel}, not in its sparse checkout")
-
-    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
-        doc = _load_workflow(path)
-        jobs = doc.get("jobs") if isinstance(doc, dict) else None
-        for job_id, job in (jobs or {}).items():
-            entries, wanted = None, {}
-            for step in (job or {}).get("steps") or []:
-                if not isinstance(step, dict):
-                    continue
-                uses = str(step.get("uses") or "")
-                if uses.startswith("actions/checkout@"):
-                    options = step.get("with") or {}
-                    if str(options.get("path") or ".").strip().strip("/") not in ("", ".", "${{ github.workspace }}"):
-                        continue  # another folder: local actions still resolve from the workspace root
-                    flush(entries, wanted)
-                    cone = options.get("sparse-checkout-cone-mode")
-                    raw = options.get("sparse-checkout")
-                    non_cone = cone is False or str(cone).strip().lower() == "false"
-                    entries = sparse_entries(raw) if raw is not None and non_cone else None
-                    wanted = {}
-                    continue
-                if entries is None or not uses.startswith("./" + ACTIONS_DIR + "/"):
-                    continue
-                action = _norm(uses[2:].rstrip("/"))
-                if action:
-                    wanted.setdefault(uses, set()).update(action_files(action, root))
-            flush(entries, wanted)
-    return sorted(set(misses))
 
 
 # --- files a run script reads ------------------------------------------------------------------
@@ -598,7 +505,7 @@ def read_paths(script: str, root: Path) -> set[str]:
 
 
 def _job_run_text(root: Path, workflow: str, job: str) -> str:
-    doc = _load_workflow(root / ".github" / "workflows" / workflow)
+    doc = yaml.safe_load((root / ".github" / "workflows" / workflow).read_text(encoding="utf-8")) or {}
     steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
     return "\n".join(str(step.get("run") or "") for step in steps if isinstance(step, dict))
 
@@ -620,56 +527,6 @@ def find_read_misses(root: Path, tests_only: bool = True) -> list[str]:
 
 
 # --- tests ------------------------------------------------------------------------------------
-
-
-class SparseCheckoutActionTests(unittest.TestCase):
-    def test_workflows_list_every_sibling_action_their_local_actions_run(self) -> None:
-        misses = find_action_misses(ROOT)
-        self.assertEqual(misses, [], "\n" + "\n".join(misses))
-
-    def _misses(self, sparse: str) -> list[str]:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            files = {
-                ".github/actions/setup/action.yml": (
-                    "runs:\n  using: composite\n  steps:\n"
-                    '    - run: bash "$GITHUB_ACTION_PATH/../home/home.sh"\n      shell: bash\n'
-                    '    - run: bash "$GITHUB_ACTION_PATH/../../../scripts/ci/optional.sh"\n      shell: bash\n'
-                    "    - uses: ./.github/actions/inner\n"
-                ),
-                ".github/actions/home/home.sh": "true\n",
-                ".github/actions/inner/action.yml": "runs:\n  using: composite\n  steps: []\n",
-                "scripts/ci/optional.sh": "true\n",
-                ".github/workflows/w.yml": (
-                    "on: push\njobs:\n  cas:\n    runs-on: ubuntu-latest\n    steps:\n"
-                    "      - uses: actions/checkout@v4\n        with:\n"
-                    f"          sparse-checkout: {sparse}\n          sparse-checkout-cone-mode: false\n"
-                    "      - uses: ./.github/actions/setup\n"
-                ),
-            }
-            for rel, body in files.items():
-                (root / rel).parent.mkdir(parents=True, exist_ok=True)
-                (root / rel).write_text(body, encoding="utf-8")
-            return find_action_misses(root)
-
-    def test_pr_55931_cas_job_reports_the_unlisted_sibling(self) -> None:
-        self.assertEqual(
-            self._misses("|\n            /.github/actions/setup/\n            /cmux-tui/"),
-            [
-                "w.yml cas: ./.github/actions/setup needs .github/actions/home/home.sh, not in its sparse checkout",
-                "w.yml cas: ./.github/actions/setup needs .github/actions/inner/action.yml, not in its sparse checkout",
-            ],
-        )
-
-    def test_listing_the_siblings_passes(self) -> None:
-        self.assertEqual(
-            self._misses(
-                "|\n            /.github/actions/setup/\n            /.github/actions/home/\n"
-                "            /.github/actions/inner/"
-            ),
-            [],
-        )
-        self.assertEqual(self._misses("|\n            /.github/actions/"), [])
 
 
 class SparseCheckoutImportTests(unittest.TestCase):

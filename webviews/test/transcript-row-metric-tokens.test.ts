@@ -1,8 +1,8 @@
-// The shared row metric (rowMetric.ts ROW_METRIC) is checked against the stylesheet's tokens, the
-// grid's row pitch, the row estimates and the spacing spec, so no activity row kind can drift to a
-// height, text size or chip of its own (Leo, 2026-11-17: "these are too big"; the rows had grown
-// apart because the 22px line was a literal in the CSS, another in model.ts and a third in each
-// spacing value, and each row kind set the prose's font on its own).
+// The shared row metric has one source (rowMetric.ts ROW_METRIC): the stylesheet's tokens, the row
+// estimates (model.ts) and the spacing spec (transcriptSpacing.ts) all read it, so no activity row
+// kind can drift to a height, text size or chip of its own (Leo, 2026-11-17: "these are too big";
+// the rows had grown apart because the 22px line was a literal in the CSS, another in model.ts and
+// a third in each spacing value, and each row kind set the prose's font on its own).
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";

@@ -160,6 +160,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
 
+      - name: Validate shared CAS replay producer and consumers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cas_replay_workflow.py
+
       - name: Validate repository variable defaults
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
@@ -1076,9 +1080,7 @@ jobs:
 
       - name: Validate the cmux-next web-bundle cache contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: |
-          python3 tests/test_cmux_next_web_bundle_cache.py
-          python3 tests/test_cmux_next_web_bundle_sparse.py
+        run: python3 tests/test_cmux_next_web_bundle_cache.py
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1154,13 +1156,6 @@ jobs:
           python3 tests/test_ci_no_github_token_polling.py
           python3 tests/test_ci_no_bare_urlopen.py
           python3 tests/test_ci_gh_http.py
-
-      - name: Validate that every workflow git fetch aborts a stalled transfer and retries
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        # A fetch at 1000 B/s for 60 s, or an unbounded pool-mirror fetch, was the second-largest false-red
-        # cluster (78 of 465 in 24 h, 2026-11-27): 1 B/s for 60 s, a timeout and a bounded retry, per
-        # cmuxterm-hq docs/handbook/network-transfer-stalls-the-whole-job.md.
-        run: python3 tests/test_ci_workflow_git_fetch_bounds.py
 
       - name: Validate that no cache is saved under a run- or commit-scoped key
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1399,12 +1394,6 @@ jobs:
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
-
-      - name: Validate workflow apt installs survive a mirror that is mid-sync
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        # "E: Failed to fetch ... File has unexpected size ... Mirror sync in progress?" was 10 false reds in 24 h
-        # (2026-11-27); scripts/ci/apt-retry.sh and the LEGACY ratchet in this test are the fix.
-        run: python3 tests/test_ci_workflow_apt_mirror_sync.py
 
       - name: Validate every non-cone sparse checkout keeps .gitmodules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2220,10 +2209,6 @@ jobs:
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
-
-      - name: Validate a nightly-next run reads its feed back before it says published
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_published_feed_check.py
 
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

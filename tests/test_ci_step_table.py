@@ -1028,17 +1028,6 @@ class PipelineTest(unittest.TestCase):
                      "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
             start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
             self.assertIn("pr-pipeline.yml", start)
-            self.assertIn("react-apps-check", why["pr-pipeline.yml"])
-            # land-judge's lane-VM pulse: full-ci added and taken off 2 s later, so the `labeled` payload no longer
-            # lists it. It is the land handoff (the full tier starts) but routes no browser step.
-            pulse = {"action": "labeled", "label": {"name": "full-ci"},
-                     "pull_request": {"draft": False, "labels": [{"name": "merge-train"}]}}
-            self.assertFalse(pr_router.full_ci_kept(pulse))
-            self.assertTrue(pr_router.full_ci_kept(event))
-            start, why = pr_router.route(pulse, callees, web, decided=("full", "full-ci"))
-            self.assertIn("pr-pipeline.yml", start)
-            self.assertFalse(browser & set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")))
-            self.assertTrue(set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")) - browser)
         # The repository variable turns it off.
         with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
             self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])

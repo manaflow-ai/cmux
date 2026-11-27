@@ -457,53 +457,6 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
-    "recovery-setup-selected": {
-      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
-      props: {
-        start: {
-          ...begun,
-          state: "failed",
-          environment: "env_selected",
-          retryable: true,
-          message: "Environment setup failed.",
-          setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
-        },
-        onOpenEnvironment: () => undefined,
-        onRetry: () => undefined,
-      },
-    },
-    "recovery-setup-resolved": {
-      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
-      props: {
-        start: {
-          ...begun,
-          state: "failed",
-          environment: "env_selected",
-          environmentId: "env_resolved",
-          retryable: true,
-          message: "Environment setup failed.",
-          setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
-        },
-        onOpenEnvironment: () => undefined,
-        onRetry: () => undefined,
-      },
-    },
-    "recovery-setup-status-only": {
-      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
-      props: {
-        start: {
-          ...begun,
-          state: "failed",
-          environment: "env_selected",
-          environmentId: "env_resolved",
-          retryable: true,
-          message: "Environment setup failed.",
-          setup: { state: "pending", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
-        },
-        onOpenEnvironment: () => undefined,
-        onRetry: () => undefined,
-      },
-    },
     "checklist-setup-skipped": {
       note: "No setup script is configured; the link opens Edit cloud environment at Script.",
       props: {

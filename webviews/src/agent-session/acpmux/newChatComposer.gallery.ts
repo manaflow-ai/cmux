@@ -91,10 +91,12 @@ export default agentPaneEntry({
     },
     project: {
       note: "A new chat in a project on this Mac: the folder chip names it, the branch at the strip's end.",
+      ready: { newSession: true, cwd: CWD },
       snapshot: fresh({ cwd: CWD, branch: "main" }),
     },
     remote: {
       note: "A new chat on another machine: its computer chip in that machine's color; no private folder there.",
+      ready: { newSession: true, cwd: "/home/dev/src/relay" },
       snapshot: fresh(
         { cwd: "/home/dev/src/relay", peer: "studio-mac", host: "studio-mac" },
         { peers: ["studio-mac"], peerKinds: { "studio-mac": "ssh" } },

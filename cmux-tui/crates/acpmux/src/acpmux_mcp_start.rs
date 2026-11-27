@@ -233,7 +233,7 @@ async fn machine_start(args: &Value) -> Value {
         Ok(v) => v,
         Err(e) => return error_result(e),
     };
-    let cmux = crate::login_env::cmux_cli();
+    let cmux = std::env::var_os(crate::hosted_mcp::CMUX_BIN_ENV).unwrap_or_else(|| "cmux".into());
     let mut command = cmux_process::Command::new(cmux);
     command.args(&argv).envs(crate::tool_env::scoped());
     match run_bounded(command, "cmux", &argv, None, CLI_WAIT).await {

@@ -7,7 +7,6 @@ import { Api, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
 import {
   GUEST_CMUX,
   accountCensus,
-  statusCounts,
   failedCreateIsTransient,
   failureFacts,
   stubRestart,
@@ -178,13 +177,6 @@ describe("stalePauseAbMachines", () => {
 // Run 45808104119: create took 247 s on a 199-machine account, the machine went `failed` and the record that said why
 // was cut at 300 chars. The sweep now says what the account's machines are; a failed machine's own fields come whole.
 describe("drill account and failed machines", () => {
-  test("statusCounts gives the total then each status, biggest first", () => {
-    expect(statusCounts([{ status: "running" }, { status: "create_overdue" }, { status: "create_overdue" }, {}])).toBe(
-      "4 machines: create_overdue=2 ?=1 running=1",
-    );
-    expect(statusCounts([])).toBe("0 machines");
-  });
-
   test("census counts by status, age and name shape", () => {
     const now = Date.UTC(2026, 10, 26, 11, 30);
     const rows = [

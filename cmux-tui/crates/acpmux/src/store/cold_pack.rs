@@ -24,7 +24,6 @@ impl LocalStore {
             return Ok(None);
         }
         let Some(cloud) = self.cloud()? else { return Ok(None) };
-        let kept = self.write_search_copy(id, &archive)?;
         let stage = tempfile::tempdir_in(self.dir(id))?;
         let lines = stage.path().join("log");
         let mut log = crate::home_fs::create_file(&lines)?;
@@ -52,7 +51,7 @@ impl LocalStore {
         if header != record.header || hashes != record.hashes {
             return Ok(None);
         }
-        let freed = crate::home_fs::symlink_metadata(&archive)?.len().saturating_sub(kept);
+        let freed = crate::home_fs::symlink_metadata(&archive)?.len();
         crate::config::write_atomic(&self.cloud_stub_path(id), &serde_json::to_vec(&record)?)?;
         sync_directory(&self.dir(id))?;
         // On a failed root update the local archive still wins, including after a restart.

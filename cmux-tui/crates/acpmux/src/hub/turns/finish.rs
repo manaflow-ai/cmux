@@ -480,9 +480,8 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
         joined: &super::digest::DigestTurn,
-        rules: &super::auto_resume::RefusedRules<'_>,
     ) {
-        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined, Some(rules));
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
         // Its before picture has no after coming (`turn_shots.rs`).
         super::turn_shots::turn_refused(session, turn_id);
         super::turn_frames::turn_refused(session, turn_id);
@@ -523,12 +522,9 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
         joined: &super::digest::DigestTurn,
-        rules: Option<&super::auto_resume::RefusedRules<'_>>,
     ) {
         let turn = session.meta().turn_count;
         let trigger = session.turn().is_some_and(|t| t.trigger && t.turn_id == turn_id);
-        // Who drives the turn now (a Web steer while its agent started made it a Web turn).
-        let control = session.turn().filter(|t| t.turn_id == turn_id).map(|t| t.control);
         self.end_trigger_background(session, turn_id);
         *session.turn.lock().unwrap() = None;
         // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
@@ -596,18 +592,6 @@ impl Hub {
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
         self.inbox_turn_ended(session, turn_id, turn, false);
-        // A full disk clears by itself: the refused turn goes on once it has room, as a turn a
-        // full disk cut does (`auto_resume/disk_wait.rs`), instead of leaving the chat stranded.
-        if refused
-            && !trigger
-            && let Some(rules) = rules
-        {
-            let rules = super::auto_resume::RefusedRules {
-                control: control.unwrap_or(rules.control),
-                ..*rules
-            };
-            self.resume_refused_turn(session, prompt_id, turn_id, &e.message, &rules);
-        }
     }
 
     /// Waits until the inbound loop handled every agent message queued before

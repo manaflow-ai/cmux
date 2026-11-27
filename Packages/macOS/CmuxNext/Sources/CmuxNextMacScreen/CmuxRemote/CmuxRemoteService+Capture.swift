@@ -22,9 +22,7 @@ extension CmuxRemoteService {
         var args: [String: JSONValue] = ["phase": .string(phase), "raw": raw]
         if let failure { args["failure"] = .string(failure) }
         let answer = RdUI.call("service.capture", encoding: args)
-        // main-actor-ok: one capture answer's small dictionary, re-typed
         guard let answer, let data = try? JSONSerialization.data(withJSONObject: answer),
-              // main-actor-ok: the same small answer, re-typed
               let value = try? JSONDecoder().decode(JSONValue.self, from: data) else {
             return .object(["ok": .bool(false), "code": .string("remote_invalid_result"), "lease_bound": .bool(false)])
         }

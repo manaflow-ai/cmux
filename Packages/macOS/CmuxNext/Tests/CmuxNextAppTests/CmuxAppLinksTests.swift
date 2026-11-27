@@ -20,14 +20,6 @@ struct CmuxAppLinksTests {
         #expect(link("cmux://workspace/\(ws)")?.url(scheme: scheme)?.absoluteString == "\(scheme)://workspace/\(ws)")
     }
 
-    /// An exit of `open` that runs no action says what took the link (category app.links, "app link" for hq's
-    /// link_log; goal agent-shortcut-found).
-    @Test func anOpenExitPastTheActionsNamesWhatTookTheLink() {
-        let url = URL(string: "cmux://settings/models/add?focus=1")!
-        #expect(DeepLink.linkLine(url, "showed a settings route", done: true) == "app link settings/models/add showed a settings route: done")
-        #expect(DeepLink.linkLine(url, "is no app link", done: false) == "app link settings/models/add is no app link: refused")
-    }
-
     @Test func chiefsBackgroundLinkRunsChangeBackground() {
         // Chief's first-launch welcome offers it; it is the palette's and the CLI's Change Background….
         #expect(DeepLink.settingsAction(for: URL(string: "cmux://settings/background")!, linkScheme: scheme)?.id == "appearance.changeBackground")

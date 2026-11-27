@@ -864,7 +864,6 @@ async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder()
 // The sessions' temporary folders live under `/tmp/acpmux-<uid>`: unix only.
 #[cfg(unix)]
 #[tokio::test]
-#[cfg(unix)] // the daemon's per-user /tmp/acpmux-UID folders
 async fn a_session_whose_temporary_folder_is_gone_refuses_once_and_says_why() {
     let h = hub();
     // The sessions' temporary folders as this build's daemon reads them (`session_tmp::per_user_base`).

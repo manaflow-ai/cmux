@@ -427,18 +427,10 @@ pub enum Command {
     /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
     #[command(name = "run-vm", hide = true)]
     RunVm {
-        /// The program an exec router shim stands in for (`placement/exec_router.rs`): the
-        /// words after `--` are then its arguments, not a shell command.
-        #[arg(long, value_name = "PROGRAM")]
-        shim: Option<String>,
-        /// The shell command (or, with `--shim`, the program's arguments), after `--`.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
-    /// The exec router (`placement/exec_router.rs`): where each heavy command an agent, a
-    /// helper or their subprocesses ran went, and why. Not `exec`: that is `new`'s alias.
-    #[command(name = "exec-router", subcommand)]
-    Exec(ExecCmd),
     /// A `gh run view` log, served from or kept in this machine's shared cache of finished CI
     /// logs (harness magic `sharedCache`, `ci_log_cache.rs`); the Bash hook puts it before `gh`.
     #[command(name = "ci-log-cache", hide = true)]
@@ -650,13 +642,6 @@ pub enum Command {
         /// Session names or ids (`host/name` for a peer's).
         #[arg(required = true)]
         sessions: Vec<String>,
-    },
-    /// Bring a chat the lifecycle pass (or anyone) archived back in one step: unarchived,
-    /// undeleted when deleted, and its log back on this disk, fetched from cloud history when it
-    /// was offloaded there.
-    Restore {
-        /// The chat's id or name.
-        session: String,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(aliases = aliases::ATTACH)]
@@ -1218,8 +1203,6 @@ pub enum Command {
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
     #[command(hide = true)]
-    Lifecycle(LifecycleArgs),
-    #[command(hide = true)]
     TranscriptOffload(TranscriptOffloadArgs),
     #[command(hide = true)]
     Status {
@@ -1550,10 +1533,6 @@ pub enum DaemonCmd {
     /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
     /// that fetches them back on open. --dry-run lists them.
     HistoryOffload(HistoryOffloadArgs),
-    /// Run one lifecycle pass now (`agents.chats.lifecycle`): done chats (closed, or idle past
-    /// `agents.chats.lifecycleIdleHours`) archived, cold, and offloaded when cloud history is set
-    /// up. --dry-run lists them; prints totals and skips by reason.
-    Lifecycle(LifecycleArgs),
     /// Copy Claude's and Codex's transcripts to cloud history, read-only (setting
     /// `agents.chats.transcriptOffload`, off by default).
     TranscriptOffload(TranscriptOffloadArgs),
@@ -1622,13 +1601,6 @@ pub struct HistoryDeleteArgs {
     /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
     #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
     pub restore: Option<String>,
-}
-
-#[derive(Args, Clone, Debug)]
-pub struct LifecycleArgs {
-    /// Only list the chats a pass would take, and why the rest stay.
-    #[arg(long)]
-    pub dry_run: bool,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -1846,7 +1818,6 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
             DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
-            DaemonCmd::Lifecycle(args) => Command::Lifecycle(args),
             DaemonCmd::TranscriptOffload(args) => Command::TranscriptOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
@@ -1936,16 +1907,4 @@ mod deadline_defaults_tests {
             assert!(parse(&["acpmux", "send", "c", "hi", "--gather", clash]).is_err(), "{clash}");
         }
     }
-}
-
-/// `acpmux exec-router ...`.
-#[derive(Debug, clap::Subcommand)]
-pub enum ExecCmd {
-    /// Each routing decision, newest last: where it ran (fork or here), what sent it (hook,
-    /// shim), the program, wall time, exit, bytes back, and the cause when it ran here.
-    Trace {
-        /// How many of the newest decisions.
-        #[arg(long, default_value_t = 20)]
-        last: usize,
-    },
 }

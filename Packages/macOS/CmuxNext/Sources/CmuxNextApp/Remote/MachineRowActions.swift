@@ -11,8 +11,7 @@ extension AcpmuxPersonLine: JoinedDialLine {}
 /// `openJoined`), and a joined machine's Check, Rotate Credential and Revoke… in the registry.
 @MainActor enum MachineRowActions {
     /// New Workspace on a joined Mac reached through the hub alone, over the app's acpmux, servers and registry.
-    /// `newWorkspace` replaces its New Workspace (`cmux file open --machine` opens a page there instead).
-    static func signedInDial(_ services: AppServices, newWorkspace: (@MainActor (String) -> Bool)? = nil) -> SignedInMachineDial {
+    static func signedInDial(_ services: AppServices) -> SignedInMachineDial {
         SignedInMachineDial(
             line: { [weak services] in
                 guard let services, let environment = QuitAgents.environment(services) else { return nil }
@@ -24,22 +23,8 @@ extension AcpmuxPersonLine: JoinedDialLine {}
                 if case .connected = daemon.store.connectionState { return true }
                 return false
             },
-            newWorkspace: newWorkspace ?? { [weak services] in
+            newWorkspace: { [weak services] in
                 services?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) ?? false
-            })
-    }
-
-    /// `cmux file open --machine`'s machine and pane: the app's sessions, joined Macs and windows.
-    static func fileOpener(_ services: AppServices) -> MachineFileOpener<PaneController> {
-        let machines = services.machines, windows = services.windows, daemon = { (id: String) in machines.daemon(machine: id) }
-        return MachineFileOpener(
-            connected: { (machines.cloud.map(\.machineID) + machines.ssh.map(\.machineID) + machines.servers.map(\.machineID)).map { (id: $0, name: machines.machineName($0)) } },
-            joined: { (services.joinedMachines.machines, services.serverReach.signedIn.joinedByMachine) }, refreshJoined: { await services.joinedMachines.refresh() },
-            dial: { await signedInDial(services, newWorkspace: { _ in true }).open($0) },
-            shownPane: { daemon($0)?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).compactMap { services.paneController(for: $0) }.first },
-            newWorkspace: { id in
-                guard let daemon = daemon(id) else { return false }
-                return await windows.createWorkspace(on: daemon, into: windows.targetWindow(preferring: windows.active?.state.id)) != nil
             })
     }
 

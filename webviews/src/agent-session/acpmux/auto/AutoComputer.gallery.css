@@ -8,7 +8,7 @@
 .auto-computer-popover { width: 340px; padding: 8px 0; border-radius: 12px; background: var(--ds-surface-card); color: var(--agent-text); font-size: var(--text-detail); }
 .auto-computer-popover-title { padding: 4px 12px; color: var(--agent-muted); }
 .auto-computer-popover-modes { display: flex; gap: 4px; padding: 4px 12px; }
-.auto-computer-popover-modes span { padding: var(--grid-half-step) 8px; border-radius: 8px; }
+.auto-computer-popover-modes span { padding: 2px 8px; border-radius: 8px; }
 .auto-computer-popover-modes span[data-on="true"] { background: color-mix(in srgb, var(--agent-text) 18%, transparent); }
 .auto-computer-popover-line { padding: 4px 12px; color: var(--agent-muted); }
 .auto-computer-popover hr { border: 0; height: 1px; margin: 6px 12px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }

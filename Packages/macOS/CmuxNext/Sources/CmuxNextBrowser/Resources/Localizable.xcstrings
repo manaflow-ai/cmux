@@ -30281,7 +30281,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No app on this Mac opens %1$@’s “%2$@:” link."
+            "value": "%1$@ tried to open a “%2$@:” link, but no app on this Mac opens it."
           }
         },
         "ja": {
@@ -30412,7 +30412,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No app on this Mac opens this page’s “%@:” link."
+            "value": "This page tried to open a “%@:” link, but no app on this Mac opens it."
           }
         },
         "ja": {

@@ -84,9 +84,9 @@ use cmux_remote::crypto::{
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
-    ConnectRequest, EARLY_CONNECT_NOT_INLINE, LinkRequest, RegistrationState, RelayClientConfig,
-    RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming,
-    RelayProvider, TransportProvider, spawn_relay_daemon_registration,
+    ConnectRequest, LinkRequest, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
+    spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 
@@ -1655,24 +1655,6 @@ impl HubCarrier {
         &self,
         daemon: &str,
     ) -> Result<(cmux_remote::crypto::SecureLink, DialStages), String> {
-        match self.open_circuit_with(daemon, true).await {
-            // The relay answered an early Connect with no inline circuit (no Standby free) or
-            // refused it: the classic dial, which reads each answer before sending on, handles
-            // every such case (a fresh ticket, the next relay, the two-hop join).
-            Err(e) if e.contains(EARLY_CONNECT_NOT_INLINE) => {
-                self.open_circuit_with(daemon, false).await
-            }
-            other => other,
-        }
-    }
-
-    /// [`Self::open_circuit`], an early Connect allowed when `early` (and
-    /// `CMUX_RELAY_EARLY_CONNECT=1`).
-    async fn open_circuit_with(
-        &self,
-        daemon: &str,
-        early: bool,
-    ) -> Result<(cmux_remote::crypto::SecureLink, DialStages), String> {
         let mut stages = DialStages::default();
         let step = Instant::now();
         // No ticket is `credential-unavailable` on the peer's link (`peer_carrier::reason`), unless
@@ -1706,7 +1688,7 @@ impl HubCarrier {
         let mut last = String::from("the hub named no relay");
         let mut found = None;
         for relay in order {
-            match self.circuit_on(daemon, &relay, &answer, early, &mut stages).await {
+            match self.circuit_on(daemon, &relay, &answer, &mut stages).await {
                 Ok(circuit) => {
                     self.homes.carried(daemon, &relay);
                     found = Some(circuit);
@@ -1734,7 +1716,6 @@ impl HubCarrier {
         daemon: &str,
         relay: &str,
         answer: &CarrierAnswer,
-        early: bool,
         stages: &mut DialStages,
     ) -> Result<(Box<dyn FrameLink>, SessionId), String> {
         let endpoint = relay_url(relay)?;
@@ -1771,9 +1752,6 @@ impl HubCarrier {
             credentials,
         )
         .map_err(|e| e.to_string())?;
-        // Off unless `CMUX_RELAY_EARLY_CONNECT=1`: with it, Noise msg1 rides behind the Connect
-        // and the far machine's join is timed in `stages.noise`, not `stages.peer_join`.
-        let provider = if early { provider } else { provider.with_early_connect(false) };
         let session = SessionId(random_16()?);
         let step = Instant::now();
         let group = provider

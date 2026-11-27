@@ -60,9 +60,6 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
     private(set) var decode = MacScreenRollingSamples(capacity: window)
     private(set) var glass = MacScreenRollingSamples(capacity: window)
     private(set) var decodePresent = MacScreenRollingSamples(capacity: window)
-    /// Frames whose presented handler ran with no presented time from macOS (the window hidden or
-    /// off screen): never on the glass, so left out of Present and Decode + Present.
-    private(set) var unpresented = 0
     private var lastPresentedNanos: UInt64?
     private var lastFrame: UInt32?
 
@@ -85,10 +82,8 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
 
     /// A frame reached the glass: its Present stage and Decode + Present (Decode came with
     /// ``presented(frame:releasedAtNanos:decodedAtNanos:nowNanos:now:)``). Out-of-order times
-    /// (a clock that is not the decoder's) are left out, and a frame macOS gave no presented time
-    /// is counted in ``unpresented``: the handler's own time is not the glass.
+    /// (a clock that is not the decoder's) are left out.
     mutating func shown(_ times: RemoteViewerFrameTimes) {
-        guard times.onGlass else { unpresented += 1; return }
         guard times.releasedAtNanos > 0, times.releasedAtNanos <= times.decodedAtNanos,
               times.decodedAtNanos <= times.presentedAtNanos else { return }
         glass.add(Double(times.presentedAtNanos - times.decodedAtNanos) / 1e6)

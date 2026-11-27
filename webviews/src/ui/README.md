@@ -250,49 +250,6 @@ our tokens: `p-3` is 3 grid units, `rounded-md` is `--ds-radius-md`, `text-body`
 levels are variables only (`--ds-glass-<level>-tint` and `-blur`). Settings keeps rem spacing and
 radii off its own root until it migrates (`pages/settings/tailwind.css`).
 
-## Component tokens
-
-Tier 3 of the design system, after the design scale (`--ds-*`, tier 1) and the roles (`--role-*`,
-tier 2): a token named for one component family that points at the system token the family draws with,
-as Material 3's component tier does (`--md-filled-button-container-shape`). This is the supported
-re-skin surface for looks: set one variable on `:root` (or on any ancestor, to scope it) and every
-button, menu, tooltip or dialog under it follows. Unset, each one is exactly today's value.
-
-The source is `schemas/component-tokens/component-tokens.json`. A component's own stylesheet reads
-each token as `var(<token>, <today's value>)` in the rule that drew that value, so the value still
-resolves at the element, per size and per context, as before; nothing declares the tokens, so a look's
-value on `:root` reaches every element. `test/surface-tokens.test.ts` holds every read to the fallback
-the schema names, and this table to naming each token. Not yet in the public look contract
-(`schemas/agent-pane/style-tokens.json`), so `check-look-addons.ts` still refuses them in a look add-on.
-
-| Token                             | Family  | Unset (points at)                                                 | What it sets                                         |
-| --------------------------------- | ------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
-| `--cmux-button-radius`            | Button  | `--ds-radius-control` (the host's button corner)                  | every button's corner, all sizes                     |
-| `--cmux-button-border`            | Button  | `0`                                                               | every button's edge                                  |
-| `--cmux-button-shadow`            | Button  | `none`                                                            | every button's shadow, at no specificity             |
-| `--cmux-button-height-sm`         | Button  | `--ds-control-compact` (24)                                       | a small button's height, a small icon button's width |
-| `--cmux-button-height-md`         | Button  | `--ds-control-row` (28)                                           | a button's height, an icon button's width            |
-| `--cmux-button-height-lg`         | Button  | `--ds-control-primary` (32)                                       | a large button's height, its icon button's width     |
-| `--cmux-button-padding-inline-sm` | Button  | `--ds-space-2`                                                    | a small text button's side padding                   |
-| `--cmux-button-padding-inline-md` | Button  | `--ds-space-3`                                                    | a text button's side padding                         |
-| `--cmux-button-padding-inline-lg` | Button  | `--ds-space-4`                                                    | a large text button's side padding                   |
-| `--cmux-button-gap`               | Button  | `--ds-space-2`                                                    | the gap between a button's icon and its label        |
-| `--cmux-input-radius`             | Input   | `--ds-radius-sm`, `-md`, `-lg` by size                            | every field's corner                                 |
-| `--cmux-input-border`             | Input   | `0`                                                               | every field's edge                                   |
-| `--cmux-input-shadow`             | Input   | `none`                                                            | every field's shadow (an inset well)                 |
-| `--menu-radius`                   | Menu    | `--role-popover-radius`, `--role-menu-radius` on a menu           | a menu's or popover's corner                         |
-| `--menu-padding`                  | Menu    | `--ds-space-1` x interface scale; the menu grid's inset on a menu | the panel's padding, the row highlight's inset       |
-| `--menu-row-height`               | Menu    | `--ds-control-row` x interface scale                              | a row's height                                       |
-| `--menu-hover-radius`             | Menu    | the popup corner less its padding; the menu grid's on a menu      | the highlighted row's corner                         |
-| `--cmux-tooltip-radius`           | Tooltip | `--role-tooltip-radius` x interface scale                         | a tooltip's and hover card's corner                  |
-| `--cmux-tooltip-padding-block`    | Tooltip | `--grid-base`                                                     | above and below the text                             |
-| `--cmux-tooltip-padding-inline`   | Tooltip | `--grid-base` x 2                                                 | before the text and after the shortcut               |
-| `--cmux-dialog-padding`           | Dialog  | `--role-dialog-inset`                                             | a dialog's padding on every side                     |
-| `--cmux-dialog-radius`            | Dialog  | `--role-control-radius` + the dialog's padding                    | a dialog's corner (concentric with its buttons)      |
-
-The menu's colours, edges and offsets are in "Menu tokens a look sets" above. A new token goes in the
-schema first, with the exact value the rule draws today as its fallback.
-
 ## Controls
 
 `Button` (ghost, subtle (default), solid; sm 24, md 28, lg 32; `icon`, `danger`), `Switch` (sm, md

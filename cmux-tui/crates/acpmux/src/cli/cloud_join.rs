@@ -164,10 +164,7 @@ fn origin(value: Option<String>) -> Result<String> {
             && parsed.fragment().is_none(),
         "hub origin must contain only scheme, host and port"
     );
-    let origin = parsed.origin().ascii_serialization();
-    // A hub the person or the app named (a preview or self-hosted platform): a host they name.
-    cmux_egress::allow_named(&origin);
-    Ok(origin)
+    Ok(parsed.origin().ascii_serialization())
 }
 
 fn local_name(name: Option<String>) -> String {
@@ -1537,7 +1534,6 @@ mod tests {
     /// Harness for the write loop: an idle joined daemon heartbeats every 10 s; count the
     /// rewrites of `machine-credential.json` (a new inode per atomic replace) over 10 minutes.
     #[test]
-    #[cfg(unix)] // counts inodes
     #[cfg(unix)]
     fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty() {
         use std::os::unix::fs::MetadataExt as _;

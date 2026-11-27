@@ -192,28 +192,6 @@ struct BrowserExternalAppNoAppTests {
         #expect(BrowserPrompt(kind: .noAppForScheme(scheme: "vscode"), origin: "", completion: { _ in }).dismissalResponse == .cancel)
     }
 
-    /// A sign-in popup that ends on the same scheme a second after its opener did is told too: the quiet
-    /// time is per tab, not app-wide (the live run's "popup ending on vscode" was silent in WebKit).
-    @Test func eachTabIsToldItsOwnNoAppReturn() throws {
-        let suite = "BrowserExternalAppNoAppTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let apps = BrowserExternalApps(defaults: defaults, ownSchemes: [], appFor: { _ in nil })
-        var clock = Date(timeIntervalSince1970: 1_000)
-        apps.now = { clock }
-        var asked: [String] = []
-        let back = try #require(URL(string: "vscode://auth?code=1"))
-        let opener = NSObject(), popup = NSObject()
-        apps.open(back, from: URL(string: "https://app.example.test/"), userGesture: false, tab: ObjectIdentifier(opener)) { _, site, _ in asked.append(site) }
-        clock += 1
-        apps.open(back, from: URL(string: "https://login.example.test/cb"), userGesture: false, tab: ObjectIdentifier(popup)) { _, site, _ in asked.append(site) }
-        #expect(asked == ["https://app.example.test", "https://login.example.test"])
-        // The same tab retrying stays quiet.
-        apps.open(back, from: URL(string: "https://login.example.test/cb"), userGesture: false, tab: ObjectIdentifier(popup)) { _, site, _ in asked.append(site) }
-        #expect(asked.count == 2)
-        withExtendedLifetime((opener, popup)) {}
-    }
-
     @Test func aSchemeWithAnAppStillAsksToOpenIt() throws {
         let suite = "BrowserExternalAppNoAppTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

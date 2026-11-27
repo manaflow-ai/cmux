@@ -10,9 +10,9 @@
 //!   order: this Mac when placement says it has room and it fits the work; else a machine its
 //!   owner enrolled in AutoCloud ([`crate::autocloud_enroll`]) that is accepting (owner away,
 //!   inside its hours), whose policy allows this work and that fits it, the folder already
-//!   there first, then the most room; else a new Cloud VM: our pool when it can take the
-//!   chat ([`Facts::cloud_pool`]), else Freestyle (a hybrid start where [`hybrid::enabled`]
-//!   says so). Never a machine that is not enrolled: plain Remote stays as it was. Work that needs a Mac ([`MAC_CAPS`]) never
+//!   there first, then the most room; else a new Cloud VM (our pool, then Freestyle, as the
+//!   Cloud start picks; a hybrid start where [`hybrid::enabled`] says so). Never a machine that
+//!   is not enrolled: plain Remote stays as it was. Work that needs a Mac ([`MAC_CAPS`]) never
 //!   goes to the cloud: enrolled Macs are its tier. With Cloud off or signed out, this Mac all
 //!   the same: placement's load and caps only warn.
 //! - `Cloud`: a new Cloud VM for this chat. The person picks no size (Leo, 2026-11-24: "i mean
@@ -157,10 +157,7 @@ impl Need {
     }
 }
 
-/// Auto's placement order, first to last (RFD 0172, "Explicit order": `thisMac`, `enrolled`,
-/// `cloudPool`, `freestyle`). The declaration order is the order: `Ord` and [`Tier::ORDER`]
-/// follow it. On the wire `this-mac`, `enrolled`, `cloud-pool`, `freestyle`; a version 2
-/// answer's `cloud` reads as `freestyle`, the provider every Cloud start used then.
+/// Auto's placement order, first to last.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Tier {
@@ -168,16 +165,8 @@ pub enum Tier {
     ThisMac,
     /// The person's or team's enrolled machines: idle, allowed and fit.
     Enrolled,
-    /// A new VM in our own cloud pool, when it can take the chat ([`Facts::cloud_pool`]).
-    CloudPool,
-    /// A new Freestyle VM: the Cloud start's default provider.
-    #[serde(alias = "cloud")]
-    Freestyle,
-}
-
-impl Tier {
-    /// Every tier, in the order Auto tries them.
-    pub const ORDER: [Tier; 4] = [Tier::ThisMac, Tier::Enrolled, Tier::CloudPool, Tier::Freestyle];
+    /// A new Cloud VM: our pool, then Freestyle (the Cloud start's provider order).
+    Cloud,
 }
 
 /// What [`decide`] weighs.
@@ -193,9 +182,6 @@ pub struct Facts {
     pub enrolled: Vec<EnrolledMachine>,
     /// What the work needs.
     pub need: Need,
-    /// Whether our own cloud pool can take a new VM for this chat now; false (the default, and
-    /// what every caller sends today) leaves Cloud on Freestyle.
-    pub cloud_pool: bool,
 }
 
 /// Where the chat starts.
@@ -297,8 +283,7 @@ pub fn decide(mode: &PlaceMode, facts: &Facts) -> Decision {
     }
 }
 
-/// Auto, in [`Tier`] order: this Mac, an enrolled machine, a new VM in our cloud pool, a new
-/// Freestyle VM.
+/// Auto, in [`Tier`] order: this Mac, an enrolled machine, a new Cloud VM.
 fn auto(facts: &Facts) -> Decision {
     let (local, need) = (&facts.local, &facts.need);
     let here_fits = local.caps.is_empty()
@@ -362,20 +347,15 @@ fn auto(facts: &Facts) -> Decision {
     match cloud_off(&facts.account) {
         None => {
             let place = cloud_place(&facts.account);
-            let (tier, vm) = if facts.cloud_pool {
-                (Tier::CloudPool, "a new Cloud VM in our pool")
-            } else {
-                (Tier::Freestyle, "a new Cloud VM")
-            };
             Decision {
-                why: format!("{not_here}: {vm}{}", hybrid_note(&place)),
+                why: format!("{not_here}: a new Cloud VM{}", hybrid_note(&place)),
                 place,
                 chip: if here_fits {
                     "Auto · Cloud: this Mac is busy".into()
                 } else {
                     "Auto · Cloud".into()
                 },
-                tier: Some(tier),
+                tier: Some(Tier::Cloud),
             }
         }
         Some(off) if here_fits => starts_here_anyway(

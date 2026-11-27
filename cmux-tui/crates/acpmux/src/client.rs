@@ -66,21 +66,6 @@ pub struct Client {
     print_admission_waiting: Arc<std::sync::atomic::AtomicBool>,
 }
 
-/// The error a client returns for a daemon whose ABI range it shares nothing with: a
-/// [`DaemonError`] typed `version.incompatible`, as the daemon's own refusal would be.
-fn incompatible_daemon(
-    ours: crate::protocol::range::AbiRange,
-    theirs: crate::protocol::range::AbiRange,
-) -> anyhow::Error {
-    let (message, recovery, details) =
-        crate::protocol::range::incompatible(ours, theirs, "the daemon");
-    anyhow::Error::new(DaemonError(crate::rpc::RpcError::new(-32600, message).with_data(json!({
-        "errorKind": crate::recovery::kind::VERSION_INCOMPATIBLE,
-        "recovery": recovery,
-        "details": details,
-    }))))
-}
-
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
         Self::open_socket(path).await?.initialize(true).await
@@ -239,13 +224,6 @@ impl Client {
         // Whether it runs in an acpmux session's environment, said positively: only a terminal
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
-        // The ABI range this client speaks (`protocol/range.rs`): a daemon that shares none with
-        // it refuses the hello typed, and one from before the check ignores the keys.
-        meta.insert("abi".to_owned(), json!(crate::protocol::ABI));
-        meta.insert(
-            crate::protocol::range::ABI_MIN_FIELD.to_owned(),
-            json!(crate::protocol::range::ABI_MIN),
-        );
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
         let init = crate::slow_notice::noted(
@@ -264,13 +242,6 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
-        // A daemon from before the range check answers any hello: this side refuses one it
-        // shares no ABI with, typed, so the caller reads which side to update.
-        let (ours, theirs) =
-            (crate::protocol::range::AbiRange::ours(), crate::protocol::range::AbiRange::of(&init));
-        if init.pointer("/_meta/acpmux/abi").is_some() && ours.common(theirs).is_none() {
-            return Err(incompatible_daemon(ours, theirs));
-        }
         self.daemon_abi
             .store(crate::protocol::peer_abi(&init), std::sync::atomic::Ordering::Relaxed);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {

@@ -95,8 +95,7 @@ fn sections() -> impl Iterator<Item = &'static str> {
 fn actions_in(section: &str) -> Vec<&'static str> {
     static LAYOUT: OnceLock<Value> = OnceLock::new();
     let layout = LAYOUT
-        // A layout that does not parse draws no section actions (the settings behavior tests parse it).
-        .get_or_init(|| serde_json::from_str(PAGE_LAYOUT).unwrap_or(Value::Null));
+        .get_or_init(|| serde_json::from_str(PAGE_LAYOUT).expect("the page layout source parses"));
     layout
         .pointer(&format!("/section_actions/{section}"))
         .and_then(Value::as_array)

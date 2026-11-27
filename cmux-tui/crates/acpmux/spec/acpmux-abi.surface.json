@@ -22387,12 +22387,6 @@
         "nullable": true
       }
     },
-    "request:_acpmux/scorecard_replay": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
     "request:_acpmux/secret_request": {
       "/*untyped*": {
         "ty": "json",
@@ -36546,12 +36540,6 @@
       }
     },
     "response:_acpmux/scorecard": {
-      "/data/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "response:_acpmux/scorecard_replay": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

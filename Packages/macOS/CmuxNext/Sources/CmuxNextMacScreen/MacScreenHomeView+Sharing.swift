@@ -56,7 +56,7 @@ extension MacScreenHomeView {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(grant), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -109,7 +109,7 @@ extension MacScreenHomeView {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(statusRow(sharing)), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -124,7 +124,7 @@ extension MacScreenHomeView {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(statusRow(sharing, glyphColumn: false)), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -174,7 +174,7 @@ extension MacScreenHomeView {
         } else {
             add(padded(toggle), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -205,7 +205,7 @@ extension MacScreenHomeView {
             if let session = sharing.session { views.append(sessionButtons(session)) }
             MacScreenStack.addFullWidth(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, views), to: content)
         }
-        for row in noteRows(sharing) { MacScreenStack.addFullWidth(row, to: content) }
+        if let error = sharing.lastError { MacScreenStack.addFullWidth(errorRow(error), to: content) }
         return MacScreenHomeParts.section(L.t("macScreen.home.allowTitle", "Allow Mac Screen on This Mac"), content: content)
     }
 
@@ -288,18 +288,6 @@ extension MacScreenHomeView {
                 hubHost?.stopSession()
             },
         ])
-    }
-
-    /// The hub note (this Mac not on the hub yet), then the last error, each look's last rows.
-    private func noteRows(_ sharing: MacScreenHomeSnapshot.Sharing) -> [NSView] {
-        var rows: [NSView] = []
-        if let note = sharing.hubNote {
-            let text = MacScreenText(note, font: MacScreenType.caption, ink: \.secondary, wraps: true)
-            text.setAccessibilityIdentifier("macScreen.home.hubNote")
-            rows.append(text)
-        }
-        if let error = sharing.lastError { rows.append(errorRow(error)) }
-        return rows
     }
 
     private func errorRow(_ error: String) -> NSView {

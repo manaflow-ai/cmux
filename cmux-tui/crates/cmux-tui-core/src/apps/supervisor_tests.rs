@@ -62,7 +62,7 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { main, settings, state, .. } => {
+            ToHost::Init { main, settings, .. } => {
                 scene_text = main
                     .split("SCENE_TEXT ")
                     .nth(1)
@@ -74,14 +74,6 @@ fn scripted_app_host() {
                     send(FromHost::Log {
                         level: "info".into(),
                         message: format!("init-settings {settings}"),
-                    });
-                }
-                // The kept scene state (`cmux.state`) the supervisor handed this start.
-                if let Some(state) = state.filter(|s| s.as_object().is_some_and(|s| !s.is_empty()))
-                {
-                    send(FromHost::Log {
-                        level: "info".into(),
-                        message: format!("init-state {state}"),
                     });
                 }
                 // Top-level code that subscribes, as `cmux.events.on(...)` does.
@@ -121,10 +113,6 @@ fn scripted_app_host() {
                     send(FromHost::Scene { mount: mount.clone(), ops: Value::Array(ops) });
                     send(FromHost::Mounted { mount, error: None });
                     continue;
-                }
-                // `keep`: the view keeps these values, as `cmux.state` writes do.
-                if !ctx["keep"].is_null() {
-                    send(FromHost::State { values: ctx["keep"].clone() });
                 }
                 if export == "renderLive" {
                     send(FromHost::Subscribe {

@@ -37,8 +37,6 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-mod cmux_cli_tests;
 mod machine;
 #[cfg(test)]
 mod read_block_tests;
@@ -739,58 +737,11 @@ pub fn agent_path() -> Option<OsString> {
 /// start's bare `/usr/bin:/bin:/usr/sbin:/sbin`) must not hide the login
 /// PATH's tools: the harness is looked up on this PATH (`claude`), and so is
 /// every tool it runs.
-///
-/// The app's bundled CLI directory stays first even over the profile's own
-/// PATH: a preset or profile that saved a PATH listing `/usr/local/bin` or
-/// `/opt/homebrew/bin` first (where cmux classic links its `cmux`) made
-/// `cmux` in that chat classic's CLI, and its commands opened cmux classic
-/// next to NEXT (ask-3b6366d31e: agents kept opening cmux classic).
 pub fn with_agent_path(own: &str) -> String {
-    with_bundled_first(own, agent_path(), bundled_bin_dir())
-}
-
-/// [`with_agent_path`] over explicit inputs.
-fn with_bundled_first(own: &str, login: Option<OsString>, bundled: Option<String>) -> String {
+    let login = agent_path();
     let login =
         login.iter().flat_map(std::env::split_paths).map(|p| p.to_string_lossy().into_owned());
-    merge_paths(bundled.into_iter().chain(own.split(':').map(str::to_owned)).chain(login))
-}
-
-/// The directory of the app's bundled CLI (`CMUX_BUNDLED_CLI_PATH`), when absolute.
-fn bundled_bin_dir() -> Option<String> {
-    std::env::var_os(BUNDLED_CLI_ENV)
-        .map(std::path::PathBuf::from)
-        .and_then(|cli| cli.parent().map(std::path::Path::to_path_buf))
-        .filter(|bin| bin.is_absolute())
-        .map(|bin| bin.to_string_lossy().into_owned())
-}
-
-/// The `cmux` CLI this daemon runs: `CMUX_BIN` when set, else the bundled CLI
-/// of the app that started this daemon (`CMUX_BUNDLED_CLI_PATH`), else `cmux`
-/// on PATH. Never PATH first: on a Mac with cmux classic installed, the bare
-/// `cmux` on the daemon's login PATH is classic's CLI, and `cmux agent open`,
-/// `cmux customize`, `cmux window screenshot` or a token mint through it
-/// launched cmux classic while NEXT was the app in use (ask-3b6366d31e).
-pub fn cmux_cli() -> OsString {
-    cmux_cli_from(std::env::var_os("CMUX_BIN"), std::env::var_os(BUNDLED_CLI_ENV), |p| p.is_file())
-}
-
-/// [`cmux_cli`] with `CMUX_BIN` from `cmux_bin` (a chat's env through
-/// [`crate::tool_env`], say) instead of this process's.
-pub fn cmux_cli_or(cmux_bin: Option<String>) -> OsString {
-    cmux_cli_from(cmux_bin.map(OsString::from), std::env::var_os(BUNDLED_CLI_ENV), |p| p.is_file())
-}
-
-/// [`cmux_cli`] over explicit inputs.
-pub(crate) fn cmux_cli_from(
-    cmux_bin: Option<OsString>,
-    bundled: Option<OsString>,
-    is_file: impl Fn(&std::path::Path) -> bool,
-) -> OsString {
-    cmux_bin
-        .filter(|v| !v.is_empty())
-        .or_else(|| bundled.filter(|v| !v.is_empty() && is_file(std::path::Path::new(v))))
-        .unwrap_or_else(|| "cmux".into())
+    merge_paths(own.split(':').map(str::to_owned).chain(login))
 }
 
 /// The non-empty entries of `dirs`, first occurrence kept, joined with `:`.

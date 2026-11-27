@@ -25,7 +25,6 @@ pub mod effective;
 pub mod fields;
 pub mod home_table;
 pub mod jsonc;
-pub mod keymap;
 pub mod link_rules;
 pub mod looks;
 pub mod managed;
@@ -56,7 +55,6 @@ const AREAS: &[AreaCall] = &[
     effective::call,
     fields::call,
     home_table::call,
-    keymap::call,
     link_rules::call,
     looks::call,
     managed::call,

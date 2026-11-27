@@ -190,8 +190,6 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
         }
         (None, None) => return answer(ProbeStatus::Unknown, "the route names no endpoint".into()),
     };
-    // The route file is the person's: its endpoint is a host they name.
-    cmux_egress::allow_named(&url);
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = match crate::happy_dial::http_client().timeout(timeout).build() {
         Ok(c) => c,

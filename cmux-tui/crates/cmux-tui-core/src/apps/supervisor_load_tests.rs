@@ -188,7 +188,6 @@ fn spawn_scenario(loaded: bool) {
             strings: Value::Null,
             main: String::new(),
             main_name: None,
-            state: None,
         });
         rx.recv_timeout(Duration::from_secs(60)).expect("ready");
         ready.push(start);

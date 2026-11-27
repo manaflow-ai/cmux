@@ -14,11 +14,8 @@
 // (infinite iterations: a spinner) are left alone. WAAPI motions are not seen here; each WAAPI site
 // gates itself (turnEndFold.ts).
 //
-// Cost: per commit that adds nodes or changes a class, nothing for a row an intersection observer last
-// saw wholly in the view (the streaming reply, the live line); else one box read for the view and one per
-// changed row and element. None at rest, none for a text-only change. Read in the mutation's microtask, a
-// box is a forced layout after React's writes: each streamed token of a reply in view paid one (0.65 to
-// 1.3 ms a token, bench/transcript-replay.bench.ts PROFILE=1, `observer` and `started` here).
+// Cost: per commit that adds nodes or changes a class, one box read for the view and one per changed
+// row and element; none at rest, none for a text-only change.
 
 /// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
 const EDGE_PX = 1;
@@ -104,37 +101,6 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
           (View?.CSSAnimation && animation instanceof View.CSSAnimation) ||
           (View?.CSSTransition && animation instanceof View.CSSTransition),
       );
-  // The rows wholly in the view as the browser last laid them out (an intersection observer, told in
-  // the frame's own layout, never a forced one): every element of such a row is in the view too, so a
-  // mutation or a motion's start in it needs no box read. A row it has not reported yet, or that the
-  // view cuts, is read as before. A row that grows past the view's edge is told so in the next frame.
-  const whole = new WeakSet<Element>();
-  const seen = View?.IntersectionObserver
-    ? new View.IntersectionObserver(
-        (entries) => {
-          for (const entry of entries)
-            if (entry.isIntersecting && entry.intersectionRatio >= 1) whole.add(entry.target);
-            else whole.delete(entry.target);
-        },
-        { root: scroller, rootMargin: `${EDGE_PX}px`, threshold: [0, 1] },
-      )
-    : undefined;
-  const watched = new WeakSet<Element>();
-  const watch = (row: Element) => {
-    if (!seen || watched.has(row)) return;
-    watched.add(row);
-    seen.observe(row);
-  };
-  const unwatch = (node: Element) => {
-    const gone = node.matches(ROW) ? [node] : node.firstElementChild ? [...node.querySelectorAll(ROW)] : [];
-    for (const row of gone) {
-      if (!watched.has(row) || row.isConnected) continue;
-      watched.delete(row);
-      whole.delete(row);
-      seen!.unobserve(row);
-    }
-  };
-  if (seen) for (const row of scroller.querySelectorAll(ROW)) watch(row);
   const observer = View?.MutationObserver
     ? new View.MutationObserver((records) => {
         // Each row the commit touched, by the row's box, and each element it added or re-classed, by its
@@ -144,16 +110,11 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
         const rows = new Set<Element>();
         const changed = new Set<Element>();
         for (const record of records) {
-          // A row that left is no longer watched (the observer would hold it for the chat's life).
-          if (seen && record.type === "childList")
-            for (const node of record.removedNodes) if (node instanceof Element) unwatch(node);
           const nodes = record.type === "childList" ? [...record.addedNodes] : [record.target];
           for (const node of nodes) {
             if (!(node instanceof Element)) continue;
             const row = node.closest(ROW);
             if (!row || !scroller.contains(row)) continue;
-            watch(row);
-            if (whole.has(row)) continue;
             rows.add(row);
             if (node !== row) changed.add(node);
           }
@@ -174,7 +135,7 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
     const target = event.target;
     if (!(target instanceof Element) || typeof target.getAnimations !== "function") return;
     const row = target.closest(ROW);
-    if (!row || !scroller.contains(row) || whole.has(row)) return;
+    if (!row || !scroller.contains(row)) return;
     const view = scroller.getBoundingClientRect();
     if (!misses(row.getBoundingClientRect(), view) && !misses(target.getBoundingClientRect(), view)) return;
     finishAll(cssOf(target));
@@ -183,7 +144,6 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
   scroller.addEventListener("transitionrun", started, true);
   return () => {
     observer?.disconnect();
-    seen?.disconnect();
     scroller.removeEventListener("animationstart", started, true);
     scroller.removeEventListener("transitionrun", started, true);
   };

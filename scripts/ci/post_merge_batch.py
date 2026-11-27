@@ -2,9 +2,9 @@
 """The post-merge batch tier: the base's deferred checks run once per pile of merges, not once per merge.
 
 RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
-once post-merge, batched". About every 100 merges (NEXT_POST_MERGE_EVERY_MERGES, default 100; 0 turns
+once post-merge, batched". About every 10 merges (NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns
 the count off), or once the window has passed when fewer have landed (vars.NEXT_POST_MERGE_WINDOW_MINUTES,
-default 240), the newest feat-cmux-next tip gets one run of
+default 120), the newest feat-cmux-next tip gets one run of
 every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
 tip. A job that was green on the last tip where it ran and is red now is bisected over the
 covered commits, running only that job, and the culprit gets a revert pull request through
@@ -51,11 +51,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
-DEFAULT_WINDOW_MINUTES = 240
+DEFAULT_WINDOW_MINUTES = 120
 # A batch run starts once the tip is this many commits (squash merges) ahead of the newest batch run's commit
 # (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."; at about 40 merges an hour
 # that is a batch every 15 min, one run covering ten merges). The window above stays the fallback for a quiet base.
-DEFAULT_EVERY_MERGES = 100
+DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
@@ -88,8 +88,6 @@ MAX_REBISECTS = 2
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
-# The origin's failing step names travel in a probe's `step` input joined by this.
-STEP_SEP = "|"
 # A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
 # until this many batch runs sit on that tip.
 MAX_TIP_BATCHES = 2
@@ -387,31 +385,6 @@ def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
         page += 1
 
 
-def job_base(name: str) -> str:
-    """A job's name without its matrix leg: 'gallery-health / health (3)' -> 'gallery-health / health'."""
-    return re.sub(r" \([^()]*\)$", "", name)
-
-
-def failing_steps(jobs: list[dict]) -> dict[str, frozenset]:
-    """The failed steps of each failed job of a run: full job name -> step names."""
-    out: dict[str, frozenset] = {}
-    for job in jobs:
-        if job.get("status") == "completed" and job.get("conclusion") == "failure":
-            out[job.get("name") or ""] = frozenset(s.get("name") or "" for s in job.get("steps") or []
-                                                    if s.get("conclusion") == "failure")
-    return out
-
-
-def red_step_names(steps: dict[str, frozenset], job: str) -> frozenset:
-    """The failing steps of the job named job, its matrix legs merged."""
-    base = job_base(job)
-    names: frozenset = frozenset()
-    for name, got in steps.items():
-        if job_base(name) == base:
-            names |= got
-    return names
-
-
 def suite_verdicts(jobs: list[dict], suites: dict[str, Suite]) -> dict[str, tuple[str, str]]:
     """The finished suite jobs of a run: full job name -> (suite key, conclusion). A called
     workflow's job is named '<caller job name> / <its own name>'; the caller job's name is the
@@ -652,12 +625,10 @@ class Probe:
     tries: int = 0
     pieces: str = ""  # hot swap out: piece_swap.State; sha is then the culprit with state.out swapped out
     confirm: str = ""  # flake-aware confirm: 'red-N' (sha is the culprit, bad) or 'green-N' (sha is its parent, good)
-    step: str = ""  # the origin red's failing step names (STEP_SEP-joined): a probe is red only if it fails one of them
 
     def inputs(self) -> dict[str, str]:
         extra = {"pieces": self.pieces} if self.pieces else {}
         extra |= {"confirm": self.confirm} if self.confirm else {}
-        extra |= {"step": self.step} if self.step else {}
         return extra | {
             "mode": PROBE,
             "suite": self.suite,
@@ -671,20 +642,16 @@ class Probe:
         }
 
 
-def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
-             suites: dict[str, "Suite"] | None = None) -> tuple[list[tuple[str, str, str]], list[str]]:
+def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> tuple[list[tuple[str, str, str]], list[str]]:
     """Red jobs of this batch run that were green on the newest earlier batch run where they
     finished: (job name, suite, good sha). Also the notes for the reds that are not new.
     jobs_of(run id) gives that run's verdicts, or (verdicts, judged): a red on a run whose judge
-    job did not succeed counts as no verdict, so it is still bisected later. Matrix legs of one suite job with the same
-    good are one bisect, as in stuck_reds: legs share a probe title and concurrency group, so a chain per leg cancelled
-    all but one while pending and each spent a MAX_CHAINS slot (gallery-health's 22 shards, run 45942875725)."""
+    job did not succeed counts as no verdict, so it is still bisected later."""
     reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
     found: list[tuple[str, str, str]] = []
     notes: list[str] = []
     cache: dict[int, dict[str, tuple[str, str]]] = {}
-    seen: set[tuple[str, str, str]] = set()
     for name in reds:
         suite = verdicts[name][0]
         last = None
@@ -707,11 +674,7 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
         elif last[1] == "failure":
             notes.append(f"`{name}` was already red on `{last[0]['head_sha'][:11]}` (run {last[0]['id']}): a known red, no bisect.")
         else:
-            only = suites[suite].job_id(name.partition(" / ")[2]) if suites and suite in suites else job_base(name)
-            key = (suite, only, last[0]["head_sha"])
-            if key not in seen:
-                seen.add(key)
-                found.append((name, suite, last[0]["head_sha"]))
+            found.append((name, suite, last[0]["head_sha"]))
     return found, notes
 
 
@@ -777,12 +740,12 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
-def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str], step: str = "") -> Probe:
+def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str]) -> Probe:
     """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
     re-confirms it: next_step reads a pass there as a flake)."""
     span = commits_between(commits, good, bad)
     mid = span[(len(span) - 1) // 2] if span else bad
-    return Probe(suite, name, only, mid, good, bad, origin, step=step)
+    return Probe(suite, name, only, mid, good, bad, origin)
 
 
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
@@ -879,43 +842,16 @@ def probe_title(probe: Probe) -> str:
     return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}" + (f" confirm {probe.confirm}" if probe.confirm else "")
 
 
-def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe, steps: dict[str, frozenset] | None = None) -> str:
+def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
     """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
-    (the probe ran the whole suite when the red job had no manifest id); "" when it gave none.
-
-    A failure counts only when it is the origin's red: steps (this run's failing steps per job, see failing_steps) must
-    include one of probe.step's names. A probe that failed on other steps only, with some failing step known, reproduced
-    a different red, so it is "success" for this bisect: the culprit is where the origin's own red began. Run 45971256912
-    (ef869a7bc39, gallery-health) failed on composer layout flakes, not the gallery:build break the batch run found, and the
-    bisect chased that for four probes."""
-    verdict = probe_verdict(verdicts, probe)
-    if verdict == "failure" and probe.step and steps is not None:
-        mine = {n for n, (s, _) in verdicts.items() if s == probe.suite}
-        got: frozenset = frozenset()
-        for name, names in steps.items():
-            if name in mine and (job_base(name) == job_base(probe.job) or probe.job not in verdicts):
-                got |= names
-        if got and not got & set(probe.step.split(STEP_SEP)):
-            return "success"
-    return verdict
-
-
-def probe_verdict(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
+    (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
     mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
-    if probe.job not in mine:
-        # A matrix leg ("s / health (0)") that never ran is listed by its bare name ("s / health"): the matrix
-        # did not expand. Probe run 45969411338 (gallery-health, 11-27): its plan lost its runner, health showed as
-        # skipped by its bare name, and the suite's worst job (the lost plan, a failure) was read as the leg's red,
-        # so the bisect moved to c5385caf with c6ff1246 judged bad on no evidence.
-        bare = re.sub(r" \([^()]*\)$", "", probe.job)
-        if bare != probe.job and bare in mine:
-            mine[probe.job] = mine[bare]
     if mine.get(probe.job) == "skipped" and any(c not in ("success", "skipped") for c in mine.values()):
         return ""  # skipped behind a job that failed or lost its runner: no verdict, worth running again
     return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
 
 
-def known_verdict(runs: list[dict], probe: Probe, jobs_of, steps_of=None) -> tuple[str, dict] | None:
+def known_verdict(runs: list[dict], probe: Probe, jobs_of) -> tuple[str, dict] | None:
     """A finished probe run of the same title (suite, job, commit) from an earlier bisect, and its verdict, if it
     gave one: a bisect the next batch starts again then reads it instead of running the same probe again (the
     web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first).
@@ -923,13 +859,13 @@ def known_verdict(runs: list[dict], probe: Probe, jobs_of, steps_of=None) -> tup
     title = probe_title(probe)
     for run in runs:
         if (run.get("display_title") or "") == title and run.get("status") == "completed":
-            conclusion = probe_conclusion(jobs_of(run["id"])[0], probe, steps_of(run["id"]) if steps_of else None)
+            conclusion = probe_conclusion(jobs_of(run["id"])[0], probe)
             if conclusion in ("success", "failure", "skipped"):
                 return conclusion, run
     return None
 
 
-def first_unknown_probe(runs: list[dict], probe: Probe, commits: list[str], jobs_of, steps_of=None) -> tuple[Probe | None, list[str]]:
+def first_unknown_probe(runs: list[dict], probe: Probe, commits: list[str], jobs_of) -> tuple[Probe | None, list[str]]:
     """The batch judge's first probe of a bisect, past the probes an earlier bisect already ran: while a probe's
     verdict is known and the next step is another probe, take that one. A known verdict that would end the bisect
     (a culprit or a flake) keeps its probe, so that probe's judge names it as before; a known skip gives None (the
@@ -937,7 +873,7 @@ def first_unknown_probe(runs: list[dict], probe: Probe, commits: list[str], jobs
     commits: 7f0fe7d8a65 (rust-workspaces) four times, 716208d2c92 (compile-fleet) four, 11-27."""
     notes: list[str] = []
     for _ in range(len(commits) + 1):  # each known verdict narrows the range, so this ends
-        known = known_verdict(runs, probe, jobs_of, steps_of)
+        known = known_verdict(runs, probe, jobs_of)
         if not known:
             break
         step, value = next_step(probe, known[0], commits)
@@ -1010,11 +946,11 @@ def _tree(sha: str) -> str | None:
 
 def confirm_probes(job: Probe, culprit: str, parent: str) -> list[Probe]:
     """The confirm round for a bisect's culprit: CONFIRM_RUNS runs at the culprit (red-N) and at its parent (green-N)."""
-    return [Probe(job.suite, job.job, job.only, sha, parent, culprit, job.origin, confirm=f"{side}-{n}", step=job.step)
+    return [Probe(job.suite, job.job, job.only, sha, parent, culprit, job.origin, confirm=f"{side}-{n}")
             for n in range(1, CONFIRM_RUNS + 1) for side, sha in (("red", culprit), ("green", parent))]
 
 
-def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], jobs_of, steps_of=None) -> tuple[str, str]:
+def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], jobs_of) -> tuple[str, str]:
     """After one confirm run: ('culprit'|'flake'|'unsure'|'wait', why). Every confirm run's judge reads the
     round's other runs (newest run per title: a retry replaces its run). Any verdict against its side (the culprit
     passed, or its parent failed) is a flake. With no flake, only the judge that sees every run of the round
@@ -1031,7 +967,7 @@ def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], 
             seen[other.confirm] = ("", 0, False)
             continue
         got, judged = jobs_of(run["id"])
-        verdict = probe_conclusion(got, other, steps_of(run["id"]) if steps_of else None)
+        verdict = probe_conclusion(got, other)
         seen[other.confirm] = (verdict, int(run["id"]), judged or run.get("status") == "completed")
     against = [c for c, (v, _, _) in seen.items() if v in ("success", "failure") and v != want[c.split("-", 1)[0]]]
     if against:
@@ -1082,25 +1018,19 @@ def cmd_judge(args: argparse.Namespace) -> int:
     verdicts = suite_verdicts(jobs, suites)
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": "", "pieces": "", "piece": ""}
     memo: dict[int, tuple[dict[str, tuple[str, str]], bool]] = {}
-    step_memo: dict[int, dict[str, frozenset]] = {args.run_id: failing_steps(jobs)}
 
     def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
         # new_reds and stuck_reds walk the same earlier runs: read each run's jobs once.
         if rid not in memo:
             earlier = run_jobs(args.repo, rid)
-            step_memo[rid] = failing_steps(earlier)
             judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
             memo[rid] = (suite_verdicts(earlier, suites), judged)
         return memo[rid]
 
-    def steps_of(rid: int) -> dict[str, frozenset]:
-        jobs_of(rid)
-        return step_memo[rid]
-
     if args.mode != PROBE:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
-        found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites)
+        found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
         stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites,
                            chain_start=lambda good, bad: stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha)
         stuck_names = {name for name, *_ in stuck}
@@ -1111,8 +1041,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
-            probe = Probe(suite, name, suites[suite].job_id(inner), args.sha, good, "", str(args.run_id),
-                          step=STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))))
+            probe = Probe(suite, name, suites[suite].job_id(inner), args.sha, good, "", str(args.run_id))
             summary(args.summary, f"- New red `{name}`: green on `{good[:11]}`; probing `{args.sha[:11]}` once to confirm, then bisecting.")
             if not args.dry_run:
                 dispatch_probe(args.repo, args.branch, probe)
@@ -1121,8 +1050,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         for name, suite, good, bad in stuck[:MAX_STUCK_CHAINS]:
             inner = name.partition(" / ")[2]
             span = first_parent_range(good, bad)
-            probe, known_notes = first_unknown_probe(runs, stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), span,
-                                                      STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name)))), span, jobs_of, steps_of)
+            probe, known_notes = first_unknown_probe(runs, stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), span), span, jobs_of)
             for note in known_notes:
                 summary(args.summary, f"  - {note}")
             if probe is None:
@@ -1137,7 +1065,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 0
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0),
-                  args.pieces or "", getattr(args, "confirm", "") or "", getattr(args, "step", "") or "")
+                  args.pieces or "", getattr(args, "confirm", "") or "")
     found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
@@ -1149,9 +1077,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
             # 45931127675: 24 runs for any probe, 9 for its web-typecheck job, 2 for cmux-rd-host), and the
             # installation's rate limit ended the web-typecheck chain at its culprit (probe 45897849727, 11-26 21:37Z).
             origin_verdicts = {name: v for name, v in jobs_of(origin["id"])[0].items() if name == probe.job}
-            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)
-            if not probe.step:  # a chain begun before the step travelled: the origin's red names it
-                probe.step = STEP_SEP.join(sorted(red_step_names(steps_of(origin["id"]), probe.job)))
+            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
             found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
     except RuntimeError as err:
         # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
@@ -1184,10 +1110,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 1
     # The probe ran one suite job (or the whole suite when the red job had no manifest id):
     # its verdict is the job with the red job's name, else the worst of the suite's jobs.
-    conclusion = probe_conclusion(verdicts, probe, failing_steps(jobs))
-    if conclusion == "success" and probe_verdict(verdicts, probe) == "failure":
-        summary(args.summary, f"`{probe.job}` failed at `{probe.sha[:11]}` on other steps than the origin's ({probe.step}): "
-                              "a different red, counted as good for this bisect.")
+    conclusion = probe_conclusion(verdicts, probe)
     if state is not None:
         out.update(judge_pieces(args, probe, state, conclusion))
         write_outputs(args.github_output, out)
@@ -1203,7 +1126,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 runs = list_runs(args.repo, args.branch)
             except RuntimeError:
                 runs = []
-            step, why = judge_confirm(probe, conclusion, int(args.run_id or 0), runs, jobs_of, steps_of)
+            step, why = judge_confirm(probe, conclusion, int(args.run_id or 0), runs, jobs_of)
             if step == "culprit":
                 summary(args.summary, f"`{probe.job}` first went red at `{probe.bad}` (last green `{probe.good[:11]}`): {why}.")
                 out.update(culprit=probe.bad, job=probe.job, good=probe.good, origin=probe.origin)
@@ -1223,7 +1146,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     except RuntimeError:
         runs = []
     for _ in range(len(commits)):  # each known verdict narrows the range, so this ends
-        known = known_verdict(runs, value, jobs_of, steps_of) if step == "probe" and isinstance(value, Probe) else None
+        known = known_verdict(runs, value, jobs_of) if step == "probe" and isinstance(value, Probe) else None
         if not known:
             break
         summary(args.summary, f"`{value.job}` was already {known[0]} at `{value.sha[:11]}` (probe run {known[1]['id']}); not probing it again.")
@@ -1543,7 +1466,6 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--tries", default="0")
         p.add_argument("--pieces", default="")
         p.add_argument("--confirm", default="")
-        p.add_argument("--step", default="")
 
     p = sub.add_parser("tick")
     common(p)

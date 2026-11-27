@@ -110,11 +110,6 @@ fn every_class_recovers_on_its_own_or_passes_through_to_click_through() {
                     panic!("{class:?} ({action:?}) did not recover: {:?}", fake.ran)
                 };
                 assert_eq!(answer["session_id"], "sess-1", "{class:?}");
-                assert_eq!(
-                    answer["recovered"],
-                    json!([{"class": format!("{class:?}"), "action": format!("{action:?}")}]),
-                    "{class:?} answers its recovered event"
-                );
                 assert!(fake.answers.is_empty(), "{class:?} used every answer: {:?}", fake.ran);
             }
             None => {

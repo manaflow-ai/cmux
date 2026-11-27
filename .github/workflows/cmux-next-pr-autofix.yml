@@ -611,7 +611,7 @@ jobs:
       # git before the checkout, or it downloads a tarball with no history to fetch the pin's commit into.
       - name: Install git, python3 and curl
         timeout-minutes: 5
-        run: for try in 1 2 3; do apt-get update -qq -o Acquire::Retries=3 && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git python3 curl ca-certificates && break; [ "$try" = 3 ] && exit 1; echo "apt try $try failed (a mirror mid-sync?), updating again"; sleep 15; done
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:

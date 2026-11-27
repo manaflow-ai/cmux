@@ -1300,6 +1300,15 @@ function stackSteers(rows: AcpmuxRow[]): AcpmuxRow[] {
   return [...rows.filter(steer), ...rows.filter((row) => !steer(row))];
 }
 
+/// The ids of the footers `supersededFooters` would put over the person's steers in `turn`, which the
+/// `stacked` arm drops.
+function stackedSteerFooters(turn: readonly AcpmuxRow[]): Set<string> {
+  const ids = new Set<string>();
+  for (const row of turn)
+    if (row.kind === "user" && continuesTurn(row) && isOwnSteer(row)) ids.add(`${SUPERSEDED}-${steerKey(row)}`);
+  return ids;
+}
+
 /// `rows` with each agent reply of a lone "." marked `answersPerson` when `user` is the person's own
 /// prompt, so it still draws (visibleMessage.ts): a reply to the person is theirs to see, however
 /// short (Leo, 2026-11-03, on hiding punctuation-only replies: "well there are cases (rare) that you
@@ -1466,8 +1475,7 @@ function shapedTurn(
     );
     // The `stacked` arm draws the person's steers right under the prompt, live and ended
     // (turnFoldSteered.experiment.ts): they never move when the turn folds.
-    const stacked = steeredArm === "stacked" && foldStyle.conclusion;
-    const shapedBody = stacked ? stackSteers(unstacked) : unstacked;
+    const shapedBody = steeredArm === "stacked" && foldStyle.conclusion ? stackSteers(unstacked) : unstacked;
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
     const messaged = foldMessageRuns(shapedBody, expanded, live);
@@ -1481,7 +1489,11 @@ function shapedTurn(
     const runs = foldBackgroundRuns(messaged, expanded);
     // The person's steer still on its way draws in its place in the body (`sentHere`); its stretch's
     // footer comes in the frame it is drawn, as for one acpmux recorded.
-    const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live, stacked));
+    const footed = supersededFooters(runs, turn, endedByPerson, user.at, live);
+    // Stacked, a steer closes no stretch of its own: the footer that would end the stretch before it
+    // goes, and the turn's one footer copies the turn.
+    const stackedSteers = steeredArm === "stacked" && foldStyle.conclusion ? stackedSteerFooters(turn) : undefined;
+    const body = sinceAboveWorked(stackedSteers?.size ? footed.filter((row) => !stackedSteers.has(row.id)) : footed);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -2267,13 +2279,15 @@ function shapeTurn(
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? shapedLiveTurn(user, turn, [
+      ? liveTurn(
+          user,
+          turn,
           clockOffset,
           trayAgents,
           turnStartedAtMs,
           turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
           expanded.has(`${WORKED}-${user.id}`),
-        ])
+        )
       : last
         ? turn.flatMap(withoutDrafts)
         : settledWithoutSummary(turn);
@@ -2387,7 +2401,7 @@ function shapeTurn(
   const steerLayout = style.conclusion && allSteerDialogue.size ? experimentArm(turnFoldSteered) : undefined;
   const foldsSteerReplies = steerLayout === "stacked" || steerLayout === "inline";
   const steerReplies = foldsSteerReplies
-    ? new Set(body.filter((row) => row.kind !== "user" && allSteerDialogue.has(row.id)).map((row) => row.id))
+    ? new Set([...allSteerDialogue].filter((id) => body.some((row) => row.id === id && row.kind !== "user")))
     : undefined;
   const keptOut: ReadonlySet<string> = steerReplies
     ? new Set([...keptByArm].filter((id) => !steerReplies.has(id) || id === cutOff?.reply.id))
@@ -3321,8 +3335,7 @@ function supersededFooters(
   turn: readonly AcpmuxRow[],
   endedByPerson: boolean,
   startedAt: number,
-  live: boolean,
-  stacked: boolean,
+  live = false,
 ): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   let from = 0;
@@ -3367,21 +3380,13 @@ function supersededFooters(
   // The person's last message into the turn whose stretch ended on its footer. A message right after
   // it (nothing said between) keeps it: the check below reads everything said since.
   let lastSteer = -1;
-  // Stacked steers share the turn footer. Leave the whole turn available to Copy, including
-  // when the next prompt ends it without a summary.
-  for (let index = 0; (!stacked || live) && index < turn.length; index += 1) {
+  for (let index = 0; index < turn.length; index += 1) {
     const row = turn[index]!;
     // A steer still waiting is the person's too: while the turn runs its footer comes with it (below).
     // A steer the agent has not read yet: acpmux's record of it (`waiting`), or the pane's own row
     // still on its way (`sentSteer`).
     const unread = row.steer === "waiting" ? personCameIn({ ...row, steer: "landed" }) : live && sentSteer(row);
     if (!personCameIn(row) && !unread) continue;
-    // A recorded steer is already stacked. A local send still draws inline until its record
-    // arrives, with Copy for the stretch since the last recorded steer.
-    if (stacked && continuesTurn(row)) {
-      from = index + 1;
-      continue;
-    }
     const at = (out ?? drawn).findIndex((each) => each.id === row.id);
     if (unread) {
       // While the turn runs its footer comes with it, right above where it is drawn (or where the
@@ -3461,53 +3466,6 @@ function liveTurn(
     clockOffset,
   );
 }
-
-/// What `liveTurn` shapes the running turn's rows from, past the turn itself.
-type LiveTurnArgs = readonly [
-  clockOffset: number,
-  trayAgents: number,
-  turnStartedAtMs: number | undefined,
-  foldsPrompt: boolean,
-  workOpen: boolean,
-];
-
-/// The running turn's rows as a pass of `turnViewFrom` last shaped them (`shaped`, the live line
-/// last), with what it shaped them from, and the pane draw it came after (`stamp`). The pane's
-/// hidden-call bypass (liveCallLine.ts) shapes the turn again with one row changed and keeps the
-/// pane's snapshot when only the line moved.
-export type LiveTurnShape = {
-  readonly user: AcpmuxRow;
-  readonly turn: readonly AcpmuxRow[];
-  readonly args: LiveTurnArgs;
-  readonly shaped: readonly AcpmuxRow[];
-  readonly stamp: number;
-};
-
-let liveShape: LiveTurnShape | undefined;
-let liveStamp = 0;
-
-/// `liveTurn` for the running turn's own pass, noted as `liveTurnShapes.last()`.
-function shapedLiveTurn(user: AcpmuxRow, turn: AcpmuxRow[], args: LiveTurnArgs): AcpmuxRow[] {
-  const shaped = liveTurn(user, turn, ...args);
-  liveShape = { user, turn: turn.slice(), args, shaped, stamp: liveStamp };
-  return shaped;
-}
-
-export const liveTurnShapes = {
-  /// The running turn as the newest pass shaped it, or undefined before one.
-  last: (): LiveTurnShape | undefined => liveShape,
-  /// The pane drew another snapshot (`stamp`): shapes from here on carry it.
-  stamp(stamp: number): void {
-    liveStamp = stamp;
-  },
-  /// `shape`'s turn shaped again from `turn`, with the same arguments. Notes nothing.
-  reshape: (shape: LiveTurnShape, turn: readonly AcpmuxRow[]): AcpmuxRow[] =>
-    liveTurn(shape.user, turn as AcpmuxRow[], ...shape.args),
-  /// Forgets the newest shape (tests).
-  reset(): void {
-    liveShape = undefined;
-  },
-};
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
 /// while its harness retries a failed model request the line says the model cannot be reached,

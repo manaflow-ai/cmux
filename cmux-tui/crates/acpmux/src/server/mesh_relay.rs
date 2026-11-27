@@ -393,22 +393,7 @@ async fn heartbeats(
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let health = match hub.upgrade() {
-            Some(hub) => {
-                // timeout: a slow reading is left off this heartbeat; the beat itself never waits on it.
-                let reading = tokio::time::timeout(
-                    Duration::from_secs(3),
-                    super::peer_status::host_health(&hub, crate::conn_origin::Origin::Peer),
-                )
-                .await
-                .ok();
-                reading
-                    .map(|r| crate::peer::health::wire(&r))
-                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()))
-            }
-            None => break,
-        };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -500,7 +485,7 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }

@@ -1078,6 +1078,7 @@
           "Packages/macOS/CmuxNext/Sources/",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift",

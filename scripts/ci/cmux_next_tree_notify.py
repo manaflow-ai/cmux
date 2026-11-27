@@ -169,12 +169,7 @@ class GitHub:
         # sleeps: github_token_polling.py). On 2026-11-14 23:41Z run 43652238618's publish read its markers
         # with a spent github.token, the notify ended in a warning, and cmux#43194's same-tree run was never
         # dispatched.
-        # POOL_TOKEN_CHAIN (ci-min-per-pr-1500): spare may name several tokens, whitespace-separated (the cmux-bot
-        # App's, then CI_POOL_TOKEN_1/_2); each spent one moves the calls to the next. Run 45898765362's same-tree
-        # status job held its runner 15.6 min on 2026-11-26 21:35Z waiting out github.token and the App token both
-        # spent, while the pool tokens had their own hour left.
-        self.spares = [t for i, t in enumerate((spare or "").split()) if t != token and t not in (spare or "").split()[:i]]
-        self.spare = self.spares[0] if self.spares else ""
+        self.spare = spare if spare and spare != token else ""
         self.api_url = api_url.rstrip("/")
         # The last answer, (status, payload, headers): a caller that may wait out a rate limit (the same-tree
         # status post) reads its Retry-After or x-ratelimit-reset here. This client itself never sleeps.
@@ -194,11 +189,10 @@ class GitHub:
 
     def _request(self, method: str, url: str, body: dict | None = None):
         status, payload, headers = self._send(method, url, body)
-        while self.spares and rate_limited(status, headers, payload):
+        if self.spare and rate_limited(status, headers, payload):
             print(f"::notice title=tree notify token::{method} {url.removeprefix(self.api_url + '/')} was refused "
                   f"on a spent rate limit (HTTP {status}); the notify continues on the spare token")
-            self.token = self.spares.pop(0)
-            self.spare = self.spares[0] if self.spares else ""
+            self.token, self.spare = self.spare, ""
             status, payload, headers = self._send(method, url, body)
         self.last = (status, payload, headers)
         return status, payload
