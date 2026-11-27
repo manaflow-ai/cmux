@@ -29,8 +29,9 @@
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
 # CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20). CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0
 # looks once (the tree, then each candidate's manifest) and exits 1 on a miss
-# without reading any runs list: app-bundle-cmux-tui-client.sh then bundles the
-# newest published tree instead of waiting (RFD 0021, row 1).
+# without reading any runs list. app-bundle-cmux-tui-client.sh, when it has a fallback tree,
+# waits CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500) here, then bundles the
+# newest published tree on a miss instead of failing (RFD 0021, row 1).
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN

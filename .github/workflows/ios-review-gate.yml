@@ -166,6 +166,17 @@ on:
         required: false
       ASC_API_KEY_P8_BASE64:
         required: false
+      # Declared so a called run's references resolve; the INTERNAL builder
+      # passes none of these (only the ASC key), so a called run mints no
+      # routing token and saves no R2 cache, as before: both steps continue on error.
+      GLAEDA_ROUTE_APP_KEY:
+        required: false
+      CI_CACHE_R2_ACCESS_KEY_ID:
+        required: false
+      CI_CACHE_R2_SECRET_ACCESS_KEY:
+        required: false
+      CI_CACHE_R2_ACCOUNT_ID:
+        required: false
     outputs:
       blocking:
         description: Number of blocking findings
@@ -276,7 +287,7 @@ jobs:
       # now comes from this job, and every leg that does run checks the
       # list against its image (.github/ios-review-gate-devices.json).
       - name: Checkout the device list
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.plan.outputs.gate_sha }}
           path: gate
@@ -472,7 +483,7 @@ jobs:
       LANE: ${{ needs.plan.outputs.lane }}
     steps:
       - name: Checkout the gate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The gate's own commit (plan's gate_sha): a caller on another
           # branch (main's production pipeline) still runs the gate's scripts.
@@ -484,7 +495,7 @@ jobs:
             cmux-next-ios/AppStoreReview
             cmux-next-ios/UITests
       - name: Checkout the app source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           path: app
@@ -562,7 +573,7 @@ jobs:
       use: ${{ steps.done.outputs.use }}
     steps:
       - name: Checkout the app's gate files
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           path: app
@@ -572,7 +583,7 @@ jobs:
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
       - name: Checkout the gate's files
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           path: gate
@@ -594,7 +605,10 @@ jobs:
             fi
           done
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          [[ -x "$client" ]] || { echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"; exit 0; }
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"
+            exit 0
+          fi
           out="$RUNNER_TEMP/out"
           status=0
           "$client" ios-build --what gate-products --ref "$SHA" --out "$out" --timeout 1800 --queue-timeout 600 || status=$?
@@ -642,7 +656,7 @@ jobs:
         family: ${{ fromJSON(needs.plan.outputs.families) }}
     # An owned simulator mini from the plan job's picker on attempt 1, ephemeral Blacksmith macOS 26 on a
     # re-run or a fork pull request (which reads no repository variables).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
@@ -661,12 +675,12 @@ jobs:
       # the gate beside it in .review-gate (outside cmux-next-ios, which is
       # all xcodegen reads).
       - name: Checkout the app source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - name: Checkout the gate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           path: .review-gate
@@ -1012,7 +1026,7 @@ jobs:
       # judged source is only read as data, and the version is read before
       # any secret is in the environment.
       - name: Checkout the gate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           path: gate
@@ -1025,7 +1039,7 @@ jobs:
             .gitmodules
           sparse-checkout-cone-mode: false
       - name: Checkout the app source (data only)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           path: app
@@ -1123,7 +1137,7 @@ jobs:
           else
             echo "::warning::the handed-off framework is incomplete; nothing saved"
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.staged.outputs.key != ''
         with:
           persist-credentials: false
@@ -1305,7 +1319,7 @@ jobs:
     outputs:
       blocking: ${{ steps.report.outputs.blocking }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           persist-credentials: false
@@ -1317,7 +1331,7 @@ jobs:
       # it could edit to pin its own regression.
       - name: Checkout the base's known blockers
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base

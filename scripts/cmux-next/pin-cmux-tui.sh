@@ -1036,6 +1036,9 @@ wait_for_tree() {
         echo "  on a trusted pushed commit of feat-cmux-next or feat-cmux-next-acpmux."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
         echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
+        echo "  Only coalesced window runs publish: a 'success' artifacts run at a commit may just be superseded,"
+        echo "  so check the sha256 URL above, not the run's conclusion. A run started at a branch head (a dispatch"
+        echo "  at a pull request) needs that head's tree published: base the branch on a commit whose tree is."
         echo "  A fleet app build can bundle its own daemon without publishing the PR tree."
         echo "  A pull request checks its merge with the base; do not publish a synthetic merge commit from the PR context."
         echo "  When the last trusted run for this tree failed, rerun it from feat-cmux-next."
@@ -1409,7 +1412,9 @@ tree_published() {
 #                          it ends, scripts/ci/cmux_next_tree_notify.py starts
 #                          the tree jobs (cmux-next same-tree mode)
 #   tree_state=superseded  a push whose artifacts runs were cancelled or skipped
-#                          while the branch moved on: nothing to test
+#                          while the branch moved on: nothing to test (with
+#                          CMUX_TUI_TREE_TIP_SUITE set, a tip suite, deferred
+#                          instead: no newer run tests this exact commit)
 #   tree_state=failed      nothing will publish it (tree_reason says why)
 #   tree_state=skipped     CMUX_TUI_TREE_BASE_FALLBACK=1 and no tree in the
 #                          history is published: the tree jobs do not run
@@ -1509,7 +1514,17 @@ probe_checkout_tree() {
     ended\ *)
       superseded=""
       [[ "$source" == commit:* && -n "$publisher" ]] && superseded="$(superseded_by "$publisher" "$state")"
-      if [[ -n "$superseded" ]]; then
+      if [[ -n "$superseded" && -n "${CMUX_TUI_TREE_TIP_SUITE:-}" ]]; then
+        # A tip suite (cmux-next.yml tip_daemon_suite) is the base's verdict for this exact commit, and in a
+        # landing burst the push that would publish its tree is always cancelled by the next one: until
+        # 2026-11-27 every such run read superseded and skipped daemon-test (one daemon-test verdict in 14
+        # tip daemon suite runs from 21:54Z to 05:23Z). No other run tests this commit's daemon tree, so
+        # the newer head being tested does not apply. Its wait marker (tip_suite, which
+        # cmux_next_tree_notify.is_current keeps past a moved tip) waits for the tree's next publish: the
+        # next window's push with this key, or cmux-tui-tree-request.yml.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was cancelled by a newer push ($superseded), and this tip suite tests this exact commit; tree $key's next publish starts the tree jobs"
+      elif [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
       elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then

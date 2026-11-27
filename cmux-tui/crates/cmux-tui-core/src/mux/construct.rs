@@ -147,6 +147,8 @@ impl Mux {
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
+        use crate::restore_progress::{RestorePhase, enter};
+        enter(RestorePhase::Snapshot);
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
         // Warm the pages the adoption's terminal ends write while the restore
@@ -183,6 +185,7 @@ impl Mux {
             rebuild: agent_roster_rebuild,
             unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
+        enter(RestorePhase::MuxBuild);
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
@@ -505,6 +508,13 @@ impl Mux {
         if let Some(from_version) = agent_roster_unmarked_from {
             mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
         }
+        // A migrated roster is stale before its owner takes any of its work:
+        // the replay of its tail below reconciles projections only from a
+        // roster that is not, and a short replay can finish before the
+        // rebuild starts.
+        if agent_roster_rebuild {
+            mux.agent_roster_worker.stale.store(true, Ordering::Release);
+        }
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
         // A long tail (a lost snapshot, a start long after the last save)
@@ -521,6 +531,12 @@ impl Mux {
                         .with(|gate| gate.borrow_mut().take());
             }
             mux.continue_agent_roster_replay(replay);
+            #[cfg(test)]
+            if let Some(seam) = agent_roster_restore::AFTER_REPLAY_SCHEDULED_FOR_TEST
+                .with(|seam| seam.borrow_mut().take())
+            {
+                seam(&mux);
+            }
         }
         // A stale roster (a reducer version bump) is served now and rebuilt
         // from the whole journal in the owner while the daemon serves.
@@ -546,9 +562,11 @@ impl Mux {
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux, &mut parts)?;
         timings.absorb(parts, "mux.build");
+        enter(RestorePhase::Browsers);
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         timings.lap("restore.browsers");
+        enter(RestorePhase::HostAdoption);
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
         mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
@@ -557,6 +575,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         timings.lap("terminal.adopt_hosts");
+        enter(RestorePhase::Reconcile);
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -589,6 +608,7 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         timings.lap("restore.reconcile");
+        enter(RestorePhase::Finish);
         mux.close_ephemeral_workspaces()?;
         timings.lap("workspace.close_ephemeral");
         // cx-6so.49: host losses whose respawn an earlier owner never ran

@@ -42,44 +42,53 @@ public nonisolated enum ChiefMigration {
         return nil
     }
 
+    private struct StepRequest: Encodable { let isolated, recordExists: Bool; let blocking: [String] }
+    private struct StepReply: Decodable { let step: String }
+
+    /// The rules' `migration::Old`.
+    private struct WireOld: Codable {
+        var tag: String
+        var muxHome: String
+        var store: String
+    }
+
     /// Every old per-tag Chief on this Mac: `~/.cmux/mux/tags/<tag>` and the
     /// tag daemon's conversation store, under `cmux-next/tags/<tag>` once that
     /// build moved its folder (StateFolderMove), else under classic's `cmux/tags/<tag>`.
+    /// Which store is the tag's is cmux-home-rules `chief_home.migration_old_chiefs`;
+    /// this lists the tags and the moved stores that are there. Empty if the
+    /// rules fail (`run` then throws at its first rules call, so no record is written).
     public static func oldChiefs(userHome: URL, applicationSupport: URL) -> [Old] {
-        let tags = userHome.appendingPathComponent(".cmux/mux/tags", isDirectory: true)
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: tags.path)) ?? []
-        return names.sorted().map { tag in
-            let session = "cmux-app-\(tag)"
-            let relative = "tags/\(tag)/tui/\(sessionComponent(session))/conversations.sqlite3"
-            let moved = applicationSupport.appendingPathComponent("cmux-next/\(relative)")
-            let store = FileManager.checked.fileExists(atPath: moved.path)
-                ? moved : applicationSupport.appendingPathComponent("cmux/\(relative)")
-            return Old(tag: tag, muxHome: tags.appendingPathComponent(tag, isDirectory: true), store: store)
+        struct Request: Encodable { let userHome, applicationSupport: String; let tags, existing: [String] }
+        struct Reply: Decodable { let olds: [WireOld] }
+        let fm = FileManager.default
+        let tags = (try? fm.contentsOfDirectory(atPath: userHome.appendingPathComponent(".cmux/mux/tags", isDirectory: true).path)) ?? []
+        let moved = applicationSupport.standardizedFileURL.appendingPathComponent("cmux-next/tags", isDirectory: true)
+        let existing = tags.flatMap { tag in
+            let tui = moved.appendingPathComponent("\(tag)/tui", isDirectory: true)
+            return ((try? fm.contentsOfDirectory(atPath: tui.path)) ?? []).map { tui.appendingPathComponent("\($0)/conversations.sqlite3").path }
+                .filter { FileManager.checked.fileExists(atPath: $0) }
         }
-    }
-
-    /// cmux-tui `session_storage_component`: readable prefix plus FNV-1a 64.
-    static func sessionComponent(_ session: String) -> String {
-        var readable = ""
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in session.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-            if readable.utf8.count < 48 {
-                let scalar = Character(UnicodeScalar(byte))
-                readable.append(scalar.isASCII && (scalar.isLetter || scalar.isNumber || scalar == "-" || scalar == "_") ? scalar : "_")
-            }
+        let reply: Reply? = try? ChiefHomeRules().call("migration_old_chiefs", Request(
+            userHome: userHome.path, applicationSupport: applicationSupport.path, tags: tags, existing: existing))
+        return (reply?.olds ?? []).map { old in
+            Old(tag: old.tag, muxHome: URL(fileURLWithPath: old.muxHome, isDirectory: true), store: URL(fileURLWithPath: old.store))
         }
-        return (readable.isEmpty ? "session" : readable) + "-" + String(format: "%016llx", hash)
     }
 
     /// Runs the move for `home`. Idempotent: a finished move is recorded in
     /// `<home>/migration.json`, and the owner skips what it already holds.
     @concurrent public static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old], tool: (any ChiefMemoryTool)? = nil) async throws -> Outcome {
         let record = home.root.appendingPathComponent(recordName)
-        if home.isolated || FileManager.default.fileExists(atPath: record.path) { return .nothingToDo }
+        func step(_ blocking: [String]) throws -> String {
+            let reply: StepReply = try ChiefHomeRules().call("migration_run_step", StepRequest(
+                isolated: home.isolated, recordExists: FileManager.default.fileExists(atPath: record.path), blocking: blocking))
+            return reply.step
+        }
+        if try step([]) == "nothingToDo" { return .nothingToDo }
+        // Old hosts' locks only once the move would run (lockHeld takes a free lock for an instant).
         let blocking = olds.filter { lockHeld(at: $0.muxHome.appendingPathComponent("state/host.lock")) }.map(\.tag)
-        if !blocking.isEmpty { return .blocked(blocking) }
+        if try step(blocking) == "blocked" { return .blocked(blocking) }
         let lockPath = home.root.appendingPathComponent("state/host.lock")
         try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let lock = HostLock(path: lockPath) else { return .blocked([home.root.lastPathComponent]) }
@@ -89,7 +98,7 @@ public nonisolated enum ChiefMigration {
         defer { try? FileManager.default.removeItem(at: scratch) }
         var sources: [ChiefMigrationSource] = []
         for old in olds { if let source = await readSource(old, tool: tool, scratch: scratch) { sources.append(source) } }
-        let plan = ChiefMigrationPlan.make(sources)
+        let plan = try ChiefMigrationPlan.make(sources)
         var outcome = Outcome.nothingToDo
         if !plan.items.isEmpty {
             let conversation = try await owner.chiefConversation()
@@ -123,9 +132,12 @@ public nonisolated enum ChiefMigration {
         let fm = FileManager.default
         let optchat = home.root.appendingPathComponent("optchat", isDirectory: true)
         let chat = optchat.appendingPathComponent("chat", isDirectory: true)
-        let hasMemory = fm.fileExists(atPath: optchat.appendingPathComponent("memory.sqlite3").path)
-            || ((try? fm.contentsOfDirectory(atPath: chat.appendingPathComponent("main").path)) ?? []).contains { $0.hasSuffix(".jsonl") }
-        if hasMemory {
+        struct HasMemoryRequest: Encodable { let databaseExists: Bool; let mainNames: [String] }
+        struct HasMemoryReply: Decodable { let hasMemory: Bool }
+        let hasMemory: HasMemoryReply = try ChiefHomeRules().call("migration_has_memory", HasMemoryRequest(
+            databaseExists: fm.fileExists(atPath: optchat.appendingPathComponent("memory.sqlite3").path),
+            mainNames: (try? fm.contentsOfDirectory(atPath: chat.appendingPathComponent("main").path)) ?? []))
+        if hasMemory.hasMemory {
             // A memory from an interrupted move: keep it; the host state must
             // still say every imported message is logged.
             if !fm.fileExists(atPath: optchat.appendingPathComponent("host.json").path) {
@@ -136,53 +148,77 @@ public nonisolated enum ChiefMigration {
         try fm.createDirectory(at: optchat, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let staging = (tool != nil ? scratch : nil)?.appendingPathComponent("memory", isDirectory: true) ?? chat
         let main = staging.appendingPathComponent("main", isDirectory: true)
-        var entries: [ChiefMigrationSource.LogEntry] = []
-        switch plan.memory {
-        case .none:
-            break
-        case .copy(let index):
+        if case .copy(let index) = plan.memory {
             if let text = sources[index].textDir {
                 for part in ["main", "tree"] where fm.fileExists(atPath: text.appendingPathComponent(part).path) {
                     try copyRegularFiles(from: text.appendingPathComponent(part, isDirectory: true), to: staging.appendingPathComponent(part, isDirectory: true))
                 }
             }
-            entries = sources[index].log
             for name in ["AGENTS.md", "engine.json"] {
                 let source = sources[index].muxHome.appendingPathComponent("optchat/\(name)")
                 if fm.fileExists(atPath: source.path) { try? fm.copyItem(at: source, to: optchat.appendingPathComponent(name)) }
             }
-        case .interleave:
-            let all = sources.flatMap(\.log).sorted { ChiefMigrationPlan.time($0.date) < ChiefMigrationPlan.time($1.date) }
-            try fm.createDirectory(at: main, withIntermediateDirectories: true)
-            for (index, entry) in all.enumerated() {
-                try append(ChiefMigrationPlan.logLine(i: index, kind: entry.kind, text: entry.text, date: entry.date), day: entry.date, in: main)
-            }
-            entries = all
         }
         try fm.createDirectory(at: main, withIntermediateDirectories: true)
         try fm.createDirectory(at: staging.appendingPathComponent("tree", isDirectory: true), withIntermediateDirectories: true)
-        for (offset, item) in plan.unlogged.enumerated() {
-            let date = ChiefMigrationPlan.localDate(item.message.createdAt)
-            try append(ChiefMigrationPlan.logLine(i: entries.count + offset, kind: "user", text: item.message.text, date: date), day: date, in: main)
-        }
-        if let tool, staging != chat, entries.count + plan.unlogged.count > 0 {
+        let lines = try memoryLines(plan: plan, sources: sources)
+        for line in lines.appends { try append(line.line, file: line.file, in: main) }
+        if let tool, staging != chat, lines.entries > 0 {
             try await tool.importText(muxHome: home.muxHome, from: staging)
         }
         try writeHostState(optchat: optchat, conversation: conversation, loggedSeq: loggedSeq)
-        return entries.count + plan.unlogged.count
+        return lines.entries
+    }
+
+    private struct MemoryLines: Decodable {
+        struct Append: Decodable {
+            let file: String
+            let line: String
+        }
+        var appends: [Append]
+        var entries: Int
+    }
+
+    /// The memory's lines (cmux-home-rules `chief_home.migration_memory`): the
+    /// interleaved old logs, then each unlogged human message as a `user` line
+    /// dated in this Mac's time zone at that message's instant (daylight saving
+    /// per date: one rules call per distinct offset).
+    private static func memoryLines(plan: ChiefMigrationPlan, sources: [ChiefMigrationSource]) throws -> MemoryLines {
+        struct Request: Encodable { let sources: [ChiefMigrationSource.Wire]; let utcOffsetSeconds: Int }
+        struct TimeRequest: Encodable { let text: String }
+        struct TimeReply: Decodable { let seconds: Double }
+        let wire = sources.map(\.wire)
+        let offsets = try plan.unlogged.map { item in
+            let time: TimeReply = try ChiefHomeRules().call("migration_time", TimeRequest(text: item.message.createdAt))
+            return TimeZone.current.secondsFromGMT(for: Date(timeIntervalSince1970: time.seconds))
+        }
+        var byOffset: [Int: MemoryLines] = [:]
+        for offset in Set(offsets + [offsets.first ?? TimeZone.current.secondsFromGMT()]) {
+            byOffset[offset] = try ChiefHomeRules().call("migration_memory", Request(sources: wire, utcOffsetSeconds: offset))
+        }
+        guard var lines = byOffset[offsets.first ?? TimeZone.current.secondsFromGMT()] else { return MemoryLines(appends: [], entries: 0) }
+        let base = lines.appends.count - offsets.count
+        guard base >= 0 else { return lines }
+        for (index, offset) in offsets.enumerated() {
+            if let dated = byOffset[offset], dated.appends.indices.contains(base + index) {
+                lines.appends[base + index] = dated.appends[base + index]
+            }
+        }
+        return lines
     }
 
     /// `host.json`: bound to the Chief conversation with every message logged.
     private static func writeHostState(optchat: URL, conversation: String, loggedSeq: UInt64) throws {
-        let state: [String: Any] = ["conversation": conversation, "logged_seq": loggedSeq, "outbox": [Any](), "turn": NSNull(),
-                                    "children": [String: Any](), "orphans": [Any]()]
+        struct Request: Encodable { let conversation: String; let loggedSeq: UInt64 }
+        struct Reply: Decodable { let json: String }
+        let state: Reply = try ChiefHomeRules().call("migration_host_state", Request(conversation: conversation, loggedSeq: loggedSeq))
         let hostJSON = optchat.appendingPathComponent("host.json")
-        try JSONSerialization.data(withJSONObject: state).write(to: hostJSON, options: .atomic)
+        try Data(state.json.utf8).write(to: hostJSON, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: hostJSON.path)
     }
 
-    private static func append(_ line: String, day date: String, in main: URL) throws {
-        let file = main.appendingPathComponent(String(date.prefix(10)) + ".jsonl")
+    private static func append(_ line: String, file name: String, in main: URL) throws {
+        let file = main.appendingPathComponent(name)
         if !FileManager.default.fileExists(atPath: file.path) { FileManager.default.createFile(atPath: file.path, contents: nil) }
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
@@ -191,11 +227,15 @@ public nonisolated enum ChiefMigration {
     }
 
     /// Copies files and directories (the git history too), skipping sockets
-    /// and lock files.
+    /// and the lock and temporary files (`chief_home.migration_copy_skips`).
     private static func copyRegularFiles(from source: URL, to destination: URL) throws {
+        struct Request: Encodable { let name: String }
+        struct Reply: Decodable { let skip: Bool }
         let fm = FileManager.default
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-        for name in try fm.contentsOfDirectory(atPath: source.path) where !["lock", "takeover.flock"].contains(name) && !name.contains(".tmp") {
+        for name in try fm.contentsOfDirectory(atPath: source.path) {
+            let skips: Reply = try ChiefHomeRules().call("migration_copy_skips", Request(name: name))
+            if skips.skip { continue }
             let from = source.appendingPathComponent(name)
             let values = try from.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values.isDirectory == true {
@@ -207,10 +247,13 @@ public nonisolated enum ChiefMigration {
     }
 
     private static func writeRecord(_ url: URL, olds: [Old], status: String) throws {
-        let record: [String: Any] = ["status": status, "at": ISO8601DateFormatter().string(from: Date()),
-                                     "sources": olds.map { ["tag": $0.tag, "mux_home": $0.muxHome.path, "store": $0.store.path] }]
+        struct Request: Encodable { let status: String; let now: Double; let olds: [WireOld] }
+        struct Reply: Decodable { let json: String }
+        let record: Reply = try ChiefHomeRules().call("migration_record", Request(
+            status: status, now: Date().timeIntervalSince1970,
+            olds: olds.map { WireOld(tag: $0.tag, muxHome: $0.muxHome.path, store: $0.store.path) }))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+        try Data(record.json.utf8).write(to: url, options: .atomic)
     }
 
     // MARK: Locks
