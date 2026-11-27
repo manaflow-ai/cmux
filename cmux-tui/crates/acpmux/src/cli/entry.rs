@@ -122,7 +122,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::github_lane_mint::CLI_ARG) {
         crate::install_github_source();
         let rest: Vec<String> =
-            args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
         let code = cmux_host::github_cli::run(&rest);
         // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
         std::process::exit(i32::from(code));
@@ -130,7 +130,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // The held pipes' host (`hub_carrier_pipe_host.rs`): its own runtime, no daemon start.
     #[cfg(all(unix, feature = "hub-carrier"))]
     if args.first().is_some_and(|a| a == crate::hub_carrier_pipe_host::PIPE_HOST_ARG) {
-        return crate::hub_carrier_pipe_host::main(&args[1..]);
+        return crate::hub_carrier_pipe_host::main(args.get(1..).unwrap_or_default());
     }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
@@ -291,11 +291,11 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     // (`acpmux --json exec …`), so these rewrites see the same command.
     let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if at + 1 == argv.len() && argv[at] == "daemon" {
+    if at + 1 == argv.len() && argv.get(at).is_some_and(|a| a == "daemon") {
         argv.push("run".into());
     }
-    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[at] = "skill".into();
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "--skill" || *a == "--guide") {
+        *word = "skill".into();
     }
     // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
     if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {

@@ -321,6 +321,7 @@ mod dir_rules;
 pub(crate) use dir_rules::enabled as dir_rules_enabled;
 #[cfg(test)]
 mod dedupe_tests;
+// Harness magic `pathRules`: a repo's rule loads when a session touches its paths.
 #[cfg(test)]
 mod dir_rules_tests;
 mod foreground_work;
@@ -332,12 +333,18 @@ mod hook_callback_tests;
 mod inbound;
 #[cfg(test)]
 mod initialize_tests;
+mod path_rules;
+/// The feature name and its gate, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use path_rules::{FEATURE as PATH_RULES_FEATURE, enabled as path_rules_enabled};
+#[cfg(test)]
+mod path_rules_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
+pub mod cache_faults;
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
@@ -640,6 +647,8 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `pathRules` (path_rules.rs).
+    path_rules: Arc<path_rules::PathRules>,
     /// Harness magic `dirRules` (dir_rules.rs).
     dir_rules: Arc<dir_rules::DirRules>,
     next_control: AtomicI64,
@@ -865,6 +874,7 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
+            path_rules: Default::default(),
             dir_rules: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
