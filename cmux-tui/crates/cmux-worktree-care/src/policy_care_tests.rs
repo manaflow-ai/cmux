@@ -24,8 +24,14 @@ fn decide_at(worktree: &Worktree, sessions: &[Session], pressure: Pressure) -> V
 
 #[test]
 fn an_open_session_keeps_its_worktree_however_idle() {
-    let session =
-        Session { name: "lane".into(), cwd: "/w/a/src".into(), open: true, updated_ms: 0 };
+    let session = Session {
+        name: "lane".into(),
+        cwd: "/w/a/src".into(),
+        open: true,
+        archived_checkout: None,
+        updated_ms: 0,
+        ids: Vec::new(),
+    };
     let v = decide_at(&worktree(pushed(1000)), &[session], Pressure::Critical);
     assert_eq!(v.action, Action::Keep);
     assert!(v.reason.contains("lane"));
@@ -33,7 +39,14 @@ fn an_open_session_keeps_its_worktree_however_idle() {
 
 #[test]
 fn a_closed_session_s_last_change_counts_as_use() {
-    let session = Session { name: "lane".into(), cwd: "/w/a".into(), open: false, updated_ms: NOW };
+    let session = Session {
+        name: "lane".into(),
+        cwd: "/w/a".into(),
+        open: false,
+        archived_checkout: None,
+        updated_ms: NOW,
+        ids: Vec::new(),
+    };
     assert_eq!(
         decide_at(&worktree(pushed(1000)), &[session], Pressure::Normal).action,
         Action::Keep
@@ -42,7 +55,7 @@ fn a_closed_session_s_last_change_counts_as_use() {
 
 #[test]
 fn a_process_inside_keeps_it() {
-    let processes = [Process { pid: 7, cwd: "/w/a/web".into() }];
+    let processes = [Process { pid: 7, cwd: "/w/a/web".into(), session_id: None }];
     let v = decide(
         &worktree(pushed(1000)),
         None,
@@ -55,9 +68,60 @@ fn a_process_inside_keeps_it() {
     assert_eq!(v.action, Action::Keep);
 }
 
+/// hq#13316: an owner working from another folder, pushed and idle 25 h
+/// by every other signal at high pressure, keeps its worktree while it
+/// lives, however that is known.
+#[test]
+fn a_worktree_whose_wt_owner_is_live_is_kept() {
+    let owner = crate::inventory::Owner {
+        session_id: Some("sid".into()),
+        ids: vec!["chat".into()],
+        pid: Some(7),
+        runs: false,
+    };
+    let w = worktree(Facts { owner: Some(owner.clone()), ..pushed(25) });
+    let elsewhere = |ids: Vec<String>, open| Session {
+        name: "loop".into(),
+        cwd: "/home/chats/loop".into(),
+        open,
+        archived_checkout: None,
+        updated_ms: 0,
+        ids,
+    };
+    let at = |w: &Worktree, sessions: &[Session], processes: &[Process]| {
+        decide(w, None, sessions, processes, Pressure::High, &Settings::default(), NOW)
+    };
+    // Gone by every sign: it goes, as on 2026-11-18.
+    let gone = at(&w, &[elsewhere(vec!["chat".into()], false)], &[]);
+    assert_eq!(gone.action, Action::Reclaim, "{}", gone.reason);
+    assert_eq!(gone.reason, "everything pushed; idle 25 h");
+    // Its recorded process runs.
+    let running = worktree(Facts {
+        owner: Some(crate::inventory::Owner { runs: true, ..owner }),
+        ..pushed(25)
+    });
+    let v = at(&running, &[], &[]);
+    assert_eq!((v.action, v.reason.as_str()), (Action::Keep, "owner sid's process 7 runs"));
+    // An open acpmux session goes by one of its ids.
+    let v = at(&w, &[elsewhere(vec!["other".into(), "chat".into()], true)], &[]);
+    assert_eq!((v.action, v.reason.as_str()), (Action::Keep, "owner session loop is open"));
+    // Claude Code's registry runs its session, in another folder.
+    let registered =
+        [Process { pid: 9, cwd: "/home/chats/loop".into(), session_id: Some("sid".into()) }];
+    let v = at(&w, &[], &registered);
+    assert_eq!((v.action, v.reason.as_str()), (Action::Keep, "owner sid runs as process 9"));
+}
+
 #[test]
 fn a_session_active_in_the_main_checkout_gets_its_worktrees_the_longest_waits() {
-    let main = Session { name: "chief".into(), cwd: "/r/src".into(), open: true, updated_ms: NOW };
+    let main = Session {
+        name: "chief".into(),
+        cwd: "/r/src".into(),
+        open: true,
+        archived_checkout: None,
+        updated_ms: NOW,
+        ids: Vec::new(),
+    };
     let w = worktree(pushed(30));
     assert_eq!(decide_at(&w, &[], Pressure::Critical).action, Action::Reclaim);
     assert_eq!(decide_at(&w, std::slice::from_ref(&main), Pressure::Critical).action, Action::Keep);

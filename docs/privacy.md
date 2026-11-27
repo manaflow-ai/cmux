@@ -76,6 +76,11 @@ proxy your environment names (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`) is one o
 redirect hop again, so a listed or named host that redirects elsewhere reaches only another listed or named host. A
 named host stays allowed for the rest of the process, for every client in it, not only the one that read the setting.
 
+The gate keeps an audit trail: every connection it sees, allowed or refused, is recorded once per host, caller and
+verdict for the life of the process. Set `CMUX_EGRESS_AUDIT=/path/file.jsonl` and each new record is appended there as
+one JSON line (`ts`, `host`, `site`, `verdict` = listed, named, session, local or unlisted, `mode`, `refused`). The file
+stays on your machine; nothing in it is sent anywhere.
+
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
 (Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
 pages' Content Security Policy comes next.

@@ -179,7 +179,11 @@ pub(super) fn parse(
     // The person named this API (--api or CMUX_CLOUD_API_URL); a redirect off it is still checked.
     cmux_egress::allow_named(&api);
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let gateway = match (gateway_machine, upstream) {
         (None, None) if key_file.is_none() => None,

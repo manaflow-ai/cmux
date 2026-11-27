@@ -27,11 +27,15 @@
 //!
 //! A session that starts again in a reclaimed worktree gets it back first
 //! (`care_restore_for`, from `cold_start`): its files, index and archived
-//! work, before the harness starts in the folder.
+//! work, before the harness starts in the folder. A folder evicted to a
+//! verified cloud copy (`cmux_worktree_care::cold`) comes back the same way
+//! (`cold_recall_for`).
 
 use super::*;
 
+mod pr_archive;
 pub(in crate::hub) mod revive;
+pub(in crate::hub) mod scratch;
 
 /// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
 /// naming the folder in its message and data. Retryable: a folder can come back (put back
@@ -113,7 +117,7 @@ use std::time::Duration;
 
 use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::pass::{self, Options};
-use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
+use cmux_worktree_care::policy::{Pressure, Settings as CareSettings};
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 use cmux_worktree_care::{Store as ArchiveStore, caches, disk};
 
@@ -186,6 +190,37 @@ pub fn auto_cleanup_enabled() -> bool {
     }
 }
 
+/// A pass report's line for each folder it removed: its path, why, how
+/// long it had been idle, its archive id (`acpmux worktree restore <id>`)
+/// and the bytes freed. A trim, a kept folder and a failed removal have
+/// none.
+fn removals(report: &Value) -> Vec<String> {
+    let items = report.get("items").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    items
+        .iter()
+        .filter_map(|item| {
+            let action = item.pointer("/verdict/action")?.as_str()?;
+            let outcome = item.get("outcome")?;
+            let ok = outcome.get("ok").and_then(Value::as_bool) == Some(true);
+            if !ok || !matches!(action, "reclaim" | "archive") {
+                return None;
+            }
+            let path = item.get("path")?.as_str()?;
+            let reason = item.pointer("/verdict/reason").and_then(Value::as_str).unwrap_or("?");
+            let idle = item
+                .pointer("/verdict/idleMs")
+                .and_then(Value::as_u64)
+                .map_or_else(|| "?".to_string(), |ms| (ms / (60 * MINUTE_MS)).to_string());
+            let archive = outcome.get("archive").and_then(Value::as_str).unwrap_or("none");
+            let freed = outcome.get("freed").and_then(Value::as_u64).unwrap_or(0);
+            Some(format!(
+                "worktree removed: {path} ({action}: {reason}); idle {idle} h; archive {archive}; \
+                 freed {freed} bytes"
+            ))
+        })
+        .collect()
+}
+
 /// Whether a pass may remove idle build caches: the setting, else off. An
 /// unreadable settings file keeps them.
 pub fn clean_build_caches_enabled() -> bool {
@@ -215,6 +250,10 @@ impl Hub {
             SessionStatus::Closed => "session_close",
             _ => return,
         };
+        self.care_wake(why);
+    }
+
+    pub(super) fn care_wake(&self, why: &'static str) {
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = why;
         CARE.wake.notify_one();
     }
@@ -247,7 +286,7 @@ impl Hub {
         })
     }
 
-    async fn care_if_due(&self, why: &'static str) {
+    async fn care_if_due(self: &Arc<Self>, why: &'static str) {
         let Some(_running) = Running::claim(&CARE.running) else { return };
         let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
@@ -283,11 +322,18 @@ impl Hub {
         let Some(claim) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
         match self.care_run(claim, true, Vec::new()).await {
-            Ok(report) => tracing::info!(
-                why,
-                freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
-                "worktree cleanup pass"
-            ),
+            Ok(report) => {
+                // One line per folder that went, so a search of the journal
+                // for a missing checkout finds what removed it (hq#13316).
+                for line in removals(&report) {
+                    tracing::info!(why, "{line}");
+                }
+                tracing::info!(
+                    why,
+                    freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
+                    "worktree cleanup pass"
+                )
+            }
             Err(e) => tracing::warn!(why, "worktree cleanup pass failed: {}", e.message),
         }
     }
@@ -322,17 +368,23 @@ impl Hub {
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
     /// which ends with the pass.
     async fn care_run(
-        &self,
+        self: &Arc<Self>,
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
-        let live = self.care_sessions();
+        let hub = Arc::clone(self);
         let daemon_home = crate::config::home();
         let only_given = !only.is_empty();
         let report = tokio::task::spawn_blocking(move || {
-            let mut sessions = live;
+            let managed = pr_archive::managed_root(&home);
+            let rules = super::auto_settle::read_rules();
+            let mut sessions = hub.care_sessions(managed.as_deref(), &rules);
+            let released: std::collections::HashMap<_, _> = sessions
+                .iter()
+                .filter_map(|s| s.archived_checkout.as_ref().map(|c| (c.root.clone(), c.clone())))
+                .collect();
             sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
             let configs = crate::worktree_sessions::state_configs(&home);
             let options = Options {
@@ -341,7 +393,17 @@ impl Hub {
                 uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
                     &home, &configs,
                 )),
-                open: Arc::new(cmux_worktree_care::procs::open_inside),
+                open: Arc::new({
+                    let home = home.clone();
+                    move |root| {
+                        if let Some(expected) = released.get(root) {
+                            let open = cmux_worktree_care::procs::open_tree(root)?;
+                            hub.recheck_pr_archive(expected, &home, managed.as_deref())?;
+                            return Ok(open);
+                        }
+                        cmux_worktree_care::procs::open_inside(root)
+                    }
+                }),
                 // A recorded session on the Desktop: no git there unasked (LAUNCH-NO-TCC-PROMPTS).
                 guarded: Arc::new(crate::protected_folders::in_protected_location),
                 settings: CareSettings::default(),
@@ -417,23 +479,6 @@ impl Hub {
         CARE.last_report.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// This daemon's sessions, as cleanup sees them.
-    fn care_sessions(&self) -> Vec<care_policy::Session> {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions
-            .values()
-            .map(|session| {
-                let meta = session.meta();
-                care_policy::Session {
-                    name: meta.name.clone(),
-                    cwd: meta.cwd.clone(),
-                    open: meta.status != SessionStatus::Closed,
-                    updated_ms: meta.updated_at,
-                }
-            })
-            .collect()
-    }
-
     /// Before a session's harness starts: its folder back, when cleanup
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on and reports the
@@ -478,6 +523,24 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         let meta = session.meta();
+        // A proven peer's scratch folder in the temp dir, gone with it (a reboot): made again,
+        // so a restart's continuation of its cut turn runs (`worktree_care/scratch.rs`).
+        #[cfg(unix)]
+        if meta.worktree.is_none() && !meta.remote_origin {
+            let cwd = meta.cwd.clone();
+            let made =
+                tokio::task::spawn_blocking(move || scratch::revive_peer_scratch(&cwd)).await;
+            match made {
+                Ok(Ok(true)) => {
+                    gone::forget(&meta.cwd);
+                    self.append(session, "mux", "scratch_recreated", json!({"cwd": meta.cwd}));
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(session = %session.id, cwd = %meta.cwd.display(), "peer scratch folder not made again: {e}")
+                }
+                _ => {}
+            }
+        }
         if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
             gone::forget(&meta.cwd);
         } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {
@@ -558,7 +621,7 @@ impl Hub {
         })
         .await;
         let (kind, detail) = match restored {
-            Ok(None) => return false,
+            Ok(None) => return self.cold_recall_for(session).await,
             Ok(Some((id, Ok(restored)))) => (
                 "worktree_restored",
                 json!({"archive": id, "path": restored.path, "notes": restored.notes}),
@@ -567,6 +630,30 @@ impl Hub {
                 ("worktree_restore_failed", json!({"archive": id, "error": error}))
             }
             Err(error) => ("worktree_restore_failed", json!({"error": error.to_string()})),
+        };
+        self.append(session, "mux", kind, detail);
+        true
+    }
+
+    /// Brings back the evicted folder (`cmux_worktree_care::cold`, "optimize storage") that holds
+    /// the missing folder of `session`, from its verified cloud copy. Logged as `folder_recalled`
+    /// or `folder_recall_failed`. Whether an evicted folder held it. A few stats when none does;
+    /// nothing evicts unless a caller asks, so this is a no-op by default.
+    async fn cold_recall_for(&self, session: &Arc<Session>) -> bool {
+        let cwd = session.meta().cwd.clone();
+        let Some(records) = cmux_worktree_care::cold::default_records() else { return false };
+        let recalled = tokio::task::spawn_blocking(move || {
+            cmux_worktree_care::cold::recall_for(&cwd, &records)
+        })
+        .await;
+        let (kind, detail) = match recalled {
+            Ok(Ok(None)) => return false,
+            Ok(Ok(Some(record))) => (
+                "folder_recalled",
+                json!({"path": record.path, "bytes": record.bytes, "manifest": record.manifest_id}),
+            ),
+            Ok(Err(error)) => ("folder_recall_failed", json!({"error": error})),
+            Err(error) => ("folder_recall_failed", json!({"error": error.to_string()})),
         };
         self.append(session, "mux", kind, detail);
         true
@@ -596,6 +683,71 @@ mod care_tests {
         }));
         assert!(caught.is_err());
         assert!(Running::claim(&flag).is_some(), "the panic cleared it");
+    }
+
+    /// hq#13316: the journal had only the pass's total for 14 removed
+    /// checkouts. Each removal is its own line, from the report as
+    /// `care_run` serializes it; what stays, is trimmed or failed to go
+    /// has none.
+    #[test]
+    fn care_each_removed_worktree_is_one_log_line_with_its_reason_idle_age_and_archive() {
+        use cmux_worktree_care::pass::{Item, Outcome, Report};
+        use cmux_worktree_care::{Action, Verdict};
+        let item = |path: &str, action, reason: &str, outcome| Item {
+            path: path.into(),
+            repository: "/m/cmux.git".into(),
+            branch: None,
+            verdict: Verdict { action, reason: reason.into(), idle_ms: Some(25 * 60 * MINUTE_MS) },
+            facts: None,
+            bytes: None,
+            outcome,
+        };
+        let done = |archive: &str| {
+            Some(Outcome {
+                ok: true,
+                freed: 1_359_519_744,
+                archive: Some(archive.into()),
+                error: None,
+            })
+        };
+        let report = Report {
+            disk: None,
+            pressure: Pressure::High,
+            applied: true,
+            items: vec![
+                item(
+                    "/c/lane--a",
+                    Action::Reclaim,
+                    "everything pushed; idle 25 h",
+                    done("1794973645972-lane--a"),
+                ),
+                item("/c/lane--b", Action::Keep, "owner session loop is open", None),
+                item("/c/lane--c", Action::Trim, "idle 25 h", done("unused")),
+                item(
+                    "/c/lane--d",
+                    Action::Archive,
+                    "1 unpushed commits; idle 25 h",
+                    Some(Outcome {
+                        ok: false,
+                        freed: 0,
+                        archive: None,
+                        error: Some("it changed since the scan".into()),
+                    }),
+                ),
+            ],
+            freed: 1_359_519_744,
+            reclaimable: 0,
+            errors: Vec::new(),
+            expired: Vec::new(),
+        };
+        assert_eq!(
+            removals(&serde_json::to_value(&report).unwrap()),
+            vec![
+                "worktree removed: /c/lane--a (reclaim: everything pushed; idle 25 h); idle 25 h; \
+                 archive 1794973645972-lane--a; freed 1359519744 bytes"
+                    .to_string()
+            ]
+        );
     }
 
     /// #54378: a care pass that panicked ended the daemon's one cleanup worker for good. The
