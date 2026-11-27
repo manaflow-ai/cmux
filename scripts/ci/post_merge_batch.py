@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -413,6 +414,36 @@ def job_base(name: str) -> str:
     return re.sub(r" \([^()]*\)$", "", name)
 
 
+# gallery-health's red states go with its bisect's probes up to this length (a dispatch input holds 65,535
+# characters); past it, or with any red shard unnamed, a probe renders the whole gallery as before.
+GALLERY_SUITE = "gallery-health"
+STATES_CAP = 20000
+WHOLE = "WHOLE"
+
+
+def red_states(suite: str, name: str, verdicts: dict[str, tuple[str, str]], reds_dir: Path | None) -> str:
+    """The red states (entry#variant, comma-joined) of every red matrix leg of name's gallery-health job on this
+    batch run, from each leg's reds-N.txt (gallery-health.yml "Name the red states for a bisect probe"), so its
+    probes render those alone: one shard, not the ~22 a whole render takes (~16k runner-min a day of probes, 11-27).
+    "" (the whole render) for any other suite, or when a red leg named none (WHOLE: a crash or no health.json), has
+    no file (the job failed past its render, or the download failed), or the list runs past STATES_CAP."""
+    if suite != GALLERY_SUITE or reds_dir is None or not reds_dir.is_dir():
+        return ""
+    legs = [n for n, (s, c) in verdicts.items() if s == suite and c == "failure" and job_base(n) == job_base(name)]
+    states: set[str] = set()
+    for leg in legs:
+        shard = re.search(r" \((\d+)\)$", leg)
+        path = reds_dir / f"reds-{shard.group(1)}.txt" if shard else None
+        if path is None or not path.is_file():
+            return ""
+        lines = [line.strip() for line in path.read_text(errors="replace").splitlines() if line.strip()]
+        if not lines or WHOLE in lines or not all("#" in line and "," not in line for line in lines):
+            return ""
+        states.update(lines)
+    joined = ",".join(sorted(states))
+    return joined if legs and len(joined) <= STATES_CAP else ""
+
+
 def failing_steps(jobs: list[dict]) -> dict[str, frozenset]:
     """The failed steps of each failed job of a run: full job name -> step names."""
     out: dict[str, frozenset] = {}
@@ -645,7 +676,8 @@ def reusable_run(args: argparse.Namespace, suites: dict[str, Suite]) -> tuple[st
         return "", ""
     if str(getattr(args, "reuse", "") or "").isdigit():
         return str(args.reuse), "the dispatch named it"
-    probe = Probe(args.suite, getattr(args, "job", "") or "", args.only or "", args.probe_sha, args.good or "", "", "")
+    probe = Probe(args.suite, getattr(args, "job", "") or "", args.only or "", args.probe_sha, args.good or "", "", "",
+                  states=getattr(args, "states", "") or "")
     budget = API_WAIT_BUDGET["seconds"]
     API_WAIT_BUDGET["seconds"] = min(budget, REUSE_LOOKUP_WAIT)
     try:
@@ -672,7 +704,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
             raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
         reuse, why = reusable_run(args, suites)
         write_outputs(args.github_output, {"suites": " " if reuse else f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "",
-                                           "base": args.good if SHA_RE.match(args.good or "") else "", "reuse": reuse})
+                                           "base": args.good if SHA_RE.match(args.good or "") else "", "reuse": reuse,
+                                           "states": getattr(args, "states", "") or ""})
         if reuse:
             summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}` reuses run {reuse}'s verdict ({why}); no suite runs.")
         else:
@@ -691,7 +724,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         plan = plan_batch(args.sha, [], suites, lambda base: [], branch=args.branch)
     write_outputs(
         args.github_output,
-        {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"]},
+        {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"], "states": ""},
     )
     covered = f"since `{plan['base'][:11]}` ({plan['files']} files changed)" if plan["base"] else "with no earlier batch run (every suite)"
     summary(args.summary, f"Batch on `{args.sha[:11]}` {covered}: {', '.join(plan['suites']) or 'no suite reached'}.")
@@ -715,12 +748,19 @@ class Probe:
     confirm: str = ""  # flake-aware confirm: 'red-N' (sha is the culprit, bad) or 'green-N' (sha is its parent, good)
     step: str = ""  # the origin red's failing step names (STEP_SEP-joined): a probe is red only if it fails one of them
     reuse: str = ""  # an earlier run of this same probe whose suite jobs give this run's verdict (no suite runs again)
+    states: str = ""  # gallery-health: the origin's red states (entry#variant, comma-joined), the only ones rendered
+
+    @property
+    def states_key(self) -> str:
+        """A short hash of states for the run's title: probes of other states at one commit are other probes."""
+        return hashlib.sha1(self.states.encode()).hexdigest()[:10] if self.states else ""
 
     def inputs(self) -> dict[str, str]:
         extra = {"pieces": self.pieces} if self.pieces else {}
         extra |= {"confirm": self.confirm} if self.confirm else {}
         extra |= {"step": self.step} if self.step else {}
         extra |= {"reuse": self.reuse} if self.reuse else {}
+        extra |= {"states": self.states, "states_key": self.states_key} if self.states else {}
         return extra | {
             "mode": PROBE,
             "suite": self.suite,
@@ -849,12 +889,13 @@ def stuck_chain_start(good: str, bad: str) -> str:
     return stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha
 
 
-def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str], step: str = "") -> Probe:
+def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str], step: str = "",
+                states: str = "") -> Probe:
     """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
     re-confirms it: next_step reads a pass there as a flake)."""
     span = commits_between(commits, good, bad)
     mid = span[(len(span) - 1) // 2] if span else bad
-    return Probe(suite, name, only, mid, good, bad, origin, step=step)
+    return Probe(suite, name, only, mid, good, bad, origin, step=step, states=states)
 
 
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
@@ -886,7 +927,8 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
         return "culprit", bad
     mid = span[(len(span) - 1) // 2]
     # The origin red's failing step travels with every probe of the chain (#61284 set it on the first only).
-    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin, step=probe.step)
+    # So do its red states: every probe of a gallery-health chain renders the origin's reds alone.
+    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin, step=probe.step, states=probe.states)
 
 
 def commits_between(commits: list[str], good: str, bad: str) -> list[str]:
@@ -949,7 +991,8 @@ DISPATCH_WAITS = (15, 45)
 
 def probe_title(probe: Probe) -> str:
     """The probe run's title (the workflow's run-name for a probe dispatch)."""
-    return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}" + (f" confirm {probe.confirm}" if probe.confirm else "")
+    return (f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}" + (f" confirm {probe.confirm}" if probe.confirm else "")
+            + (f" states {probe.states_key}" if probe.states else ""))
 
 
 def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe, steps: dict[str, frozenset] | None = None) -> str:
@@ -1005,9 +1048,10 @@ def known_verdict(runs: list[dict], probe: Probe, jobs_of, steps_of=None) -> tup
     gave one: a bisect the next batch starts again then reads it instead of running the same probe again (the
     web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first).
     "skipped" counts too: the job's own condition skipped it there, and would again."""
-    title = probe_title(probe)
+    # A states probe also reads the whole render's verdict at the same commit: it rendered those states too.
+    titles = {probe_title(probe), probe_title(Probe(**{**probe.__dict__, "states": ""}))}
     for run in runs:
-        if (run.get("display_title") or "") == title and run.get("status") == "completed":
+        if (run.get("display_title") or "") in titles and run.get("status") == "completed":
             conclusion = probe_conclusion(jobs_of(run["id"])[0], probe, steps_of(run["id"]) if steps_of else None)
             if conclusion in ("success", "failure", "skipped"):
                 return conclusion, run
@@ -1095,7 +1139,7 @@ def _tree(sha: str) -> str | None:
 
 def confirm_probes(job: Probe, culprit: str, parent: str) -> list[Probe]:
     """The confirm round for a bisect's culprit: CONFIRM_RUNS runs at the culprit (red-N) and at its parent (green-N)."""
-    return [Probe(job.suite, job.job, job.only, sha, parent, culprit, job.origin, confirm=f"{side}-{n}", step=job.step)
+    return [Probe(job.suite, job.job, job.only, sha, parent, culprit, job.origin, confirm=f"{side}-{n}", step=job.step, states=job.states)
             for n in range(1, CONFIRM_RUNS + 1) for side, sha in (("red", culprit), ("green", parent))]
 
 
@@ -1185,6 +1229,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return step_memo[rid]
 
     if args.mode != PROBE:
+        reds_dir = Path(args.reds_dir) if getattr(args, "reds_dir", "") else None
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites)
@@ -1198,7 +1243,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
-                          step=STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))))
+                          step=STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))),
+                          states=red_states(suite, name, verdicts, reds_dir))
             summary(args.summary, f"- New red `{name}`: green on `{good[:11]}`; probing `{args.sha[:11]}` once to confirm, then bisecting.")
             if not args.dry_run:
                 dispatch_probe(args.repo, args.branch, probe)
@@ -1208,7 +1254,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
             inner = name.partition(" / ")[2]
             span = first_parent_range(good, bad)
             probe, known_notes = first_unknown_probe(runs, stuck_probe(name, suite, suites[suite].probe_only(inner), good, bad, str(args.run_id), span,
-                                                      STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name)))), span, jobs_of, steps_of)
+                                                      STEP_SEP.join(sorted(red_step_names(steps_of(args.run_id), name))),
+                                                      red_states(suite, name, verdicts, reds_dir)), span, jobs_of, steps_of)
             for note in known_notes:
                 summary(args.summary, f"  - {note}")
             if probe is None:
@@ -1224,7 +1271,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0),
                   args.pieces or "", getattr(args, "confirm", "") or "", getattr(args, "step", "") or "",
-                  reuse if reuse.isdigit() else "")
+                  reuse if reuse.isdigit() else "", getattr(args, "states", "") or "")
     found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
@@ -1656,6 +1703,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--confirm", default="")
         p.add_argument("--step", default="")
         p.add_argument("--reuse", default="", help="probe: an earlier run of this probe whose verdict is read instead of running the suite")
+        p.add_argument("--states", default="", help="probe: gallery-health's red states on the origin run, the only ones it renders")
+        p.add_argument("--reds-dir", default="", help="batch: gallery-health's red states per shard (reds-N.txt), for its probes")
 
     p = sub.add_parser("tick")
     common(p)
