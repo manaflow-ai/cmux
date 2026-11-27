@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, pauseWithReconciliation, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -72,6 +72,83 @@ test("start retries an indeterminate answer with the same key, and a pausing ref
   expect(keys).toEqual(["k0", "k0", "k1"]);
   expect(notes.length).toBe(2);
   await expect(startWithRetry(async () => ({ status: 200, body: { ok: false, error: { code: "cloud.machine.not_found", retryable: false } } }), () => "k", async () => "paused", 60_000, sleep, () => t)).rejects.toThrow(/not_found/);
+});
+
+test("pause reconciliation reads the same machine after an indeterminate answer without a second mutation", async () => {
+  let now = 0;
+  const states = ["pausing", "paused"];
+  let requests = 0;
+  const result = await pauseWithReconciliation(
+    async () => { requests++; return { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }; },
+    async () => states.shift() ?? "paused",
+    0,
+    1000,
+    () => now,
+    async (ms) => { now += ms; },
+  );
+  expect(requests).toBe(1);
+  expect(result).toEqual({ pausedMs: 500, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] });
+});
+
+test("pause reconciliation keeps an indeterminate pause failed when it is still pausing at the deadline", async () => {
+  let now = 0;
+  let requests = 0;
+  await expect(pauseWithReconciliation(
+    async () => { requests++; return { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }; },
+    async () => "pausing",
+    0,
+    1000,
+    () => now,
+    async (ms) => { now += ms; },
+  )).rejects.toThrow(/pause did not land/);
+  expect(requests).toBe(1);
+});
+
+test("pause reconciliation surfaces a refusal without reading or mutating again", async () => {
+  let reads = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 503, body: { ok: false, error: { code: "owner.unreachable", retryable: true } } }),
+    async () => { reads++; return "paused"; },
+    0,
+    1000,
+  )).rejects.toThrow(/HTTP 503/);
+  expect(reads).toBe(0);
+});
+
+test("pause reconciliation does not accept a paused read after the original deadline", async () => {
+  let now = 1000;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => "paused",
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation rejects a paused read that crosses the deadline", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => { now = 1001; return "paused"; },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation keeps indeterminate evidence when status readback fails", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }),
+    async () => { now = 1001; throw new Error("owner unreachable"); },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/mutation\.indeterminate.*status reconciliation failed/);
 });
 
 test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {

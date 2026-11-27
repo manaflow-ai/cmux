@@ -217,6 +217,14 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+[step.update-replay-diagnostics]
+job = "linux"
+timeout = 60
+title = "Signed update replay diagnostics"
+about = "staging failures retain bounded status and check-response evidence without changing the replay verdict"
+inputs = ["scripts/cmux-next/update-e2e.py", "tests/test_update_e2e_diagnostics.py"]
+run = "python3 tests/test_update_e2e_diagnostics.py"
+
 # A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
 # The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
 # full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
