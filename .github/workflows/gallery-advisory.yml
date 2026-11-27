@@ -244,11 +244,11 @@ jobs:
           else
             origin_url=$(git remote get-url origin)
             git init -q --bare "$RUNNER_TEMP/history"
-            git -C "$RUNNER_TEMP/history" fetch -q --no-tags --filter=tree:0 "$origin_url" \
+            git -C "$RUNNER_TEMP/history" fetch --no-recurse-submodules -q --no-tags --filter=tree:0 "$origin_url" \
               "$HEAD_SHA" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
             base_sha=$(git -C "$RUNNER_TEMP/history" merge-base "origin/$BASE_REF" "$HEAD_SHA")
           fi
-          git fetch -q --no-tags --depth=1 --filter=blob:none origin "$base_sha"
+          git fetch --no-recurse-submodules -q --no-tags --depth=1 --filter=blob:none origin "$base_sha"
           git diff --name-only "$base_sha" HEAD > "$RUNNER_TEMP/changed.txt"
 
           cd webviews

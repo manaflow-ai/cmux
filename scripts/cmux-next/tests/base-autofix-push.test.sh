@@ -652,7 +652,7 @@ setup_daemon_surface() {
   setup
   surface=cmux-tui/spec/api-compat.surface.json
   lane_push "$surface" old
-  (cd "$tmp/bot" && git reset -q --hard origin/feat && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
+  (cd "$tmp/bot" && git reset -q --hard origin/feat && git fetch --no-recurse-submodules -q origin feat && git reset -q --hard FETCH_HEAD)
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
   (cd "$tmp/bot" && echo repaired > "$surface" && git commit -q -am "chore(next): base autofix")
 }

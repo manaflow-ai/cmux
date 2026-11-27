@@ -235,7 +235,7 @@ rejected_on=""
 # The compile gate's verdicts in this push ("pass|fail PATCH_ID" lines), and the Swift files it held this attempt.
 compile_verdicts=""
 for ((attempt = 1; attempt <= attempts; attempt++)); do
-  git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
+  git fetch --no-recurse-submodules --quiet --no-tags "$remote" "refs/heads/$branch" || {
     echo "::error::cannot read $branch from the remote" >&2
     exit 1
   }

@@ -23,7 +23,7 @@ case "$ref" in
   feat-cmux-next|main) ;;
   *) echo "idea-ledger: LEDGER_REF must be feat-cmux-next or main, not $ref" >&2; exit 2 ;;
 esac
-git -C "$checkout" fetch --quiet origin "$ref" nightly-next
+git -C "$checkout" fetch --no-recurse-submodules --quiet origin "$ref" nightly-next
 git -C "$checkout" show "origin/$ref:scripts/cmux-next/idea-ledger.py" > "$state/idea-ledger.py"
 
 # The page costs a few hundred GraphQL points; wait for the reset rather than starve other sessions.

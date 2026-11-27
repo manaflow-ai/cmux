@@ -52,7 +52,7 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
           [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$BASE_SHA"
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash

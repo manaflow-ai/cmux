@@ -46,7 +46,7 @@ note "STAGE source $ref"
 if ! git cat-file -e "$ref^{commit}" 2>/dev/null; then
   # A fleet checkout may have no origin remote: try the fleet's mirror, then origin, then GitHub.
   for source in "${CMUX_FLEET_GIT_MIRROR:-/Users/Shared/cmux-build-fleet/git/cmux.git}" origin https://github.com/manaflow-ai/cmux.git; do
-    git fetch -q "$source" "$ref" >>"$out/fetch.log" 2>&1 && git cat-file -e "$ref^{commit}" 2>/dev/null && break
+    git fetch --no-recurse-submodules -q "$source" "$ref" >>"$out/fetch.log" 2>&1 && git cat-file -e "$ref^{commit}" 2>/dev/null && break
   done
   git cat-file -e "$ref^{commit}" 2>/dev/null || { cat "$out/fetch.log"; finish "could not fetch $ref"; exit 4; }
 fi

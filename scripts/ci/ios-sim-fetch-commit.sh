@@ -38,7 +38,7 @@ sources+=("${CMUX_IOS_SIM_COMMIT_REMOTE:-https://github.com/manaflow-ai/cmux.git
 tried=()
 for src in "${sources[@]}"; do
   # Protocol v2 serves any commit the source holds, not only its branch tips.
-  if git -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$src" "$sha" 2>/dev/null && have; then
+  if git -c protocol.version=2 fetch --no-recurse-submodules -q --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$src" "$sha" 2>/dev/null && have; then
     echo "commit $sha: fetched from $src"
     exit 0
   fi

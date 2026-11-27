@@ -128,7 +128,7 @@ jobs:
         run: |
           for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
-            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+            timeout 110 git fetch --no-recurse-submodules --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
           exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
@@ -438,7 +438,7 @@ jobs:
         run: |
           for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
-            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+            timeout 110 git fetch --no-recurse-submodules --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
           exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
@@ -550,7 +550,7 @@ jobs:
         run: |
           for _ in 1 2; do
             shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
-            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+            timeout 110 git fetch --no-recurse-submodules --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
           done
           exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares

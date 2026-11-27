@@ -126,7 +126,7 @@ jobs:
         if: ${{ inputs.push_base != '' && inputs.push_base != 'all' }}
         env:
           PUSH_BASE: ${{ inputs.push_base }}
-        run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
+        run: git fetch --no-recurse-submodules --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
 
       # A post-merge batch call (inputs.sha set) runs every subarea, as a push base of `all` does.
       - name: Classify web subareas
@@ -1892,7 +1892,7 @@ jobs:
             : > "$CMUX_WEB_TEST_PASSED_OUT"
             before="$(cat "$PASSED_BEFORE/commit" 2> /dev/null || true)"
             if { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; } && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
-              { git cat-file -e "$before^{commit}" 2> /dev/null || timeout 60 git fetch --no-tags --depth=1 origin "$before"; }; then
+              { git cat-file -e "$before^{commit}" 2> /dev/null || timeout 60 git fetch --no-recurse-submodules --no-tags --depth=1 origin "$before"; }; then
               reach="$(python3 ../scripts/ci/webviews_affected.py --base "$before" --head HEAD)" || reach=""
               if [ -n "$reach" ]; then
                 grep -vxF -f <(printf '%s\n' "$reach") "$PASSED_BEFORE/files" > "$RUNNER_TEMP/webviews-reused" || true

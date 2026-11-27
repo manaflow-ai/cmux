@@ -338,7 +338,7 @@ jobs:
             || { echo "::error title=cmux NEXT Stable::no notes/$served.json in $NEXT_FEED_BASE or $NEXT_VERDICTS_BASE"; exit 1; }
           base="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["head"])' "$notes")"
           [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$served.json names no commit" >&2; exit 1; }
-          git fetch --no-tags --depth=1 origin "$base" "$COMMIT"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$base" "$COMMIT"
           mkdir -p "$RUNNER_TEMP/base-tree" "$RUNNER_TEMP/head-tree"
           git archive "$base" | tar -x -C "$RUNNER_TEMP/base-tree"
           git archive "$COMMIT" | tar -x -C "$RUNNER_TEMP/head-tree"
@@ -490,7 +490,7 @@ jobs:
         if: env.SIGN == 'developer-id'
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$COMMIT"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$COMMIT"
           # An owned Mac keeps its workspace between jobs while RUNNER_TEMP is emptied:
           # drop an earlier job's build-src registration whose folder is gone.
           git worktree prune

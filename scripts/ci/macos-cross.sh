@@ -473,7 +473,7 @@ cmd_cctools() {
   local ct="$XC_ROOT/cctools" src="$XC_ROOT/cctools-src" dispatch="$XC_ROOT/dispatch"
   [[ -x "$ct/bin/aarch64-apple-darwin-ld" ]] && { echo "cctools: cached"; return; }
   fetch_pinned() { # <url> <sha> <dir>
-    rm -rf "$3"; git init -q "$3"; git -C "$3" fetch -q --depth 1 "$1" "$2"; git -C "$3" checkout -q FETCH_HEAD
+    rm -rf "$3"; git init -q "$3"; git -C "$3" fetch --no-recurse-submodules -q --depth 1 "$1" "$2"; git -C "$3" checkout -q FETCH_HEAD
   }
   fetch_pinned https://github.com/tpoechtrager/apple-libdispatch.git "$LIBDISPATCH_SHA" "$XC_ROOT/dispatch-src"
   cmake -S "$XC_ROOT/dispatch-src" -B "$XC_ROOT/dispatch-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \

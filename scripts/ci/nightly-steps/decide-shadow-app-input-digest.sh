@@ -16,7 +16,7 @@ if [[ -n "$head_sha" ]]; then
     # --depth=1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
     depth=()
     [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1)
-    bash scripts/ci/timeout.sh 60 git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$published" >/dev/null 2>&1 || true
+    bash scripts/ci/timeout.sh 60 git fetch --no-recurse-submodules --no-tags --quiet ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$published" >/dev/null 2>&1 || true
   fi
   # A blobless fetch lets git read missing blobs on demand; the timeout bounds that.
   digest="$(bash scripts/ci/timeout.sh 120 python3 scripts/ci/app_input_digest.py --ref "$head_sha" 2>/dev/null)" || digest=unknown

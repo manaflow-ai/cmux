@@ -106,7 +106,7 @@ jobs:
           git init -q --bare onbranch
           fetched=""
           for try in 1 2 3; do
-            if timeout 180 git -C onbranch fetch -q --no-tags --filter=tree:0 --shallow-since="60 days ago" \
+            if timeout 180 git -C onbranch fetch --no-recurse-submodules -q --no-tags --filter=tree:0 --shallow-since="60 days ago" \
                 "https://github.com/$REPO.git" "+refs/heads/feat-cmux-next:refs/heads/feat-cmux-next"; then
               fetched=1; break
             fi

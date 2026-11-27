@@ -89,7 +89,7 @@ jobs:
           # with their trees and no blobs (about 3 MB, a second or two); any failure measures.
           git init -q "$RUNNER_TEMP/push-files" && cd "$RUNNER_TEMP/push-files" || {
             echo "measure=true" >> "$GITHUB_OUTPUT"; echo "git init failed: measure"; exit 0; }
-          if ! timeout 120 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=blob:none \
+          if ! timeout 120 git -c protocol.version=2 fetch --no-recurse-submodules -q --no-tags --depth=1 --filter=blob:none \
               "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$BEFORE" "$AFTER" ||
             ! files="$(git diff --no-renames --name-only "$BEFORE" "$AFTER")"; then
             echo "measure=true" >> "$GITHUB_OUTPUT"; echo "could not read the push's files: measure"; exit 0
@@ -137,7 +137,7 @@ jobs:
           # Deepen both sides until they meet: the merge base is the base the head's own change sits on.
           base=""
           for depth in 50 200 1000 5000; do
-            git fetch --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
+            git fetch --no-recurse-submodules --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
             if base="$(git merge-base "$BASE_TIP" "$HEAD_SHA")"; then break; fi
             base=""
           done

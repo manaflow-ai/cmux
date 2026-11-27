@@ -200,7 +200,7 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
     local depth=() remote
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
     for remote in origin /Users/Shared/cmux-build-fleet/git/cmux.git https://github.com/manaflow-ai/cmux.git; do
-      git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" 2>/dev/null && break
+      git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" 2>/dev/null && break
     done
   fi
   git checkout --quiet --detach -f "$sha" || return 3

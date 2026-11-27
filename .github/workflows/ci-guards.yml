@@ -176,6 +176,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      - name: Validate that every git fetch skips submodule pins
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_fetch_no_recurse_submodules.py
+
       # Build scripts add a Rust target only when it is missing (rustup target add
       # reaches static.rust-lang.org even for an installed target).
       - name: Validate scripts add only missing Rust targets
@@ -633,7 +637,7 @@ jobs:
           # where there is no base to compare against.
           if [ -n "${BASE_SHA:-}" ]; then
             if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+              git fetch --no-recurse-submodules --no-tags --depth=1 origin "$BASE_SHA"
             fi
             ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
           else
@@ -652,7 +656,7 @@ jobs:
           python3 tests/test_ci_ios_loading_placeholders.py
           if [ -n "${BASE_SHA:-}" ]; then
             if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+              git fetch --no-recurse-submodules --no-tags --depth=1 origin "$BASE_SHA"
             fi
             python3 scripts/ci/check-ios-loading-placeholders.py "$BASE_SHA"
           else
@@ -731,7 +735,7 @@ jobs:
           if [[ -n "$CMUX_TEST_REGISTRY_BASE_REF" ]]; then
             # Keep this fetch shallow. With the current base tip, merge-base may
             # be unavailable, and the two-tree diff fallback is the right answer.
-            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"
+            git fetch --no-recurse-submodules --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
@@ -2397,7 +2401,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin main
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin main
           git show FETCH_HEAD:scripts/ci/delivery_workflows.py > "$RUNNER_TEMP/delivery_workflows.py"
           NIGHTLY_RULES_PY="$RUNNER_TEMP/delivery_workflows.py" python3 tests/test_nightly_next_supersede.py
 
@@ -3062,7 +3066,7 @@ jobs:
           CHECKED_OUT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --filter=blob:none --unshallow origin \
+          git fetch --no-recurse-submodules --no-tags --filter=blob:none --unshallow origin \
             +refs/heads/main:refs/remotes/origin/main "$CHECKED_OUT_SHA"
           git merge-base origin/main HEAD
 

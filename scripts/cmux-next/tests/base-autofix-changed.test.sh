@@ -30,7 +30,7 @@ setup() {
   # scratch fetch must not offer those refs as commits it has (it has none of their history).
   git init -q "$tmp/bot"
   git -C "$tmp/bot" remote add origin "file://$tmp/remote.git"
-  git -C "$tmp/bot" fetch -q --depth=1 origin "+$a:refs/remotes/origin/feat"
+  git -C "$tmp/bot" fetch --no-recurse-submodules -q --depth=1 origin "+$a:refs/remotes/origin/feat"
   git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
   [[ "$(git -C "$tmp/bot" rev-parse --is-shallow-repository)" == true ]] || fail "setup: the bot checkout is not shallow"
 }
@@ -42,7 +42,7 @@ setup
 changed "$c" > "$tmp/out" 2>"$tmp/err" || fail "a since newer than HEAD was not read: $(cat "$tmp/err")"
 [[ "$(sort "$tmp/out" | tr '\n' ' ')" == "b.txt c.txt " ]] || fail "since..HEAD names the wrong paths: $(cat "$tmp/out")"
 (cd "$tmp/lane" && echo d > d.txt && git add -A && git commit -q -m D && git push -q origin feat)
-git -C "$tmp/bot" fetch -q --no-tags origin refs/heads/feat
+git -C "$tmp/bot" fetch --no-recurse-submodules -q --no-tags origin refs/heads/feat
 git -C "$tmp/bot" merge-base --is-ancestor "$a" FETCH_HEAD \
   || fail "reading since grafted it as a shallow root: the run's commit is no longer an ancestor of the tip"
 grep -qx "$c" "$tmp/bot/.git/shallow" 2>/dev/null && fail "since is in the checkout's shallow list"
@@ -51,7 +51,7 @@ grep -qx "$c" "$tmp/bot/.git/shallow" 2>/dev/null && fail "since is in the check
 setup
 (cd "$tmp/lane" && echo e > e.txt && git add -A && git commit -q -m E && git push -q origin feat)
 e="$(git -C "$tmp/lane" rev-parse HEAD)"
-git -C "$tmp/bot" fetch -q --depth=1 origin "+$e:refs/remotes/origin/feat" && git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
+git -C "$tmp/bot" fetch --no-recurse-submodules -q --depth=1 origin "+$e:refs/remotes/origin/feat" && git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
 changed "$a" > "$tmp/out" 2>"$tmp/err" || fail "an older since was not read: $(cat "$tmp/err")"
 [[ "$(sort "$tmp/out" | tr '\n' ' ')" == "b.txt c.txt e.txt " ]] || fail "an older since names the wrong paths: $(cat "$tmp/out")"
 
@@ -83,7 +83,7 @@ SWIFT
 pinned() { # commit the lane's manifest as <message>, push, and check the bot out depth 1 at it
   (cd "$tmp/lane" && git add -A && git commit -q -m "$1" && git push -q origin feat)
   local sha; sha="$(git -C "$tmp/lane" rev-parse HEAD)"
-  git -C "$tmp/bot" fetch -q --depth=1 origin "+$sha:refs/remotes/origin/feat" && git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
+  git -C "$tmp/bot" fetch --no-recurse-submodules -q --depth=1 origin "+$sha:refs/remotes/origin/feat" && git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
   echo "$sha"
 }
 setup

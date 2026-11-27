@@ -52,7 +52,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RECIPE_SHA: ${{ github.sha }}
         run: |
-          git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
+          git -c protocol.version=2 fetch --no-recurse-submodules --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
           python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" --recipe-rev "$RECIPE_SHA" | tee -a "$GITHUB_OUTPUT"
 
   # The gateway runner's hook takes only job ids ending in -fleet; `swift` was refused (run 45799805163).
@@ -200,7 +200,7 @@ jobs:
         env:
           RECIPE_SHA: ${{ github.sha }}
         run: |
-          git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$RECIPE_SHA"
+          git -c protocol.version=2 fetch --no-recurse-submodules --no-tags --depth=1 --filter=blob:none origin "$RECIPE_SHA"
           git checkout "$RECIPE_SHA" -- scripts/ci/nightly_pr_build.py
       - name: Install Linux build dependencies
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}

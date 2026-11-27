@@ -786,7 +786,7 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' && (github.event_name == 'pull_request') }}
         run: |
           base=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
-          if [[ "$base" =~ ^[0-9a-f]{40}$ ]] && git fetch --no-tags --depth=1 origin "$base"; then
+          if [[ "$base" =~ ^[0-9a-f]{40}$ ]] && git fetch --no-recurse-submodules --no-tags --depth=1 origin "$base"; then
             echo "base=$base" >> "$GITHUB_OUTPUT"
           fi
 
@@ -1473,7 +1473,7 @@ jobs:
             # turning old debt in untouched crates into this PR's red. Retry first.
             fetched=""
             for attempt in 1 2 3; do
-              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-recurse-submodules --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
               sleep $((attempt * 5))
             done
             [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; checking every package after 3 tries"
@@ -1623,7 +1623,7 @@ jobs:
             echo "::error::commit must be a lowercase 40-character SHA" >&2
             exit 1
           fi
-          git fetch --no-tags --depth=1 origin "$COMMIT"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$COMMIT"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$COMMIT"
 
@@ -1650,7 +1650,7 @@ jobs:
             # turning old debt in untouched crates into this PR's red. Retry first.
             fetched=""
             for attempt in 1 2 3; do
-              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-recurse-submodules --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
               sleep $((attempt * 5))
             done
             [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace after 3 tries"

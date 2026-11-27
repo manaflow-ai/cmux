@@ -1532,7 +1532,7 @@ jobs:
           # The line only appends, so a moved feat-cmux-next is re-read and the
           # pin re-applied on top of it.
           for attempt in 1 2 3 4 5; do
-            git fetch --quiet --depth=1 origin feat-cmux-next
+            git fetch --no-recurse-submodules --quiet --depth=1 origin feat-cmux-next
             git reset --quiet --hard FETCH_HEAD
             rc=0; out="$(scripts/cmux-next/ghosttykit-checksum.sh "$GITHUB_WORKSPACE")" || rc=$?
             if [[ "$rc" == 3 ]]; then
