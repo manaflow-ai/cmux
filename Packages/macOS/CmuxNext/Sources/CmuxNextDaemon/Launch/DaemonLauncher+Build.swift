@@ -37,13 +37,38 @@ extension DaemonLauncher {
 
     /// Build of the bundled binary (`cmux --version --json`: `build_commit` and `build_identity`),
     /// for the version handoff; nil when the binary does not answer with that JSON.
+    /// The packaging scripts write that answer beside the binary (``buildStampFile``,
+    /// scripts/cmux-next/write-cmux-tui-build-stamp.sh), and it is read from there: the first exec
+    /// of a binary macOS has not seen costs about 800 ms, and on a new copy of the app that exec
+    /// held daemon_connected, the first tree and the first key (handshake to daemon_connected p50
+    /// 768 ms cold, 322 ms warm). Without the file, or when it does not parse, the binary runs.
     /// A binary older than `--version --json` (an external `CMUX_NEXT_TUI_BIN`) gets its commit
     /// from the `--version` text, as before.
     public func bundledBuild() async throws -> DaemonBuildStamp? {
+        let timings = DaemonLaunchTimings.shared
+        timings.mark("daemon.bundled_build_start")
+        defer { timings.mark("daemon.bundled_build_end") }
+        if let stamp = Self.readBuildStamp(beside: configuration.binary) {
+            timings.mark("daemon.bundled_build_source.file")
+            return stamp
+        }
+        timings.mark("daemon.bundled_build_source.exec")
         let result = try await ProcessRunner.run(executable: configuration.binary, arguments: ["--version", "--json"],
                                                  environment: nil, timeout: .seconds(5), clock: clock)
         if let stamp = DaemonBuildStamp(versionJSON: result.stdout) { return stamp }
         return try await bundledBuildCommit().map { DaemonBuildStamp(commit: $0, id: nil) }
+    }
+
+    /// `<bin>/cmux-tui.version.json` beside `binary` (`bin/cmux-tui`, a link to `bin/cmux`).
+    static func buildStampFile(beside binary: URL) -> URL {
+        binary.deletingLastPathComponent().appendingPathComponent("cmux-tui.version.json")
+    }
+
+    /// The packaged `--version --json` of `binary`; nil when there is no file or it does not parse.
+    static func readBuildStamp(beside binary: URL) -> DaemonBuildStamp? {
+        guard let data = try? Data(contentsOf: buildStampFile(beside: binary)),
+              let stamp = DaemonBuildStamp(versionJSON: data), stamp.commit != nil || stamp.id != nil else { return nil }
+        return stamp
     }
 
     static func parseBuildCommit(_ version: String) -> String? {
