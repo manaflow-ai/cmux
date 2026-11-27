@@ -15,6 +15,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, mpsc};
 
 use crate::ssh_args::background_ssh_arguments;
+use crate::ssh_control::{SshConnectionError, SshConnectionShare, SshTarget};
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 /// Printed by the staging command when the remote can decompress an upload.
@@ -61,6 +62,10 @@ pub struct SshBootstrapConfig {
     /// `remote-probe` capabilities the remote must advertise before this
     /// client may attach (`SshProviderConfig::required_remote_capabilities`).
     pub required_capabilities: Vec<String>,
+    /// The connect's shared SSH connection: every run of this bootstrap goes
+    /// through it, so the host authenticates once (issue 38157). Off by
+    /// default, where each run authenticates itself.
+    pub connection_share: SshConnectionShare,
 }
 
 impl SshBootstrapConfig {
@@ -94,6 +99,7 @@ impl SshBootstrapConfig {
             auto_install: true,
             timeout: Duration::from_secs(60),
             required_capabilities: Vec::new(),
+            connection_share: SshConnectionShare::disabled(),
         }
     }
 
@@ -161,6 +167,23 @@ impl SshBootstrapper {
     pub fn new(config: SshBootstrapConfig) -> Result<Self, BootstrapError> {
         config.validate()?;
         Ok(Self { config })
+    }
+
+    /// Opens the shared SSH connection (the one place the host may ask for
+    /// a password) before any bootstrap step, so command timeouts never
+    /// include authentication. Does nothing when sharing is off.
+    pub async fn connect(&self) -> Result<(), BootstrapError> {
+        self.config.connection_share.client_arguments(&self.ssh_target()).await?;
+        Ok(())
+    }
+
+    fn ssh_target(&self) -> SshTarget {
+        SshTarget {
+            ssh_binary: self.config.ssh_binary.clone(),
+            destination: self.config.destination.clone(),
+            port: self.config.port,
+            extra_args: self.config.extra_args.clone(),
+        }
     }
 
     pub async fn probe(&self) -> Result<Option<RemoteProbe>, BootstrapError> {
@@ -686,7 +709,7 @@ impl SshBootstrapper {
         timeout: Duration,
     ) -> Result<RemoteOutput, BootstrapError> {
         let mut command = Command::new(&self.config.ssh_binary);
-        self.configure_ssh_command(&mut command);
+        self.configure_ssh_command(&mut command).await?;
         for argument in remote_arguments {
             command.arg(argument);
         }
@@ -694,15 +717,22 @@ impl SshBootstrapper {
         self.run_child_with_timeout(command, timeout, None).await
     }
 
-    fn configure_ssh_command(&self, command: &mut Command) {
-        // Forwarding stays as configured unless `extra_args` pin
-        // `ControlMaster=no`: otherwise this run can become the shared master
-        // that interactive sessions reuse.
+    /// Adds the ssh options and destination. With a shared connection the
+    /// run is a client of its master (`ControlMaster=no`, so forwarding is
+    /// off); this happens before the command's timeout starts. Otherwise
+    /// forwarding stays as configured unless `extra_args` pin
+    /// `ControlMaster=no`, since this run can become the shared master that
+    /// interactive sessions reuse.
+    async fn configure_ssh_command(&self, command: &mut Command) -> Result<(), BootstrapError> {
+        let mut extra_args =
+            self.config.connection_share.client_arguments(&self.ssh_target()).await?;
+        extra_args.extend(self.config.extra_args.iter().cloned());
         command.args(background_ssh_arguments(
             self.config.port,
-            &self.config.extra_args,
+            &extra_args,
             &self.config.destination,
         ));
+        Ok(())
     }
 
     /// Runs one ssh command. With `compressed_input`, that file is gzipped
@@ -791,7 +821,7 @@ impl SshBootstrapper {
         encoding: UploadEncoding,
     ) -> Result<RemoteOutput, BootstrapError> {
         let mut command = Command::new(&self.config.ssh_binary);
-        self.configure_ssh_command(&mut command);
+        self.configure_ssh_command(&mut command).await?;
         command.arg(posix_shell_command(remote_command));
         match encoding {
             UploadEncoding::Raw => {
@@ -1052,17 +1082,43 @@ pub enum BootstrapError {
     Io(std::io::Error),
     ProbeJson(serde_json::Error),
     Timeout,
-    OutputLimit { stream: &'static str, limit: usize },
+    OutputLimit {
+        stream: &'static str,
+        limit: usize,
+    },
     Missing,
-    Remote { status: i32, stderr: String },
-    Install { status: i32, stderr: String },
+    Remote {
+        status: i32,
+        stderr: String,
+    },
+    Install {
+        status: i32,
+        stderr: String,
+    },
     PackageUnavailable(String),
     PlatformProbe(String),
-    LocalBinaryIncompatible { local: String, remote: String },
+    LocalBinaryIncompatible {
+        local: String,
+        remote: String,
+    },
     WindowsRequiresWsl,
-    Incompatible { version: String, build_identity: Option<String>, reason: Incompatibility },
-    ChecksumMismatch { package: String },
+    Incompatible {
+        version: String,
+        build_identity: Option<String>,
+        reason: Incompatibility,
+    },
+    ChecksumMismatch {
+        package: String,
+    },
     PayloadDownload(String),
+    /// The shared SSH connection could not connect or authenticate.
+    Connection(SshConnectionError),
+}
+
+impl From<SshConnectionError> for BootstrapError {
+    fn from(error: SshConnectionError) -> Self {
+        Self::Connection(error)
+    }
 }
 
 /// Why a remote cmux-tui cannot serve this client. `code()` is the stable,
@@ -1174,6 +1230,7 @@ impl fmt::Display for BootstrapError {
                 formatter,
                 "could not download the cmux-tui build for the remote platform: {message}"
             ),
+            Self::Connection(error) => error.fmt(formatter),
         }
     }
 }

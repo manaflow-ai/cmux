@@ -11,12 +11,16 @@
 
 pub(crate) mod carry;
 mod git;
+// The per-workspace remote of a folder with no remote (RFD 0066 piece 7).
 mod github;
 pub(crate) mod lfs;
 pub(crate) mod plan;
+#[allow(dead_code)]
+mod resumable_upload;
 mod secrets;
 #[cfg(test)]
 mod tests;
+pub(super) mod workspace_remote;
 
 use std::path::PathBuf;
 

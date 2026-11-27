@@ -5,6 +5,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
+  acpmuxSendCallsParseCountForTests,
+  resetAcpmuxSendCallsCacheForTests,
+} from "../src/agent-session/acpmux/conversation/acpmuxSends";
+import {
   letGoHeldWorked,
   turnRowsShownFrom,
   type TurnRowsShownDeps,
@@ -123,4 +127,36 @@ test("the click lets go of its own fold only: a turn that ends in the same pass 
   expect(rows).not.toContain("t1");
   expect(rows).toContain("t2");
   expect([...heldWorked.current.keys]).toEqual(["worked-v"]);
+});
+
+// A chat's open shapes every finished turn of its first page at once (chat-attach-p95). Each closed
+// "Worked for" read how many messages its turn sent, which groups every step's calls (toolGroups.ts:
+// each command parsed for an `acpmux send`, each read's path): most of `turnRowsShownFrom` on a long
+// chat, for a count the default label never draws. Shaped the same, it parses no command for it now.
+test("opening a chat of finished turns parses no command for sends its closed Worked for does not draw", () => {
+  const turns: AcpmuxRow[] = [];
+  for (let turn = 0; turn < 20; turn += 1) {
+    const command = `bun test retry${turn}`;
+    turns.push(
+      row(`p${turn}`, "user", { text: `Fix flaky test ${turn}` }),
+      row(`w${turn}`, "activity", {
+        items: [
+          {
+            kind: "tool",
+            text: "",
+            tool: { id: `c${turn}`, title: command, kind: "execute", status: "completed", command, output: "1 pass" },
+          },
+        ],
+      }),
+      row(`a${turn}`, "assistant", { text: `Turn ${turn}: fake timers make it deterministic.` }),
+      row(`s${turn}`, "turnSummary", { status: "completed", toolCount: 1, durationMs: 12_000 }),
+    );
+  }
+  resetAcpmuxSendCallsCacheForTests();
+  const rows = pane().shown(turns, false);
+  // Each turn draws its prompt, its closed Worked for and its answer, the call folded away.
+  expect(rows).toContain("worked-p0");
+  expect(rows).toContain("a19");
+  expect(rows).not.toContain("w0");
+  expect(acpmuxSendCallsParseCountForTests()).toBe(0);
 });

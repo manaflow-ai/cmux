@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { runSimulation, type RowProbe, type SimResult, createSimulation } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
-import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { SCENARIOS, longRun, FORK_MID_STREAM, forkMidStream } from "../src/agent-session/acpmux/sim/scenarios";
 import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
@@ -98,6 +98,20 @@ test("chat simulator: a person's prompt keeps the block gap over Working for", (
   const trace = result.traces.find((step) => step.rows?.some(isHead));
   const head = trace!.rows!.find(isHead)!;
   expect(head.gap).toBeGreaterThanOrEqual(24);
+});
+
+// Fork-hammer's invariant, the pane's half (#50021, #50094, #50089): a fork made mid-stream draws exactly the
+// turns its records hold (its prompts, and the cut-off reply), and is idle; the daemon's half checks those
+// turns are the ones its agent holds (acpmux tests/hub_integration/fork_context.rs).
+test("chat simulator: a fork made mid-stream draws the turns its records hold, the cut-off reply too, and is idle", () => {
+  const result = runSimulation(forkMidStream());
+  const last = result.traces.at(-1)!;
+  expect(last.working).toBe(false);
+  const rows = last.rows ?? [];
+  expect(rows.filter((row) => row.live)).toEqual([]);
+  const prompts = rows.filter((row) => row.opens).map((row) => row.text);
+  expect(prompts).toEqual(FORK_MID_STREAM.prompts.map((p) => p.slice(0, 80)));
+  expect(rows.some((row) => row.text?.startsWith(FORK_MID_STREAM.partial.slice(0, 40)))).toBe(true);
 });
 
 const replayed = () => {
