@@ -150,6 +150,8 @@ mod supervisor_signals;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
+mod synced;
+#[cfg(unix)]
 mod system_calendar;
 #[cfg(unix)]
 mod terminal_backends;
@@ -279,6 +281,16 @@ impl AppsSlot {
                     }),
                 );
                 supervisor.observe_kept_servers(self.server_observers.clone());
+                // Synced app storage (`storage:synced`) over the daemon's cloud link.
+                if mux.cloud_conversations().is_some() {
+                    let weak = Arc::downgrade(&supervisor);
+                    mux.set_appkv_sink(Arc::new(move |event| {
+                        if let Some(supervisor) = weak.upgrade() {
+                            supervisor.on_appkv_event(event);
+                        }
+                    }));
+                    supervisor.set_appkv_cloud(Arc::new(synced::MuxCloud::new(mux)));
+                }
                 supervisor
             })
             .clone();

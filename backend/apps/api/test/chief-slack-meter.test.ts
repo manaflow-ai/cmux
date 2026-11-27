@@ -3,7 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
 import type { Env } from "../src/env.ts"
-import { SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, awakeFact, awakeSeconds, meterSlackTurn, recordSlackSender, reportSlackAwake, senderAwakeSeconds, slackAwakeLabel, slackMayWake, utcDay, type SlackSender } from "../src/chief-brain/slack-meter.ts"
+import { SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, setSlackAllowance, slackAllowance, slackSpend, validSlackAllowance, awakeFact, awakeSeconds, meterSlackTurn, recordSlackSender, reportSlackAwake, slackNames, senderAwakeSeconds, slackAwakeLabel, slackMayWake, utcDay, type SlackSender } from "../src/chief-brain/slack-meter.ts"
 
 // RFD 0123 (Chief in Slack), Plan and billing: the brain's awake-time meter per Slack sender.
 
@@ -53,6 +53,61 @@ describe("slack awake meter", () => {
       expect(slackMayWake(b.sql, guest, NOON + 24 * 3600_000)).toBe(true)
       // The allowance is per sender: another guest in the same workspace still wakes it.
       expect(slackMayWake(b.sql, { ...guest, slackUserId: "U0OTHER" }, NOON)).toBe(true)
+    })
+  })
+
+  it("wakes on the owner's allowance once they set one, 0 turns non-owners off, and null is the default again", async () => {
+    await inBrain((b) => {
+      expect(slackAllowance(b.sql)).toBe(SLACK_NON_OWNER_DAILY_AWAKE_SECONDS)
+      recordSlackSender(b.sql, "msg_g", guest)
+      meterSlackTurn(b.sql, "run_g", "msg_g", NOON - 3 * 3600_000, NOON)
+      expect(slackMayWake(b.sql, guest, NOON)).toBe(false)
+      setSlackAllowance(b.sql, 4 * 3600)
+      expect(slackMayWake(b.sql, guest, NOON)).toBe(true)
+      setSlackAllowance(b.sql, 0)
+      expect(slackMayWake(b.sql, { ...guest, slackUserId: "U0NEW" }, NOON)).toBe(false)
+      expect(slackMayWake(b.sql, owner, NOON)).toBe(true)
+      setSlackAllowance(b.sql, null)
+      expect(slackAllowance(b.sql)).toBe(SLACK_NON_OWNER_DAILY_AWAKE_SECONDS)
+      expect([0, 7200, 86_400].every(validSlackAllowance)).toBe(true)
+      expect([-1, 86_401, 1.5, "7200", null, Number.NaN].some(validSlackAllowance)).toBe(false)
+    })
+  })
+
+  it("lists who spent the hours per sender and UTC day, newest day and biggest spender first, inside the window", async () => {
+    await inBrain((b) => {
+      recordSlackSender(b.sql, "msg_g1", guest)
+      recordSlackSender(b.sql, "msg_g2", guest)
+      recordSlackSender(b.sql, "msg_o", owner)
+      recordSlackSender(b.sql, "msg_old", guest)
+      meterSlackTurn(b.sql, "run_g1", "msg_g1", NOON, NOON + 60_000)
+      meterSlackTurn(b.sql, "run_g2", "msg_g2", NOON + 120_000, NOON + 150_000)
+      meterSlackTurn(b.sql, "run_o", "msg_o", NOON, NOON + 600_000)
+      meterSlackTurn(b.sql, "run_y", "msg_g1", NOON - 86_400_000, NOON - 86_400_000 + 5_000)
+      meterSlackTurn(b.sql, "run_old", "msg_old", NOON - 10 * 86_400_000, NOON - 10 * 86_400_000 + 5_000)
+      expect(slackSpend(b.sql, NOON, 7)).toEqual([
+        { slack_team: "T0TEAM", slack_user: "U0OWNER", sender_is_owner: true, day: "2026-11-25", seconds: 600, turns: 1 },
+        { slack_team: "T0TEAM", slack_user: "U0GUEST", sender_is_owner: false, day: "2026-11-25", seconds: 90, turns: 2 },
+        { slack_team: "T0TEAM", slack_user: "U0GUEST", sender_is_owner: false, day: "2026-11-24", seconds: 5, turns: 1 }
+      ])
+      expect(slackSpend(b.sql, NOON, 1).map((r) => r.day)).toEqual(["2026-11-25", "2026-11-25"])
+    })
+  })
+
+  it("names each sender in the spend by their latest Slack name, and leaves an unnamed sender out", async () => {
+    await inBrain((b) => {
+      recordSlackSender(b.sql, "msg_g1", { ...guest, slackUserName: "Guest Old" })
+      recordSlackSender(b.sql, "msg_g2", { ...guest, slackUserName: "  Guest  " })
+      recordSlackSender(b.sql, "msg_o", owner)
+      // A blank name keeps the one already recorded.
+      recordSlackSender(b.sql, "msg_g3", { ...guest, slackUserName: " " })
+      meterSlackTurn(b.sql, "run_g", "msg_g2", NOON, NOON + 30_000)
+      meterSlackTurn(b.sql, "run_o", "msg_o", NOON, NOON + 60_000)
+      const spend = slackSpend(b.sql, NOON, 7)
+      expect(slackNames(b.sql, spend)).toEqual({ U0GUEST: "Guest" })
+      expect(slackNames(b.sql, [])).toEqual({})
+      recordSlackSender(b.sql, "msg_o2", { ...owner, slackUserName: "Leo" })
+      expect(slackNames(b.sql, spend)).toEqual({ U0GUEST: "Guest", U0OWNER: "Leo" })
     })
   })
 

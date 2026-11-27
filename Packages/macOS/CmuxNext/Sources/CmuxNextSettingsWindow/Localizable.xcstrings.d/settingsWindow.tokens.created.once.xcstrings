@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.tokens.created.once" : {
+      "comment" : "Settings > Developer: the new token is shown only this once",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It won’t be shown again. If you lose it, revoke it and make a new one."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لن يظهر مرة أخرى. إذا فقدته، فأبطِله وأنشئ رمزًا جديدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neće se ponovo prikazati. Ako ga izgubite, opozovite ga i napravite novi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Det vises ikke igen. Hvis du mister det, skal du tilbagekalde det og oprette et nyt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Es wird nicht noch einmal angezeigt. Wenn du es verlierst, widerrufe es und erstelle ein neues."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se volverá a mostrar. Si lo pierdes, revócalo y crea uno nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il ne sera plus affiché. Si vous le perdez, révoquez-le et créez-en un nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non verrà più mostrato. Se lo perdi, revocalo e creane uno nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "再表示されません。紛失した場合は取り消して、新しく作成してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វានឹងមិនបង្ហាញម្ដងទៀតទេ។ បើអ្នកបាត់វា សូមដកហូតវា ហើយបង្កើតថ្មីមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다시 표시되지 않습니다. 잃어버렸다면 폐기하고 새로 만드세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Det vises ikke igjen. Hvis du mister det, tilbakekaller du det og lager et nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie zostanie pokazany ponownie. Jeśli go zgubisz, unieważnij go i utwórz nowy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ele não será mostrado novamente. Se você perdê-lo, revogue-o e crie um novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Он больше не будет показан. Если вы его потеряете, отзовите его и создайте новый."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โทเค็นนี้จะไม่แสดงอีก หากทำหาย ให้เพิกถอนแล้วสร้างใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir daha gösterilmeyecek. Kaybederseniz iptal edip yenisini oluşturun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Його більше не буде показано. Якщо ви його втратите, відкличте його та створіть новий."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Token sẽ không hiển thị lại. Nếu bạn làm mất, hãy thu hồi và tạo token mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它不会再次显示。如果遗失，请撤销它并新建一个。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它不會再次顯示。如果遺失，請撤銷它並新增一個。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

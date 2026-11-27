@@ -123,6 +123,8 @@ impl Hub {
                         // setting is a number of days: before the cold archive, which would
                         // compress chats about to go.
                         hub.history_delete_pass().await;
+                        // Deleted chats whose grace ended go (`soft_delete.rs`).
+                        hub.purge_deleted_chats().await;
                         // The cold archive of idle chats (`cold_archive.rs`), when its setting
                         // is on: after the rewrite, which leaves archived chats alone.
                         let cold = hub.clone();
@@ -133,6 +135,9 @@ impl Hub {
                         // Cloud history (`cloud_offload.rs`), when its setting is on: after the
                         // cold archive, whose archives it moves.
                         hub.history_offload_pass().await;
+                        // Read-only cloud copies of Claude's and Codex's own transcripts
+                        // (`transcript_offload.rs`), when their setting is on.
+                        hub.transcript_offload_pass().await;
                     }
                 }
                 // Size pressure (`store_pressure.rs`): measured at every wake and at least every

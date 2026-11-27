@@ -49,6 +49,7 @@ test("no spinner before 300 ms, one after", async () => {
   const box = host.querySelector<HTMLElement>("[data-spinner-wait]")!;
   expect(box.style.width).toBe("14px");
   await act(async () => {
+    // fixed-wait: the real 300 ms reveal timer is the behavior under test; wait just past it
     await new Promise((done) => setTimeout(done, 340));
   });
   expect(host.querySelector(".cv-spinner")).not.toBeNull();
