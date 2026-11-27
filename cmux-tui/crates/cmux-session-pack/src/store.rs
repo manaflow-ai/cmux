@@ -133,13 +133,11 @@ pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
             let mut d = zstd::stream::read::Decoder::new(body)?;
             d.window_log_max(27)?;
             let mut payload = Vec::with_capacity(len.min(64 << 10));
-            d.take(len as u64 + 1).read_to_end(&mut payload)?;
-            if payload.len() != len {
-                return Err(format!(
-                    "a zstd chunk says {len} bytes and expands to {}",
-                    payload.len()
-                )
-                .into());
+            (&mut d).take(len as u64).read_to_end(&mut payload)?;
+            if payload.len() != len || d.read(&mut [0u8; 1])? != 0 {
+                return Err(
+                    format!("a zstd chunk does not expand to its declared {len} bytes").into()
+                );
             }
             payload
         }
@@ -276,7 +274,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CODEC_RAW, CODEC_ZSTD, KIND_EVENTS, decode_chunk};
+    use super::{CODEC_RAW, CODEC_ZSTD, KIND_EVENTS, decode_chunk, encode_chunk};
 
     #[test]
     fn rejects_expanded_lengths_before_allocating() {
@@ -295,5 +293,30 @@ mod tests {
         file.extend_from_slice(b"too short");
         let err = decode_chunk(&file).unwrap_err().to_string();
         assert!(err.contains("raw chunk"), "{err}");
+    }
+
+    #[test]
+    fn compressed_chunks_reject_mutated_lengths_and_truncated_frames() {
+        let payload = vec![b'x'; 100_000];
+        let valid = encode_chunk(KIND_EVENTS, &payload, 3).unwrap();
+        assert_eq!(valid[0], CODEC_ZSTD);
+        assert_eq!(decode_chunk(&valid).unwrap().1, payload);
+        for len in [0u32, 1, 99_999, 100_001, 128 << 20, 256 << 20, u32::MAX] {
+            let mut bad = valid.clone();
+            bad[2..6].copy_from_slice(&len.to_le_bytes());
+            assert!(decode_chunk(&bad).is_err(), "declared length {len}");
+        }
+        for end in 0..valid.len() {
+            assert!(decode_chunk(&valid[..end]).is_err(), "cut {end}");
+        }
+    }
+
+    #[test]
+    fn compressed_chunks_reject_a_window_above_128_mib() {
+        // A zstd frame without a content size, window descriptor 0x90 = 256 MiB,
+        // followed by an empty final raw block. The decoded payload is empty.
+        let mut file = vec![CODEC_ZSTD, KIND_EVENTS, 0, 0, 0, 0];
+        file.extend_from_slice(&[0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x90, 1, 0, 0]);
+        assert!(decode_chunk(&file).is_err());
     }
 }

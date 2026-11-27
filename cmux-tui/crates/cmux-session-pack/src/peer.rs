@@ -167,11 +167,7 @@ fn ask(
         if len == NOPE {
             continue;
         }
-        if len > MAX_FILE {
-            return Err(format!("a chunk file of {len} bytes").into());
-        }
-        let mut file = vec![0u8; len as usize];
-        input.read_exact(&mut file)?;
+        let file = crate::ship::read_bounded(&mut input, len, MAX_FILE as usize, "peer chunk")?;
         store.receive(id, &file)?;
         stats.peer_chunks += 1;
         stats.peer_bytes += u64::from(len);

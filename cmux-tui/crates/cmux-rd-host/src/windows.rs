@@ -414,6 +414,8 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         preset: "ultrafast",
         profile: "baseline",
         openh264_lib: opts.get("openh264-lib"),
+        // Windows codes OpenH264 in screen usage already.
+        sharp_text: false,
     })?;
     let mut picture = I420::new(width as usize, height as usize);
     let mut access_unit = Vec::new();
@@ -741,6 +743,8 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
         preset: "ultrafast",
         profile: "baseline",
         openh264_lib: opts.get("openh264-lib"),
+        // Windows codes OpenH264 in screen usage already.
+        sharp_text: false,
     })?;
     write_control(
         &mut stream,

@@ -9,12 +9,14 @@ import type { QueuedPrompt } from "../acpmux/model";
 import { AuthorChip } from "../acpmux/multiplayer/Faces";
 import type { Participant } from "../acpmux/multiplayer/participants";
 import { type GuestPrompt, isOpen, PROMPT_MAX_BYTES, promptBytes } from "./guestPrompts";
+import { Button } from "../../ui/Button";
 
 /** Decided messages shown under the waiting ones; older ones are in the transcript. */
 const DECIDED_SHOWN = 3;
 
 const DECIDED_TEXT: Record<Exclude<GuestPrompt["state"], "sending" | "held">, StringKey> = {
   approved: "guest.prompt.sent",
+  sent: "guest.prompt.sent",
   declined: "guest.prompt.declined",
   removed: "guest.prompt.withdrawn",
   refused: "guest.prompt.refused",
@@ -52,10 +54,12 @@ export function GuestMessages({
               },
             )}
           </span>
+          {/* retry-prompt-ok: the daemon refused this message with a reason (not a dropped connection, which
+              resends by itself as `sending`); sending it again unchanged is the guest's call. */}
           {prompt.state === "refused" && onRetry && (
-            <button className="guest-mine__retry" type="button" onClick={() => onRetry(prompt.clientId)}>
+            <Button bare className="guest-mine__retry" type="button" onClick={() => onRetry(prompt.clientId)}>
               {t("guest.prompt.tryAgain")}
-            </button>
+            </Button>
           )}
         </p>
       ))}
@@ -103,6 +107,7 @@ export function GuestQueue({ queue, owner }: { queue: readonly QueuedPrompt[]; o
 
 export function GuestComposer({
   onSend,
+  onStop,
   onDraft,
   initialText = "",
   placeholder,
@@ -113,6 +118,7 @@ export function GuestComposer({
 }: {
   /** Sends the message; the page holds it from here. */
   onSend: (text: string) => void;
+  onStop?: () => void;
   /** The draft changed (typing `{on}`). */
   onDraft: (text: string) => void;
   /** The draft to start with (one kept across a reload). */
@@ -160,9 +166,20 @@ export function GuestComposer({
         onChange={(event) => change(event.target.value)}
         onKeyDown={keyDown}
       />
-      <button className="guest-join__button" type="submit" disabled={!canSend} aria-label={t("guest.composer.send")}>
+      {onStop && (
+        <Button bare className="guest-join__button" type="button" onClick={onStop}>
+          {t("composer.stop")}
+        </Button>
+      )}
+      <Button
+        bare
+        className="guest-join__button"
+        type="submit"
+        disabled={!canSend}
+        aria-label={t("guest.composer.send")}
+      >
         {sendIcon ?? t("guest.composer.send")}
-      </button>
+      </Button>
       {tooLong && (
         <p className="guest-composer__note" role="alert">
           {t("guest.composer.tooLong")}

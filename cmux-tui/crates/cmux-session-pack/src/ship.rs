@@ -165,12 +165,38 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
     Ok(Some(manifest))
 }
 
-fn read_bounded(input: &mut dyn Read, len: u32, max: usize, what: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_bounded(
+    input: &mut dyn Read,
+    len: u32,
+    max: usize,
+    what: &str,
+) -> Result<Vec<u8>> {
     let len = len as usize;
     if len > max {
         return Err(format!("a {what} of {len} bytes is over the {max} byte limit").into());
     }
-    let mut bytes = vec![0u8; len];
-    input.read_exact(&mut bytes)?;
+    // The stream may end immediately after its header. Grow only for bytes it
+    // supplies, never for its claimed length, including claims below the cap.
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 64 << 10];
+    while bytes.len() < len {
+        let n = (len - bytes.len()).min(buffer.len());
+        let n = match input.read(&mut buffer[..n]) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if n == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                format!("a {what} says {len} bytes and holds {}", bytes.len()),
+            )
+            .into());
+        }
+        if bytes.len() + n > bytes.capacity() {
+            let capacity = (bytes.len() + n).max(bytes.capacity().saturating_mul(2)).min(len);
+            bytes.try_reserve_exact(capacity - bytes.len())?;
+        }
+        bytes.extend_from_slice(&buffer[..n]);
+    }
     Ok(bytes)
 }
