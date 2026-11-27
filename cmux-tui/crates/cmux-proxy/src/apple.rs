@@ -12,11 +12,17 @@ use std::time::{Duration, Instant};
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
 use core_foundation::url::CFURL;
-use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef};
+use core_foundation_sys::array::{
+    CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef,
+};
 use core_foundation_sys::base::{CFGetTypeID, CFIndex, CFRelease, CFTypeRef, kCFAllocatorDefault};
-use core_foundation_sys::dictionary::{CFDictionaryGetTypeID, CFDictionaryGetValue, CFDictionaryRef};
+use core_foundation_sys::dictionary::{
+    CFDictionaryGetTypeID, CFDictionaryGetValue, CFDictionaryRef,
+};
 use core_foundation_sys::error::CFErrorRef;
-use core_foundation_sys::number::{CFNumberGetTypeID, CFNumberGetValue, CFNumberRef, kCFNumberSInt64Type};
+use core_foundation_sys::number::{
+    CFNumberGetTypeID, CFNumberGetValue, CFNumberRef, kCFNumberSInt64Type,
+};
 use core_foundation_sys::runloop::{
     CFRunLoopAddSource, CFRunLoopGetCurrent, CFRunLoopRemoveSource, CFRunLoopRunInMode,
     CFRunLoopSourceInvalidate, CFRunLoopSourceRef, CFRunLoopStop,
@@ -143,7 +149,9 @@ unsafe fn number_at(dict: CFDictionaryRef, key: CFStringRef) -> Option<i64> {
     }
     let mut out: i64 = 0;
     // SAFETY: a CFNumber; `out` is an i64 for kCFNumberSInt64Type.
-    let ok = unsafe { CFNumberGetValue(value as CFNumberRef, kCFNumberSInt64Type, (&raw mut out).cast()) };
+    let ok = unsafe {
+        CFNumberGetValue(value as CFNumberRef, kCFNumberSInt64Type, (&raw mut out).cast())
+    };
     ok.then_some(out)
 }
 
@@ -170,7 +178,8 @@ unsafe fn entry(dict: CFDictionaryRef) -> SystemEntry {
         // SAFETY: the caller's dictionary.
         let host = unsafe { string_at(dict, host_key) }.filter(|host| !host.is_empty())?;
         // SAFETY: the caller's dictionary.
-        let port = unsafe { number_at(dict, port_key) }.and_then(|port| u16::try_from(port).ok())?;
+        let port =
+            unsafe { number_at(dict, port_key) }.and_then(|port| u16::try_from(port).ok())?;
         let mut server = ProxyServer::new(host, port);
         // SAFETY: the caller's dictionary.
         if let Some(user) = unsafe { string_at(dict, user_key) }.filter(|user| !user.is_empty()) {
@@ -178,7 +187,9 @@ unsafe fn entry(dict: CFDictionaryRef) -> SystemEntry {
             // A user name without its password (kept in the Keychain, out of
             // reach here) is no sign-in: sending an empty password would read
             // as "refused the user name and password" to the person.
-            if let Some(password) = unsafe { string_at(dict, password_key) }.filter(|p| !p.is_empty()) {
+            if let Some(password) =
+                unsafe { string_at(dict, password_key) }.filter(|p| !p.is_empty())
+            {
                 server = server.with_credentials(&user, &password);
             }
         }
@@ -203,10 +214,12 @@ unsafe fn entry(dict: CFDictionaryRef) -> SystemEntry {
         server().map_or(SystemEntry::Other(kind), SystemEntry::Socks)
     } else if kind == pac_url {
         // SAFETY: the caller's dictionary.
-        unsafe { string_at(dict, pac_url_key) }.map_or(SystemEntry::Other(kind), SystemEntry::PacUrl)
+        unsafe { string_at(dict, pac_url_key) }
+            .map_or(SystemEntry::Other(kind), SystemEntry::PacUrl)
     } else if kind == pac_script {
         // SAFETY: the caller's dictionary.
-        unsafe { string_at(dict, pac_script_key) }.map_or(SystemEntry::Other(kind), SystemEntry::PacScript)
+        unsafe { string_at(dict, pac_script_key) }
+            .map_or(SystemEntry::Other(kind), SystemEntry::PacScript)
     } else {
         SystemEntry::Other(kind)
     }
@@ -240,8 +253,9 @@ unsafe fn entries(list: CFArrayRef) -> Vec<SystemEntry> {
 fn cf_url(text: &str) -> Option<CFURL> {
     let string = CFString::new(text);
     // SAFETY: a valid CF string; the result follows the create rule.
-    let url =
-        unsafe { CFURLCreateWithString(kCFAllocatorDefault, string.as_concrete_TypeRef(), ptr::null()) };
+    let url = unsafe {
+        CFURLCreateWithString(kCFAllocatorDefault, string.as_concrete_TypeRef(), ptr::null())
+    };
     // SAFETY: owned (create rule), wrapped once.
     (!url.is_null()).then(|| unsafe { CFURL::wrap_under_create_rule(url) })
 }
@@ -353,8 +367,10 @@ pub(super) fn hops_for_url(url: &str) -> Vec<Hop> {
         return vec![Hop::Direct];
     }
     // SAFETY: a live URL and settings dictionary; the list follows the create rule.
-    let list =
-        Owned(unsafe { CFNetworkCopyProxiesForURL(target.as_concrete_TypeRef(), settings.0.cast()) }.cast());
+    let list = Owned(
+        unsafe { CFNetworkCopyProxiesForURL(target.as_concrete_TypeRef(), settings.0.cast()) }
+            .cast(),
+    );
     // SAFETY: null or the live list above.
     let entries = unsafe { entries(list.0.cast()) };
     hops_from_entries(entries, |entry| run_pac(entry, &target))
@@ -397,7 +413,10 @@ mod tests {
         // A script that does not run is direct, as CFNetwork and browsers go.
         let broken = SystemEntry::PacScript("this is not JavaScript (".to_owned());
         let target = cf_url("https://turn.cloudflare.com:443/").expect("a URL");
-        assert_eq!(hops_from_entries(vec![broken], |entry| run_pac(entry, &target)), vec![Hop::Direct]);
+        assert_eq!(
+            hops_from_entries(vec![broken], |entry| run_pac(entry, &target)),
+            vec![Hop::Direct]
+        );
     }
 
     /// The system's own settings answer for any destination without a panic,

@@ -31,8 +31,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
+  # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
+  self-edit:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    uses: ./.github/workflows/self-edit-sweep.yml
+    with:
+      workflow: .github/workflows/runnable-link.yml
+    permissions:
+      contents: read
+
   measure:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: self-edit
+    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev

@@ -979,6 +979,11 @@ path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_page_strings_step.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_page_strings_step.py"
+
+[[test]]
 path = "tests/test_ci_step_table.py"
 lane = "linux-guard"
 

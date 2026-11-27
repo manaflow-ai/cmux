@@ -3126,6 +3126,9 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
         for name in (JOB, "path_route"):
             runs_on = one_runs_on(jobs[name])
             with self.subTest(job=name):
+                # The overflow switch (scripts/ci/one_linux_label.py) is the one variable: unset, cmux-linux.
+                self.assertIn("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}", runs_on)
+                runs_on = runs_on.replace("vars.CI_OVERFLOW_LINUX || ", "")
                 self.assertNotIn("vars.", runs_on)
                 self.assertNotIn("needs.", runs_on)
                 for attempt in (1, 2, 3):

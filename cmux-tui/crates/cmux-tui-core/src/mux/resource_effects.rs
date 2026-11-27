@@ -50,6 +50,7 @@ impl Mux {
             session_name: self.session.clone(),
             generation: topology.generation,
             revision: topology.revision,
+            journal_head: registry.session_journal_head()?,
         })
     }
 

@@ -1538,6 +1538,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        self.assertEqual(calls["settings catalog keys"]["argv"][-2:], ["--base-rev", base])  # a base red is a note
         self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])

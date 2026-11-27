@@ -49,13 +49,14 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
 
     /// Every other path the intro walk writes: looks (two-tone, calm, motion), trust (permission, Computer Use),
-    /// noise (banners, sound), the finish chime, Tidy (archiving, settling) and chat feel (send pop).
+    /// noise (banners, sound), the finish chime, Tidy (archiving, settling) and chat feel (send pop, sent prompt to top).
     /// Read at open with the picks' paths, so Skip puts them back too.
     nonisolated static let walkPaths: [[String]] = [
         ["agents", "defaultPermissionMode"], ["computerUse", "mode"], ["agentPane", "display", "finishSound"], ["agentPane", "display", "sendPop"],
         ["notifications", "desktop"], ["notifications", "sound"], ["notifications", "sounds", "when"],
         ["appearance", "twoTone"], ["ui", "calm"], ["ui", "animations", "enabled"],
         ["agents", "chats", "archiveInactive"], ["workspaces", "autoArchive", "style"], ["sidebar", "settleFinished"],
+        ["agentPane", "display", "sendScrollsToTop"],
     ]
 
     private let settings: @MainActor () -> SettingsController?
