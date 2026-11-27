@@ -2427,6 +2427,15 @@ export async function finishJourney(cleanup: () => Promise<void>, observer: Prom
   }
 }
 
+/** Why the platform's call to the team's Durable Object threw, when a 503 vm_unavailable says (cmux-platform
+ * RpcReset.ts `RpcFailure`; the CLI prints it too, cloud_client_session.rs `rpc_failure_reason`): only its three fixed
+ * words, never other text. Staging run 45934616897 (11-27 03:44Z and 03:59Z) failed `reply` and `guest carrier
+ * timeline` on `exec: HTTP 503 "vm_unavailable"` and could not say whether the object restarted, was overloaded or was
+ * unreachable. */
+export function rpcFailureReason(reason: unknown): string {
+  return reason === "overloaded" || reason === "restarted" || reason === "unreachable" ? ` (${reason})` : "";
+}
+
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
@@ -2437,7 +2446,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const runMs = Math.min(timeoutMs, 300_000);
     const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
     const v: any = g.body?.value ?? g.body;
-    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
+    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
   return async (command, timeoutMs = 60_000) => {
