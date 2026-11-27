@@ -6,7 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { describedText, shownText, visibleLabelText } from "./support/factsCard";
+import { describedText, visibleLabelText } from "./support/factsCard";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;

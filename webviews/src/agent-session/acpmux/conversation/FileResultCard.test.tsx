@@ -15,7 +15,7 @@ import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
 import { CommandRow } from "./CommandRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { describedText, shownText, factsCardText, visibleLabelText } from "../../../../test/support/factsCard";
+import { factsCardText, visibleLabelText } from "../../../../test/support/factsCard";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
