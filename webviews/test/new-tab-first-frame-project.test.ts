@@ -7,9 +7,16 @@
 // The real agent pane (the dev entry) in Chromium and WebKit, with a stand-in host (its handshake
 // late, as a cold page's is) and a stand-in acpmux daemon (its chat list late). A script from the
 // document's start records the location strip's visible text on every DOM change and every frame.
+// Cached-content raster cases hold every host response until the full App's first content PNG,
+// then compare it with the hydrated PNG. The 450px case is split-sized browser UI; native split
+// adoption and the cover over a delayed lazy chunk are verified by native composer/split tests.
+// Leo 2026-11-27: "oh but then it just flickers afterwards it seems which defeats the purpose".
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-first-frame-project.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import pixelmatch from "pixelmatch";
+import { PNG } from "pngjs";
 import { chromium, webkit, type Browser, type BrowserContext, type BrowserType } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -23,7 +30,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
     try {
-      await (await engine[1].launch({ headless: true })).close();
+      await (await engine[1].launch({ headless: true, timeout: 30_000 })).close();
       engines.push(engine);
     } catch {
       console.warn(`new-tab-first-frame-project: ${engine[0]} cannot launch here`);
@@ -42,8 +49,22 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
   const now = Date.now();
   // atlas holds the chat used last on this Mac.
   const sessions = [
-    { sessionId: "s-billing", cwd: BILLING, harness: "claude", status: "idle", turnCount: 1, updatedAt: now - 60_000 },
-    { sessionId: "s-atlas", cwd: ATLAS, harness: "claude", status: "idle", turnCount: 1, updatedAt: now - 1_000 },
+    {
+      sessionId: "s-billing",
+      cwd: BILLING,
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: now - 60_000,
+    },
+    {
+      sessionId: "s-atlas",
+      cwd: ATLAS,
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: now - 1_000,
+    },
   ];
   /// How long the daemon takes to list its chats.
   let listDelay = 0;
@@ -64,8 +85,33 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
           if (message.id === undefined) return;
           let result: unknown = null;
           if (message.method === "initialize")
-            result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
-          else if (message.method === "_acpmux/watch") {
+            result = {
+              protocolVersion: 1,
+              _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+            };
+          else if (message.method === "_acpmux/harnesses") {
+            result = {
+              harnesses: {
+                claude: {
+                  name: "Claude Code",
+                  kind: "acp",
+                  start: { model: "claude-opus-5-5", effort: "medium", modelSource: "saved", effortSource: "saved" },
+                },
+              },
+              defaultHarness: "claude",
+            };
+          } else if (message.method === "_acpmux/models") {
+            result = {
+              harnesses: [
+                {
+                  harness: "claude",
+                  models: [
+                    { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+                  ],
+                },
+              ],
+            };
+          } else if (message.method === "_acpmux/watch") {
             // fixed-wait: the chat list arriving late is the state under test, not a wait for one
             if (listDelay) await Bun.sleep(listDelay);
             result = { sessions };
@@ -80,7 +126,9 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    const warmStart = performance.now();
     await warmViteServer(vite, "/");
+    console.info(`new-tab setup warm: ${Math.round(performance.now() - warmStart)}ms`);
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
@@ -89,27 +137,57 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Host = { cwd?: string; handshakeDelay: number };
+  type Host = { cwd?: string; handshakeDelay: number; raster?: string };
   /// Opens a New Tab page in `context` with the host's context injected as the document commits
   /// (AgentPaneNavigation), and returns every distinct location text it painted, in order.
-  async function newTab(context: BrowserContext, { cwd, handshakeDelay }: Host, settle: string) {
+  async function newTab(context: BrowserContext, { cwd, handshakeDelay, raster }: Host, settle: string) {
+    const rasterStart = performance.now();
     const page = await context.newPage();
     await installPaintedFrames(page);
+    if (raster) await page.clock.setFixedTime(new Date(now));
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.addInitScript(
-      ({ endpoint, cwd, home, handshakeDelay }) => {
-        const newTab = { kind: "agent", hotkeys: {}, home, projects: [], host: "cosmic-gray", ...(cwd ? { cwd } : {}) };
+      ({ endpoint, cwd, home, handshakeDelay, raster }) => {
+        const newTab = {
+          kind: "agent",
+          hotkeys: {},
+          home,
+          projects: raster ? [`${home}/src/billing`, `${home}/src/atlas`] : [],
+          ...(raster
+            ? {
+                projectRows: JSON.stringify(
+                  ["billing", "atlas"].map((name) => {
+                    const cwd = `${home}/src/${name}`;
+                    return {
+                      cwd,
+                      label: name,
+                      displayGroup: { key: cwd, name, lead: cwd, mainLead: cwd, hidden: false },
+                    };
+                  }),
+                ),
+              }
+            : {}),
+          host: "cosmic-gray",
+          ...(cwd ? { cwd } : {}),
+        };
         (window as unknown as Record<string, unknown>).__cmuxNewTabContext = newTab;
         // The host's answers still on their way; each comes `ms` late.
-        const w = window as unknown as { __hostPending: number };
+        const w = window as unknown as { __hostPending: number; __releaseHydration: () => void };
+        const hydration = raster
+          ? new Promise<void>((resolve) => {
+              w.__releaseHydration = resolve;
+            })
+          : Promise.resolve();
         w.__hostPending = 0;
         const later = (ms: number, value: unknown) => {
           w.__hostPending += 1;
           // fixed-wait: the stand-in host answers late on purpose; the label must hold through it
-          return new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms)).then((answer) => {
-            w.__hostPending -= 1;
-            return answer;
-          });
+          return hydration
+            .then(() => new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms)))
+            .then((answer) => {
+              w.__hostPending -= 1;
+              return answer;
+            });
         };
         const answer = (method: string): unknown => {
           switch (method) {
@@ -128,7 +206,9 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
             case "newTab.context":
               return later(0, { newTab });
             case "project.list":
-              return later(handshakeDelay, { projects: [`${home}/src/atlas`, `${home}/src/billing`] });
+              return later(handshakeDelay, {
+                projects: [`${home}/src/atlas`, `${home}/src/billing`],
+              });
             case "transport.gesture":
               return later(0, { ticket: "gesture" });
             default:
@@ -136,7 +216,9 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
           }
         };
         (window as unknown as { webkit: unknown }).webkit = {
-          messageHandlers: { agentSession: { postMessage: (request: { method: string }) => answer(request.method) } },
+          messageHandlers: {
+            agentSession: { postMessage: (request: { method: string }) => answer(request.method) },
+          },
         };
         // The strip's text as painted: hidden text (a reserved place) is no label.
         const painted: string[] = [];
@@ -165,7 +247,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
         });
         window.cmuxAfterPaint(read);
       },
-      { endpoint, cwd, home: HOME, handshakeDelay },
+      { endpoint, cwd, home: HOME, handshakeDelay, raster },
     );
     // The daemon's chat list reaching the page.
     const listed = new Promise<void>((resolve) =>
@@ -175,15 +257,55 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
         }),
       ),
     );
+    const catalogDelivered = new Promise<void>((resolve) => {
+      const kinds = new Set<string>();
+      page.on("websocket", (socket) =>
+        socket.on("framereceived", (frame) => {
+          const reply = JSON.parse(String(frame.payload)) as { result?: { harnesses?: unknown } };
+          if (!reply.result?.harnesses) return;
+          kinds.add(Array.isArray(reply.result.harnesses) ? "models" : "harnesses");
+          if (kinds.size === 2) resolve();
+        }),
+      );
+    });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
+    let firstPixels: Buffer | undefined;
+    if (raster) {
+      // The document-start cache supplies the first content frame. Hold every host reply until
+      // that frame is captured; a fast machine cannot accidentally capture settled hydration.
+      await page.locator(".nt-location").waitFor();
+      await page.evaluate(() => window.cmuxPaintFrame());
+      expect(await page.evaluate(() => (window as unknown as { __hostPending: number }).__hostPending)).toBeGreaterThan(
+        0,
+      );
+      firstPixels = await page.screenshot({ caret: "hide" });
+      await page.evaluate(() => (window as unknown as { __releaseHydration: () => void }).__releaseHydration());
+    }
     await page.locator(".nt-location").getByText(settle).waitFor();
     // Past the handshake, the daemon's list and the projects list (the second one goes out before
     // the daemon is asked for its chats), and a painted frame after them.
     await listed;
+    if (raster) await catalogDelivered;
     await page.waitForFunction(() => (window as unknown as { __hostPending: number }).__hostPending === 0);
     await page.evaluate(() => window.cmuxPaintFrame());
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
+    if (raster && firstPixels) {
+      const settledPixels = await page.screenshot({ caret: "hide" });
+      const first = PNG.sync.read(firstPixels);
+      const settled = PNG.sync.read(settledPixels);
+      const diff = new PNG({ width: first.width, height: first.height });
+      const changed = pixelmatch(first.data, settled.data, diff.data, first.width, first.height, {
+        threshold: 0.1,
+      });
+      const artifacts = process.env.CMUX_FLICKER_ARTIFACT_DIR ?? path.join(webviews, "test-results/new-tab-flicker");
+      mkdirSync(artifacts, { recursive: true });
+      writeFileSync(path.join(artifacts, `${raster}-first.png`), firstPixels);
+      writeFileSync(path.join(artifacts, `${raster}-settled.png`), settledPixels);
+      writeFileSync(path.join(artifacts, `${raster}-diff.png`), PNG.sync.write(diff));
+      console.info(`raster: ${raster}: ${changed} changed pixels in ${Math.round(performance.now() - rasterStart)}ms`);
+      expect(changed, `${raster}: cached first content frame must equal hydrated frame; see ${artifacts}`).toBe(0);
+    }
     await page.close();
     console.info(`painted: ${JSON.stringify(painted)}`);
     // Empty text is the strip before React draws it, or a reserved place: never a wrong label.
@@ -221,6 +343,31 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       expect(painted.every((text) => !/Choose folder|No folder/.test(text))).toBe(true);
       expect(painted.every((text) => text.includes("atlas"))).toBe(true);
       expect(new Set(painted).size).toBe(1);
+    },
+  );
+
+  test.each(engines.flatMap(([name]) => [900, 450].map((width) => [name, width] as const)))(
+    "%s: cached first content frame stays final at %ipx (full pane / split-sized UI)",
+    async (name, width) => {
+      const context = await browsers.get(name)!.newContext({ viewport: { width, height: 640 } });
+      try {
+        await context.addInitScript(() => {
+          localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { effort: "Medium" } }));
+          localStorage.setItem(
+            "cmux.acpmux.lastPick",
+            JSON.stringify({
+              global: { harness: "claude", model: "claude-opus-5-5" },
+              folders: {},
+            }),
+          );
+        });
+        listDelay = 0;
+        // An earlier mounted App populated the same store that native New Tab pages share.
+        await newTab(context, { cwd: ATLAS, handshakeDelay: 0 }, "atlas");
+        await newTab(context, { cwd: ATLAS, handshakeDelay: 0, raster: `${name}-${width}` }, "atlas");
+      } finally {
+        await context.close();
+      }
     },
   );
 
