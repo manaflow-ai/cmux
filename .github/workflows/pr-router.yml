@@ -155,6 +155,7 @@ jobs:
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
