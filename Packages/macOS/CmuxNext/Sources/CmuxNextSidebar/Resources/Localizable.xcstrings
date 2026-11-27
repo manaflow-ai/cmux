@@ -9356,6 +9356,30 @@
                   "state": "needs_review",
                   "value": "تمت أرشفة %lld من مساحات العمل الخاملة"
                 }
+              },
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "عدد مساحات العمل الخاملة التي تمت أرشفتها: %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تمت أرشفة مساحتي عمل خاملتين (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تمت أرشفة %lld مساحات عمل خاملة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تمت أرشفة %lld مساحة عمل خاملة"
+                }
               }
             }
           }
@@ -9428,6 +9452,12 @@
                   "state": "needs_review",
                   "value": "Se archivaron %lld espacios de trabajo inactivos"
                 }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Se archivaron %lld espacios de trabajo inactivos"
+                }
               }
             }
           }
@@ -9442,6 +9472,12 @@
                 }
               },
               "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld espaces de travail inactifs archivés"
+                }
+              },
+              "many": {
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld espaces de travail inactifs archivés"
@@ -37659,6 +37695,30 @@
                   "state": "needs_review",
                   "value": "%lld من مساحات العمل الخاملة"
                 }
+              },
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "عدد مساحات العمل الخاملة: %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "مساحتا عمل خاملتان (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld مساحات عمل خاملة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld مساحة عمل خاملة"
+                }
               }
             }
           }
@@ -37731,6 +37791,12 @@
                   "state": "needs_review",
                   "value": "%lld espacios de trabajo inactivos"
                 }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld espacios de trabajo inactivos"
+                }
               }
             }
           }
@@ -37745,6 +37811,12 @@
                 }
               },
               "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld espaces de travail inactifs"
+                }
+              },
+              "many": {
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld espaces de travail inactifs"
@@ -42614,6 +42686,30 @@
                   "state": "needs_review",
                   "value": "تمت أرشفة %lld من مساحات العمل"
                 }
+              },
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "عدد مساحات العمل التي تمت أرشفتها: %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تمت أرشفة مساحتي عمل (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تمت أرشفة %lld مساحات عمل"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تمت أرشفة %lld مساحة عمل"
+                }
               }
             }
           }
@@ -42704,6 +42800,12 @@
                   "state": "needs_review",
                   "value": "Se archivaron %lld espacios de trabajo"
                 }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Se archivaron %lld espacios de trabajo"
+                }
               }
             }
           }
@@ -42718,6 +42820,12 @@
                 }
               },
               "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld espaces de travail archivés"
+                }
+              },
+              "many": {
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld espaces de travail archivés"
