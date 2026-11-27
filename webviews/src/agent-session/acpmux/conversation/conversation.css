@@ -113,6 +113,11 @@
   --cv-row-font-size: calc(var(--cv-font-size) * 13 / 14);
   --cv-row-chip-height: 16px;
   --cv-row-glyph: 16px;
+  /* "Worked for" and the "N new messages" tag on its line keep the prose's size, the 14 they drew before the
+     row metric (#57402) took the other rows to 13: one size for the pair (Leo, 2026-11-27, of the shrunken
+     footer: "why did this get changed smaller font size than before? wasn't the original size
+     uncontroversial?"). */
+  --cv-worked-font-size: var(--cv-font-size);
   /* "Worked for"'s rule: this much under its words and this much over the next row. */
   --cv-worked-rule-above: 2px;
   --cv-worked-rule-below: 6px;
@@ -2954,7 +2959,7 @@ body {
   align-items: center;
   gap: var(--grid-gap);
   font-family: var(--cv-font);
-  font-size: var(--cv-row-font-size);
+  font-size: var(--cv-worked-font-size);
   line-height: 20px;
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, 0px));
   color: var(--cv-activity-text);
