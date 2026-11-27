@@ -50,6 +50,9 @@
     "exclude": []
   },
   "files": {
+    "backend/apps/api/src/chief-brain-cc/hub.ts": {"count": 1, "reason": "safe: the Chief integrations hub's request envelope limit keeps the local platform POST bounded; it applies to tool arguments, not a person's message or attachment send"},
+    "cmux-tui/crates/cmux-tui/src/link/sync_cli/local.rs": {"count": 1, "reason": "safe: the local sync walker skips an individual .gitignore larger than 1 MiB to keep metadata reads bounded; it does not refuse a user send"},
+    "webviews/src/agent-session/acpmux/MoveToAutoCloud.tsx": {"count": 1, "reason": "safe: the 1 MiB threshold only selects the compact byte display versus MB formatting; it never limits or refuses a move"},
     "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalInputSender.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift": {"count": 1, "reason": "safe: the Worker streaming threshold; a larger original goes by presigned upload, nothing is refused (tests/test_attachment_caps_guard.py records the same)"},
     "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenImagePaste.swift": {"count": 1, "reason": "safe: the screen-sharing paste's largest image (20 MiB) over the data channel; the phone's photo picker (CmuxScreenKitUI PastedImage) scales and re-encodes any photo until it fits, so a picked photo is never refused"},

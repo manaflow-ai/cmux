@@ -71,7 +71,9 @@ bin=$(build "$repo" "$repo/cmux-tui/target") || { echo "braid-dial-loss.sh: benc
 arms=(after); bins=("$bin"); shas=("$(git -C "$repo" rev-parse HEAD)")
 work=$(mktemp -d)
 if [[ -n "$before_ref" ]]; then
-  git -C "$repo" cat-file -e "$before_ref^{commit}" 2>/dev/null || git -C "$repo" fetch -q --depth=1 origin "$before_ref"
+  fetch_depth=()
+  [[ "$(git -C "$repo" rev-parse --is-shallow-repository)" == true ]] && fetch_depth=(--depth=1)
+  git -C "$repo" cat-file -e "$before_ref^{commit}" 2>/dev/null || git -C "$repo" fetch -q "${fetch_depth[@]}" origin "$before_ref"
   git -C "$repo" worktree add -q --detach "$work/before" "$before_ref"
   bin=$(build "$work/before" "$repo/cmux-tui/target-before") || { echo "braid-dial-loss.sh: bench build failed at $before_ref" >&2; exit 1; }
   arms+=(before); bins+=("$bin"); shas+=("$(git -C "$work/before" rev-parse HEAD)")

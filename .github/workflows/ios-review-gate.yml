@@ -594,7 +594,10 @@ jobs:
             fi
           done
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          [[ -x "$client" ]] || { echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"; exit 0; }
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"
+            exit 0
+          fi
           out="$RUNNER_TEMP/out"
           status=0
           "$client" ios-build --what gate-products --ref "$SHA" --out "$out" --timeout 1800 --queue-timeout 600 || status=$?
