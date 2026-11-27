@@ -1245,9 +1245,15 @@ jobs:
       - name: Changed notice inputs
         id: inputs
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
+          # A pull request compares with the base its merge commit was made on (the first parent);
+          # the event's base.sha can be older, and then base commits read as this change.
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -1315,9 +1321,14 @@ jobs:
       - name: Changed shelf inputs
         id: inputs
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          # Compare with the base the merge commit was made on (its first parent). The event's
+          # base.sha can be older, and then every commit landed since reads as this change, so
+          # the shelf built on pull requests that touch none of its inputs.
+          BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          BASE_SHA="${BASE_SHA:-$EVENT_BASE_SHA}"
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
