@@ -1166,8 +1166,8 @@ class ScriptBehavior(unittest.TestCase):
 
     def script(self, repo: Path, *args: str, fail: str = "", sleep: float = 0,
                barrier: Path | None = None, budget: int | None = None,
-               summary: Path | None = None) -> subprocess.CompletedProcess:
-        env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail,
+               summary: Path | None = None, ref: str = "", pr: str = "") -> subprocess.CompletedProcess:
+        env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail, "GITHUB_REF": ref, "CMUX_PR_NUMBER": pr,
                "FAKE_SLEEP": str(sleep),
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
@@ -1703,6 +1703,26 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_a_formatting_gate_red_names_the_pr_autofix_command(self):
+        # #37986: PR autofix had already formatted changes.ts, but its push job never runs on a
+        # pull_request event, so the lane saw only the red. The red now names the command that applies it.
+        work, out = self.prepared()
+        for red in ("web lint", "prepush gate"):
+            with self.subTest(red=red):
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", fail=red,
+                                     ref="refs/pull/37986/merge")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("::notice title=fast gates: PR autofix::", result.stdout)
+                self.assertIn("scripts/cmux-next/pr-autofix apply 37986", result.stdout)
+        # A dispatch runs on refs/heads/feat-cmux-next: the PR number comes from CMUX_PR_NUMBER (#38034 review).
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", fail="web lint",
+                             ref="refs/heads/feat-cmux-next", pr="38034")
+        self.assertIn("scripts/cmux-next/pr-autofix apply 38034", result.stdout)
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", fail="crash ratchet")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("pr-autofix", result.stdout)
+
 
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()

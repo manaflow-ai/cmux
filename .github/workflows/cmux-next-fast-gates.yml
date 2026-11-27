@@ -694,6 +694,8 @@ jobs:
         id: gates
         env:
           BASE: ${{ needs.resolve.outputs.base }}
+          # The pull request a formatting red's pr-autofix hint names (a dispatch runs on the base branch's ref).
+          CMUX_PR_NUMBER: ${{ inputs.pr || github.event.pull_request.number }}
           # The lint tools' release-assets API fallback (prepush-gate.py fetch) authenticates with it; unauthenticated,
           # the shared runner IPs' 60 calls an hour answer 403. The job's token is read-only (contents: read).
           GH_TOKEN: ${{ github.token }}
