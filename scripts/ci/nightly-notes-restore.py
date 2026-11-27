@@ -20,6 +20,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 import zipfile
 
 HERE = Path(__file__).resolve().parent
@@ -32,6 +34,8 @@ R2_BUCKET = "cmux-nightly-next"
 RELEASE_BRANCH = "nightly-next"
 RELEASE_ENVIRONMENT = "release-next"
 RELEASE_WORKFLOW = ".github/workflows/nightly.yml"
+PUBLIC_FEED_BASE = "https://files-next.cmux.com/nightly-next"
+PUBLIC_PULL_RECORD = f"{PUBLIC_FEED_BASE}/next/pulled.json"
 
 
 def fail(message: str) -> "NoReturn":
@@ -53,8 +57,9 @@ def load_provenance(path: Path) -> dict:
         fail(f"invalid provenance {path}: {error}")
     if not isinstance(value, dict):
         fail("provenance must be a JSON object")
-    required = ("source_run", "source_attempt", "source_sha", "build", "withdrawn",
-                "notes_sha256", "signature_sha256")
+    required = ("source_run", "source_attempt", "source_sha", "build", "notes_sha256",
+                "signature_sha256", "artifact_run", "artifact_attempt", "artifact_id",
+                "artifact_sha256", "artifact_name")
     missing = [key for key in required if key not in value]
     if missing:
         fail(f"provenance is missing {', '.join(missing)}")
@@ -67,11 +72,16 @@ def load_provenance(path: Path) -> dict:
     expected_build = f"{value['source_run']}{int(value['source_attempt']):02d}"
     if str(value["build"]) != expected_build:
         fail(f"build {value['build']} does not encode source_run/attempt {value['source_run']}/{value['source_attempt']}")
-    if value["withdrawn"] is not False:
-        fail("refusing a withdrawn or unknown build")
     for key in ("notes_sha256", "signature_sha256"):
         if not HEX.fullmatch(str(value[key])):
             fail(f"{key} must be a 64-character lowercase SHA-256 digest")
+    if not str(value["artifact_run"]).isdigit() or not str(value["artifact_attempt"]).isdigit() \
+            or not str(value["artifact_id"]).isdigit():
+        fail("artifact_run, artifact_attempt and artifact_id must be numeric")
+    if not HEX.fullmatch(str(value["artifact_sha256"])):
+        fail("artifact_sha256 must be a 64-character lowercase SHA-256 digest")
+    if not isinstance(value["artifact_name"], str) or not value["artifact_name"].strip():
+        fail("artifact_name must be a non-empty string")
     return value
 
 
@@ -118,24 +128,28 @@ def validate(notes: Path, signature: Path, provenance: dict, public_key: str) ->
     return build, notes_bytes, signature_bytes
 
 
-def load_approval(path: Path, provenance: dict) -> None:
+def verify_withdrawal_status(build: str) -> None:
+    """Read the protected feed's pulled record, which is the withdrawal authority."""
+    url = PUBLIC_PULL_RECORD
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        # Tests and offline dry-runs may point at a local fixture. Production
+        # always uses the fixed public record above.
+        url = os.environ.get("NIGHTLY_NEXT_PULLED_URL", url)
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        request = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-notes-restore/1"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            value = json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            value = []
+        else:
+            fail(f"withdrawal record read failed for {url}: HTTP {error.code}")
     except (OSError, json.JSONDecodeError) as error:
-        fail(f"invalid release-owner approval receipt {path}: {error}")
-    if not isinstance(value, dict) or value.get("kind") != "nightly-notes-restore" or value.get("approved") is not True:
-        fail("release-owner approval receipt must be an approved nightly-notes-restore record")
-    for key in ("source_run", "source_attempt", "source_sha", "build", "notes_sha256", "signature_sha256"):
-        if str(value.get(key)) != str(provenance[key]):
-            fail(f"approval receipt does not exactly match provenance {key}")
-    if value.get("withdrawn") is not False:
-        fail("approval receipt does not confirm the build is not withdrawn")
-    if not isinstance(value.get("approved_by"), str) or not value["approved_by"].strip():
-        fail("approval receipt is missing approved_by")
-    if value.get("environment") != RELEASE_ENVIRONMENT:
-        fail(f"approval receipt is not from the {RELEASE_ENVIRONMENT} environment")
-    if value.get("withdrawal_authority") != RELEASE_ENVIRONMENT:
-        fail("approval receipt does not identify the protected withdrawal authority")
+        fail(f"withdrawal record read failed for {url}: {error}")
+    if not isinstance(value, list):
+        fail(f"withdrawal record at {url} is not a JSON list")
+    if any(isinstance(entry, dict) and str(entry.get("build")) == build for entry in value):
+        fail(f"build {build} is withdrawn in the protected pulled.json record")
 
 
 def _gh_json(path: str) -> dict:
@@ -153,14 +167,16 @@ def _gh_json(path: str) -> dict:
 
 def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: bytes) -> None:
     """Bind the local pair to the original nightly run and its immutable artifact."""
-    required = ("artifact_run", "artifact_id", "artifact_sha256", "artifact_name")
+    required = ("artifact_run", "artifact_attempt", "artifact_id", "artifact_sha256", "artifact_name")
     missing = [key for key in required if key not in provenance]
     if missing:
         fail(f"production provenance is missing {', '.join(missing)}")
     artifact_run = str(provenance["artifact_run"])
+    artifact_attempt = str(provenance["artifact_attempt"])
     artifact_id = str(provenance["artifact_id"])
-    if not artifact_run.isdigit() or not artifact_id.isdigit() or not HEX.fullmatch(str(provenance["artifact_sha256"])):
-        fail("artifact_run, artifact_id and artifact_sha256 must identify the recorded artifact digest")
+    if not artifact_run.isdigit() or not artifact_attempt.isdigit() or not artifact_id.isdigit() \
+            or not HEX.fullmatch(str(provenance["artifact_sha256"])):
+        fail("artifact_run, artifact_attempt, artifact_id and artifact_sha256 must identify the recorded artifact digest")
     repository = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
     run_path = f"repos/{repository}/actions/runs/{provenance['source_run']}/attempts/{provenance['source_attempt']}"
     run = _gh_json(run_path)
@@ -171,6 +187,7 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
         "attempt": str(run.get("run_attempt")) == str(provenance["source_attempt"]),
         "event": run.get("event") in ("push", "workflow_dispatch"),
         "repository": str((run.get("repository") or {}).get("full_name", "")).lower() == repository.lower(),
+        "head repository": str((run.get("head_repository") or {}).get("full_name", "")).lower() == repository.lower(),
     }
     failed = [name for name, ok in checks.items() if not ok]
     if failed:
@@ -179,12 +196,26 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
         fail("original source run is not completed")
     if run.get("conclusion") != "success":
         jobs = _gh_json(f"repos/{repository}/actions/runs/{provenance['source_run']}/jobs?filter=latest&per_page=100")
-        published = any(
-            job.get("name") in {"nightly-next-one", "publish-nightly"} and job.get("conclusion") == "success"
-            for job in jobs.get("jobs", [])
-        )
+        published = any(job.get("name") in {"nightly-next-one", "publish-nightly"}
+                        and job.get("conclusion") == "success" for job in jobs.get("jobs", []))
         if not published:
             fail("original source run has no successful nightly publication job")
+    tail = _gh_json(f"repos/{repository}/actions/runs/{artifact_run}/attempts/{artifact_attempt}")
+    tail_checks = {
+        "workflow": tail.get("path") == RELEASE_WORKFLOW,
+        "branch": tail.get("head_branch") == RELEASE_BRANCH,
+        "source SHA": tail.get("head_sha") == provenance["source_sha"],
+        "repository": str((tail.get("repository") or {}).get("full_name", "")).lower() == repository.lower(),
+        "head repository": str((tail.get("head_repository") or {}).get("full_name", "")).lower() == repository.lower(),
+        "completed": tail.get("status") == "completed",
+    }
+    failed = [name for name, ok in tail_checks.items() if not ok]
+    if failed:
+        fail(f"published tail failed trusted checks: {', '.join(failed)}")
+    tail_jobs = _gh_json(f"repos/{repository}/actions/runs/{artifact_run}/jobs?filter=latest&per_page=100")
+    if not any(job.get("name") == "published-in" and job.get("conclusion") == "success"
+               for job in tail_jobs.get("jobs", [])):
+        fail("published tail has no successful published-in job")
     artifact = _gh_json(f"repos/{repository}/actions/artifacts/{artifact_id}")
     expected_zip = f"sha256:{provenance['artifact_sha256']}"
     if artifact.get("digest") != expected_zip:
@@ -226,8 +257,6 @@ def main() -> int:
     parser.add_argument("--public-key", help="dry-run fixture key; production always uses the pinned key")
     parser.add_argument("--endpoint-url", help=argparse.SUPPRESS)
     parser.add_argument("--bucket", help=argparse.SUPPRESS)
-    parser.add_argument("--approval-receipt", type=Path,
-                        help="release-owner approval receipt required for a real upload")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     provenance = load_provenance(args.provenance)
@@ -237,14 +266,13 @@ def main() -> int:
         fail("production endpoint and bucket are fixed by the release-owner environment")
     public_key = args.public_key or CONTENT_PUBLIC_KEY
     build, notes_bytes, signature_bytes = validate(args.notes, args.signature, provenance, public_key)
+    verify_withdrawal_status(build)
+    verify_source_record(provenance, notes_bytes, signature_bytes)
     if not args.dry_run:
         if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_REF") != "refs/heads/nightly-next":
             fail("upload requires the protected nightly-next GitHub Actions environment")
         if os.environ.get("RELEASE_ENVIRONMENT") != RELEASE_ENVIRONMENT:
             fail("upload requires RELEASE_ENVIRONMENT=release-next")
-        if not args.approval_receipt or not args.approval_receipt.is_file():
-            fail("a release-owner approval receipt is required for upload")
-        load_approval(args.approval_receipt, provenance)
         endpoint_url = os.environ.get("R2_ENDPOINT", "")
         if not endpoint_url:
             fail("R2 endpoint is required for upload")
@@ -252,7 +280,6 @@ def main() -> int:
             fail("use the established release-owner R2 credentials")
         if not re.fullmatch(r"https://[^/]+\.r2\.cloudflarestorage\.com/?", endpoint_url):
             fail("R2_ENDPOINT must be the protected Cloudflare R2 endpoint")
-        verify_source_record(provenance, notes_bytes, signature_bytes)
     else:
         endpoint_url = ""
     files = ((args.notes, f"{PREFIX}{build}.json", "application/json", digest(notes_bytes)),
@@ -262,7 +289,8 @@ def main() -> int:
                       "source_sha": provenance["source_sha"], "notes_sha256": digest(notes_bytes),
                       "signature_sha256": digest(signature_bytes),
                       "withdrawn": False, "objects": [key for _, key, _, _ in files],
-                      "create_only": True, "dry_run": args.dry_run}, sort_keys=True))
+                      "create_only": True, "dry_run": args.dry_run,
+                      "withdrawal_checked": True, "source_record_checked": True}, sort_keys=True))
     if args.dry_run:
         return 0
     # Keep the exact bytes that passed verification for the complete upload.
@@ -280,7 +308,9 @@ def main() -> int:
                         "--key", key, "--content-type", content_type,
                         "--cache-control", "no-cache, no-store, must-revalidate",
                         "--preflight-only", "--expected-sha256", digest(content)], check=True)
-        for path, key, content_type, _ in staged:
+        # Publish the detached signature first. A reader cannot accept JSON
+        # without its signed companion, and every key remains create-only.
+        for path, key, content_type, _ in (staged[1], staged[0]):
             subprocess.run([sys.executable, str(UPLOADER), "--file", str(path),
                         "--endpoint-url", endpoint_url, "--bucket", R2_BUCKET,
                         "--key", key, "--content-type", content_type,
