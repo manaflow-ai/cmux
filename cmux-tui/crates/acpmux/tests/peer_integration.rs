@@ -471,7 +471,7 @@ async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
     ] {
         params["_meta"] = author["_meta"].clone();
         let refused = ca.call(m, params).await.unwrap_err();
-        assert!(refused.contains("a peer daemon's link carries none"), "{m}: {refused}");
+        assert!(refused.contains("this presence operation is unavailable"), "{m}: {refused}");
     }
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
