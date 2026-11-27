@@ -114,6 +114,8 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      # A probe's red job ('gallery-health / health (8)'): gallery-health renders that leg alone. A batch: none.
+      job: ${{ inputs.mode == 'probe' && inputs.job || '' }}
       reuse: ${{ steps.plan.outputs.reuse }}
       states: ${{ steps.plan.outputs.states }}
     steps:
@@ -371,6 +373,8 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # A probe of one red leg ('gallery-health / health (8)') renders that leg alone; a batch renders every leg.
+      job: ${{ needs.plan.outputs.job }}
       # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
       # then fails; the standing reds are listed by name in its summary.
       base: ${{ needs.plan.outputs.base }}
@@ -409,8 +413,18 @@ jobs:
       contents: read
       statuses: read
 
+  ghosttykit-release-check:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' ghosttykit-release-check ')
+    uses: ./.github/workflows/ghosttykit-release-check.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
