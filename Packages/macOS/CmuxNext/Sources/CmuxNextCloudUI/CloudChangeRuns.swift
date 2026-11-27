@@ -4,7 +4,7 @@ import Foundation
 
 /// Cloud machine changes an agent or a script asked for (`cmux vm resize`, `fork`, `snapshot-machine`, `restore-machine`,
 /// `promote-template`). `fork` and `restore-machine` wait for the person's Allow in the ``CloudChangeRequest`` dialog; the
-/// rest (``CloudChangeRequest/unasked``) run at once, and their run below never shows a dialog. A run
+/// rest (whose gate, Rust's `cloud_handler_change_gate`, says no `asks`) run at once, and their run below never shows a dialog. A run
 /// answers its caller at once that it waits (`pending`, `waiting_for: person`, the dialog's `dialog_id`, `ask_again_joins`)
 /// instead of 30 s of silence; the same ask again joins that run (``CloudStartRuns``), never a second change or dialog,
 /// and gets its end: the change's own answer, or its failure (Don't Allow included), so no caller reads a declined change
@@ -21,9 +21,18 @@ public final class CloudChangeRuns {
 
     public init() {}
 
-    /// The ask `action`'s change runs with: `ask`, but a yes at once with no dialog for a ``CloudChangeRequest/unasked`` one.
-    public static func ask(_ action: String, _ ask: @escaping Ask) -> Ask {
-        guard CloudChangeRequest.unasked.contains(action) else { return ask }
+    /// How an agent's or a script's change of `action` reaches the person, as Rust decides it (cmux-cloud-handlers
+    /// `decide::change_gate`, op `cloud_handler_change_gate`): whether it waits for Allow, and whether it toasts once it
+    /// ran. An app whose FFI does not answer asks and never toasts.
+    public nonisolated static func gate(_ action: String) -> (asks: Bool, toast: Bool) {
+        let reply = (try? JSONSerialization.data(withJSONObject: ["action": action])).flatMap { CloudStartCore().callData("cloud_handler_change_gate", $0) }
+        let gate = reply.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return (asks: gate?["asks"] as? Bool ?? true, toast: gate?["toast"] as? Bool ?? false)
+    }
+
+    /// The ask a change runs with: `ask` when its gate `asks`, else a yes at once with no dialog.
+    public static func ask(asks: Bool, _ ask: @escaping Ask) -> Ask {
+        guard !asks else { return ask }
         return { @MainActor _ in { @MainActor in true } }
     }
 

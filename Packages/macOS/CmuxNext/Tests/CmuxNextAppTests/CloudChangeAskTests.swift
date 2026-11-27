@@ -101,6 +101,20 @@ struct CloudChangeAskTests {
         #expect(changes.value == 1)
     }
 
+    /// Rust decides the gate (`cloud_handler_change_gate`): a resize, snapshot or template of the person's own machine
+    /// neither asks nor toasts; a fork asks and, once allowed, does not toast either (Leo, 2026-11-27, on an agent's
+    /// lane resize toast: "also why are we showing this").
+    @Test func theGateIsRustsAndARoutineChangeNeverToasts() {
+        for action in ["cloudResizeMachine", "palette.cloud.snapshot", "palette.cloud.promoteTemplate"] {
+            let gate = CloudChangeRuns.gate(action)
+            #expect(gate.asks == false, "\(action)")
+            #expect(gate.toast == false, "\(action)")
+        }
+        let fork = CloudChangeRuns.gate("palette.cloud.fork")
+        #expect(fork.asks)
+        #expect(fork.toast == false)
+    }
+
     /// A script's fork makes a new machine: it still asks (the ledger's kept create consent).
     @Test func aScriptsForkStillAsks() async throws {
         let f = CloudCLITargetTests.fixture(), dialog = Dialog(), forks = Counter()

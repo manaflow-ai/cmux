@@ -538,15 +538,15 @@ extension CloudHandlers {
             defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage))
     }
 
-    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's restore or fork waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal, its other changes (``CloudChangeRequest/unasked``) run at once and toast; a person's own run goes as before, `sheet` showing its answer.
+    /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's restore or fork waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal, its other changes run at once (``CloudChangeRuns/gate(_:)``, Rust's rule) with no toast, only a log line; a person's own run goes as before, `sheet` showing its answer.
     static func change(_ label: String, _ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, sheet: Bool = false, pending: [String: ActionResultValue],
                        ask: CloudChangeRuns.Ask? = nil, _ work: @escaping @MainActor (_ allow: @escaping @MainActor () async -> Bool) async throws -> CloudAnswer) {
         let wait = sheet ? snapshotAnswerWait : machineAnswerWait, allow = allows(id, invocation, registry, context)
         if origin(of: invocation) == .user { if sheet { answer(label, invocation, context, pendingAfter: wait, pending: pending) { try await work(allow) } } else { result(label, context, pendingAfter: wait, pending: pending) { try await work(allow).fields } }; return }
-        let key = CloudChangeRuns.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
+        let gate = CloudChangeRuns.gate(id.rawValue), key = CloudChangeRuns.key(action: id.rawValue, machine: (try? machine(invocation, context))?.machineID ?? "", arguments: invocation.arguments, caller: invocation.callerAgentSession, account: context.services.cloud.account)
         result(label, context) {
-            do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: CloudChangeRuns.ask(id.rawValue, ask ?? { allows(id, invocation, registry, context, shown: $0) })) { allow in
-                let answer = try await work(allow); CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).noticed(id.rawValue, title: registry.descriptor(for: id)?.title ?? id.rawValue, in: window(context)); return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
+            do { return try await context.services.cloud.machineChanges.run(key, within: wait, pending: pending, ask: CloudChangeRuns.ask(asks: gate.asks, ask ?? { allows(id, invocation, registry, context, shown: $0) })) { allow in
+                let answer = try await work(allow); CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).noticed(id.rawValue, title: registry.descriptor(for: id)?.title ?? id.rawValue, toast: gate.toast, in: window(context)) { context.services.cloud.logger.info("\($0, privacy: .public)") }; return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields } } catch CloudMachineCreateFlow.Failure.declined { throw ActionFailure(message: CloudChangeRequest.declined) }
         }
     }
 
