@@ -241,17 +241,8 @@ def gh(args: Sequence[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def already_commented(repo: str, pr: int, marker: str) -> bool:
-    # One bounded page per call (the gh quota wrapper refuses an unbounded paginating read).
-    for page in range(1, 11):
-        proc = gh(["api", f"repos/{repo}/issues/{pr}/comments?per_page=100&page={page}"])
-        if proc.returncode != 0:
-            return False
-        comments = json.loads(proc.stdout or "[]")
-        if any(marker in (c.get("body") or "") for c in comments):
-            return True
-        if len(comments) < 100:
-            return False
-    return False
+    proc = gh(["api", f"repos/{repo}/issues/{pr}/comments?per_page=100", "--jq", ".[].body"])
+    return proc.returncode == 0 and marker in proc.stdout
 
 
 def post_comment(repo: str, pr: int, body: str) -> bool:

@@ -965,6 +965,13 @@ jobs:
         timeout-minutes: 5
         run: python3 tests/test_cmux_next_static_capability_runtime_only.py
 
+      # Two pull requests that each import one name into a webviews file merge into
+      # "Identifier has already been declared" and a red web bundle (layoutGeometry, 2026-11-23..27).
+      - name: No webviews file imports one name twice
+        if: ${{ !cancelled() }}
+        timeout-minutes: 1
+        run: python3 tests/test_webviews_no_duplicate_import_names.py
+
       - name: The defaults snapshot tests
         id: defaults-snapshot
         if: ${{ !cancelled() }}
