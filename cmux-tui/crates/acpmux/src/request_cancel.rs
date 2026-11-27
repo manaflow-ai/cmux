@@ -62,6 +62,7 @@ pub fn named_id(params: &Value) -> Option<&Value> {
 /// stack the two overflowed a 2 MiB tokio worker (`tests/request_stack.rs`). The request's cancel
 /// goes with it: dropped for any reason, this aborts the task, and after a client's cancel what
 /// the task waited on reads [`requested`] true, as it would have in the request's own task.
+#[inline(never)]
 pub async fn on_own_task<F>(fut: F) -> Result<F::Output, tokio::task::JoinError>
 where
     F: Future + Send + 'static,

@@ -447,6 +447,7 @@ fn brief_for(
     Ok(row)
 }
 
+#[inline(never)]
 fn dispatch_brief<'a>(
     hub: &'a Arc<Hub>,
     conn: &'a Arc<Conn>,
@@ -1229,8 +1230,10 @@ pub(super) async fn handle_request(
             )),
         }
     } else {
-        heap(|| dispatch_request_with_identity(hub, conn, m, params, resolved, None, received))
-            .await
+        heap(|| {
+            boxed_dispatch_request_with_identity(hub, conn, m, params, resolved, None, received)
+        })
+        .await
     };
     // A session only the hub reaches, for a verb the hub does not carry: said so, never
     // `no session` (`mesh_read.rs`).
@@ -1411,6 +1414,7 @@ fn cross_host_prompt(origin: Origin, m: &str, params: &Value) -> Option<Value> {
     Some(fields)
 }
 
+#[inline(never)]
 pub(super) fn dispatch_request<'a>(
     hub: &'a Arc<Hub>,
     conn: &'a Arc<Conn>,
@@ -1418,7 +1422,7 @@ pub(super) fn dispatch_request<'a>(
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> BoxFuture<'a, Result<Value, RpcError>> {
-    dispatch_request_with_identity(
+    boxed_dispatch_request_with_identity(
         hub,
         conn,
         m,
@@ -1496,7 +1500,8 @@ fn synced_mark(hub: &Hub, params: &Value, read: bool) {
 }
 
 /// A fixed identity is a typed internal argument, never a session/new field.
-fn dispatch_request_with_identity<'a>(
+#[inline(never)]
+fn boxed_dispatch_request_with_identity<'a>(
     hub: &'a Arc<Hub>,
     conn: &'a Arc<Conn>,
     m: &'a str,
@@ -1505,12 +1510,10 @@ fn dispatch_request_with_identity<'a>(
     fixed_id: Option<String>,
     received: tokio::time::Instant,
 ) -> BoxFuture<'a, Result<Value, RpcError>> {
-    Box::pin(dispatch_request_with_identity_inner(
-        hub, conn, m, params, resolved, fixed_id, received,
-    ))
+    Box::pin(dispatch_request_with_identity(hub, conn, m, params, resolved, fixed_id, received))
 }
 
-async fn dispatch_request_with_identity_inner(
+async fn dispatch_request_with_identity(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
