@@ -225,7 +225,14 @@ async fn many_chats_mid_tool_call_survive_repeated_restarts_and_every_call_and_a
 async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplication() {
     const SENDS: usize = 20;
     const RESTARTS: usize = 5;
-    let mut daemon = Daemon::new("cli-duress", "approve-all");
+    // Run the identical test runner against a captured pre-fix executable and the fixed build.
+    // The hermetic test environment keeps only this explicit, test-only binary override.
+    let binary = std::env::var_os("ACPMUX_DURESS_BINARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| daemon_env::bin().to_path_buf());
+    assert!(binary.is_absolute(), "ACPMUX_DURESS_BINARY must be an absolute path");
+    // The override owns even the first start, so the fixed build cannot migrate the baseline store.
+    let mut daemon = Daemon::with_executable("cli-duress", "approve-all", &[], &binary);
     daemon.sigterm();
     let log = daemon.home.join("wire.jsonl");
     let wire_env = format!("FAKE_WIRE_LOG={}", log.display());
@@ -242,7 +249,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     let mut children = Vec::with_capacity(SENDS);
     for i in 0..SENDS {
         let name = format!("cli-duress-{i}");
-        let made = std::process::Command::new(daemon_env::bin())
+        let made = std::process::Command::new(&binary)
             .args(["--json", "new", "-d", "-n", &name, "-m", "fake"])
             .env_clear()
             .envs(daemon_env::vars(&daemon.home, daemon_env::Agents::StandIn, &[]))
@@ -271,7 +278,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         .await;
         daemon.wait_event(&session, "busy turn before-gate", |e| chunk(e, "before-gate"));
 
-        let mut send = std::process::Command::new(daemon_env::bin());
+        let mut send = std::process::Command::new(&binary);
         send.args([
             "--json",
             "send",
