@@ -151,7 +151,8 @@ function WorkedLabel({ row: sourceRow }: { row: AcpmuxRow }) {
   const t = useT();
   const capacityWait = useContext(CapacityWaitContext);
   // The daemon is continuing this exact turn; a temporary capacity cut is not its outcome.
-  const row = waitsFor(capacityWait, sourceRow.turnId) ? { ...sourceRow, status: undefined } : sourceRow;
+  const waiting = waitsFor(capacityWait, sourceRow.turnId);
+  const row = useMemo(() => (waiting ? { ...sourceRow, status: undefined } : sourceRow), [waiting, sourceRow]);
   // The `header` arm of turnFoldSteered names the work the line holds after its time.
   const runs = row.workedRuns;
   const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
