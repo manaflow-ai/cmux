@@ -162,7 +162,7 @@ public final class WebProjection {
             servedFrom.setObject(want, forKey: webView)
             stale.append(webView)
         }
-        for webView in stale { webView.reload() }
+        WebBundleServedViews.swapReload(stale)
         if !stale.isEmpty { log.notice("reloaded \(stale.count) page(s) for their window's server") }
         return stale.count
     }

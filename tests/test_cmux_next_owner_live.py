@@ -63,6 +63,28 @@ class Holder(unittest.TestCase):
         self.assertFalse(live.FINISHER.match("sidebar-finish-pass"))
         self.assertTrue(live.FINISHER.match("finish-cmux-52161"))
 
+    def test_a_lane_that_only_mentions_the_area_never_holds_the_role(self):
+        # 2026-11-25: `lanes *sidebar*` sent ~12 "you hold it now" notices in two days to rex-sidebar-look, a lane on
+        # one sidebar PR (cmux#54990). A glob is anchored at the name's start; with no lane of the area, the push
+        # goes the unheld way.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        rows = [row("g7/rex-sidebar-look", "running", updated=99), row("g9/finish-cmux-52161-sidebar", updated=98),
+                row("g3/sidebar-owner", updated=2)]
+        self.assertEqual(live.holder(cell, rows, ""), ("g3/sidebar-owner", "a lane of *sidebar*"))
+        rows = rows[:2] + [row("c/coord", owns="coordinator")]
+        who, how = live.holder(cell, rows, "")
+        self.assertEqual((who, how), ("c/coord", "no live lane of *sidebar*; the coordinator"))
+        self.assertTrue(live.is_fallback(how))
+        tagged = rows + [row("g7/rex-sidebar-look-2", owns="PL-sidebar")]
+        self.assertEqual(live.holder("PL-sidebar, else lanes *sidebar*", tagged, "")[0], "g7/rex-sidebar-look-2")
+        for name, globs in [("ghostty-scroll", ["*-ghostty*"]), ("tdaemon-journal", ["*tdaemon*"]),
+                            ("tab-strip-pins", ["tab-strip*"]), ("tabs-refine", ["tabs-refine"])]:
+            self.assertTrue(live.fills_role(name, globs), name)
+        for name, globs in [("rex-sidebar-look", ["*sidebar*"]), ("finish-cmux-52161-sidebar", ["*sidebar*"]),
+                            ("chat-hover-card-pin", ["*hover-card*"]), ("cmux-tdaemon", ["*tdaemon*"]),
+                            ("sidebar-owner", ["tabs-*"])]:
+            self.assertFalse(live.fills_role(name, globs), name)
+
     def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
         rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
         merged = live.merge_tagged(rows, [{"name": "h2/acpmux-owner", "sessionId": "s1", "tags": {"owns": "PL-acpmux"}}])
@@ -73,6 +95,42 @@ class Holder(unittest.TestCase):
         cell = "PL-instant (lanes tabs-refine)"
         rows = [row("h3/tabs-refine"), row("h5/keeper", owns="PL-instant")]
         self.assertEqual(live.holder(cell, rows, "")[0], "h5/keeper")
+
+    def test_an_owns_tag_naming_the_area_holds_it(self):
+        # 2026-11-27 01:20Z: gcp-agent-lane-13/goal-next-code-shrinks-a-2-2 was live and tagged owns=package-layering,
+        # yet a push into the area still told the coordinator it "has no live holder (PL-arch, else lanes ...)": only
+        # the PL- token was read. Chromium hosting and Guardrails were tagged by name the same night.
+        area = "Package layering, signpost catalog (CmuxNextSignposts names; app moves out of CmuxNextApp)"
+        cell = ("PL-arch, else lanes arch-*,*layering*,*signpost* (coordinator rule 2026-11-23: the live lane working "
+                "in it; Performance Lead, 2026-10-23); new signpost names: PL-arch + PL-telemetry")
+        coord = row("cosmic-gray/claude-sr2-coord", "running", owns="coordinator")
+        holder_row = row("gcp-agent-lane-13/goal-next-code-shrinks-a-2-2", "ready", owns="package-layering")
+        self.assertEqual(live.holder(cell, [coord, holder_row], "", area),
+                         ("gcp-agent-lane-13/goal-next-code-shrinks-a-2-2", "holds owns=package-layering"))
+        # the area's own words, any case, a comma list, or the whole name
+        for tag in ("Package layering", "PACKAGE-LAYERING, other", area, "package layering, signpost catalog"):
+            rows = [coord, row("h/keeper", owns=tag)]
+            self.assertEqual(live.holder(cell, rows, "", area)[0], "h/keeper", tag)
+        chromium = "Chromium hosting (page layer, host view, clip, shim)"
+        rows = [coord, row("g17/feed-fix-chromium-pane", "running", owns="Chromium hosting")]
+        self.assertEqual(live.holder("PL-cef-layer (clip memo: Leo, c22a10712b6)", rows, "", chromium)[0],
+                         "g17/feed-fix-chromium-pane")
+        guard = "Guardrails, pre-push gate, codebase health"
+        rows = [coord, row("g11/lint-never-blocks-autofix", "running", owns="Guardrails, pre-push gate, codebase health")]
+        self.assertEqual(live.holder("Performance Lead (PL-guardrails)", rows, "", guard)[0],
+                         "g11/lint-never-blocks-autofix")
+        # a word's start, another area, or a closed session holds nothing
+        for tag in ("pack", "layering", "Chromium side of motion", "package-layeringx"):
+            rows = [coord, row("h/other", owns=tag)]
+            self.assertEqual(live.holder(cell, rows, "", area)[0], "cosmic-gray/claude-sr2-coord", tag)
+        closed = [coord, row("h/gone", "closed", owns="package-layering")]
+        self.assertEqual(live.holder(cell, closed, "", area)[0], "cosmic-gray/claude-sr2-coord")
+        # the notices print a tag that works
+        self.assertIn("owns=PL-arch", live.unheld_notice(area, cell, ["a"], "0" * 12, "b", "d"))
+        self.assertIn("owns=motion-gate-and-animation-switches",
+                      live.unheld_notice("Motion gate and animation switches", "Performance Lead", ["a"], "0" * 12,
+                                         "b", "d"))
+        self.assertEqual(live.tag_hint(area, "lead: cmux-ad"), "package-layering")
 
     def test_a_role_with_no_live_lane_falls_to_the_coordinator(self):
         rows = [row("h1/tabs-refine", "closed"), row("c/coord", owns="coordinator")]
@@ -237,6 +295,14 @@ class Route(unittest.TestCase):
         self.assertRegex(key, r"^day \d{4}-\d\d-\d\d$")
         self.assertIn("has no live holder", text)
         self.assertIn("cmux-tui/crates/acpmux/src/lib.rs", text)
+        # A session tagged with the area's name holds it too (guardrails passes the area to holder()).
+        sent.clear()
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            lines = guardrails.owner_route(repo, [own], (rows + [row("host-c/area-keeper", owns="acpmux-daemon")], None),
+                                           "host-a/coordinator")
+        self.assertIn("held by host-c/area-keeper (holds owns=acpmux-daemon)", lines[0])
+        self.assertEqual(sent[0][0], "host-c/area-keeper")
+        self.assertNotIn("has no live holder", sent[0][3])
         # A holder that took the workstream hears of each branch once a UTC day, not each pushed head.
         rows.append(row("host-b/acpmux-keeper", owns="PL-acpmux"))
         sent.clear()
