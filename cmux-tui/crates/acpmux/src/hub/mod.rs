@@ -175,6 +175,8 @@ pub(crate) mod key_route;
 mod key_store;
 // A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
 mod lane_death_watch;
+// A closed session's exit record goes to its parent (`exit_notify.rs`).
+mod exit_notify;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;

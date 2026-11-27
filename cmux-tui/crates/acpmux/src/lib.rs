@@ -199,6 +199,7 @@ pub mod chat_secrets;
 #[doc(hidden)]
 pub mod icount;
 pub mod lane_death_watch;
+pub mod exit_record;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
