@@ -4,7 +4,8 @@
 Runs the real `decide` github-script under Node with a mocked GitHub API and
 checks that only pushes to main are throttled, by the age of the commit the
 `nightly` tag points at; that a push whose changed paths cannot reach the app
-skips the build; and that every lookup failure builds. The build-input check
+skips the build; and that lookup failures before the first in-flight page build
+while partial reads skip the tick. The build-input check
 runs the real `scripts/ci/nightly_build_inputs.py`, so the classification it
 asserts is the one the workflow gets.
 """
@@ -68,15 +69,23 @@ const context = {
 };
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
 // scenario.runs (main nightly runs, each with a status) and scenario.jobs (by run id)
-// answer the in-flight read; without them that read fails, and a failed read builds.
-const actions = scenario.runs ? {
+// answer the in-flight read; an omitted list means the API answered with no runs.
+const actions = {
   listWorkflowRuns: async ({ status, branch }) => {
     if (branch !== 'main') throw new Error(`expected main's runs, got ${branch}`);
-    return { data: scenario.runs.filter((run) => run.status === status) };
+    if (scenario.failStatus === status) throw new Error(`failed listing ${status} runs`);
+    return { data: (scenario.runs || []).filter((run) => run.status === status) };
   },
   listJobsForWorkflowRun: async ({ run_id }) => ({ data: scenario.jobs[String(run_id)] || [] }),
-} : undefined;
-const github = { paginate: async (fn, params) => (await fn(params)).data, rest: {
+};
+const github = { paginate: async (fn, params, mapFn) => {
+  const page = await fn(params);
+  const mapped = mapFn ? mapFn(page, 0) : page.data;
+  if (scenario.failAfterFirstPageStatus === params.status) {
+    throw new Error(`failed listing the next ${params.status} page`);
+  }
+  return mapped;
+}, rest: {
   actions,
   git: {
     getRef: async () => {
@@ -160,6 +169,8 @@ def run_decide(
     runs=None,
     jobs=None,
     max_in_flight: str = "3",
+    fail_status=None,
+    fail_after_first_page_status=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -187,6 +198,8 @@ def run_decide(
                 "root": str(ROOT),
                 "runs": runs,
                 "jobs": jobs or {},
+                "failStatus": fail_status,
+                "failAfterFirstPageStatus": fail_after_first_page_status,
             }
         ),
     }
@@ -332,17 +345,23 @@ def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
     assert summary_values(manual)["app build inputs changed"] == "(not checked)"
 
 
-# 2026-11-25T08:17:00Z and 09:17:00Z.
+# 2026-11-25T08:17:00Z, 08:37:00Z and 09:17:00Z.
 AT_0817 = 1795594620000
+AT_0837 = AT_0817 + 20 * 60_000
 AT_0917 = 1795598220000
+BACKSTOP = "5 8 * * *"
 
 
 def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
-    """One build a day (the 08:17 UTC tick) bounds the cost of a path this check gets wrong."""
-    daily = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
+    """One delayed daily backstop bounds the cost of a path this check gets wrong."""
+    daily = run_decide(event="schedule", schedule=BACKSTOP, interval="0",
                        comparison=NEUTRAL_CHANGE, now_ms=AT_0817)
     assert should_build(daily)
     assert summary_values(daily)["app build inputs changed"] == "(not checked)"
+    delayed = run_decide(event="schedule", schedule=BACKSTOP, interval="0",
+                         comparison=NEUTRAL_CHANGE, now_ms=AT_0837)
+    assert should_build(delayed)
+    assert summary_values(delayed)["app build inputs changed"] == "(not checked)"
     # Nothing at all changed: the published-commit check skips it as before.
     idle = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
                       tag_sha=HEAD_SHA)
@@ -407,6 +426,30 @@ def test_a_failing_classifier_builds() -> None:
                             classifier=command)
         assert should_build(result), f"{command} must rebuild the app"
         assert result["warnings"]
+
+
+def test_a_partial_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(
+        event="schedule",
+        schedule="2,17,32,47 * * * *",
+        runs=[],
+        comparison=APP_CHANGE,
+        fail_after_first_page_status="in_progress",
+    )
+    assert not should_build(result)
+    assert "finish enumerating main nightly runs" in result["warnings"][0]
+
+
+def test_a_first_page_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(
+        event="schedule",
+        schedule="2,17,32,47 * * * *",
+        runs=[],
+        comparison=APP_CHANGE,
+        fail_status="in_progress",
+    )
+    assert not should_build(result)
+    assert "finish enumerating main nightly runs" in result["warnings"][0]
 
 
 def test_an_unproven_comparison_builds() -> None:
@@ -569,6 +612,18 @@ def test_a_burst_of_ten_pushes_in_five_minutes_starts_exactly_one_run() -> None:
     assert summary_values(tick)["main app builds in flight"] == "0 (at most 3)"
 
 
+def test_a_requested_main_run_counts_toward_the_in_flight_cap() -> None:
+    runs = in_flight((1, "c" * 40))
+    # GitHub exposes a newly accepted scheduled run as `requested` before it
+    # becomes queued. It still owns a future app build and must reserve one
+    # of the cap's slots.
+    runs["runs"][0]["status"] = "requested"
+    result = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                        max_in_flight="1", **runs)
+    assert not should_build(result)
+    assert "1 main app builds are already in flight" in summary_values(result)["reason"]
+
+
 def test_a_tick_builds_nothing_while_three_main_builds_are_in_flight() -> None:
     full = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
                       **in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40)))
@@ -599,6 +654,20 @@ def test_a_tick_of_a_commit_already_building_is_a_duplicate_not_a_cap() -> None:
     assert summary_values(dup)["duplicate of run"] == "7"
 
 
+def test_a_failed_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                        runs=in_flight((1, "c" * 40))["runs"],
+                        jobs={"1": in_flight((1, "c" * 40))["jobs"]["1"]},
+                        fail_status="queued")
+    assert not should_build(result)
+    assert "complete main-run list" in summary_values(result)["reason"]
+    assert result["warnings"]
+
+
+def test_an_unavailable_in_flight_read_does_not_change_non_tick_liveness() -> None:
+    assert should_build(run_decide(event="push", interval="0"))
+
+
 def waiting_for_runner(run_id: int, sha: str) -> tuple[dict, list]:
     """A run decide chose to build whose app job does not exist yet: its runner pick waits on a Mac."""
     run = {"id": run_id, "head_branch": "main", "event": "schedule", "head_sha": sha, "status": "queued"}
@@ -627,13 +696,48 @@ def test_a_run_still_waiting_for_its_runner_counts_as_building() -> None:
     assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
 
 
-def test_a_failed_in_flight_read_builds() -> None:
-    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917))
+def test_a_run_between_its_decide_and_its_pick_job_counts_as_building() -> None:
+    """Run 45668811281's decide ended at 17:54Z and GitHub created its pick job seconds later. A
+    tick reading in that gap saw a run with only `decide` and counted nothing."""
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    decided_only = jobs[:1]
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": decided_only})
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+    runs = in_flight((1, "c" * 40), (2, "d" * 40))
+    run, jobs = waiting_for_runner(3, "e" * 40)
+    runs["runs"].append(run)
+    runs["jobs"]["3"] = jobs[:1]
+    assert not should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+    # A run whose decide is still queued or failed has started nothing.
+    for state in ({"status": "queued", "conclusion": None}, {"status": "completed", "conclusion": "failure"}):
+        run, jobs = waiting_for_runner(7, HEAD_SHA)
+        jobs = [{"name": "decide", **state}]
+        assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
+
+
+def test_main_app_ticks_decide_one_at_a_time() -> None:
+    """11-25: with the decide runner pool stalled, ticks queued with decide pending, then decided
+    together; none saw the others' app jobs, so five main runs were in flight against a cap of 3.
+    The main app ticks share one decide concurrency group (one running, one pending, nothing running
+    cancelled); every other run, including the six-hour cache warmup, keeps a group of its own."""
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index("  decide:")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("  ") and not lines[i].startswith("   "))
+    block = lines[start:end]
+    group = next(line for line in block if line.startswith("      group:"))
+    assert "'nightly-main-tick-decide'" in group
+    assert "github.event_name == 'schedule' && github.ref == 'refs/heads/main'" in group
+    assert "github.event.schedule != '17 */6 * * *'" in group
+    assert "format('nightly-decide-{0}', github.run_id)" in group
+    i = block.index(group)
+    assert block[i - 1] == "    concurrency:" and block[i + 1] == "      cancel-in-progress: false"
 
 
 def test_each_main_tick_has_its_own_concurrency_group() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "github.event_name == 'schedule' && format('main-tick-{0}', github.run_id)" in text
+    assert f'cron: "{BACKSTOP}"' in text
 
 
 def main() -> None:
