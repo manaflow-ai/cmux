@@ -404,6 +404,9 @@ jobs:
       actions: write
       # resolve's receipt and post write the cmux-next/fast-gates status.
       statuses: write
+      # resolve's lane receipt lookup and lane-receipt-audit ask the controller with an OIDC token (audience
+      # cmux-ci-lane-receipt); the controller matches the callee's job_workflow_ref, never this file.
+      id-token: write
 
   pipeline:
     name: pr pipeline
