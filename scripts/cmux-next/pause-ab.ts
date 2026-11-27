@@ -53,7 +53,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
+  Api, CHAT_START_SIZE, FAILED_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -87,6 +87,19 @@ export function accountCensus(rows: any[], nowMs: number): string {
   for (const r of failed) causes.set(cause(r), (causes.get(cause(r)) ?? 0) + 1);
   const failedBy = failed.length ? `; failed by error: ${[...causes].sort((a, b) => b[1] - a[1]).map(([k, c]) => `${k}=${c}`).join(" | ")}` : "";
   return `status: ${by((r) => String(r?.status ?? "?"))}; age: ${by(age)}; names: ${by(shape)}${failedBy}`;
+}
+
+/** The account's machines by status, total first ("165 machines: running=60 create_overdue=78 ..."): each create
+ * logs it next to its time, so a slow create can be read against how loaded the drill account was when it asked
+ * (staging 09:30Z: 165 machines, 78 create_overdue, creates 91-544 s behind the scaler's orphan sweep). */
+export function statusCounts(rows: any[]): string {
+  const n = new Map<string, number>();
+  for (const r of rows) {
+    const k = String(r?.status ?? "?");
+    n.set(k, (n.get(k) ?? 0) + 1);
+  }
+  const parts = [...n].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, c]) => `${k}=${c}`);
+  return `${rows.length} machines${parts.length ? `: ${parts.join(" ")}` : ""}`;
 }
 
 /** A machine the provider failed at create, after the platform's retry window: no host, never active, and the
@@ -454,6 +467,9 @@ export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUS
     if (r.status === "deleted" || r.status === "deleting") { keep(`status=${r.status}`); continue; }
     const started = parseInt(m[1], 36);
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) { keep("tag is not a start time"); continue; }
+    // A failed machine is dead whatever its age (the platform never revives one); its own run is long past it by
+    // FAILED_JOURNEY_MS, so it is the sweep's then rather than at the full window.
+    if (r.status === "failed" && nowMs - started > FAILED_JOURNEY_MS) { if (id) out.push({ id, name: r.name, why: `failed, started ${Math.round((nowMs - started) / 60_000)} min ago` }); else keep("no id"); continue; }
     if (nowMs - started <= maxAgeMs) { keep(`started ${Math.round((nowMs - started) / 60_000)} min ago`); continue; }
     // No activity spare past the cutoff: a left-behind drill machine still runs the drill's own model stub, which
     // keeps it active for good (pause-ab-mwxbi2gl, 08:55Z, kept "active 0 min ago" by every sweep until 11:10Z).
@@ -886,6 +902,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let ttlRefused: string | null = null;
     const createOne = async (r: MachineResult) => {
       const c0 = Date.now();
+      // Read alongside the create, not before it, so the census never delays the timed call.
+      const census = listAllMachines((p) => api.read("cloud.machine.list", p)).then(statusCounts, (e: Error) => `census failed: ${String(e?.message ?? e).slice(0, 120)}`);
       const ask = (ttl: boolean) => api.op("cloud.machine.create", { name: r.name, size: CHAT_START_SIZE, ...(ttl ? { ttl_seconds: PAUSE_AB_STALE_MS / 1000 } : {}) }, `pab-${tag}-create-${r.name}${ttl ? "" : "-nottl"}`);
       let v: any;
       try {
@@ -897,7 +915,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         v = await ask(false);
       }
       r.id = String(v.machine?.id ?? v.machine ?? "") || null;
-      took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
+      const secs = Math.round((Date.now() - c0) / 1000);
+      const at = await census;
+      took.push(`${r.name} ${secs} s`);
+      console.log(`create: ${r.name} ${secs} s at ${new Date(c0).toISOString()}; account at ask: ${at}`);
+      J.record({ step: `create ${r.name}`, status: "pass", ms: Date.now() - c0, detail: `${secs} s; account at ask: ${at}` });
       if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
     };
     // At most --bringup-pairs pairs in bring-up at once (default 3, so 6 creates): run 45864237040's 20 concurrent
