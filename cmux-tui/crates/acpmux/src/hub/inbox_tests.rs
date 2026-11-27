@@ -542,14 +542,12 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         &mut accept,
     );
     tokio::pin!(prompt);
-    let answer = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        tokio::select! {
-            result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
-            ack = rx.recv() => ack.expect("acceptance"),
-        }
-    })
-    .await
-    .expect("an inbox delivery is accepted while configuration is being written");
+    let answer = tokio::select! {
+        result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+        ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => ack
+            .expect("an inbox delivery is accepted while configuration is being written")
+            .expect("acceptance"),
+    };
     assert_eq!(answer["promptId"], "after-restore");
     assert_eq!(answer["inbox"], true);
     assert_eq!(answer["queued"], true);
