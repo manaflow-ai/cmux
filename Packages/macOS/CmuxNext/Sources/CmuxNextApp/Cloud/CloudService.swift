@@ -24,11 +24,11 @@ import CmuxNextWakeups
 final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
-    @ObservationIgnored let api: CloudAPIClient
+    @ObservationIgnored let api: CloudDaemon
     /// A machine's exec and file routes: the configured cmux API Worker.
-    @ObservationIgnored let machineAPI: CloudAPIClient
+    @ObservationIgnored let machineAPI: CloudDaemon
     /// Same person and team as the machine API, at the configured platform preview origin.
-    var previewAPI: CloudAPIClient? {
+    var previewAPI: CloudDaemon? {
         configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
     }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
@@ -182,7 +182,7 @@ final class CloudService {
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
-        api = CloudAPIClient(
+        api = CloudDaemon(
             configuration: configuration,
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID })
@@ -202,7 +202,7 @@ final class CloudService {
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
         let machineIO = auth.runningPersonCalls(on: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
-        machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
+        machineAPI = CloudDaemon.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() }, buildSpace: configuration.buildSpace)
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,

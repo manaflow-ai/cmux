@@ -46,6 +46,7 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  type PeerGroup,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
@@ -142,6 +143,7 @@ const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_GROUPS: Record<string, PeerGroup> = {};
 const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
@@ -158,6 +160,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerGroups = NO_PEER_GROUPS,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -225,6 +228,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's group (`AcpmuxSnapshot.peerGroups`): an agent machine is behind the picker's Agent
+  /// machines list, an own one inline.
+  peerGroups?: Record<string, PeerGroup>;
   /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
   /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
   peerLinks?: Record<string, PeerLinkDetail>;
@@ -405,6 +411,7 @@ export function ComposerContext({
         peerStates,
         peerResources,
         peerLinks,
+        peerGroups,
       ),
       shownMachines,
       newChat,
@@ -423,6 +430,7 @@ export function ComposerContext({
     peerStates,
     peerResources,
     peerLinks,
+    peerGroups,
     ownName,
     newChat,
     shownMachines,
@@ -1504,6 +1512,7 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
   peerLinks: Record<string, PeerLinkDetail>,
+  peerGroups: Record<string, PeerGroup>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1518,6 +1527,7 @@ function availableComputers(
       detail,
       ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
       ...(downSince !== undefined ? { downSince } : {}),
+      ...(peerGroups[machine.id] ? { group: peerGroups[machine.id] } : {}),
     });
   }
   return computers;
