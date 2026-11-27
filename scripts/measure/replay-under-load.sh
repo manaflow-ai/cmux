@@ -66,7 +66,9 @@ command -v stress-ng >/dev/null 2>&1 || { echo "replay-under-load.sh: no stress-
 n="$(nproc)"
 stressors=$((4 * n))
 cd "$root/webviews" || exit 1
-[ -d node_modules ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
+# Installed means the bench's own imports resolve: a node_modules a partial or other-branch install left lacks
+# playwright, and the run then failed at import ("Cannot find package 'playwright'").
+[ -d node_modules/playwright ] && [ -d node_modules/vite ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
   || { tail -20 "$work/install.log" >&2; exit 1; }
 # The pages' generated/strings.json files are gitignored and written only by the install's best-effort postinstall,
 # so a kept node_modules (the timer's every run after the first) builds without them. Write them every run.
@@ -110,7 +112,7 @@ if [ -n "$trace" ] && [ -s "$trace" ]; then
   python3 -I "$root/scripts/measure/replay-attribution.py" "$trace" --json "$trace.attribution.json" || status=1
   gzip -f -1 "$trace"
 fi
-if [ "$profile" -eq 1 ]; then
+if [ "$profile" -eq 1 ] || [ "${RENDERS:-}" = 1 ]; then
   cat "$work/bench.log"
 else
   # A failed build's log ends on stack frames (a Babel error ends on gensync frames, 2026-11-26), so its cause line,
