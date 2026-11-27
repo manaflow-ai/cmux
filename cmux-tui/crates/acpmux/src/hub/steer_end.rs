@@ -340,6 +340,20 @@ impl Hub {
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
         {
             params["_meta"]["batch"] = json!({"from": from});
+        } else if !step_now
+            && super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref())
+            && !crate::prompt_provenance::is_trigger(opts.provenance.as_ref())
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            // The person's plain steer goes in with their others waiting for this step, as one
+            // message, so one message sent in pieces reads and carries as one (`steer_batch.rs`).
+            // Keyed by its author: two people of a shared chat never share a line.
+            let author = crate::author::of_provenance(opts.provenance.as_ref()).unwrap_or("");
+            if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut) {
+                meta.insert("batch".to_owned(), json!({"person": author}));
+            }
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());

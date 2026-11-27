@@ -398,7 +398,7 @@ pub struct Overlay {
     pins_file: PathBuf,
     /// The free disk a pin leaves untouched ([`pin::DEFAULT_PIN_RESERVE`]).
     pin_reserve: u64,
-    /// Held for reading while a top-level name is looked up, and for writing while a swap
+    /// Held for reading while a name is looked up, and for writing while a swap
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
@@ -1145,12 +1145,13 @@ impl Overlay {
     // MARK: Reads
 
     pub fn lookup(&self, parent: u64, name: &str) -> Result<Attr, i32> {
+        // A lookup through an existing directory handle must use the same view from its
+        // retirement check through resolving the child (including .git/index).
+        let _swap = self.swap.read().unwrap_or_else(PoisonError::into_inner);
         if let Some(found) = self.lookup_retired(parent, name) {
             return found;
         }
         let (_, child) = self.child(parent, name)?;
-        let _swap = (!child.contains('/'))
-            .then(|| self.swap.read().unwrap_or_else(PoisonError::into_inner));
         let node = self.node(&child).ok_or(ENOENT)?;
         Ok(self.attr(&child, &node))
     }
@@ -1190,6 +1191,14 @@ impl Overlay {
     /// only through the mount, which the kernel sees, so the kernel may keep its listing.
     pub fn lower_only(&self, ino: u64) -> bool {
         matches!(self.named(ino), Some((_, Node::Lower(_))))
+    }
+
+    /// Whether this file already has local bytes, including a file unlinked while open.
+    pub fn is_upper(&self, ino: u64) -> bool {
+        match self.named(ino) {
+            Some((_, node)) => matches!(node, Node::Upper(_)),
+            None => self.open_file_of(ino).is_some(),
+        }
     }
 
     pub fn getattr(&self, ino: u64) -> Result<Attr, i32> {
@@ -1731,7 +1740,27 @@ impl Overlay {
             Kind::File => {}
         }
         let temp = self.scratch_path();
-        let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
+        // A fill that fails half way (a full disk, a fetch that failed) must not leave its
+        // scratch file behind holding the space until the next mount.
+        let landed = self.fill_scratch(&temp, index, &entry, bytes).and_then(|()| {
+            let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(entry.mode));
+            self.in_folder(parent, || self.upper.adopt(&temp, path))
+        });
+        if landed.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        landed
+    }
+
+    /// Writes the lower file `entry` (its bytes when `bytes`) into the new scratch file `temp`.
+    fn fill_scratch(
+        &self,
+        temp: &Path,
+        index: u32,
+        entry: &crate::manifest::Entry,
+        bytes: bool,
+    ) -> Result<(), i32> {
+        let mut file = fs::File::create(temp).map_err(|error| io_errno(&error))?;
         if bytes && entry.size <= CHUNK {
             file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
         } else if bytes {
@@ -1744,13 +1773,7 @@ impl Overlay {
         }
         let at = SetTime::At(entry.mtime_ns);
         let _ = fd_utimes(&file, Some(at), Some(at));
-        drop(file);
-        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(entry.mode));
-        let landed = self.in_folder(parent, || self.upper.adopt(&temp, path));
-        if landed.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        landed
+        Ok(())
     }
 
     /// Brings `path` into the upper layer when it is only in the lower one.
@@ -1852,10 +1875,10 @@ impl Overlay {
         data: &[u8],
     ) -> Result<u32, i32> {
         match self.handle_file(handle) {
-            Some(file) => {
+            Some(file) => self.with_room(|| {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
                 u32::try_from(data.len()).map_err(|_| EINVAL)
-            }
+            }),
             None if self.handles().contains_key(&handle) => Err(EBADF),
             None => self.write(ino, offset, data),
         }
@@ -1959,7 +1982,7 @@ impl Overlay {
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<Attr, i32> {
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
-        self.in_folder(&parent, || self.upper.mkdir(&child, 0o700))?;
+        self.with_room(|| self.in_folder(&parent, || self.upper.mkdir(&child, 0o700)))?;
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
         self.lookup_path(&child)
     }
@@ -2354,6 +2377,9 @@ pub mod shared;
 
 #[path = "overlay_age.rs"]
 mod age;
+
+#[path = "overlay_bulk.rs"]
+pub mod bulk;
 
 #[path = "overlay_extend.rs"]
 mod extend;

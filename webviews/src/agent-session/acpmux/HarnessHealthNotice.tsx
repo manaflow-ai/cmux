@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { CloudSignIn } from "./conversation/CloudSignIn";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import type { CloudSignIn as CloudSignInActions } from "./cloudAgentLogin";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./noticeSlotModel";
 import { type HarnessHealth, needsLogin, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
@@ -256,7 +256,7 @@ export function HarnessHealthNotice({
         {/* The spinner trails the text, so starting or finishing work never moves the words. */}
         <p className="acpmux-host-error-message">
           {text}
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
+          {busy && <WaitSpinner size={12} className="acpmux-harness-spinner" loading />}
         </p>
         {/* Not Now leads, so Restart Chat or Try Again appearing or going never moves it. */}
         <div className="acpmux-host-error-actions" ref={actionsRef}>

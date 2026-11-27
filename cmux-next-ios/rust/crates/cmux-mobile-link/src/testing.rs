@@ -58,6 +58,23 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
+    /// Refuse a signal whose kind is not in team-hub.ts `SIGNAL_KINDS` with a
+    /// session-scoped `bad_request`, as the real hub does.
+    pub enforce_signal_kinds: bool,
+    /// Do not forward a `wg-relay` that comes before any `wg-init` of its
+    /// session (it still binds the session, as the hub does): what an older Mac
+    /// does with it (it drops signals of a session it has not seen), so only the
+    /// phone's early cue is lost.
+    pub drop_early_wg_relay: bool,
+    /// Stamp each device's relay ticket on the `wg-*` signals sent to it
+    /// (`relayTicket`) and admit a relay join only with it. Off (the default, as
+    /// the production backend): no tickets, and a join is admitted by its Bearer
+    /// token for a device the session's first admitted signal bound.
+    pub relay_tickets: bool,
+    /// One network leg (say 20 ms), for counting a dial in legs: a signal or a relay
+    /// frame takes two (sender to the service, service to the peer), a relay join
+    /// four (TCP open, then the upgrade and its answer).
+    pub signal_leg: std::time::Duration,
     /// Answer `/v1/relay-cache/...` (the Worker's `LINK_RELAY_CACHE=on`, RFD 0142 R2 and R9;
     /// `testing/relay_cache.rs`). Off: every cache route answers `503 relay_cache_off`, as the
     /// Worker does by default.
@@ -114,7 +131,7 @@ struct State {
     /// The relay's joined sockets: sessionId → device → its socket.
     relays: HashMap<String, HashMap<String, mpsc::UnboundedSender<Message>>>,
     /// Each device's relay ticket per session, stamped on the `wg-*` signals
-    /// sent to it (team-hub.ts `relayTicket`): (sessionId, device) → ticket.
+    /// sent to it ([`FakeOptions::relay_tickets`]): (sessionId, device) → ticket.
     tickets: HashMap<(String, String), String>,
     relay_joins: u64,
     /// Each device's relay joins, in order: device → when.
@@ -404,25 +421,56 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                     let relayed = value["payload"]["relayed"].clone();
                     value["payload"]["endpoints"] = if relayed.is_array() { relayed } else { json!([]) };
                 }
+                if options.enforce_signal_kinds
+                    && !matches!(
+                        value["payload"]["kind"].as_str(),
+                        Some(
+                            "webrtc-offer"
+                                | "webrtc-answer"
+                                | "webrtc-ice"
+                                | "wg-init"
+                                | "wg-resp"
+                                | "wg-endpoints"
+                                | "wg-relay"
+                                | "bye"
+                        )
+                    )
+                {
+                    let _ = out_tx.send(Message::Text(
+                        json!({"type":"error","code":"bad_request","message":"unknown payload kind","sessionId":session})
+                            .to_string()
+                            .into(),
+                    ));
+                    continue;
+                }
                 let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
                 let existing = state.sessions.get(&session).cloned();
                 let admitted = match &existing {
                     Some((a, b)) => (a == &device && b == &to) || (b == &device && a == &to),
                     None => state.devices.get(&to).is_some_and(|target| target.user == user),
                 };
+                // An admitted first signal binds the session, the peer online or not
+                // (team-hub.ts `admit`); the relay admits its two devices from then on.
+                if admitted && existing.is_none() {
+                    state.sessions.insert(session.clone(), (device.clone(), to.clone()));
+                }
+                let kind = value["payload"]["kind"].as_str().unwrap_or_default().to_owned();
+                if admitted
+                    && options.drop_early_wg_relay
+                    && kind == "wg-relay"
+                    && !state.forwarded.iter().any(|(s, k, _)| *s == session && k == "wg-init")
+                {
+                    continue;
+                }
                 let target = state.devices.get(&to).map(|d| d.out.clone());
                 match (admitted, target) {
                     (true, Some(target)) => {
-                        let kind = value["payload"]["kind"].as_str().unwrap_or_default().to_owned();
                         state.forwarded.push((session.clone(), kind.clone(), std::time::Instant::now()));
-                        if existing.is_none() {
-                            state.sessions.insert(session.clone(), (device.clone(), to.clone()));
-                        }
                         // The recipient's own relay ticket, never a client's value.
                         if let Some(object) = value.as_object_mut() {
                             object.remove("relayTicket");
                         }
-                        if kind.starts_with("wg-") {
+                        if options.relay_tickets && kind.starts_with("wg-") {
                             let ticket = state
                                 .tickets
                                 .entry((session.clone(), to.clone()))
@@ -430,7 +478,16 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                                 .clone();
                             value["relayTicket"] = Value::String(ticket);
                         }
-                        let _ = target.send(Message::Text(value.to_string().into()));
+                        let text = value.to_string();
+                        if options.signal_leg.is_zero() {
+                            let _ = target.send(Message::Text(text.into()));
+                        } else {
+                            let leg = options.signal_leg * 2;
+                            tokio::spawn(async move {
+                                tokio::time::sleep(leg).await;
+                                let _ = target.send(Message::Text(text.into()));
+                            });
+                        }
                         // team-hub.ts: the dialer's own ticket, back at once.
                         if early_ticket {
                             let ticket = state
@@ -520,6 +577,9 @@ async fn serve_relay(
         let lower = line.to_ascii_lowercase();
         lower.starts_with("sec-websocket-protocol:") && lower.contains(crate::dial::relay::SUBPROTOCOL)
     });
+    // The join reaches the Worker after its TCP and TLS legs: it is admitted by the
+    // session as it stands then, as the hub's relayPeer answers on arrival.
+    tokio::time::sleep(options.relay_join_delay + options.signal_leg * 4).await;
     let peer = {
         let state = state.lock().unwrap_or_else(PoisonError::into_inner);
         state.sessions.get(&session).and_then(|(a, b)| {
@@ -531,11 +591,12 @@ async fn serve_relay(
                 return None;
             };
             let same_user = state.devices.get(&device).is_none_or(|d| Some(&d.user) == user.as_ref());
-            // The joining device's own ticket, as the Worker requires.
-            let ticket_ok = state
-                .tickets
-                .get(&(session.clone(), device.clone()))
-                .is_some_and(|ticket| presented.as_deref() == Some(ticket.as_str()));
+            // In ticket mode, the joining device's own ticket; else the session alone.
+            let ticket_ok = !options.relay_tickets
+                || state
+                    .tickets
+                    .get(&(session.clone(), device.clone()))
+                    .is_some_and(|ticket| presented.as_deref() == Some(ticket.as_str()));
             (same_user && ticket_ok).then(|| other.clone())
         })
     };
@@ -549,7 +610,6 @@ async fn serve_relay(
     } else {
         None
     };
-    tokio::time::sleep(options.relay_join_delay).await;
     loop {
         let mut woken = std::pin::pin!(wakes().notified());
         woken.as_mut().enable();
@@ -622,10 +682,6 @@ async fn serve_relay(
         }
         let _ = sink.close().await;
     });
-    let peer_socket = |state: &Arc<Mutex<State>>| {
-        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
-    };
     while let Some(Ok(message)) = source.next().await {
         match message {
             Message::Binary(bytes) => {
@@ -636,17 +692,35 @@ async fn serve_relay(
                 }
                 frame.peer = PeerId(device_bytes);
                 let Ok(encoded) = frame.encode() else { continue };
-                match peer_socket(&state) {
-                    Some(target) => {
-                        tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
-                        state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
-                        let _ = target.send(Message::Binary(encoded.into()));
+                // One leg to the service, which then looks the peer up, and one on to it.
+                let one_leg = options.signal_leg;
+                let (state, session, device, peer, out_tx) =
+                    (Arc::clone(&state), session.clone(), device.clone(), peer.clone(), out_tx.clone());
+                let forward = async move {
+                    tokio::time::sleep(one_leg).await;
+                    let target = {
+                        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+                        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
+                    };
+                    match target {
+                        Some(target) => {
+                            tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
+                            state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
+                            tokio::time::sleep(one_leg).await;
+                            let _ = target.send(Message::Binary(encoded.into()));
+                        }
+                        None => {
+                            tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
+                            let _ = out_tx.send(Message::Text(
+                                json!({"type":"peer","online": false}).to_string().into(),
+                            ));
+                        }
                     }
-                    None => {
-                        tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
-                        let _ = out_tx
-                            .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
-                    }
+                };
+                if one_leg.is_zero() {
+                    forward.await;
+                } else {
+                    tokio::spawn(forward);
                 }
             }
             Message::Text(text) if text.as_str() == "ping" => {
@@ -1019,6 +1093,18 @@ impl webrtc::turn::auth::AuthHandler for TestAuth {
     }
 }
 
+/// A host name [`TestTurn`]'s TLS certificate also names (beside `127.0.0.1`), for a test
+/// that dials it by name through its own resolver (`route_literals`).
+pub const TEST_TURN_HOST: &str = "turn.cmux.test";
+
+/// [`TestTurn::ice`] with `host` in place of `127.0.0.1`.
+pub fn ice_named(ice: &crate::api::IceServer, host: &str) -> crate::api::IceServer {
+    crate::api::IceServer {
+        urls: ice.urls.iter().map(|url| url.replace("127.0.0.1", host)).collect(),
+        ..ice.clone()
+    }
+}
+
 /// A TURN server on loopback for tests: UDP on one port, TLS (RFC 5766 over
 /// TLS, a self-signed certificate for 127.0.0.1) on another, and plain TCP
 /// on a third. Relayed addresses are `127.0.0.1` with ports in
@@ -1270,8 +1356,11 @@ impl TestTurn {
                 (chain, key, Arc::new(rustls::RootCertStore::empty()))
             }
             None => {
-                let certified =
-                    rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned()]).expect("certificate");
+                let certified = rcgen::generate_simple_self_signed(vec![
+                    "127.0.0.1".to_owned(),
+                    TEST_TURN_HOST.to_owned(),
+                ])
+                .expect("certificate");
                 let mut roots = rustls::RootCertStore::empty();
                 roots.add(certified.cert.der().clone()).expect("root");
                 let key = rustls::pki_types::PrivateKeyDer::Pkcs8(

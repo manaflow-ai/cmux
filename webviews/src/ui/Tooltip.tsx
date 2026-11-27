@@ -169,6 +169,10 @@ export function Tooltip({
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
+              // A tooltip says what it is, as AnchoredCard's and a title tooltip's do (titleTooltips.ts):
+              // Base UI's popup carries no role, so a play or an assistive tool looking for the
+              // label within its panel (kit.gallery.tsx `[data-scheme] [role="tooltip"]`) found none.
+              role="tooltip"
               data-surface-role={wraps ? "hoverCard" : "tooltip"}
               // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
               // label at the chip level, the native tooltip's glass, blurring what it covers in place.

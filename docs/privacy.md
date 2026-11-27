@@ -70,6 +70,11 @@ there, the Rust gate compiles it in, the Swift gate's list is checked equal to i
 table below is generated from it (`python3 scripts/privacy_hosts_from_gate.py`). CI fails when the table and the
 allowlist differ, so this page cannot drift from what the gate lets through.
 
+The gate keeps an audit trail: every connection it sees, allowed or refused, is recorded once per host, caller and
+verdict for the life of the process. Set `CMUX_EGRESS_AUDIT=/path/file.jsonl` and each new record is appended there as
+one JSON line (`ts`, `host`, `site`, `verdict` = listed, named, session, local or unlisted, `mode`, `refused`). The file
+stays on your machine; nothing in it is sent anywhere.
+
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
 (Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
 pages' Content Security Policy comes next.
@@ -140,7 +145,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
