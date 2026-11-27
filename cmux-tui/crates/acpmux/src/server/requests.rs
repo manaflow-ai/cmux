@@ -2154,9 +2154,10 @@ async fn dispatch_request_with_identity(
             } else {
                 tokio::time::timeout_at(
                     admission.answer_due(),
-                    crate::prompt_uploads::owned_guard(&s.id, &blocks),
+                    crate::prompt_uploads::owned_paths(&s.id, &blocks),
                 )
                 .await
+                .map(crate::attach::OwnedUploads)
                 .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
             };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
