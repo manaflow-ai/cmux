@@ -3,7 +3,7 @@ name: CI
 # The guard watcher receives this title before dispatch jobs start. Keep a
 # compact, versioned fingerprint here so it can distinguish equivalent PR
 # coverage from a fuller manual request.
-run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'full' || 'compile-only') }}
+run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && 'full' || 'compile-only') }}
 
 on:
   # Run the router for every pull request that changes more than prose. The
@@ -58,6 +58,11 @@ on:
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
+      - "cmux-tui/spec/**"
+      - "cmux-tui/docs/**"
+      - "cmux-tui/bindings/**"
+      - "cmux-tui/frontends/README*.md"
+      - "cmux-tui/frontends/web/README*.md"
       - "docs/remote-agents-and-cloud.md"
       - "docs/cmux-next/customize-recipes.md"
       - "cmux-tui/crates/acpmux/README.md"
@@ -170,7 +175,7 @@ jobs:
       # download and GitHub stalls). It still runs when the PR changes the pin, under full-ci,
       # on main PRs, and every feat-cmux-next push and nightly still downloads and checks the
       # pinned archive (cmux-next.yml, nightly.yml, seed-derived-data.yml).
-      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
+      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -404,7 +409,7 @@ jobs:
           # the base were 37% of PR runner-minutes, and ci.yml a quarter of
           # those (docs in cmuxterm-hq: docs/ci/idle-pr-heads-2026-11-21.md).
           # full-ci routes as usual; CI_DRAFT_BASE_MERGE_SKIP=0 turns it off.
-          DRAFT_BASE_MERGE: ${{ github.event.pull_request.draft == true && steps.delta.outputs.base_sha != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0' }}
+          DRAFT_BASE_MERGE: ${{ github.event.pull_request.draft == true && steps.delta.outputs.base_sha != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && (vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0' }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -1366,7 +1371,7 @@ jobs:
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
-      native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
 
   web:
     # Beside static-preflight for the same reason as guards.
