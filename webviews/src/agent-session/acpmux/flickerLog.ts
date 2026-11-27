@@ -391,6 +391,16 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   const navigation = win.performance?.getEntriesByType?.("navigation")[0] as PerformanceNavigationTiming | undefined;
   flicker.record("page-load", { type: navigation?.type ?? "unknown" });
   watchFirstLoad(win, (fields) => flicker.record("first-load", fields));
+  // GRACEFUL-SWAP: what a web swap brought back (pages/shared/swapHandoff.ts), for graceful-swap.py.
+  win.addEventListener("cmux-swap-probe", (event) => {
+    const detail = (event as CustomEvent<Record<string, unknown>>).detail ?? {};
+    const fields: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(detail)) {
+      if (key === "kind" || key === "at") continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") fields[key] = value;
+    }
+    flicker.record("swap", fields);
+  });
 
   const longFrame = (ms: number) => {
     flicker.record("long-frame", { ms });
