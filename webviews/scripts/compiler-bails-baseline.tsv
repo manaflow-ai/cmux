@@ -69,7 +69,6 @@ src/agent-session/acpmux/dictation.ts	1
 src/agent-session/acpmux/EnvironmentPicker.tsx	1
 src/agent-session/acpmux/environmentPickerModel.ts	1
 src/agent-session/acpmux/escapeStop.ts	1
-src/agent-session/acpmux/fastToggleModel.ts	1
 src/agent-session/acpmux/FileSearch.tsx	1
 src/agent-session/acpmux/floatingChatModel.ts	1
 src/agent-session/acpmux/harnesses/HarnessesScreen.tsx	1
