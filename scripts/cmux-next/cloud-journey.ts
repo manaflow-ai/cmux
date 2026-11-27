@@ -148,6 +148,29 @@ export function defaultSizeProblem(size: { cpu?: unknown; memory_mb?: unknown; d
   const want = `${CHAT_START_SIZE.cpu}/${CHAT_START_SIZE.memory_mb}/${CHAT_START_SIZE.disk_mb}`;
   return read === want ? null : `cloud.machine.get size ${read}, not the default ${want} (cpu/memory_mb/disk_mb)`;
 }
+type SizeRow = { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined;
+const sizeText = (size: SizeRow) => `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
+/**
+ * The DEFAULT_SIZE_STEP verdict: the create's size is the one cloud.machine.get read when the machine first ran
+ * (`atRunning`, before any agent turn), never the one read after the reply (`now`). AutoSize (cmux-platform
+ * CloudDO.pressCloudGrow, RFD 0133) grows a machine whose guest reports `cpu: pegged`, and since cmux#59118 the guest
+ * reports a pegged CPU within 2 s, so an agent start on 2 vCPUs grew the journey's machine to xl (16/32768/131072)
+ * before this step read it (cmux-vm.yml run 45916791099, roll 3bd974c4): every staging deploy rolled back on a size
+ * the create never had. A later size at least as big on every axis is AutoSize's and is named in the detail; a
+ * smaller one, or a running read with no size, is judged as before. Null and the detail, or the problem.
+ */
+export function defaultSizeVerdict(atRunning: SizeRow, now: SizeRow): { problem: string | null; detail: string } {
+  const created = atRunning?.cpu === undefined ? now : atRunning;
+  const problem = defaultSizeProblem(created);
+  const n = (v: unknown) => (typeof v === "number" ? v : Number.NaN);
+  const grew = created !== now && sizeText(now) !== sizeText(created)
+    && n(now?.cpu) >= n(created?.cpu) && n(now?.memory_mb) >= n(created?.memory_mb) && n(now?.disk_mb) >= n(created?.disk_mb);
+  if (problem === null && created !== now && sizeText(now) !== sizeText(created) && !grew) {
+    return { problem: `${defaultSizeProblem(now)}; it ran at ${sizeText(created)} (a size below the create's is no grow)`, detail: "" };
+  }
+  const later = grew ? `; ${sizeText(now)} after the reply (AutoSize grew it, cmux-platform pressCloudGrow)` : "";
+  return { problem: problem === null ? null : `${problem}${later}`, detail: `size ${sizeText(created)} when it first ran${later}` };
+}
 /**
  * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
  * size only and gives one only to a create asking exactly that (cmux-platform Scaler requestShape), so a create at md
@@ -2404,6 +2427,15 @@ export async function finishJourney(cleanup: () => Promise<void>, observer: Prom
   }
 }
 
+/** Why the platform's call to the team's Durable Object threw, when a 503 vm_unavailable says (cmux-platform
+ * RpcReset.ts `RpcFailure`; the CLI prints it too, cloud_client_session.rs `rpc_failure_reason`): only its three fixed
+ * words, never other text. Staging run 45934616897 (11-27 03:44Z and 03:59Z) failed `reply` and `guest carrier
+ * timeline` on `exec: HTTP 503 "vm_unavailable"` and could not say whether the object restarted, was overloaded or was
+ * unreachable. */
+export function rpcFailureReason(reason: unknown): string {
+  return reason === "overloaded" || reason === "restarted" || reason === "unreachable" ? ` (${reason})` : "";
+}
+
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
@@ -2414,7 +2446,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const runMs = Math.min(timeoutMs, 300_000);
     const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
     const v: any = g.body?.value ?? g.body;
-    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
+    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
   return async (command, timeoutMs = 60_000) => {
@@ -3893,9 +3925,10 @@ export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boo
  * `@@prompted`; the turn runs on in the daemon. Without it the journey's send was a second exec and a fresh
  * `cmux-tui acp send` process (2.4 to 3.2 s on the 11-23 stub legs), a path no person's first send takes.
  */
-export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string, traceId?: string): string {
+export function launchCredentialStartProgram(session: string, agent: string, name: string | null, value: string | null, prompt?: string, traceId?: string): string {
   const slash = agent.indexOf("/");
-  const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
+  // name null: a start with no launch credential, for a machine that holds its own login (a receipt spare).
+  const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), ...(name && value ? { credentials: { env: { [name]: value } } } : {}) };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
   const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
   const first = prompt === undefined ? "None" : JSON.stringify(prompt);
@@ -4076,7 +4109,9 @@ export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
   }
   if (answer.accepted === true && answer.state === "ready") return { state: "ready", reason: "reserved home chat is ready" };
   const state = typeof answer.state === "string" ? answer.state : "unknown";
-  return { state: "not_ready", reason: `warm-home answered state=${state}` };
+  // acpmux names why nothing holds the reserved key (`why`, state none): oversize, remote, or another key in its slot.
+  const why = typeof answer.why === "string" && answer.why ? ` (${answer.why.slice(0, 200)})` : "";
+  return { state: "not_ready", reason: `warm-home answered state=${state}${why}` };
 }
 
 /**
@@ -5604,6 +5639,52 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
     }
+    // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
+    // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
+    // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
+    const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
+    const setUpModelStub = async (machine: string, run: Exec): Promise<string | undefined> => {
+      const file = "/home/cmux/.cmux/journey-model-stub.py";
+      const script = "/home/cmux/.cmux/journey-model-stub.json";
+      const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+      const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
+      for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+        const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
+        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+      }
+      // Port 0: the stub binds a free port and writes it to the ready file.
+      const point = provider === "codex"
+        ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
+        : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path('/home/cmux/.config/cmux/agent-auth')\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
+      const r = await run(
+        `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
+          `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+          `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
+          `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
+          `echo "@@port $port"; ` + point,
+      );
+      if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+      const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+      return port;
+    };
+    // --model stub with the reserved home chat: warm-home starts the agent on the spare before the claim, so the stub
+    // must point it there first. A Claude launched before settings.json names the stub, on an owner machine whose edge
+    // name resolves, takes the team model plane (claude_cloud_auth team_pair) and keeps it: prod runs 45934051875 and
+    // 45939724879 answered "No cmux inference gateway is online for this team" while the stub step passed.
+    // A spare it could not be set up on is only noted: the step after the claim sets it up there as before.
+    let stubOn: string | null = null;
+    if (modelStub && provider && homeChat === "reserved" && prepared?.spare && !only.has("chat")) {
+      const spare = prepared.spare;
+      const t0 = Date.now();
+      const port = await setUpModelStub(spare, directExec(api, spare, J)).catch((error: unknown) => {
+        J.record({ step: "model stub on the spare", status: "skip", ms: Date.now() - t0, detail: `set up after the claim instead: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
+        return null;
+      });
+      if (port !== null) {
+        stubOn = spare;
+        J.record({ step: "model stub on the machine", status: "pass", ms: Date.now() - t0, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider}), on the spare before warm-home` });
+      }
+    }
     if (homeChat === "reserved") {
       const t0 = Date.now();
       const name = "home chat warmed ahead (warm-home)";
@@ -5749,14 +5830,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // drill at all (run 45896711769 kill-src: staging recorded 4/8192/32768 for a default create, the move never ran).
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
+      // Judged on the size it first ran at (defaultSizeVerdict): by now AutoSize may have grown it under the agent's start.
       if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
         const m = await Promise.race([
           api.read("cloud.machine.get", { machine: created.id }),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cloud.machine.get: no answer in 30 s")), 30_000).unref?.()),
         ]);
-        const why = defaultSizeProblem(m?.size);
-        if (why) throw new Error(why);
-        return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
+        const verdict = defaultSizeVerdict(bound?.size, m?.size);
+        if (verdict.problem) throw new Error(verdict.problem);
+        return { value: null, detail: `${created.id} ${verdict.detail}` };
       }).catch(() => undefined);
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
@@ -6178,33 +6260,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: 'model = "stub-model"; model_provider stays "cmux" (the edge, the placeholder key)' };
       });
     }
-    const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
-    if (modelStub && provider && !only.has("chat")) {
-      // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
-      // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
-      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
+    if (modelStub && provider && !only.has("chat") && stubOn !== created.id) {
       await J.step("model stub on the machine", async () => {
-        const file = "/home/cmux/.cmux/journey-model-stub.py";
-        const script = "/home/cmux/.cmux/journey-model-stub.json";
-        const ready = "/home/cmux/.cmux/journey-model-stub.ready";
-        const pidFile = "/home/cmux/.cmux/journey-model-stub.pid";
-        for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
-          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
-          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
-        }
-        // Port 0: the stub binds a free port and writes it to the ready file.
-        const point = provider === "codex"
-          ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
-          : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path('/home/cmux/.config/cmux/agent-auth')\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
-        const r = await exec(
-          `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
-            `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
-            `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
-            `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
-            `echo "@@port $port"; ` + point,
-        );
-        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-        const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+        const port = await setUpModelStub(created.id, exec);
         return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
       });
     }
@@ -6432,6 +6490,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("send");
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+        }
+        if (probeExtra.login_path === "receipt" && provider === "claude") {
+          // The spare holds the person's login (its receipt says installed): the app's start carries no credential and
+          // sends the first prompt on the link its start opened. Before, the journey ran `acp ensure` and then `acp send`
+          // as two execs and two fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the real leg's
+          // last two ok runs (45563753386, 45571173365), a cost no person's first send pays.
+          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`), 120_000);
+          const id = /@@session (\S+)/.exec(r.stdout)?.[1];
+          if (!id) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+          J.firstText.mark("session_ready");
+          if (r.code !== 0 || !/@@prompted/.test(r.stdout)) throw new Error(`session ${session} started, but its first prompt was not taken: ${r.stdout.slice(-400) || r.stderr.slice(-400)}`);
+          promptedWithStart = true;
+          J.firstText.mark("send");
+          J.firstText.mark("sent");
+          return { value: null, detail: `session ${session}, on the login copied on spare.ready; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
         const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));

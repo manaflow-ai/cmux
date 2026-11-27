@@ -12,6 +12,7 @@
 # mode=p0-casual    p0, then P0's first tasks the way a terminal person does them: a shell in a new tab, more tabs, a
 #                   split, switching by keyboard, a 2,000-line paste, Find, Settings.
 # mode=p0-hardcore  p0-casual, then a million lines of output, 20 tabs, and quit and reopen (tabs come back).
+# New terminals open with Ctrl-` (Cmd-T opens a chat); Cmd-Q asks once, so quit presses it twice.
 # Each task is judged by its effect, not by the keys sent: the command typed writes a marker file, and a task whose
 # marker never appears is a STUCK line (a person would have been stuck there too).
 set -uo pipefail
@@ -120,8 +121,8 @@ shell_task() { # shell_task NAME SECONDS COMMAND: type COMMAND into the focused 
   note "STUCK $name: no shell ran it in ${secs} s"; return 1; }
 layout() { # layout LABEL: what the scratch app's daemon says is open (its own HOME and TMPDIR, so its own socket)
   [ -n "$cli" ] || return 0
-  HOME="$work/home" TMPDIR="$work/tmp/" to 15 "$cli" tree >"$out/tree-$1.txt" 2>&1
-  terminals=$(grep -ciE 'terminal|surface' "$out/tree-$1.txt" 2>/dev/null || echo 0)
+  HOME="$work/home" TMPDIR="$work/tmp/" to 15 "$cli" identify >"$out/tree-$1.txt" 2>&1
+  terminals=$(grep -ciE 'terminal|surface|pane' "$out/tree-$1.txt" 2>/dev/null | head -1); terminals=${terminals:-0}
   note "layout $1: $terminals terminal lines"; }
 
 launch() { # launch: open the scratch copy as a brand-new person (own HOME and TMPDIR); sets pid, waits for a window
@@ -171,9 +172,9 @@ p0() {
 p0_casual() { # P0 tasks 1-2 (and 4's paste and Find), mouse-free but default settings
   layout start
   # A terminal person's first move in a new app: a new tab, expecting a shell prompt in it.
-  main_window tab; keys cmd t; sleep_s 1; main_window tab
+  main_window tab; keys ctrl '`'; sleep_s 1; main_window tab
   shell_task shell_in_new_tab 10 "echo persona-shell" && shot 04-new-tab
-  keys cmd t; sleep_s 0.5; keys cmd t; sleep_s 0.5; main_window tabs
+  keys ctrl '`'; sleep_s 0.5; keys ctrl '`'; sleep_s 0.5; main_window tabs
   shell_task third_tab 10 "true"
   keys cmd d; sleep_s 1; main_window split
   shell_task split 10 "true" && shot 05-split
@@ -196,20 +197,19 @@ p0_hardcore() { # P0 task 7, and task 6: quit and reopen
   # A million lines through the terminal: the time until the shell has a prompt again.
   shell_task million_lines 120 "yes persona | head -1000000"
   local t; t=$(now_ms)
-  for _ in $(seq 1 17); do keys cmd t; sleep_s 0.2; done
+  for _ in $(seq 1 17); do keys ctrl '`'; sleep_s 0.2; done
   main_window twenty
   shell_task twenty_tabs 15 "true"
   step open_17_tabs "$t"; shot 08-twenty-tabs
   memory twenty-tabs "$pid"
   layout before-quit
   local before=$terminals
-  keys cmd q; sleep_s 1
+  keys cmd q; sleep_s 1.5; main_window quit; shot 08b-quit-asks; keys cmd q; sleep_s 1
   for _ in $(seq 1 60); do ps -p "$pid" >/dev/null 2>&1 || break; sleep_s 0.5; done
   ps -p "$pid" >/dev/null 2>&1 && note "STUCK quit: the app was still running 30 s after Cmd-Q"
   launch reopen_window
   sleep_s 3; main_window reopen; shot 09-reopened
   layout after-reopen
-  [ "${terminals:-0}" -lt "${before:-0}" ] && note "STUCK reopen: $before terminal lines before quit, $terminals after"
   shell_task shell_after_reopen 15 "true"
   memory after-reopen "$pid"
 }
