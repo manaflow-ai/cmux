@@ -178,8 +178,9 @@ async function probeGuestFilesystem(
   try {
     response = await client(options.timeoutMs, signal).fetch(`/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`, { method: "GET", signal });
   } catch (error) {
-    if (!options.signal?.aborted && guestTimeout.aborted) return { outcome: "hung", latencyMs: elapsed(), detail: `timeout after ${options.timeoutMs}ms` };
-    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(errorName(error)) };
+    // A local deadline cannot tell whether the provider delivered this request to the guest.
+    const detail = guestTimeout.aborted ? "fs/stat: request timed out" : sanitizeDetail(errorName(error));
+    return { outcome: "error", latencyMs: elapsed(), detail };
   }
   if (response.ok) {
     await response.body?.cancel().catch(() => undefined);

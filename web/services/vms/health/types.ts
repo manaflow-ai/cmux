@@ -47,9 +47,9 @@ export type ProviderTlsRuleInventory = {
 };
 
 /**
- * A control-path probe. `hung` records a guest request timeout or a provider
- * response identifying an unresponsive guest runtime. Provider-state lookup
- * failures and generic API errors leave guest connectivity unknown.
+ * A control-path probe. `hung` requires an explicit unresponsive-runtime
+ * response. Client deadlines, state lookup failures, and generic provider
+ * errors leave guest connectivity unknown.
  */
 export type VmControlProbe =
   | { readonly outcome: "ok"; readonly latencyMs: number }

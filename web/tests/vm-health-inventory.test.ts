@@ -87,12 +87,12 @@ describe("probeControl", () => {
     expect(requests).toHaveLength(1);
   });
 
-  test("an fs/stat that never answers is hung at the timeout", async () => {
+  test("a local fs/stat deadline leaves guest connectivity unknown", async () => {
     const { inventory } = client((path, init) => path.includes("/fs/stat")
       ? new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))
       : json(200, { state: "running" }));
     const probe = await inventory.probeControl("vm-1", { timeoutMs: 150 });
-    expect(probe.outcome).toBe("hung");
+    expect(probe).toMatchObject({ outcome: "error", detail: "fs/stat: request timed out" });
   });
 });
 
