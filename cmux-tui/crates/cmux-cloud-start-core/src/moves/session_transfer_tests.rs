@@ -2,6 +2,11 @@ use serde_json::json;
 
 use super::*;
 
+#[test]
+fn a_layout_rejects_an_oversized_count_without_allocating_it() {
+    assert_eq!(Layout::parse(&json!({"terminals": [0]}), usize::MAX), None);
+}
+
 fn pane(terminals: &[usize]) -> Layout {
     Layout::Pane { terminals: terminals.to_vec() }
 }

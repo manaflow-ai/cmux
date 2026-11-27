@@ -28,7 +28,7 @@ impl Layout {
         let layout = Self::node(json)?;
         let mut terminals = layout.terminals();
         terminals.sort_unstable();
-        (terminals == (0..count).collect::<Vec<_>>()).then_some(layout)
+        (terminals.len() == count && terminals.into_iter().eq(0..count)).then_some(layout)
     }
 
     fn node(node: &Value) -> Option<Layout> {

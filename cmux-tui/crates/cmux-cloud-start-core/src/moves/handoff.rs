@@ -40,8 +40,11 @@ pub fn transfer_folder(path: Option<&str>, home: &str) -> Folder {
     } else {
         path.to_owned()
     };
-    let expanded =
-        if expanded.len() > 1 { expanded.trim_end_matches('/').to_owned() } else { expanded };
+    let expanded = if expanded.starts_with('/') && expanded.bytes().all(|byte| byte == b'/') {
+        "/".to_owned()
+    } else {
+        expanded.trim_end_matches('/').to_owned()
+    };
     if expanded.starts_with('/') {
         Folder::At { path: expanded }
     } else {

@@ -20,6 +20,7 @@ fn a_transfer_path_expands_its_tilde_and_must_be_absolute() {
     );
     assert_eq!(transfer_folder(Some("/tmp/a"), "/h"), Folder::At { path: "/tmp/a".into() });
     assert_eq!(transfer_folder(Some("/"), "/h"), Folder::At { path: "/".into() });
+    assert_eq!(transfer_folder(Some("///"), "/h"), Folder::At { path: "/".into() });
     assert_eq!(transfer_folder(Some("code"), "/h"), Folder::Relative { path: "code".into() });
     // Another user's tilde is not this user's home.
     assert_eq!(transfer_folder(Some("~bob/x"), "/h"), Folder::Relative { path: "~bob/x".into() });
