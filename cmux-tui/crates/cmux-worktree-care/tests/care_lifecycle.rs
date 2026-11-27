@@ -401,6 +401,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
             open: true,
             updated_ms: 0,
             ids: Vec::new(),
+            ids: Vec::new(),
         }],
         settings: Settings {
             recent_hours: zero,
@@ -674,6 +675,7 @@ fn care_stale_only_frees_a_merged_clean_worktree_and_skips_dirty_and_live_ones()
             cwd: live.clone(),
             open: true,
             updated_ms: 0,
+            ids: Vec::new(),
         }],
         settings: Settings {
             recent_hours: zero,
@@ -756,6 +758,7 @@ fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
                 cwd: late.clone(),
                 open: true,
                 updated_ms: 0,
+                ids: Vec::new(),
             }]
         })),
     };
@@ -810,6 +813,7 @@ fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
                 cwd: late.clone(),
                 open: true,
                 updated_ms: 0,
+                ids: Vec::new(),
             }]
         })),
     };
