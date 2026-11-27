@@ -13034,6 +13034,69 @@ public func FfiConverterTypePaneFilterResult_lower(_ value: PaneFilterResult) ->
 
 
 /**
+ * A parsed cmux link.
+ */
+public struct ParsedCmuxLink: Equatable, Hashable {
+    public var target: CmuxLinkTarget
+    /**
+     * An agent link's `?message=`: the message to scroll to (display only).
+     */
+    public var message: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(target: CmuxLinkTarget, 
+        /**
+         * An agent link's `?message=`: the message to scroll to (display only).
+         */message: String?) {
+        self.target = target
+        self.message = message
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ParsedCmuxLink: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeParsedCmuxLink: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ParsedCmuxLink {
+        return
+            try ParsedCmuxLink(
+                target: FfiConverterTypeCmuxLinkTarget.read(from: &buf), 
+                message: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ParsedCmuxLink, into buf: inout [UInt8]) {
+        FfiConverterTypeCmuxLinkTarget.write(value.target, into: &buf)
+        FfiConverterOptionString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParsedCmuxLink_lift(_ buf: RustBuffer) throws -> ParsedCmuxLink {
+    return try FfiConverterTypeParsedCmuxLink.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParsedCmuxLink_lower(_ value: ParsedCmuxLink) -> RustBuffer {
+    return FfiConverterTypeParsedCmuxLink.lower(value)
+}
+
+
+/**
  * A group edit this phone made that the Mac's list may not show yet.
  */
 public struct PendingGroupEdit: Equatable, Hashable {
@@ -17207,6 +17270,196 @@ public func FfiConverterTypeCloudWakeIdle_lift(_ buf: RustBuffer) throws -> Clou
 #endif
 public func FfiConverterTypeCloudWakeIdle_lower(_ value: CloudWakeIdle) -> RustBuffer {
     return FfiConverterTypeCloudWakeIdle.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a cmux link names.
+ */
+
+public enum CmuxLinkTarget: Equatable, Hashable {
+    
+    /**
+     * A workspace by its `ws_` resource id.
+     */
+    case workspace(id: String
+    )
+    /**
+     * A pane by its `pane_` resource id: its selected tab.
+     */
+    case pane(id: String
+    )
+    /**
+     * A terminal, browser or agent tab by its `tab_` resource id.
+     */
+    case tab(id: String
+    )
+    /**
+     * An acpmux chat session, optionally at one turn (`#turn-<id>`).
+     */
+    case session(id: String, turn: String?
+    )
+    /**
+     * A Chief subagent's chat (`chief/<home>/session/<id>`).
+     */
+    case chiefSession(home: String, session: String
+    )
+    /**
+     * An outside agent's session by the harness's own id.
+     */
+    case agent(harness: String, session: String
+    )
+    /**
+     * A cloud group, optionally one of its workspaces.
+     */
+    case group(id: String, workspace: String?
+    )
+    /**
+     * A Home conversation, optionally at one message.
+     */
+    case conversation(id: String, message: String?
+    )
+    /**
+     * A Mac's screen through the device hub: view only unless `control`.
+     */
+    case macScreen(
+        /**
+         * The hub device id (lowercase uuid).
+         */device: String, 
+        /**
+         * The CGDirectDisplayID in decimal; none is the host's default.
+         */display: String?, control: Bool, 
+        /**
+         * The run's label (display only, never used to route).
+         */name: String?
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CmuxLinkTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCmuxLinkTarget: FfiConverterRustBuffer {
+    typealias SwiftType = CmuxLinkTarget
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CmuxLinkTarget {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .workspace(id: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .pane(id: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .tab(id: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .session(id: try FfiConverterString.read(from: &buf), turn: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 5: return .chiefSession(home: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 6: return .agent(harness: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 7: return .group(id: try FfiConverterString.read(from: &buf), workspace: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 8: return .conversation(id: try FfiConverterString.read(from: &buf), message: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 9: return .macScreen(device: try FfiConverterString.read(from: &buf), display: try FfiConverterOptionString.read(from: &buf), control: try FfiConverterBool.read(from: &buf), name: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CmuxLinkTarget, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .workspace(id):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(id, into: &buf)
+            
+        
+        case let .pane(id):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(id, into: &buf)
+            
+        
+        case let .tab(id):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(id, into: &buf)
+            
+        
+        case let .session(id,turn):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(id, into: &buf)
+            FfiConverterOptionString.write(turn, into: &buf)
+            
+        
+        case let .chiefSession(home,session):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(home, into: &buf)
+            FfiConverterString.write(session, into: &buf)
+            
+        
+        case let .agent(harness,session):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(harness, into: &buf)
+            FfiConverterString.write(session, into: &buf)
+            
+        
+        case let .group(id,workspace):
+            writeInt(&buf, Int32(7))
+            FfiConverterString.write(id, into: &buf)
+            FfiConverterOptionString.write(workspace, into: &buf)
+            
+        
+        case let .conversation(id,message):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(id, into: &buf)
+            FfiConverterOptionString.write(message, into: &buf)
+            
+        
+        case let .macScreen(device,display,control,name):
+            writeInt(&buf, Int32(9))
+            FfiConverterString.write(device, into: &buf)
+            FfiConverterOptionString.write(display, into: &buf)
+            FfiConverterBool.write(control, into: &buf)
+            FfiConverterOptionString.write(name, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCmuxLinkTarget_lift(_ buf: RustBuffer) throws -> CmuxLinkTarget {
+    return try FfiConverterTypeCmuxLinkTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCmuxLinkTarget_lower(_ value: CmuxLinkTarget) -> RustBuffer {
+    return FfiConverterTypeCmuxLinkTarget.lower(value)
 }
 
 
@@ -21869,6 +22122,30 @@ fileprivate struct FfiConverterOptionTypeMacRecoveryAttemptState: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeParsedCmuxLink: FfiConverterRustBuffer {
+    typealias SwiftType = ParsedCmuxLink?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeParsedCmuxLink.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeParsedCmuxLink.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePhoneWorkspaceGroup: FfiConverterRustBuffer {
     typealias SwiftType = PhoneWorkspaceGroup?
 
@@ -24277,6 +24554,17 @@ public func cloudWakeVersion() -> UInt32  {
 })
 }
 /**
+ * The link `url` names, or none when it is not a cmux link (another scheme
+ * or host, the sign-in callback, a malformed id).
+ */
+public func cmuxLinkParse(url: String) -> ParsedCmuxLink?  {
+    return try!  FfiConverterOptionTypeParsedCmuxLink.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cmux_link_parse(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
  * The edit that moves `movers` (an ask that was answered leaves the pinned
  * group for its place in time, one that opened again goes back), with
  * inserts and removals beside them; none when any other row changes place
@@ -25494,6 +25782,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cmux_link_parse() != 54420) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit() != 55354) {

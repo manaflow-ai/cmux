@@ -24,6 +24,7 @@ mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
+mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
@@ -73,6 +74,7 @@ pub use cloud_wake::{
     CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
     cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
 };
+pub use cmux_link::{CmuxLinkTarget, ParsedCmuxLink, cmux_link_parse};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
