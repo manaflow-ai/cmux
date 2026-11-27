@@ -117,7 +117,7 @@ pub(super) fn phase_line(record: &Value) -> Option<String> {
 /// for a launch whose restored front tab was not an agent chat. With `phases`, each row that has
 /// them is followed by its [`phase_line`].
 pub(super) fn table(records: &[Value], phases: bool) -> String {
-    const HEADER: [&str; 16] = [
+    const HEADER: [&str; 17] = [
         "started_at",
         "build",
         "commit",
