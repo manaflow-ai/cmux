@@ -497,6 +497,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
     /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
     weak var shownPictureViewer: NSView?
+    /// cmux: a click on a picture in the message box waits out the double-click interval (DraftPictureClick.swift).
+    let draftPictureClick = DraftPictureClick()
     var bringWindowForward: (NSWindow) -> Void = { window in
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -614,10 +616,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.pasteTextBesideAttachments = { [weak self] pb in self?.intents?.attachmentPasteText(from: pb) }
         tv.view.draftAttachmentFile = { [weak self] id in self?.intents?.draftAttachmentFile(id) }
+        // cmux: a click on a picture schedules its open; the field's next press (a double click's second) cancels it.
         tv.view.onOpenDraftPicture = { [weak self, weak field = tv.view] id, rect, image in
             guard let self else { return false }
-            let from = field.flatMap { f in image.map { (rect: f.convert(rect, to: self.host), image: $0) } }
-            return self.openDraftPicture(id, from: from)
+            self.draftPictureClick.schedule { [weak self, weak field] in
+                guard let self else { return }
+                let from = field.flatMap { f in image.map { (rect: f.convert(rect, to: self.host), image: $0) } }
+                self.openDraftPicture(id, from: from)
+            }
+            return true
         }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
         tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
@@ -943,9 +950,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         attachmentPress = nil
         let held = hold.fired
         hold.cancel()
-        if held || thread.swallowed(e) { return }
-        if selection.mouseUp() { return }
-        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
+        if held || thread.swallowed(e) { noteDroppedLinkClick(at: p, held ? "a press-and-hold" : "the thread"); return }
+        if selection.mouseUp() { noteDroppedLinkClick(at: p, "a text selection"); return }
+        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) } else { noteDroppedLinkClick(at: p, "click count \(e.clickCount)") }
     }
 
     func clicked(_ p: CGPoint) {

@@ -69,13 +69,15 @@ env:
 jobs:
   crash-class:
     name: cmux-next crash-class rules
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `cmux-next-crash-class`
+    # (pr-pipeline.yml); a push and a pull request into any other base still run them here. Tier A of the merged
+    # pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request into a stacked
+    # feat-cmux-next-* base skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A pull request's merge commit with its parents: the gate fails the
           # PR only for findings in the files it changes.

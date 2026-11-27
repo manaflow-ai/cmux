@@ -33,6 +33,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::hybrid::Cloud;
 
+pub mod live;
+
 /// Where the chat's one writer is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

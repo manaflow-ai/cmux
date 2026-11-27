@@ -132,6 +132,14 @@ struct CloudSetupTests {
         #expect(card?.family == "claude" && card?.model == "m")
         #expect(unrouted.unroutedGateway == ["claude"])
         #expect(await unrouted.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+        // The mark holds for gatewayUnroutedHold, not the app run: past it the gateway is asked again and the start goes on
+        // (start-matrix-production run 45857917362: one unrouted machine refused the 15 claude rows after it).
+        let marked = Date()
+        unrouted.now = { marked.addingTimeInterval(CloudSetup.gatewayUnroutedHold - 1) }
+        #expect(await unrouted.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+        unrouted.now = { marked.addingTimeInterval(CloudSetup.gatewayUnroutedHold + 1) }
+        #expect(unrouted.unroutedGateway.isEmpty)
+        #expect(await unrouted.decide(harness: "claude", model: nil) == .start)
         // Off, offline (empty) or unread (nil): the card again.
         for value in [Set<String>(), nil] {
             served = value

@@ -1047,6 +1047,11 @@ select {
   font-weight: 600;
 }
 
+/* Beside Sign In: what it signs in to ("Signs in to cmux.com"). */
+.cloud-store-cta .ui-sign-in__backend {
+  align-self: center;
+}
+
 .cloud-store-art {
   flex: none;
   width: min(240px, 38%);
