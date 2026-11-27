@@ -29,8 +29,8 @@ fn catalog_fragments_give_exports_and_palette_commands() {
         vec![
             json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor",
                     "keys": [{ "key": "cmd+shift+e", "when": "browserFocused" }],
-                    "page_keys": ["f", "shift+f"],
-                    "page_key_when": { "f": "browserFocused", "shift+f": "browserFocused && !readOnly" } })
+                    "page_keys": ["f"],
+                    "page_key_when": { "f": "browserFocused" } })
         ],
         "keys ride on palette commands only; a page key (`f`) stays out of the app layer"
     );
@@ -148,5 +148,9 @@ fn contributed_keybindings_list_in_keybindings_json_form() {
         ],
         "a bare first stroke the validator refuses is left out"
     );
-    assert_eq!(super::super::activation::Activation::of(&package), Default::default(), "onKeybinding keeps no host up");
+    assert_eq!(
+        super::super::activation::Activation::of(&package),
+        Default::default(),
+        "onKeybinding keeps no host up"
+    );
 }

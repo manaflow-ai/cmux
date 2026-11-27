@@ -158,7 +158,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
 /// platform. The ones that depend on what the daemon installs at startup
 /// (cloud transport, WebSocket listener, search index, agent sessions, the
 /// reaper, build identity, a Chief) are [`identify_capabilities`]'s alone.
-fn always_identified() -> Vec<&'static str> {
+pub(super) fn always_identified() -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push("machine-identity-v1");
     // Receipts can outlive the acpmux configuration that prepared them.
@@ -325,6 +325,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_RESUME_BOUNDED_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
+        ATTACH_FRAMES_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
         AGENT_CLI_HYBRID_LEAN_CAPABILITY,
         TERMINAL_SHELL_LINES_CAPABILITY,
@@ -365,6 +366,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_METADATA_CAPABILITY,
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
+        WORKSPACE_KEEP_AWAKE_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
         TAB_ATTENTION_CAPABILITY,
@@ -415,6 +417,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
         SCREEN_DEVICE_IDENTITY_CAPABILITY,
+        AGENT_PRESENCE_REPLAY_CAPABILITY,
         TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
@@ -481,6 +484,7 @@ pub(super) fn advertised_capabilities(
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::classic_import_router::CAPABILITY,
+        crate::state::classic_import_router::PROBE_CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
         crate::resource_router::palette_rank::CAPABILITY,
         crate::resource_router::browser_import::CAPABILITY,

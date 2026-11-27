@@ -1006,6 +1006,10 @@ impl Worker {
             return;
         }
         self.noise_key_wait = None;
+        // A never-bound machine takes the channel's build before this bind
+        // (`updater::role::before_first_bind`), not five minutes after it.
+        #[cfg(target_os = "linux")]
+        crate::updater::role::before_first_bind(&self.paths);
         let changes = cmux_server::cloud_http::network_changes();
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
@@ -1328,6 +1332,16 @@ impl Worker {
         let Some(live) = self.live.as_mut() else { return };
         let block = super::pressure::read(self.paths.root())
             .and_then(|r| self.pressure.observe(&r, wall_ms()).to_json());
+        if block.as_ref() != live.session.pressure_block() {
+            // One line a change (the read-back reads it: `journalctl -u cmux-host | grep pressure`).
+            let shown = |b: Option<&Value>| b.map_or_else(|| "none".to_owned(), Value::to_string);
+            log(&format!(
+                "pressure: {} (was {}) at {}",
+                shown(block.as_ref()),
+                shown(live.session.pressure_block()),
+                wall_ms()
+            ));
+        }
         let reqs = live.session.pressure(block, now);
         self.drive(reqs);
     }
@@ -1497,6 +1511,10 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
         return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::machine_request::REQUEST_KEY) {
+        let ask = super::machine_request::check_ask(ask);
+        return Some(Ask::MachineRequest(Box::new(ask)));
     }
     if let Some(ask) = msg.get(super::mcp_call::CALL_KEY) {
         return Some(Ask::McpCall(Box::new(super::mcp_call::check_call(ask))));

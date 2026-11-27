@@ -173,6 +173,23 @@ async fn the_delegators_next_send_runs_as_its_own_turn_and_answers_with_it() {
     assert!(s.inbox().items.is_empty(), "nothing waits in the inbox");
 }
 
+/// A config reload must not hold an inbox delivery before its queued acceptance. The page rule
+/// fails open for this one delivery while the writer owns the config lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbox_delivery_is_accepted_while_config_reload_holds_its_lock() {
+    let (hub, s) = delegated().await;
+    let config = hub.config.write().await;
+    let (delivery, accepted) =
+        send(&hub, &s, "s-other", "p-config-held", "status", PromptClass::Result, false);
+    let ack = tokio::time::timeout(Duration::from_secs(2), accepted)
+        .await
+        .expect("inbox acceptance is bounded by a config reload")
+        .unwrap();
+    assert_eq!(ack["inbox"], true, "{ack}");
+    drop(config);
+    delivery.abort();
+}
+
 /// The eval's A5: an agent's `send --wait --timeout 300` to an idle chat it did not start hung all
 /// 300 s, its message held in the inbox and `send --status` saying delivered. A waiting send of a
 /// class that does not wake the chat is refused at once, and nothing is delivered.

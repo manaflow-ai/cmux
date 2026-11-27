@@ -22,6 +22,12 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.number(480), .number(1200), .number(4000), .string("narrow"), .string("medium"), .string("wide")],
             refused: [.number(100), .number(5000), .string("wider")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
+        // The model picker's harness tabs, first to last (webviews modelPickerOrder.ts): empty is the default order.
+        Row(key: "agentPane.display.modelPickerOrder", fallback: .array([]),
+            accepted: [.array([.string("gemini"), .string("claude")])], refused: [.string("gemini")]),
+        // What the model chip opens (webviews ModelPicker.tsx): the harness columns unless a look picks the compact menu.
+        Row(key: "agentPane.display.modelPickerStyle", fallback: .string("list"), accepted: [.string("menu")],
+            refused: [.string("columns"), .bool(true)]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
@@ -30,12 +36,13 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.headerBreadcrumb", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // "Subagent of <chat>" beside a subagent's name in its own pane's header: off, the name alone.
         Row(key: "agentPane.display.subagentOf", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
-        // The running turn's task list pinned in the chat: off, the composer's hat shows it.
-        Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
         Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
+        Row(key: "agentPane.display.compactShortTurns", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.sendPop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // A sent prompt scrolls to the top with room below for the reply: off, the view follows the bottom.
+        Row(key: "agentPane.display.sendScrollsToTop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
@@ -77,7 +84,10 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("on")]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
-        // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
+        // The chat detail ladder (Messages, Normal, Thinking, Verbose) of a chat without its own level.
+        Row(key: "agentPane.display.detail", fallback: .string("normal"),
+            accepted: [.string("messages"), .string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
+        // The two keys the ladder replaced: off the page, still read.
         Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
@@ -230,7 +240,7 @@ struct AgentPaneDisplaySettingTests {
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.minimap", "agentPane.display.detail", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
         "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
