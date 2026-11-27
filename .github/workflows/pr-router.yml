@@ -521,11 +521,13 @@ jobs:
       id-token: write
 
   # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
-  # error when the verdict never ran (no Mac, the pipeline cancelled). A plan that builds nothing is success.
+  # error when the verdict never ran (no Mac, the pipeline cancelled, or skipped though the route started it: red
+  # fast gates). A plan that builds nothing is success. A pipeline the route never started leaves `pending` to the
+  # land handoff's run; one it started always gets a post, so its pending is never orphaned (cmux#57010).
   ios-fast-status:
     name: ios fast verdict status
     needs: [route, pipeline]
-    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && needs.pipeline.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && (needs.pipeline.result != 'skipped' || contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml')) && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -554,6 +556,7 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIPELINE: ${{ needs.pipeline.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
@@ -564,7 +567,9 @@ jobs:
           # when it posts a record, so a head proved after the pipeline still turns green.
           NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
         run: |
-          if [ "$RUN" = false ]; then
+          if [ "$PIPELINE" = skipped ]; then
+            state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
+          elif [ "$RUN" = false ]; then
             state=success; desc="The plan builds nothing on this head"
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
