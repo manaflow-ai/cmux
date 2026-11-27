@@ -10,6 +10,43 @@ fn dir_is_per_tenant_and_safe() {
 }
 
 #[test]
+fn a_first_fill_asks_github_for_the_repository_size() {
+    assert_eq!(
+        api_repo_url("https://github.com/Manaflow-AI/cmux.git").as_deref(),
+        Some("https://api.github.com/repos/Manaflow-AI/cmux")
+    );
+    assert_eq!(
+        api_repo_url("https://github.com/o/r").as_deref(),
+        Some("https://api.github.com/repos/o/r")
+    );
+    for other in [
+        "http://127.0.0.1:9/o/r.git",
+        "https://edge.example/o/r.git",
+        "https://github.com/o/r/x.git",
+    ] {
+        assert_eq!(api_repo_url(other), None, "{other}");
+    }
+    // manaflow-ai/cmux's answer on 2026-11-26 was about this size.
+    assert_eq!(api_size_bytes(br#"{"size": 16252928, "name": "cmux"}"#), Some(16_252_928 * 1024));
+    assert_eq!(api_size_bytes(b"{}"), None);
+    assert_eq!(api_size_bytes(b"not json"), None);
+}
+
+#[tokio::test]
+async fn a_mirror_holding_part_of_the_repository_needs_only_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let pack = dir.path().join("objects/pack");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(pack.join("pack-a.pack"), vec![0u8; 4096]).unwrap();
+    assert_eq!(pack_bytes(dir.path()), 4096);
+    // No client: unknown, so the fill is left to the floor watch.
+    assert_eq!(
+        expected_fill_bytes(None, "https://github.com/o/r.git", None, dir.path()).await,
+        None
+    );
+}
+
+#[test]
 fn a_stopped_write_leaves_no_partial_pack() {
     let dir = tempfile::tempdir().unwrap();
     let pack = dir.path().join("objects/pack");
