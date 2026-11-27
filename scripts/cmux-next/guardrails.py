@@ -3016,6 +3016,13 @@ def marker_ids(lines) -> collections.Counter:
     return found
 
 
+def owners_text(texts: dict[tuple[str, str], str], head: str) -> str:
+    """OWNERS.md as merged upstream, else as the pushed HEAD has it. Who holds an area is the merged table's answer:
+    2026-11-27 a lane branched before cmux#60006 dropped `design-*motion*` from Layout motion still sent its pushes
+    to the transcript-motion lane, because the hook read the row from the lane's own stale copy."""
+    return texts.get((UPSTREAM, OWNERS)) or texts[(head, OWNERS)]
+
+
 def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
     """(area, path globs, owner, doc) from OWNERS.md's table (columns: Area | Paths | Owner | Read first)."""
     rows, header = [], None
@@ -3133,7 +3140,7 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         if not own.head:
             continue
         try:
-            owners = parse_owners(git(repo, "show", f"{own.head}:{OWNERS}"))
+            owners = parse_owners(owners_text(blobs(repo, [(UPSTREAM, OWNERS), (own.head, OWNERS)]), own.head))
         except (Exception, SystemExit):
             continue
         names = owner_route_files(repo, own)
@@ -3267,7 +3274,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
-    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS), (UPSTREAM, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -3329,10 +3336,10 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
-    if (head, OWNERS) in texts:
+    if (head, OWNERS) in texts or (UPSTREAM, OWNERS) in texts:
         names_list = [f for f in names.split("\n") if f]
         try:
-            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(owners_text(texts, head)))]
         except Exception as error:  # a broken warning must not switch off the refusals above
             warnings.append(("guardrails", check_failure("owner", error)))
     return found, warnings
