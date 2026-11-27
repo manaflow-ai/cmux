@@ -31,6 +31,7 @@ import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
+  AcpmuxModelCall,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -564,6 +565,22 @@ const QUEUE_WITHDRAWN_KEPT = 16;
 /// context a harness holds (Claude Code's result repeats its last call's for the context ring;
 /// other harnesses, whatever their family, report only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// When a marked call went out and came back, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs): unix ms on the daemon's clock, the clock of every event's `at`.
+/// None from an older daemon, or for times that do not read.
+const modelCallTiming = (update: any): AcpmuxModelCall | undefined => {
+  const timing = update?._meta?.acpmux?.timing;
+  const first = Number(timing?.firstTokenAt);
+  const last = Number(timing?.lastTokenAt);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return undefined;
+  const request = Number(timing?.requestAt);
+  return {
+    ...(Number.isFinite(request) && request <= first && { requestAt: request }),
+    firstTokenAt: first,
+    lastTokenAt: last,
+    ...(timing?.thought === true && { thought: true as const }),
+  };
+};
 /// The generated side of one model call. Older daemons only sent `used`, which is a context
 /// snapshot and must never be mistaken for output; those calls therefore do not contribute.
 const callOutputTokens = (update: any): number | undefined => {
@@ -7735,8 +7752,35 @@ export class AcpmuxDirectClient {
     if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
   }
 
+  /// The newest record the selected chat's event stream brought this page (`streamGap`), whatever the page did
+  /// with it.
+  private streamHeard?: { sessionId: string; generation: number; seq: number };
+
+  /// acpmux names the record its event stream sent before this one (`prev`, server `Conn::stream_prev`). A chat
+  /// that holds less lost records on the way (a dropped bridge frame, a relay): they are read from its cursor now,
+  /// as after a lag, rather than left a hole only a reload filled (Leo, 2026-11-22: "we need to make sure any
+  /// solutions that reloading would help with, we never encounter those classes of bugs in the first place.").
+  private streamGap(event: EventRecord): void {
+    const sessionId = event.sessionId as string;
+    const generation = this.selectionGeneration;
+    const before = this.streamHeard;
+    const heard = before?.sessionId === sessionId && before.generation === generation ? before.seq : 0;
+    this.streamHeard = { sessionId, generation, seq: Math.max(heard, event.seq) };
+    const prev = (event as { prev?: unknown }).prev;
+    // Before the attach lands its page is the cursor, and acpmux's stream starts over at every attach.
+    if (this.attachedGeneration !== generation || !streamLost(prev, this.lastSeq, heard)) return;
+    this.wire.lifecycle("stream gap", { sessionId, after: this.lastSeq, prev });
+    this.resyncAfterLag({
+      dropped: (prev as number) - this.lastSeq,
+      sessionIds: [sessionId],
+      afterSeq: this.lastSeq,
+      reason: "stream_gap",
+    });
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
+    this.streamGap(event);
     if (event.sessionId && this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
     acpmuxPerf.recordsTaken("applied", 1, event.seq);
     // The chat's records reach the page: the quiet watch starts over from here.
@@ -10244,6 +10288,8 @@ export class AcpmuxDirectClient {
       // count belongs on the running line; adding `used` here counted the whole context again on
       // every tool step (for example, 5 × 100K input became 500K instead of 5K output). What the
       // calls read stays apart, in the split, for the line's "in" and its hover.
+      const timed = isCallUsage(update) ? modelCallTiming(update) : undefined;
+      if (timed) this.timeModelCall(timed);
       if (this.turnTokens !== undefined && isCallUsage(update)) {
         const output = callOutputTokens(update);
         if (output !== undefined) this.turnTokens += output;
@@ -11135,6 +11181,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "assistant",
         ...(messageTurnStartedAtMs !== undefined && { turnStartedAtMs: messageTurnStartedAtMs }),
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
         text: `${existing?.text ?? ""}${text}`,
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
@@ -11200,6 +11247,7 @@ export class AcpmuxDirectClient {
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
         streaming: true,
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -11279,6 +11327,7 @@ export class AcpmuxDirectClient {
         toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
@@ -11396,7 +11445,12 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
-      else if (compaction.state !== "running" && running && this.ownSteerBelow(running.id))
+      // A late result updates an inferred note in place, even if another steer has since arrived.
+      else if (
+        compaction.state !== "running" &&
+        running?.compaction?.state === "running" &&
+        this.ownSteerBelow(running.id)
+      )
         this.rows.placeAfterCurrent(id);
     }
   }
@@ -11868,6 +11922,16 @@ export class AcpmuxDirectClient {
     const text = row.text ?? "";
     const claims = readClaims(msg.claims).filter((claim) => text.includes(claim.text));
     if (claims.length) this.rows.set(row.id, { ...row, version: row.version + 1, claims });
+  }
+
+  /// A model call acpmux timed goes on the row its output streamed into, which the turn's footer
+  /// Timeline reads (conversation/waterfallSpans.ts `turnWork`). A call read twice (a catch-up over
+  /// events already read) is kept once.
+  private timeModelCall(call: AcpmuxModelCall): void {
+    const id = this.streamingActivity ?? this.streamingAssistant;
+    const row = id === undefined ? undefined : this.rows.get(id);
+    if (!row || row.modelCalls?.some((held) => held.lastTokenAt === call.lastTokenAt)) return;
+    this.rows.set(id!, { ...row, version: row.version + 1, modelCalls: [...(row.modelCalls ?? []), call] });
   }
 
   private endAssistantSegment(): void {
@@ -13671,6 +13735,9 @@ export class AcpmuxDirectClient {
         void store.remove(sessionId, promptId).catch(() => undefined);
         continue;
       }
+      // Sent while the pane had no link (offlineSends.ts): never refused, it is the pane's queue's
+      // to send, not a Not sent row.
+      if (record.queued) continue;
       if (!this.unsentKept.has(promptId)) this.unsentKept.set(promptId, { sessionId, record });
       const rowId = `local-${promptId}`;
       if (this.rows.has(rowId) || this.deliveries.has(promptId)) continue;
@@ -16868,6 +16935,16 @@ export class AcpmuxDirectClient {
   async teamAudit(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/team_audit", params, 45_000);
   }
+  /// RFD 0170's team directory (`_acpmux/team/navigator`, `_acpmux/team/pick`,
+  /// `_acpmux/team/session_info`, acpmux server/team_directory.rs): each answer is the
+  /// cmux-team-messaging view, built and permission-filtered in Rust; the pane only draws it
+  /// (teamDirectory/TeamDirectoryScreen.tsx). Off while `meshRelay.teamMessaging` is off.
+  async teamDirectory(
+    method: "navigator" | "pick" | "session_info",
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    return this.request(`_acpmux/team/${method}`, params, 15_000);
+  }
   /// Every ask waiting on the person across agents and machines, for History > Waiting on you
   /// (`_acpmux/review_queue`, queue/queueModel.ts).
   async reviewQueue(params: Record<string, unknown> = {}): Promise<unknown> {
@@ -18635,6 +18712,14 @@ function pageShown(): boolean {
 /// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
 function readerHere(): boolean {
   return pageShown() && (pageAttention()?.present() ?? true);
+}
+
+/// Whether an event-stream record whose stream sent `prev` before it (acpmux `Conn::stream_prev`) finds records
+/// lost on the way: the page holds the chat through `lastSeq` (0: no page yet) and heard through `heard`.
+export function streamLost(prev: unknown, lastSeq: number, heard: number): prev is number {
+  return (
+    typeof prev === "number" && Number.isSafeInteger(prev) && prev > 0 && lastSeq > 0 && prev > Math.max(lastSeq, heard)
+  );
 }
 
 /// Where a lag's read of what acpmux left out starts: the page's cursor, or the notice's `afterSeq`

@@ -124,19 +124,42 @@ pub(super) fn head_fits(len: u64) -> bool {
     len < super::HEAD_BYTES
 }
 
+/// Each record's line (with its newline) as a copy's last write encoded it, by seq. A record
+/// that did not serialize has an empty line: left out, as before, and not tried again.
+pub(super) type Lines = BTreeMap<u64, Box<[u8]>>;
+
 /// A copy as written: its head line, then its records.
+#[cfg(test)]
 pub(super) fn encode(head: &Head, records: &BTreeMap<u64, Value>) -> Vec<u8> {
+    encode_with(head, records, &mut Lines::new())
+}
+
+/// [`encode`], serializing only the records `lines` does not hold yet. A copy is written whole
+/// every [`super::FLUSH_AFTER`] while its session runs, and up to [`super::SESSION_EVENTS`]
+/// records long: serializing every record again on each write was 16% of the hub's CPU with
+/// 2,000 sessions (cmux-ci job af351a0fd73574da6179a98b). `lines` comes back holding exactly
+/// the seqs of `records`; the caller drops a seq's line whenever its record changes.
+pub(super) fn encode_with(
+    head: &Head,
+    records: &BTreeMap<u64, Value>,
+    lines: &mut Lines,
+) -> Vec<u8> {
     let mut out = serde_json::to_vec(head).unwrap_or_default();
     out.push(b'\n');
-    // Each record straight into the copy, with no buffer of its own; one that does not
-    // serialize is cut back out, as it was left out before.
-    for r in records.values() {
-        let start = out.len();
-        if serde_json::to_writer(&mut out, r).is_ok() {
-            out.push(b'\n');
-        } else {
-            out.truncate(start);
-        }
+    let mut old = std::mem::take(lines);
+    for (seq, r) in records {
+        let line = old.remove(seq).unwrap_or_else(|| {
+            let mut line = Vec::new();
+            // One that does not serialize is left out, as it was before.
+            if serde_json::to_writer(&mut line, r).is_ok() {
+                line.push(b'\n');
+            } else {
+                line.clear();
+            }
+            line.into_boxed_slice()
+        });
+        out.extend_from_slice(&line);
+        lines.insert(*seq, line);
     }
     out
 }
