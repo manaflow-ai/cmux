@@ -122,7 +122,7 @@ pub fn list_hash(names: &[String]) -> String {
 /// The route's body: the batch is the list's own hash (its first 24 hex), so a resent list is
 /// the same batch.
 pub fn body(names: &[String], hash: &str) -> Value {
-    json!({ "batch": &hash[..24], "names": names })
+    json!({ "batch": hash.get(..24).unwrap_or(hash), "names": names })
 }
 
 /// What one collection did.

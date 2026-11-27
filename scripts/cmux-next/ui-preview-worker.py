@@ -87,6 +87,7 @@ CMUX_REPO = "manaflow-ai/cmux"
 CMUX_URL = f"https://github.com/{CMUX_REPO}.git"
 BASE_BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
+BRANCH_NAME = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")  # a plain branch name, as the brokered fetch takes it
 SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,200}$")
 BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,250}$")
 # The web gallery also reads design/ (icons) and first-party-apps/<app>/preview: both are web looks.
@@ -108,7 +109,10 @@ SWIFT_SCENES = {
 }
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
-SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
+# The Swift tree is whole but for the iOS app (0.5 of the tree's 1.35 GB, read by no macOS build). An allow-list drifts
+# out from under the builds: the shell's settings plugin came to run scripts/cmux-next/gen-settings-sources.py, and
+# every look failed on a file not checked out.
+SWIFT_SPARSE = ("/*", "!/cmux-next-ios/")
 # The web tree: everything but the large folders no web file imports. A hand list of folders drifted: bun install's
 # postinstall reads release-notes/ and schemas/, protocol:codegen the acpmux IR, gallery entries fixtures under
 # Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
@@ -117,6 +121,17 @@ GALLERY_PORT = 4217
 # Warm galleries (web tree, vite, shooter) kept at once, each on one gallery config; ports GALLERY_PORT and up.
 GALLERIES = 2
 KEEP_H = 36
+# The published census copy (ui-preview/HOST.json on now-census) goes through the broker's state_put, which refuses a
+# file over STATE_MAX (1 MiB, cmuxterm-hq tools/lane-gh-broker/parts/46-calls-state.py). The local receipts file kept
+# 36 h pretty-printed with stages, plans and entries and passed it on 2026-11-26 about 11:20Z (1.4 MB by 23:30Z):
+# every publish after was refused, the refusal went nowhere, and NOW read 3 covered of 2203 pushes from a copy 12 h
+# old. So the published doc carries only what NOW's ui_preview reads (cmuxterm-hq fleet-reconcilers/now_ui_preview.py),
+# only the window it counts, compact, and under PUBLISH_MAX bytes, oldest receipts dropped first.
+PUBLISH_WINDOW_H = 25
+PUBLISH_MAX = 768 << 10
+PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
+PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "posted_at", "error",
+                  "synthetic")
 # Bounds, seconds.
 FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
@@ -124,6 +139,8 @@ BUILD_SECONDS = 15 * 60
 SHOOT_SECONDS = 180
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
+# The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
+GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
 SEND_SECONDS = 60
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
@@ -532,6 +549,7 @@ class Worker:
         self.send_template = send
         self.publish_template = publish
         self.host = host or socket.gethostname().split(".")[0]
+        self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
         self.swift_lock = threading.Lock()  # the shell's tree and .build
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
@@ -574,6 +592,12 @@ class Worker:
         return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
                               capture_output=True, env=NO_LAZY).returncode == 0
 
+    def has_gallery(self, sha: str) -> bool:
+        """SHA's tree holds the gallery's ranker (GALLERY_RANKER): a branch off main, which has none, has no web look
+        to take (every one failed "Module not found scripts/gallery/touched.ts" and counted as a miss)."""
+        return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}:{GALLERY_RANKER}"],
+                              capture_output=True, env=NO_LAZY).returncode == 0
+
     def is_ancestor(self, sha: str, tip: str) -> bool:
         return subprocess.run(["git", "-C", str(self.clone), "merge-base", "--is-ancestor", sha, tip],
                               capture_output=True, env=NO_LAZY).returncode == 0
@@ -591,14 +615,33 @@ class Worker:
                 tips.append(done.stdout.strip())
         return list(dict.fromkeys(tips))
 
-    def fetch(self, *shas: str) -> None:
-        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest from GitHub, the
-        mirror's refs telling GitHub what is here (one lock, so a prefetch and a look never fetch one head twice)."""
+    def fetch(self, *shas: str, branches: tuple[str | None, ...] = ()) -> None:
+        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES (and
+        BASE_BRANCH) as origin/B, then by id only for what is still missing (one lock, so a prefetch and a look never
+        fetch one head twice). By branch, never by --filter or a bare id: on a lane VM that publishes through the
+        broker (host-gh) git fetch carries plain branch names and tracking refspecs only, and every warm-up died
+        "git fetch --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The
+        blob-less clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
         with self.fetch_lock:
             missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
             if missing:
-                git(self.clone, "fetch", "-q", "--filter=blob:none", "--no-tags", "--no-write-fetch-head", "origin",
-                    *missing, timeout=FETCH_SECONDS)
+                self.fetch_branches(*branches, BASE_BRANCH)
+                missing = [s for s in missing if not self.has_commit(s)]
+            if missing:
+                git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
+                    timeout=FETCH_SECONDS)
+
+    def fetch_branches(self, *branches: str | None) -> None:
+        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds fetch_lock, or needs none)."""
+        names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b)]
+        if names:
+            git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
+                *(f"+refs/heads/{b}:refs/remotes/origin/{b}" for b in names), timeout=FETCH_SECONDS)
+
+    def remote_tip(self, branch: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(self.clone), "rev-parse", "-q", "--verify",
+                               f"refs/remotes/origin/{branch}^{{commit}}"], capture_output=True, text=True, env=NO_LAZY)
+        return done.stdout.strip() if done.returncode == 0 and SHA.match(done.stdout.strip()) else None
 
     def prefetch(self, req: dict) -> None:
         """While REQ waits in the queue: its head and base into the clone, and the blobs the diff between them reads
@@ -607,7 +650,7 @@ class Worker:
         began = time.monotonic()
         try:
             self.ensure_clone()
-            self.fetch(head, base)
+            self.fetch(head, base, branches=(req.get("branch"),))
             git(self.clone, "diff", "--numstat", "--no-renames", base, head, "--", ".", ":!cmux-next-ios",
                 ":!ghostty", ":!ghostty-next", timeout=PREFETCH_SECONDS)
             log(f"prefetch {head[:12]}: {time.monotonic() - began:.1f} s")
@@ -625,6 +668,9 @@ class Worker:
             git(self.clone, "worktree", "prune")
             git(self.clone, "worktree", "add", "--no-checkout", "--detach", str(tree), sha, timeout=300)
             git(tree, "sparse-checkout", "set", "--no-cone", *sparse)
+        elif git(tree, "sparse-checkout", "list").split() != list(sparse):
+            # A resident tree made under an older list: widen it in place, keeping its .build and node_modules.
+            git(tree, "sparse-checkout", "set", "--no-cone", *sparse, timeout=600)
         self.checkout(tree, sha)
 
     def checkout(self, tree: Path, sha: str) -> None:
@@ -632,20 +678,19 @@ class Worker:
 
     def on_branch_tip_or_landed(self, head: str, branch: str | None) -> bool:
         """The head is a manaflow-ai/cmux branch's tip, or landed on feat-cmux-next: never a fork's commit (the
-        look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else one
-        ls-remote, and the base tip fetched only when it is not here (it was most of a 36 s fetch stage)."""
+        look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else the
+        branch tip the look's fetch wrote (origin/BRANCH: a tip the repo held, so the repo's own commit even if the
+        branch moved since), and only when that is not the head one fetch of the branch and the base. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
         if any(self.is_ancestor(head, tip) for tip in self.local_base_tips()):
             return True
-        refs = [f"refs/heads/{branch}"] if branch else []
-        out = git(self.clone, "ls-remote", "origin", *refs, f"refs/heads/{BASE_BRANCH}", timeout=60)
-        tips = dict(line.split("\t")[::-1] for line in out.splitlines() if "\t" in line)
-        if branch and tips.get(f"refs/heads/{branch}") == head:
+        if branch and self.remote_tip(branch) == head:
             return True
-        tip = tips.get(f"refs/heads/{BASE_BRANCH}")
-        if tip:
-            self.fetch(tip)
-            return self.is_ancestor(head, tip)
-        return False
+        with self.fetch_lock:
+            self.fetch_branches(branch, BASE_BRANCH)
+        if branch and self.remote_tip(branch) == head:
+            return True
+        tip = self.remote_tip(BASE_BRANCH)
+        return bool(tip) and self.is_ancestor(head, tip)
 
     def gallery_config_changed(self, old: str, new: str) -> bool:
         out = git(self.clone, "diff", "--name-only", "--no-renames", old, new, "--",
@@ -840,8 +885,7 @@ class Worker:
             self.ensure_clone()
             ref = f"refs/remotes/origin/{BASE_BRANCH}"
             with self.fetch_lock:
-                git(self.clone, "fetch", "-q", "--filter=blob:none", "--no-tags", "--no-write-fetch-head", "origin",
-                    f"+refs/heads/{BASE_BRANCH}:{ref}", timeout=FETCH_SECONDS)
+                self.fetch_branches(BASE_BRANCH)
             tip = git(self.clone, "rev-parse", ref)
         errors = []
         prune_transforms(self.state / "vite-transforms")
@@ -946,10 +990,16 @@ class Worker:
             raise LookError(why)
         with stages("fetch"):
             self.ensure_clone()
-            self.fetch(head, base)
+            self.fetch(head, base, branches=(req.get("branch"),))
             if not self.on_branch_tip_or_landed(head, req.get("branch")):
                 raise LookError(f"{head[:12]} is neither {req.get('branch')}'s tip on {CMUX_REPO} nor on "
                                 f"{BASE_BRANCH}: no look at a commit that is not the repo's own")
+            if planned["web"] and not self.has_gallery(head):
+                planned = {**planned, "web": False, "no_gallery": True}
+                receipt["plan"] = planned
+                if not planned["swift"]:
+                    raise LookError(f"no scene shows these files: {head[:12]} has no {GALLERY_RANKER} "
+                                    f"(a branch off main, not {BASE_BRANCH})")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
         if planned["needs_build"]:
@@ -1081,9 +1131,15 @@ class Worker:
         """--publish-receipts once over the file as it is now (the publisher's thread; never a look's)."""
         argv = [a.replace("{file}", str(self.receipts_path)).replace("{host}", self.host)
                 for a in shlex.split(self.publish_template or "")]
-        if argv:
-            with _suppress():
-                subprocess.run(argv, capture_output=True, timeout=SEND_SECONDS)
+        if not argv:
+            return
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=SEND_SECONDS)
+        except (OSError, subprocess.SubprocessError) as err:
+            log(f"publish: {err}")
+            return
+        if done.returncode != 0:  # a refused publish was silent for 12 h (PUBLISH_MAX): say it each time
+            log(f"publish exited {done.returncode}: {tail(done.stderr or done.stdout)}")
 
 
 class Publisher:
@@ -1242,13 +1298,22 @@ def tailnet_address() -> str | None:
 
 FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
 FOLLOW_RETRY_S = 10  # after a failed call
+# A request pushed longer than this before the worker started is the previous lease holder's (replayed): the lease's
+# ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
+# RESTART_S 5.
+TAKEOVER_S = 90
 
 
 def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
+    REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
+    (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
+    receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
+    repo (ui_preview_requests) takes its few bytes in argv: lane-gh reads stdin only in the REPO form."""
+    body = json.dumps(args)
+    argv = ["lane-gh", "call", tool, repo, "-"] if repo else ["lane-gh", "call", tool, body]
     try:
-        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
-                              capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, input=body if repo else None, capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError) as err:
         raise LookError(f"lane-gh call {tool}: {err}") from None
     if done.returncode != 0:
@@ -1297,9 +1362,27 @@ def drain(worker: "Worker", jobs: "queue.Queue", once: bool = False) -> None:
             return
 
 
+def replayed(worker: "Worker", req: dict) -> bool:
+    """Whether REQ was pushed while another worker held the role: more than TAKEOVER_S before this one started.
+
+    The role runs on two hosts under a lease (leo-workspace tools/role_lease.py) and DIR/follow-seq is each host's
+    own, so the host that takes the lease over resumes from the seq it held when it last led and the broker answers
+    every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
+    already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
+    also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
+    started was its predecessor's to post, which had longer than the whole 60 s goal to do it; within TAKEOVER_S it
+    may have been in flight when the predecessor stopped (the lease's TTL plus its probe, role_lease's stop and
+    restart), so it is taken. A replayed request gets no receipt here: the poster's receipt, or the trigger's
+    posted_at null one, stands."""
+    pushed = parse_ts(req.get("pushed_at"))
+    since = getattr(worker, "started_at", None)
+    return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
     """One long-poll of the broker's push trigger: queues each request this worker takes and returns the seq to ask
-    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog)."""
+    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog). A request pushed
+    before this worker took the role over is its predecessor's (replayed)."""
     answer = call("ui_preview_requests", {"after": after or 0, "wait": 0 if after is None else FOLLOW_WAIT_S},
                   FOLLOW_WAIT_S + 60)
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
@@ -1313,6 +1396,10 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
             req = check_request(raw)
         except LookError as err:
             log(f"follow: request {seq} not taken: {err}")
+            continue
+        if replayed(worker, req):
+            log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                f"took the role: its predecessor's, not posted again")
             continue
         planned = plan(req["ui_files"])
         if not worker.swift_on and not planned["web"] and not skip_reason(planned):
@@ -1413,11 +1500,59 @@ def command_submit(args) -> int:
     return 0
 
 
+def publish_doc(doc: dict, now: dt.datetime | None = None, limit: int = PUBLISH_MAX) -> str:
+    """DOC (the local receipts file) as the census copy: the receipts pushed in the last PUBLISH_WINDOW_H hours, each
+    with PUBLISH_FIELDS (at most PUBLISH_FILES ui_files) and its scenes' before and after (relative to the row's
+    look_base, when every shot shares one), compact, newest kept and oldest dropped until it is at most
+    LIMIT bytes. Raises ValueError for a doc that is not ui-preview/v1."""
+    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA_RECEIPT or not isinstance(doc.get("receipts"), list):
+        raise ValueError("the receipts file is not a ui-preview/v1 document")
+    cutoff = (now or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(hours=PUBLISH_WINDOW_H)
+    rows = []
+    for r in doc["receipts"]:
+        pushed = parse_ts(r.get("pushed_at")) if isinstance(r, dict) else None
+        if pushed is None or pushed < cutoff:
+            continue
+        row = {k: r[k] for k in PUBLISH_FIELDS if r.get(k) is not None}
+        if isinstance(row.get("error"), str):
+            row["error"] = row["error"][:200]
+        files = row.get("ui_files")
+        if isinstance(files, list) and len(files) > PUBLISH_FILES:  # a whole-tree push named 17 KB of paths
+            row["ui_files"], row["ui_files_n"] = files[:PUBLISH_FILES], len(files)
+        scenes = [{k: s[k] for k in ("scene", "kind", "before", "after") if s.get(k)}
+                  for s in r.get("scenes") or [] if isinstance(s, dict)]
+        # Every shot's URL is the worker's http://HOST:PORT/looks/LOOK/ and a short tail: the base once, as look_base.
+        bases = {m[1] for s in scenes for k in ("before", "after")
+                 if isinstance(s.get(k), str) and (m := re.match(r"^(.*/looks/[0-9a-f]{32}/)(.+)$", s[k]))}
+        if len(bases) == 1:
+            row["look_base"] = base = bases.pop()
+            for s in scenes:
+                for k in ("before", "after"):
+                    if isinstance(s.get(k), str) and s[k].startswith(base):
+                        s[k] = s[k][len(base):]
+        if scenes:
+            row["scenes"] = scenes
+        rows.append((pushed, row))
+    rows.sort(key=lambda pr: pr[0])
+    kept = [row for _, row in rows]
+    head = {"schema": SCHEMA_RECEIPT, "host": doc.get("host"), "at": doc.get("at") or utc_now()}
+
+    def encode(receipts: list) -> str:
+        return json.dumps({**head, "receipts": receipts}, separators=(",", ":")) + "\n"
+
+    text = encode(kept)
+    while len(text.encode()) > limit and kept:
+        over = len(text.encode()) - limit
+        drop = max(1, over * len(kept) // max(1, len(text.encode())))
+        kept = kept[drop:]
+        text = encode(kept)
+    return text
+
+
 def command_publish(args) -> int:
     """FILE as ui-preview/HOST.json on cmuxterm-hq's reconciler-state/now-census (the broker's state_put)."""
     try:
-        text = Path(args.file).read_text()
-        json.loads(text)
+        text = publish_doc(json.loads(Path(args.file).read_text()))
         lane_gh_call("state_put", {"name": "now-census", "files": {f"ui-preview/{args.host}.json": text}},
                      SEND_SECONDS, repo="manaflow-ai/cmuxterm-hq")
     except (OSError, ValueError, LookError) as err:
