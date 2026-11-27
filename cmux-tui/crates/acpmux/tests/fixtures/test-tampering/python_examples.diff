@@ -1,0 +1,11 @@
+--- a/tests/test_upload.py
++++ b/tests/test_upload.py
+@@ -1,5 +1,6 @@
+ def test_upload():
+-    """assert upload() == 'ok'
+-    @pytest.mark.skip(reason='example')
++    """assert upload()
++    @pytest.mark.skip(reason='updated example')
+     """
++    # @pytest.mark.skip(reason='example')
+     assert upload() == "ok"

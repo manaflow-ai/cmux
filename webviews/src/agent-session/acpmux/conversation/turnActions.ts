@@ -13,6 +13,7 @@ export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
 // turn's hunks, reaches memoized rows without changing their versions.
 import type { AnswerBlock } from "../subagents/restart";
 import { createContext, type ReactNode } from "react";
+import type { TamperingEvidence } from "./testTamperingModel";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { GitHubConnectOffer } from "./githubConnect";
@@ -89,6 +90,7 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  restoreTestTampering?: (finding: TamperingEvidence) => Promise<void>;
   /// Why `answer` is absent (subagents/restart.ts `answerBlock`): the card says it in its last row.
   answerBlock?: AnswerBlock;
   /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask

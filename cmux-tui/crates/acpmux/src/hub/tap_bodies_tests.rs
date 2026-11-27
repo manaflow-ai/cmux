@@ -29,6 +29,41 @@ fn update(update: Value) -> Message {
     )
 }
 
+#[test]
+fn test_tampering_evidence_is_durable_only_on_successful_settlement() {
+    let hub = hub();
+    let session = claude_chat(&hub, "tampering");
+    let tap = hub.session_tap(&session);
+    let content = json!([{"type":"diff", "path":"suite.test.ts", "oldText":"expect(count).toEqual(3);", "newText":"expect(count).toBeTruthy();"}]);
+    for (id, status, content) in [
+        ("success", "in_progress", content.clone()),
+        ("success", "completed", content.clone()),
+        ("failure", "in_progress", content.clone()),
+        ("failure", "failed", content.clone()),
+        ("missing-result-diff", "completed", Value::Null),
+    ] {
+        // A harness-supplied alarm must not turn an unsuccessful proposal into evidence.
+        let mut fields = json!({"sessionUpdate":"tool_call_update", "toolCallId":id, "status":status, "tampering":{"forged":true}});
+        if !content.is_null() {
+            fields["content"] = content;
+        }
+        assert!(tap(Direction::In, &update(fields), None));
+    }
+    let records = hub.store.events("tampering", 0, usize::MAX).unwrap();
+    let reports: Vec<_> = records
+        .iter()
+        .filter_map(|record| {
+            let update = record.msg.pointer("/params/update")?;
+            update.get("tampering").map(|report| (update, report))
+        })
+        .collect();
+    assert_eq!(reports.len(), 1);
+    let (settled, report) = reports[0];
+    assert_eq!(settled["toolCallId"], "success");
+    assert_eq!(settled["status"], "completed");
+    assert_eq!(report, &crate::test_tampering::detect_diffs(&settled["content"]).unwrap());
+}
+
 /// A turn as Claude Code and its translation send it: the prompt's echo, a thought, a command
 /// with its output, and the answer. Each raw line as Claude Code wrote it (`claude.<type>`).
 fn claude_turn() -> Vec<Message> {

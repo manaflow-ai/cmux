@@ -62,6 +62,17 @@ impl PastTool {
                 }
             }
         }
+        // Evidence belongs to the same settled event as its structured diff, so Restore can
+        // re-derive it from that durable event. Failed/cut-off proposals have no alarm.
+        if let Some(done) = self.done.as_object_mut() {
+            done.remove("tampering");
+        }
+        if !failed
+            && let Some(report) =
+                self.done.get("content").and_then(crate::test_tampering::detect_diffs)
+        {
+            self.done.set("tampering", report);
+        }
         // An edit that failed changed nothing: its files keep no +/- counts.
         if failed
             && let Some(changes) =
@@ -338,13 +349,15 @@ fn codex_file_change(
         let target = change.move_path.as_deref().unwrap_or(&change.path);
         let (additions, deletions) = match change.kind.as_str() {
             "add" => {
-                content.push(json!({"type": "diff", "path": target, "newText": change.text}));
+                content.push(
+                    json!({"type": "diff", "path": target, "line": 1, "newText": change.text}),
+                );
                 locations.push(json!({"path": target}));
                 (change.text.lines().count() as u64, 0)
             }
             "delete" => {
                 content.push(
-                    json!({"type": "diff", "path": target, "oldText": change.text, "newText": ""}),
+                    json!({"type": "diff", "path": target, "line": 1, "oldText": change.text, "newText": ""}),
                 );
                 locations.push(json!({"path": target}));
                 (0, change.text.lines().count() as u64)
@@ -355,7 +368,7 @@ fn codex_file_change(
                     content.push(text_content(&format!("{target}\n{}", change.text)));
                 }
                 for hunk in &parts {
-                    content.push(json!({"type": "diff", "path": target, "oldText": joined(&hunk.old), "newText": joined(&hunk.new), "_meta": {"acpmux": {"fragment": true}}}));
+                    content.push(json!({"type": "diff", "path": target, "line": hunk.old_start, "oldText": joined(&hunk.old), "newText": joined(&hunk.new), "_meta": {"acpmux": {"fragment": true}}}));
                 }
                 // A location's line numbers its file's diffs: only one hunk starts there.
                 locations.push(match parts.as_slice() {
@@ -387,6 +400,7 @@ fn codex_file_change(
             })
             .collect();
     }
+    let tampering = crate::test_tampering::detect_diffs(&content);
     let title = match files.as_slice() {
         [one] => {
             let verb = match one.kind.as_str() {
@@ -398,14 +412,18 @@ fn codex_file_change(
         }
         many => format!("Edit {} files", many.len()),
     };
-    Some(PastTool {
+    let mut tool = PastTool {
         id: id.to_owned(),
         call: json!({"kind": "edit", "title": title, "locations": locations, "rawInput": {"changes": summary}}),
         done: json!({"status": status, "content": content}),
         started_at: at,
         ended_at: at,
         proposed: None,
-    })
+    };
+    if let Some(tampering) = tampering {
+        tool.done.set("tampering", tampering);
+    }
+    Some(tool)
 }
 
 /// MCP or tool result blocks as ACP content: their text.
@@ -541,6 +559,9 @@ pub fn claude_tool_uses(content: &Value, at: Option<u64>) -> Vec<PastTool> {
             let input = block.get("input").cloned().unwrap_or(Value::Null);
             let mut call = crate::claude_stdio::tool_call_fields(name, &input);
             let diffs = call.as_object_mut().and_then(|c| c.remove("content"));
+            if let Some(call) = call.as_object_mut() {
+                call.remove("tampering");
+            }
             Some(PastTool {
                 id: id.to_owned(),
                 call,

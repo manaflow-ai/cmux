@@ -456,6 +456,8 @@ mod test_stack;
 /// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
+pub mod test_tampering;
+pub(crate) mod test_tampering_restore;
 pub(crate) mod time_breakdown;
 pub mod todo_tools;
 pub(crate) mod tool_env;

@@ -11,6 +11,7 @@ import { pageAttention } from "./attention";
 import { pageScrollQuiet } from "./scrollQuiet";
 import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
+import { restoreTestTampering, type TestTamperingRestoreTarget } from "./testTamperingRestore";
 import { stuckAttention } from "./loopEpisode";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import type { RaceRecord, RaceStart } from "./races/model";
@@ -1875,6 +1876,7 @@ export class AcpmuxDirectClient {
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
+  canRestoreTestTampering = false;
   /// The origin acpmux names for this connection; `unknown` until (or unless) it names one.
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
   /// The app's wire says this chat runs on the person's own Cloud machine (`ownerCloud`).
@@ -2889,6 +2891,7 @@ export class AcpmuxDirectClient {
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
+      this.canRestoreTestTampering = initialized?._meta?.acpmux?.testTamperingRestore === true;
       // The owner's Approve and Decline of a guest's prompt (`_acpmux/queue_approve`), and a held
       // prompt's record read whole (`_acpmux/queue_get`).
       this.queueApproval = Array.isArray(features) && features.includes("queueApproval");
@@ -6068,6 +6071,16 @@ export class AcpmuxDirectClient {
   /// Marks or unmarks the prompt logged at `seq`; acpmux answers with the session's marks.
   setBookmark(sessionId: string, seq: number, bookmarked: boolean): Promise<unknown> {
     return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
+  }
+
+  restoreTestTampering(target: TestTamperingRestoreTarget): Promise<void> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("testTampering.restoreUnavailable")));
+    return restoreTestTampering(
+      (method, params, deadline) => this.request(method, params, deadline),
+      sessionId,
+      target,
+    );
   }
 
   /// The saved prompts acpmux keeps and cmux-next.json names (`{prompts: [...]}`, savedPrompts.ts).
@@ -11307,7 +11320,7 @@ export class AcpmuxDirectClient {
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const previous = itemIndex >= 0 ? items[itemIndex] : undefined;
       const merged = this.holdEdit(
-        mergeToolItem(previous, withRecipient(update, event.msg.params), callId, text, event.at),
+        mergeToolItem(previous, withRecipient(update, event.msg.params), callId, text, event.at, event.seq),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       if (

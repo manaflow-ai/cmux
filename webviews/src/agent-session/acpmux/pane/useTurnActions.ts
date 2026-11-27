@@ -18,6 +18,7 @@ import { detailRows } from "../chatDetail";
 import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerModel";
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
+import type { TamperingEvidence } from "../conversation/testTamperingModel";
 import { withoutQuietThoughts } from "../conversation/thoughts";
 import {
   answerThrough,
@@ -516,6 +517,18 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,
+      ...(directClient.current?.canRestoreTestTampering && {
+        restoreTestTampering: ((owner: string) => (finding: TamperingEvidence) => {
+          const client = directClient.current;
+          if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession) || !finding.eventSeq)
+            return Promise.reject(new Error(CHAT_CHANGED));
+          return client.restoreTestTampering({
+            eventSeq: finding.eventSeq,
+            fileIndex: finding.fileIndex,
+            findingIndex: finding.findingIndex,
+          });
+        })(restartChat),
+      }),
       ...(asker && { asker }),
       // A pane that moved to another chat since sends nothing there, and says so on the card.
       answer: (
