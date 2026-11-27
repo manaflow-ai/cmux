@@ -175,8 +175,8 @@ fn bounded_body(mut response: reqwest::blocking::Response, limit: usize) -> Answ
                 return Answer::Failed;
             }
         }
-        let Some(got) = chunk.get(..read) else { return Answer::Failed };
-        bytes.extend_from_slice(got);
+        let Some(read) = chunk.get(..read) else { return Answer::Failed };
+        bytes.extend_from_slice(read);
     }
 }
 

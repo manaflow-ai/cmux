@@ -69,10 +69,21 @@ fn main() -> std::process::ExitCode {
         Ok(code) => std::process::ExitCode::from(code),
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
-            std::process::ExitCode::FAILURE
+            // A commit the projection does not take (`git::Unsupported`: a non-UTF-8 path or link
+            // text, an unknown object format): `wt new --projected` reads 3 as "make an ordinary
+            // checkout instead", any other status as a failure to report.
+            if error.downcast_ref::<cmux_projection::git::Unsupported>().is_some() {
+                std::process::ExitCode::from(UNSUPPORTED)
+            } else {
+                std::process::ExitCode::FAILURE
+            }
         }
     }
 }
+
+/// The exit status of a commit the projection does not take ([`cmux_projection::git::Unsupported`]).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const UNSUPPORTED: u8 = 3;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() -> std::process::ExitCode {
