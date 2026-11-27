@@ -267,6 +267,80 @@ class SwiftPeerTests(unittest.TestCase):
             self.assertEqual(mac.shot, [])
 
 
+
+class SwiftPullTests(unittest.TestCase):
+    """serve --no-swift --swift-pull: the ACL lets a lane VM reach a fleet Mac only on SSH, so the Mac's `pull`
+    takes the web worker's Swift asks over its own outbound connection (GET /swift/next, POST /swift/result/ID)."""
+
+    def serve_web(self, tmp: Path):
+        web = FakeWorker(tmp / "web")
+        web.swift_on, web.swift_peer = False, w.PULL
+        server = w.http.server.ThreadingHTTPServer(("127.0.0.1", 0), w.make_handler(web, w.queue.Queue()))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return web, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_a_pulling_mac_shoots_the_web_workers_swift_look(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web, url = self.serve_web(Path(tmp))
+            mac = FakeWorker(Path(tmp) / "mac")
+            stop = threading.Event()
+            self.addCleanup(stop.set)
+            threading.Thread(target=w.pull_from, args=(mac, url, stop), daemon=True).start()
+            deadline = time.monotonic() + 10
+            while not web.pulls.polled_at and time.monotonic() < deadline:
+                time.sleep(0.02)
+            receipt = web.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(sorted(mac.shot), sorted([BASE, HEAD]))
+            [scene] = receipt["scenes"]
+            self.assertEqual(scene["scene"], "tabs")
+            self.assertTrue(scene["changed"])
+            self.assertEqual(web.pulls.answers, {})
+            self.assertEqual(web.pulls.waiting, [])
+
+    def test_no_pulling_mac_fails_at_once_and_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = FakeWorker(Path(tmp))
+            web.swift_on, web.swift_peer = False, w.PULL
+            started = time.monotonic()
+            receipt = web.look(request())
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIn("no display Mac has pulled a Swift job", receipt["error"])
+
+    def test_a_result_is_taken_only_for_a_job_still_waiting(self):
+        pulls = w.SwiftPulls()
+        self.assertFalse(pulls.answer("0" * 32, {"shots": {}}))
+        pulls.polled_at = time.monotonic()
+        got = {}
+        t = threading.Thread(target=lambda: got.update(pulls.ask({"sha": HEAD, "scenes": ["tabs"]}, timeout=5)))
+        t.start()
+        job = pulls.next(timeout=5)
+        self.assertEqual(job["sha"], HEAD)
+        self.assertTrue(pulls.answer(job["id"], {"sha": HEAD, "shots": {"tabs": "eA=="}}))
+        t.join(5)
+        self.assertEqual(got["shots"], {"tabs": "eA=="})
+        self.assertFalse(pulls.answer(job["id"], {"shots": {}}))  # answered once; its ask is gone
+        self.assertIsNone(pulls.next(timeout=0.05))
+
+    def test_a_mac_that_takes_a_job_and_never_answers_times_out(self):
+        pulls = w.SwiftPulls()
+        pulls.polled_at = time.monotonic()
+        threading.Thread(target=lambda: pulls.next(timeout=5), daemon=True).start()
+        with self.assertRaisesRegex(w.LookError, "did not answer in 0 s"):
+            pulls.ask({"sha": HEAD, "scenes": ["tabs"]}, timeout=0.3)
+        self.assertEqual(pulls.answers, {})
+
+    def test_a_serve_without_pull_has_no_job_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web, url = self.serve_web(Path(tmp))
+            web.swift_peer = ""
+            with self.assertRaises(w.urllib.error.HTTPError) as err:
+                w.urllib.request.urlopen(url + "/swift/next", timeout=5)
+            self.assertEqual(err.exception.code, 404)
+
 class FollowTests(unittest.TestCase):
     """serve --follow: the broker's push trigger (lane-gh call ui_preview_requests) feeds the jobs queue."""
 
