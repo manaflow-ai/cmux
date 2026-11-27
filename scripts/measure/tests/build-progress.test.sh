@@ -31,6 +31,16 @@ got="$(measure_quiet "T sub" "$tmp/sub.log" sleep 2.5 >/dev/null 2>&1; echo capt
 grep -q '^T sub: still building' "$tmp/step.out" || fail "no progress from inside the \$(...): $(cat "$tmp/step.out")"
 (( SECONDS - start <= 5 )) || fail "the \$(...) waited $((SECONDS - start))s on a leftover ticker"
 
+# build_dmg's pre-build phases tick too: no "git submodule update", GhosttyKit download or "$resolve" runs bare with
+# its output sent only to the log (a cold acpmux resolve ran past the 45-minute limit before the build's ticker).
+bare="$(grep -nE '^\s*(bin="\$\(env|git submodule update|\./scripts/download-prebuilt-ghosttykit\.sh)' scripts/measure/nightly-fresh-launch.sh || true)"
+[[ -z "$bare" ]] || fail "a quiet pre-build phase without measure_quiet: $bare"
+# The acpmux path survives measure_quiet: resolve's stdout goes to a file, not the log.
+measure_quiet "T path" "$tmp/path.log" bash -c '"$@" >"$0"' "$tmp/path.out" bash -c 'echo note >&2; echo /x/acpmux' \
+  || fail "path wrapper failed"
+[[ "$(cat "$tmp/path.out")" == /x/acpmux && "$(cat "$tmp/path.log")" == note ]] \
+  || fail "path '$(cat "$tmp/path.out")' log '$(cat "$tmp/path.log")'"
+
 lib="$here/.build/build-progress-test-$$"
 mkdir -p "$lib"
 trap 'rm -rf "$tmp" "$lib"' EXIT
