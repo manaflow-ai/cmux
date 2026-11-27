@@ -278,6 +278,7 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
+    assert "run: ../scripts/ci/cmux-next-daemon-tests.sh" in daemon
     daemon_tests = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text()
     assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon_tests
     assert "for attempt in 1 2 3" in daemon_tests
@@ -1322,9 +1323,12 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
         assert with_config["persist-credentials"] == "false"
         assert with_config["ref"] == "${{ inputs.checkout_ref }}"
         for retry in checkouts[1:]:
-            assert retry["with"]["ref"] == "${{ inputs.checkout_ref }}", job_name
-            assert retry["with"]["persist-credentials"] == "false", job_name
+            assert checkout.get("id") == "checkout", job_name
+            assert checkout.get("continue-on-error") is True, job_name
+            assert retry["uses"] == checkout["uses"], job_name
+            assert retry["with"] == with_config, job_name
             assert retry.get("if") == "steps.checkout.outcome == 'failure'", job_name
+            assert not retry.get("continue-on-error", False), job_name
 
 
 def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
