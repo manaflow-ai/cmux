@@ -1,4 +1,4 @@
-use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of};
+use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of, shown_in_workspace};
 use serde_json::{Value, json};
 
 fn update(seq: u64, update: Value) -> Value {
@@ -308,4 +308,27 @@ fn reads_of_one_acpmux_share_one_connection() {
     assert_eq!(accepted.load(Ordering::SeqCst), 1, "one connection for every read");
     // The hello, then one request per read.
     assert_eq!(requests.load(Ordering::SeqCst), 5);
+}
+
+/// A chat brought back from a Cloud machine runs with no workspace in its env (the move clears
+/// it); the app's tab for it in a workspace of this session puts it in scope (probe
+/// cloud-session-move-to-local-production, chat.out_of_scope). A tab in another session's
+/// workspace, or a tab of another chat, does not.
+#[test]
+fn a_chat_a_tab_of_this_session_shows_is_in_scope() {
+    let chat = "01a218d8-3400-74e8-bd76-510a00992eb2";
+    let other = "01a218d8-1111-7000-8000-000000000000";
+    let snapshot = json!({"workspaces": [{"id": "ws_ours", "extra": {"key": "k1"}}]});
+    let topology = json!({"workspaces": [
+        {"id": "ws_ours", "panes": [{"tabs": [
+            {"id": "tab-moved", "kind": "conversation", "agent_session": format!("acp:{chat}")},
+        ]}]},
+        {"id": "ws_theirs", "panes": [{"tabs": [
+            {"id": "tab-elsewhere", "kind": "conversation", "agent_session": other},
+        ]}]},
+    ]});
+    assert!(shown_in_workspace(&snapshot, &topology, chat));
+    assert!(!shown_in_workspace(&snapshot, &topology, other));
+    assert!(!shown_in_workspace(&json!({"workspaces": []}), &topology, chat));
+    assert!(!shown_in_workspace(&snapshot, &json!({}), chat));
 }

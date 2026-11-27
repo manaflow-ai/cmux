@@ -71,6 +71,8 @@ import Testing
         #expect(recorder.moves.isEmpty)
     }
 
+    // The name and color rules are Rust's (cmux-mobile-link-ffi `workspace_groups`): only the iOS build links them.
+    #if os(iOS)
     @Test func newWorkspaceGroupMakesAnEmptyGroupInTheNextColor() async {
         let (_, creator, recorder, macID) = setup()
         creator.newGroup(on: macID, name: "  Backend ")
@@ -82,7 +84,10 @@ import Testing
         // Green has no workspace on this phone: the list shows it as an empty group.
         #expect(creator.emptyGroups(on: macID).map(\.id) == ["grp_g"])
     }
+    #endif
 
+    // The failure names the typed group, which the Rust rule (workspace_groups FFI, iOS only) trims.
+    #if os(iOS)
     @Test func aRefusedNewGroupSaysSo() async {
         let (_, creator, recorder, macID) = setup()
         var failures: [String] = []
@@ -92,6 +97,7 @@ import Testing
         await creator.settle()
         #expect(failures == ["Couldn't make the group Backend"])
     }
+    #endif
 
     /// The same name and color, each member duplicated in order and placed in the copy.
     @Test func duplicateWorkspaceGroupCopiesEveryMemberIntoANewGroup() async {
