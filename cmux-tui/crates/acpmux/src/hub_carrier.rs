@@ -84,9 +84,9 @@ use cmux_remote::crypto::{
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
-    ConnectRequest, LinkRequest, RegistrationState, RelayClientConfig, RelayCredentialSource,
-    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
-    spawn_relay_daemon_registration,
+    ConnectRequest, EARLY_CONNECT_NOT_INLINE, LinkRequest, RegistrationState, RelayClientConfig,
+    RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming,
+    RelayProvider, TransportProvider, spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 
@@ -124,10 +124,28 @@ pub struct CarrierAnswer {
     /// Register: the keys this machine lets in.
     #[serde(default)]
     pub peers: Vec<String>,
+    /// Connect: the far machine's join name (`cmux16`), when the platform says
+    /// (cmux-platform#1917). It names machines the carrier lends from another team of the
+    /// person, which this team's mesh address book never lists ([`Self::peer_host`] too).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_name: Option<String>,
+    /// Connect: the far machine's hostname, when the platform says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_host: Option<String>,
+    /// Register: the services each key in `peers` serves (RFD 0127 cut 3), by key. A machine the
+    /// map names refuses a service it leaves out at the dialer, before any circuit
+    /// ([`HubCarrier::dial_service_on`]); a key it does not name, or an answer with no map (a
+    /// platform from before it), is dialed as before.
+    #[serde(default)]
+    pub peer_services: HashMap<String, Vec<String>>,
     /// The other relays the platform may carry this slot on, in its order of preference after
     /// `relay` (re-homing, `hub_carrier_rehome.rs`). Empty from a platform that knows one relay.
     #[serde(default)]
     pub relays: Vec<String>,
+    /// Relays we placed near the machines (RFD 0060 Weft move 4), each with its own ticket for
+    /// this same slot and permission (`hub_carrier_placed.rs`). Empty from a platform with none.
+    #[serde(default)]
+    pub placed: Vec<placed::PlacedTicket>,
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -136,8 +154,19 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("relay", &cmux_remote::provider::sanitized_route_text(&self.relay))
             .field("peers", &self.peers.len())
             .field("relays", &self.relays.len())
+            .field("placed", &self.placed.len())
             .finish_non_exhaustive()
     }
+}
+
+/// One echo's timings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EchoReport {
+    /// Opening the stream: a local read-and-write on an open kept circuit plus one round trip
+    /// for the answer to its hello, and a new circuit's handshakes first when none was open.
+    pub open: Duration,
+    /// The echo itself, once the stream was open: one round trip.
+    pub round_trip: Duration,
 }
 
 /// What a circuit reaches on the machine it was dialed to.
@@ -159,6 +188,9 @@ pub enum CircuitService {
     /// "control for my other machines signed in to this account" on that machine
     /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
     CmuxTuiSession,
+    /// The machine's consent service: one request, one answer (`consent_grant_service.rs`).
+    /// Hello `{"service":"consent"}`.
+    Consent,
     /// Calls this machine's acpmux daemon runs for another of the person's machines, one JSON
     /// line each way per call (`machine_call_service.rs`): Computer Use here for an agent whose
     /// loop runs on that machine. Hello `{"service":"machine-call"}`. Reached only while the
@@ -170,12 +202,24 @@ pub enum CircuitService {
     /// whose target is the dialer's Noise-proven key. Hello `{"service":"acpmux-transfer"}`.
     /// Never the WebSocket listener, so it has no connection origin.
     TransferSource,
+    /// Answers every byte it reads with the same byte, in process: a health check that goes
+    /// through the real path (RFD 0127 cut 3, H8) at one round trip, never a dial of sshd.
+    /// Hello `{"service":"echo"}`. Always served, and nothing it reaches needs a grant.
+    Echo,
     /// The lane-gh broker this machine runs for the person's other machines, each reaching its
     /// own broker socket (RFD 0127 cut 2, `hub_carrier_broker.rs`), in place of a per-machine
     /// `ssh -R` forward. Hello `{"service":"lane-gh-broker"}`. Off unless the owner names the
     /// broker's socket (`laneGhBroker`); rides only a kept circuit's stream.
     LaneGhBroker,
+    /// The candidate exchange of a punch (`hub_carrier_punch.rs`): one JSON line each way, the
+    /// addresses each machine opens toward the other from. Hello `{"service":"direct-offer"}`;
+    /// a daemon from before it refuses it `service.unknown` and the dialer keeps to the relay.
+    /// Rides only a kept circuit's stream.
+    DirectOffer,
 }
+
+/// The service name a hello gives [`CircuitService::Echo`].
+pub const ECHO_SERVICE: &str = "echo";
 
 /// The service name a hello gives [`CircuitService::LaneGhBroker`].
 pub const LANE_GH_BROKER_SERVICE: &str = "lane-gh-broker";
@@ -217,8 +261,11 @@ impl CircuitLane {
             // A broker call is one request and its answer, which a click waits for.
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
+            | CircuitService::Consent
             | CircuitService::MachineCall
-            | CircuitService::LaneGhBroker => Self::Cheap,
+            | CircuitService::Echo
+            | CircuitService::LaneGhBroker
+            | CircuitService::DirectOffer => Self::Cheap,
         }
     }
 
@@ -229,6 +276,9 @@ impl CircuitLane {
         }
     }
 }
+
+/// The service name a hello gives [`CircuitService::Consent`].
+pub const CONSENT_SERVICE: &str = "consent";
 
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
@@ -301,6 +351,35 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
     }
 }
 
+/// The name a machine advertises for `service` in its Register ticket's `peer_services`: the
+/// hello's `service` word. The cmux-tui remote daemon, its resumable pipe and its session share
+/// one word, so a machine serving any of them advertises `cmux-tui`.
+pub fn service_name(service: CircuitService) -> &'static str {
+    match service {
+        CircuitService::Acpmux => ACPMUX_SERVICE,
+        CircuitService::CmuxTui { .. }
+        | CircuitService::CmuxTuiResume { .. }
+        | CircuitService::CmuxTuiSession => CMUX_TUI_SERVICE,
+        CircuitService::Consent => CONSENT_SERVICE,
+        CircuitService::MachineCall => MACHINE_CALL_SERVICE,
+        CircuitService::TransferSource => TRANSFER_SERVICE,
+        CircuitService::Echo => ECHO_SERVICE,
+        CircuitService::LaneGhBroker => LANE_GH_BROKER_SERVICE,
+        CircuitService::DirectOffer => punch::DIRECT_OFFER_SERVICE,
+    }
+}
+
+/// Echoes every byte a circuit's stream sends until it ends, in process.
+fn echo_stream() -> HubStream {
+    let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+    tickets::scope().spawn_named("hub carrier echo", async move {
+        let (mut read, mut write) = tokio::io::split(theirs);
+        let _ = tokio::io::copy(&mut read, &mut write).await;
+        let _ = write.shutdown().await;
+    });
+    ours
+}
+
 /// The hello record that names `service`, the acpmux listener included (a kept circuit's
 /// stream always names its service).
 fn hello_record(service: CircuitService) -> Bytes {
@@ -315,9 +394,12 @@ fn hello_record(service: CircuitService) -> Bytes {
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
+        CircuitService::Consent => serde_json::json!({"service": CONSENT_SERVICE}),
         CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
         CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
+        CircuitService::Echo => serde_json::json!({"service": ECHO_SERVICE}),
         CircuitService::LaneGhBroker => serde_json::json!({"service": LANE_GH_BROKER_SERVICE}),
+        CircuitService::DirectOffer => serde_json::json!({"service": punch::DIRECT_OFFER_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -350,17 +432,24 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
         }
+        (Some(CONSENT_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::Consent)
+        }
         (Some(MACHINE_CALL_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::MachineCall)
         }
         (Some(TRANSFER_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::TransferSource)
         }
+        (Some(ECHO_SERVICE), None, None) if hello.get("port").is_none() => Ok(CircuitService::Echo),
         (Some(ACPMUX_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::Acpmux)
         }
         (Some(LANE_GH_BROKER_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::LaneGhBroker)
+        }
+        (Some(punch::DIRECT_OFFER_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::DirectOffer)
         }
         _ => Err(unknown()),
     })
@@ -414,6 +503,13 @@ pub trait Tickets: Send + Sync + 'static {
     fn shown(&self) -> String {
         "the hub".into()
     }
+}
+
+/// The relay discards arbitrary callback errors. Record the hub's safe diagnostic at the
+/// renewal site, where we also know whether it was asking to Register or Connect.
+fn log_ticket_renewal_failure(operation: &str, reason: &str) {
+    let reason = crate::mesh_http::ticket_failure_reason(reason);
+    tracing::warn!("hub carrier: {operation} ticket renewal failed: {reason}");
 }
 
 /// The longest wait between two register asks; the wait doubles from 1 s up to it.
@@ -511,6 +607,12 @@ pub struct DialStages {
     pub noise: Duration,
     /// The service hello and its answer (the far machine's admission included).
     pub answer: Duration,
+}
+
+/// Count a call that got its stream in `gauges.carrier.calls`: a port pipe (ssh, scp, a forwarded
+/// port: the bulk lane) or a cheap call, on a kept circuit or a new one (RFD 0056 part 5).
+fn record_call(lane: CircuitLane, kept: bool) {
+    crate::gauges::carrier::global().call(lane == CircuitLane::Bulk, kept);
 }
 
 impl DialStages {
@@ -619,6 +721,9 @@ pub struct HubCarrier {
     /// The keys the last Register ticket let in (`peers`): the machines that reach this one
     /// under its current key.
     allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
+    /// The services each of those machines serves, as the last Register ticket named them
+    /// (`peer_services`), by key (standard base64). Empty when the ticket named none.
+    peer_services: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     timings: Timings,
     stats: Arc<Stats>,
     key_check: Option<KeyCheck>,
@@ -626,6 +731,8 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Whether a circuit may reach this machine's consent service; none refuses it.
+    consent: RwLock<Option<Arc<dyn crate::consent_grant_service::ConsentGate>>>,
     /// Who may have this machine run calls for them; None refuses every such circuit.
     machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
     /// Whether a circuit may read the pages of a move this machine began; none refuses it.
@@ -651,6 +758,8 @@ pub struct HubCarrier {
     serving_on: RwLock<Option<String>>,
     /// The direct path to machines on this machine's private network (`hub_carrier_direct.rs`).
     direct: direct::Direct,
+    /// The placed relays' round trips, and which is nearest (`hub_carrier_placed.rs`).
+    nearest: Arc<placed::Nearest>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -675,11 +784,13 @@ impl HubCarrier {
             rekeyed: tokio::sync::Notify::new(),
             routes: Mutex::new(HashMap::new()),
             allowed: Arc::default(),
+            peer_services: Arc::default(),
             timings,
             stats: Arc::default(),
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            consent: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
             lane_gh_broker: RwLock::new(None),
@@ -691,6 +802,7 @@ impl HubCarrier {
             homes: rehome::Homes::default(),
             serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
+            nearest: Arc::default(),
         })
     }
 
@@ -713,11 +825,13 @@ impl HubCarrier {
             rekeyed: tokio::sync::Notify::new(),
             routes: Mutex::new(HashMap::new()),
             allowed: Arc::default(),
+            peer_services: Arc::default(),
             timings,
             stats: Arc::default(),
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            consent: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
             lane_gh_broker: RwLock::new(None),
@@ -729,6 +843,7 @@ impl HubCarrier {
             homes: rehome::Homes::default(),
             serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
+            nearest: Arc::default(),
         })
     }
 
@@ -778,6 +893,45 @@ impl HubCarrier {
         keys
     }
 
+    /// The services machine `daemon` advertised in the last Register ticket; None when the ticket
+    /// named none for it (then nothing is refused locally).
+    pub fn peer_services(&self, daemon: &str) -> Option<Vec<String>> {
+        let known = self.peer_services.read().unwrap_or_else(|e| e.into_inner());
+        let mut names: Vec<String> = known.get(daemon)?.iter().cloned().collect();
+        names.sort();
+        Some(names)
+    }
+
+    /// How long since anything came back on a live kept circuit to `daemon`, the freshest of its
+    /// circuits: a local read of link liveness, no round trip (RFD 0127 cut 3). The dialer pings
+    /// each kept circuit every [`Timings::keepalive`] and closes it after two silent periods, so a
+    /// healthy link reads under one period. None when no kept circuit to `daemon` is open.
+    pub fn link_age(&self, daemon: &str) -> Option<Duration> {
+        self.kept.live(daemon).iter().map(|mux| mux.heard_age()).min()
+    }
+
+    /// One echo through the real path to `daemon`: a stream on its kept circuit (a circuit first,
+    /// when none is open) and one round trip on it. A machine from before the echo service
+    /// refuses it `service.unknown`; the circuit's liveness ([`Self::link_age`]) is then the
+    /// health read.
+    pub async fn echo(&self, daemon: &str) -> Result<EchoReport, String> {
+        let opened = Instant::now();
+        let mut stream = self.dial_service(daemon, CircuitService::Echo).await?;
+        let open = opened.elapsed();
+        let nonce: [u8; 8] = std::array::from_fn(|i| (open.subsec_nanos() >> (i * 4)) as u8);
+        let started = Instant::now();
+        let answered = tokio::time::timeout(self.timings.handshake, async {
+            stream.write_all(&nonce).await.map_err(|e| e.to_string())?;
+            let mut back = [0u8; 8];
+            stream.read_exact(&mut back).await.map_err(|e| e.to_string())?;
+            (back == nonce).then_some(()).ok_or_else(|| "the echo came back changed".to_owned())
+        })
+        .await
+        .map_err(|_| "the machine did not echo in time".to_owned())?;
+        answered?;
+        Ok(EchoReport { open, round_trip: started.elapsed() })
+    }
+
     /// This machine's key as the hub knows it (`daemonId`): standard base64.
     pub fn public_key(&self) -> String {
         base64::engine::general_purpose::STANDARD.encode(self.identity().public_key())
@@ -797,6 +951,13 @@ impl HubCarrier {
         self.routes.lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()
     }
 
+    /// The key of the machine the platform's pre-minted Connect tickets name `name` (its join
+    /// name or hostname, [`tickets::TicketCache::named`]): every machine this carrier lends,
+    /// the ones joined in another team of the person included.
+    pub fn lent_machine(&self, name: &str) -> Option<String> {
+        self.ticket_cache.named(name)
+    }
+
     /// Let circuits reach this machine's cmux-tui remote daemon as `gate` decides.
     pub fn set_cmux_tui_gate(&self, gate: Arc<dyn CmuxTuiGate>) {
         *self.cmux_tui.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
@@ -813,6 +974,11 @@ impl HubCarrier {
 
     fn session_gate(&self) -> Option<Arc<dyn SessionGate>> {
         self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Let circuits reach this machine's consent service as `gate` decides.
+    pub fn set_consent_gate(&self, gate: Arc<dyn crate::consent_grant_service::ConsentGate>) {
+        *self.consent.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
     }
 
     /// Let this machine run calls for the person's other machines as `gate` decides.
@@ -937,6 +1103,9 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
+        if let Some(refusal) = self.advertised_off(daemon, service) {
+            return Err(refusal.to_string());
+        }
         let after_answer = |mut stream: HubStream| async move {
             if !early.is_empty() {
                 stream.write_all(early).await.map_err(|e| e.to_string())?;
@@ -961,9 +1130,30 @@ impl HubCarrier {
             }
         }
         match self.plain_service(daemon, hello, report).await? {
-            Ok(secure) => after_answer(self.carry_plain(secure)).await,
+            Ok(secure) => {
+                record_call(lane, false);
+                after_answer(self.carry_plain(secure)).await
+            }
             Err(refusal) => Err(refusal.to_string()),
         }
+    }
+
+    /// `service.off`, when the last Register ticket named `daemon`'s services and left `service`
+    /// out: refused here, as `machine.unknown` is, with no dial. The acpmux listener is always
+    /// dialed (a machine's own listener is how it is reached at all).
+    fn advertised_off(&self, daemon: &str, service: CircuitService) -> Option<ServiceRefusal> {
+        if service == CircuitService::Acpmux {
+            return None;
+        }
+        let known = self.peer_services.read().unwrap_or_else(|e| e.into_inner());
+        let served = known.get(daemon)?;
+        let name = service_name(service);
+        (!served.contains(name)).then(|| {
+            ServiceRefusal::new(
+                "service.off",
+                format!("the machine's registration lists no {name} service; not dialed"),
+            )
+        })
     }
 
     /// An acpmux link to `daemon`: a stream on the pair's kept circuit, so the peer link and its
@@ -1006,6 +1196,7 @@ impl HubCarrier {
         crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, stages) = self.open_circuit(daemon).await?;
         stages.log(daemon, "plain");
+        record_call(lane, false);
         Ok(self.carry_plain(secure))
     }
 
@@ -1079,7 +1270,7 @@ impl HubCarrier {
     ) -> KeptOpen {
         let slot = match path {
             Path::Relay => self.kept.slot(daemon, lane),
-            Path::Direct(_) => self.direct.kept.slot(daemon, lane),
+            Path::Direct(_) | Path::Punched => self.direct.kept.slot(daemon, lane),
         };
         let mut why = String::new();
         for _ in 0..2 {
@@ -1094,7 +1285,8 @@ impl HubCarrier {
                         // Parallel dials wait here on this one open, not on one each. Never a
                         // plain dial beside it: a service hello can ask the far machine's owner
                         // for consent, and one dial asks once.
-                        let (mux, said, mut stages) = match self.open_kept(daemon, path).await {
+                        let (mux, said, mut stages) = match self.open_kept(daemon, lane, path).await
+                        {
                             Ok(opened) => opened,
                             Err(e) => return KeptOpen::Failed(e),
                         };
@@ -1119,6 +1311,9 @@ impl HubCarrier {
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
+                                if kept.held {
+                                    mux.hold();
+                                }
                                 kept.live = Some(mux.clone());
                                 kept.path = Some(path);
                                 kept.reopen_at = None;
@@ -1146,7 +1341,10 @@ impl HubCarrier {
                             }
                         }
                         match first {
-                            Ok(Ok(stream)) => return KeptOpen::Stream(stream),
+                            Ok(Ok(stream)) => {
+                                record_call(lane, false);
+                                return KeptOpen::Stream(stream);
+                            }
                             Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
                             Err(e) if e.early_out => {
                                 mux.close().await;
@@ -1162,7 +1360,20 @@ impl HubCarrier {
                 }
             };
             let asked = Instant::now();
-            let opened = mux.open(hello.clone(), early, self.timings.handshake).await;
+            // No early bytes: past `KEPT_HEDGE` of silence a fresh circuit races the old one
+            // (`hub_carrier_kept_hedge.rs`).
+            let opened = if early.is_empty() {
+                match self.open_or_replace(&mux, &slot, daemon, lane, path, hello.clone()).await {
+                    hedge::Hedged::Old(opened) => opened,
+                    hedge::Hedged::Replaced => continue,
+                    hedge::Hedged::Failed(e) => {
+                        mux.close().await;
+                        return KeptOpen::Failed(e);
+                    }
+                }
+            } else {
+                mux.open(hello.clone(), early, self.timings.handshake).await
+            };
             *report = DialReport {
                 kept: true,
                 circuit: None,
@@ -1172,6 +1383,7 @@ impl HubCarrier {
             };
             if matches!(opened, Ok(Ok(_))) {
                 crate::gauges::carrier::global().kept_stream(report.stream);
+                record_call(lane, true);
             }
             match opened {
                 Ok(Ok(stream)) => return KeptOpen::Stream(stream),
@@ -1210,8 +1422,18 @@ impl HubCarrier {
         early: &[u8],
         report: &mut DialReport,
     ) -> Option<KeptOpen> {
-        let address = self.direct_address(daemon).await?;
-        match self.kept_open(daemon, lane, hello, early, report, Path::Direct(address)).await {
+        // A private route first; else a punched connection (`hub_carrier_punch.rs`), which a
+        // first dial never waits for: it starts one and rides the relay.
+        let path = match self.direct_address(daemon).await {
+            Some(address) => Path::Direct(address),
+            None => self.punch_path(daemon, lane)?,
+        };
+        let address = path;
+        let miss = |carrier: &Self| match path {
+            Path::Punched => carrier.direct.punch.miss(daemon),
+            _ => carrier.direct.miss(daemon),
+        };
+        match self.kept_open(daemon, lane, hello, early, report, path).await {
             KeptOpen::Stream(stream) => {
                 report.via = direct::Via::Direct;
                 Some(KeptOpen::Stream(stream))
@@ -1221,19 +1443,19 @@ impl HubCarrier {
             }
             // The far service may have read the early bytes: no relay dial repeats them.
             KeptOpen::Lost(why) => {
-                tracing::info!("hub carrier direct: {address} failed ({why}) after early bytes");
-                self.direct.miss(daemon);
+                tracing::info!("hub carrier direct: {address:?} failed ({why}) after early bytes");
+                miss(self);
                 Some(KeptOpen::Lost(why))
             }
             KeptOpen::Refused(refusal) => {
-                tracing::debug!("hub carrier direct: {address} refused: {refusal}; the relay");
-                self.direct.miss(daemon);
+                tracing::debug!("hub carrier direct: {address:?} refused: {refusal}; the relay");
+                miss(self);
                 *report = DialReport::default();
                 None
             }
             KeptOpen::Failed(why) | KeptOpen::Plain(why) => {
-                tracing::info!("hub carrier direct: {address} failed ({why}); the relay");
-                self.direct.miss(daemon);
+                tracing::info!("hub carrier direct: {address:?} failed ({why}); the relay");
+                miss(self);
                 *report = DialReport::default();
                 None
             }
@@ -1246,12 +1468,14 @@ impl HubCarrier {
     async fn open_kept(
         &self,
         daemon: &str,
+        lane: CircuitLane,
         path: Path,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
         crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
         let (secure, stages) = match path {
             Path::Relay => self.open_circuit(daemon).await?,
             Path::Direct(address) => self.open_direct(daemon, address).await?,
+            Path::Punched => self.open_punched(daemon, lane).await?,
         };
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
@@ -1286,18 +1510,25 @@ impl HubCarrier {
     /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
     /// circuit opens, so a dial to that machine waits on this open rather than racing it.
     pub async fn reopen_closed(&self) -> usize {
+        // Machines with nothing kept go first, so the map is only those with something to keep.
+        self.kept.prune();
+        self.direct.kept.prune();
         let slots: Vec<_> =
             self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
-        let opened = futures::future::join_all(
-            slots
-                .into_iter()
-                .map(|(daemon, slot)| async move { self.reopen(&daemon, &slot).await }),
-        )
-        .await;
+        let opened =
+            futures::future::join_all(slots.into_iter().map(|(daemon, lane, slot)| async move {
+                self.reopen(&daemon, lane, &slot).await
+            }))
+            .await;
         opened.into_iter().filter(|opened| *opened).count()
     }
 
-    async fn reopen(&self, daemon: &str, slot: &tokio::sync::Mutex<mux::Kept>) -> bool {
+    async fn reopen(
+        &self,
+        daemon: &str,
+        lane: CircuitLane,
+        slot: &tokio::sync::Mutex<mux::Kept>,
+    ) -> bool {
         let mut kept = slot.lock().await;
         let Some(old) = kept.live.clone().filter(|mux| mux.wants_reopen()) else { return false };
         if kept.reopen_at.is_some_and(|at| Instant::now() < at) {
@@ -1308,12 +1539,15 @@ impl HubCarrier {
             kept.live = None;
             return false;
         }
-        let why = match self.open_kept(daemon, path).await {
+        let why = match self.open_kept(daemon, lane, path).await {
             Ok((mux, said, _)) => match tokio::time::timeout(self.timings.handshake, said).await {
                 Ok(Ok(Ok(()))) => {
                     self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                     self.stats.kept_reopens.fetch_add(1, Ordering::Relaxed);
                     tracing::info!(daemon, ?path, "hub carrier: opened a kept circuit again");
+                    if kept.held {
+                        mux.hold();
+                    }
                     kept.live = Some(mux);
                     kept.reopen_at = None;
                     kept.reopen_wait = Duration::ZERO;
@@ -1409,11 +1643,59 @@ impl HubCarrier {
         dead.len()
     }
 
+    /// [`Self::dial`] for a replacement of a link that heard nothing for `silent`: a plain
+    /// circuit of its own when a kept circuit to `daemon` heard nothing in that window either.
+    /// That circuit's transport is the stalled one the silent link rides; a new stream on it
+    /// would queue its OPEN, answer and replay behind the old stream's unread bytes (up to its
+    /// window) and the transport's retransmits. The kept circuit stays open: the old link still
+    /// reads on it until the replacement opens. Under [`mux::ANSWER_SUSPECT`] of silence this is
+    /// [`Self::dial`].
+    pub async fn dial_past_silent(
+        &self,
+        daemon: &str,
+        silent: Duration,
+    ) -> Result<HubStream, String> {
+        let stalled = silent >= mux::ANSWER_SUSPECT
+            && [&self.kept, &self.direct.kept]
+                .into_iter()
+                .any(|kept| !kept.silent_for(daemon, silent).is_empty());
+        if !stalled {
+            return self.dial(daemon).await;
+        }
+        tracing::info!(
+            "hub carrier: a replacement for a link silent {}ms; its kept circuit heard nothing either, so the replacement opens a circuit of its own",
+            silent.as_millis()
+        );
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
+        let (secure, stages) = self.open_circuit(daemon).await?;
+        stages.log(daemon, "plain past a silent kept circuit");
+        record_call(CircuitLane::of(CircuitService::Acpmux), false);
+        Ok(self.carry_plain(secure))
+    }
+
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
     /// platform's `peer_key`, and how long each step took.
     pub(crate) async fn open_circuit(
         &self,
         daemon: &str,
+    ) -> Result<(cmux_remote::crypto::SecureLink, DialStages), String> {
+        match self.open_circuit_with(daemon, true).await {
+            // The relay answered an early Connect with no inline circuit (no Standby free) or
+            // refused it: the classic dial, which reads each answer before sending on, handles
+            // every such case (a fresh ticket, the next relay, the two-hop join).
+            Err(e) if e.contains(EARLY_CONNECT_NOT_INLINE) => {
+                self.open_circuit_with(daemon, false).await
+            }
+            other => other,
+        }
+    }
+
+    /// [`Self::open_circuit`], an early Connect allowed when `early` (and
+    /// `CMUX_RELAY_EARLY_CONNECT=1`).
+    async fn open_circuit_with(
+        &self,
+        daemon: &str,
+        early: bool,
     ) -> Result<(cmux_remote::crypto::SecureLink, DialStages), String> {
         let mut stages = DialStages::default();
         let step = Instant::now();
@@ -1439,11 +1721,16 @@ impl HubCarrier {
         // host left answers `slot-offline` at once, so following a moved host is one fast refusal
         // per relay passed (`hub_carrier_rehome.rs`). A failure past the circuit (the handshake)
         // is the far machine's answer and is the same on every relay.
-        let order = self.homes.order(daemon, rehome::candidates(&answer));
+        // The nearest placed relay goes before them, never waiting on its measurement
+        // (`hub_carrier_placed.rs`); an answer with none placed leaves the order as it was.
+        let order = placed::dial_order(
+            self.nearest.now(&answer.placed),
+            self.homes.order(daemon, rehome::candidates(&answer)),
+        );
         let mut last = String::from("the hub named no relay");
         let mut found = None;
         for relay in order {
-            match self.circuit_on(daemon, &relay, &answer, &mut stages).await {
+            match self.circuit_on(daemon, &relay, &answer, early, &mut stages).await {
                 Ok(circuit) => {
                     self.homes.carried(daemon, &relay);
                     found = Some(circuit);
@@ -1471,22 +1758,30 @@ impl HubCarrier {
         daemon: &str,
         relay: &str,
         answer: &CarrierAnswer,
+        early: bool,
         stages: &mut DialStages,
     ) -> Result<(Box<dyn FrameLink>, SessionId), String> {
         let endpoint = relay_url(relay)?;
-        // The ticket in hand first; a later relay authentication asks the platform again.
-        let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
+        // The ticket in hand first; a later relay authentication asks the platform again. A
+        // placed relay takes its own ticket, never the platform relays' (`hub_carrier_placed.rs`).
+        let first = Arc::new(Mutex::new(Some(Zeroizing::new(placed::ticket_on(answer, relay)))));
         let tickets = self.tickets.clone();
         let peer = daemon.to_owned();
+        let on = relay.to_owned();
         let credentials = RelayCredentialSource::callback(move || {
             let first = first.lock().unwrap_or_else(|e| e.into_inner()).take();
             let tickets = tickets.clone();
             let peer = peer.clone();
+            let on = on.clone();
             async move {
                 match first {
                     Some(ticket) => Ok(ticket.to_string()),
                     // The relay refused the ticket in hand (or wants another): a fresh one.
-                    None => tickets.connect_fresh(&peer).await.map(|a| a.ticket),
+                    None => tickets
+                        .connect_fresh(&peer)
+                        .await
+                        .inspect_err(|e| log_ticket_renewal_failure("Connect", e))
+                        .map(|a| placed::ticket_on(&a, &on)),
                 }
             }
         });
@@ -1500,6 +1795,9 @@ impl HubCarrier {
             credentials,
         )
         .map_err(|e| e.to_string())?;
+        // Off unless `CMUX_RELAY_EARLY_CONNECT=1`: with it, Noise msg1 rides behind the Connect
+        // and the far machine's join is timed in `stages.noise`, not `stages.peer_join`.
+        let provider = if early { provider } else { provider.with_early_connect(false) };
         let session = SessionId(random_16()?);
         let step = Instant::now();
         let group = provider
@@ -1641,6 +1939,7 @@ impl HubCarrier {
             return;
         };
         set_allowed(&allowed, &answer.peers);
+        set_peer_services(&self.peer_services, &answer);
         // Registered: from here the peers' Connect tickets are kept ready (cut 5), once per carrier.
         if !self.preminting.swap(true, Ordering::SeqCst) {
             tickets::scope().spawn_named(
@@ -1648,6 +1947,12 @@ impl HubCarrier {
                 self.ticket_cache.clone().premint_until(Arc::downgrade(&self.alive)),
             );
         }
+        // Beside it, the nearest placed relay, held as long as this registration lives
+        // (`hub_carrier_placed.rs`); none placed, none measured reachable: nothing more.
+        let _placed = match self.nearest.nearest(&answer.placed).await {
+            Some(near) => self.clone().register_placed(websocket, &near, &answer),
+            None => None,
+        };
         let mut first = Some(Zeroizing::new(answer.ticket.clone()));
         loop {
             let served = self
@@ -1692,16 +1997,22 @@ impl HubCarrier {
         let credentials = {
             let tickets = self.tickets.clone();
             let allowed = allowed.clone();
+            let services = self.peer_services.clone();
             RelayCredentialSource::callback(move || {
                 let first = first.lock().unwrap_or_else(|e| e.into_inner()).take();
                 let tickets = tickets.clone();
                 let allowed = allowed.clone();
+                let services = services.clone();
                 async move {
                     if let Some(ticket) = first {
                         return Ok(ticket.to_string());
                     }
-                    let answer = tickets.register().await?;
+                    let answer = tickets
+                        .register()
+                        .await
+                        .inspect_err(|e| log_ticket_renewal_failure("Register", e))?;
                     set_allowed(&allowed, &answer.peers);
+                    set_peer_services(&services, &answer);
                     Ok::<_, String>(answer.ticket)
                 }
             })
@@ -1772,6 +2083,76 @@ impl HubCarrier {
             if !self.key_current() {
                 tracing::warn!("hub carrier: the node key was replaced; unregistering");
                 return Served::Stop;
+            }
+        }
+    }
+
+    /// This machine's slot registered on the placed relay `relay` too, with that relay's own
+    /// tickets; dropping it unregisters. The platform relay's registration ([`Self::serve_on`])
+    /// stays the one that re-homes and reports; this one only adds the nearer path.
+    fn register_placed(
+        self: Arc<Self>,
+        websocket: SocketAddr,
+        relay: &str,
+        answer: &CarrierAnswer,
+    ) -> Option<RelayDaemonRegistration> {
+        let endpoint = match relay_url(relay) {
+            Ok(endpoint) => endpoint,
+            Err(e) => {
+                tracing::warn!("hub carrier: not registering on the placed relay: {e}");
+                return None;
+            }
+        };
+        let allowed = self.allowed.clone();
+        let first = Arc::new(Mutex::new(Some(Zeroizing::new(placed::ticket_on(answer, relay)))));
+        let credentials = {
+            let tickets = self.tickets.clone();
+            let allowed = allowed.clone();
+            let on = relay.to_owned();
+            RelayCredentialSource::callback(move || {
+                let first = first.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let tickets = tickets.clone();
+                let allowed = allowed.clone();
+                let on = on.clone();
+                async move {
+                    if let Some(ticket) = first {
+                        return Ok(ticket.to_string());
+                    }
+                    let answer = tickets.register().await?;
+                    set_allowed(&allowed, &answer.peers);
+                    // A platform that stopped placing this relay gives no ticket for it.
+                    answer
+                        .placed
+                        .iter()
+                        .find(|p| p.relay == on)
+                        .map(|p| p.ticket.clone())
+                        .ok_or_else(|| "the platform no longer places this relay".to_owned())
+                }
+            })
+        };
+        let incoming = Arc::new(Incoming { carrier: self.clone(), websocket, allowed });
+        match spawn_relay_daemon_registration(
+            incoming,
+            RelayDaemonConfig {
+                endpoint,
+                slot: answer.slot.clone(),
+                ticket: String::new(),
+                maximum_frame_bytes: MAX_FRAME_BYTES,
+                control_timeout: self.timings.control,
+            },
+            credentials,
+            "acpmux hub carrier (placed relay)",
+        ) {
+            Ok(registration) => {
+                tracing::info!(
+                    "hub carrier: serving on the nearest placed relay too ({})",
+                    cmux_remote::provider::sanitized_route_text(relay)
+                );
+                Some(registration)
+            }
+            Err(e) => {
+                tracing::warn!("hub carrier: not registering on the placed relay: {e}");
+                None
             }
         }
     }
@@ -1947,6 +2328,21 @@ impl Incoming {
         }
     }
 
+    /// This machine's end of a consent stream from `from` and the consent service's serving of
+    /// the other end (the caller runs it beside the stream), or why it may not have one.
+    async fn consent(
+        &self,
+        from: Option<String>,
+    ) -> Result<(HubStream, impl Future<Output = ()> + Send + use<>), ServiceRefusal> {
+        let gate = self.carrier.consent.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let (gate, host) = crate::consent_grant_service::admit(gate, from).await?;
+        let wait = self.carrier.timings.handshake;
+        let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+        Ok((ours, async move {
+            crate::consent_grant_service::serve_stream(gate, host, theirs, wait).await;
+        }))
+    }
+
     /// This machine's end of a move's page circuit from `from` and the transfer gate's serving
     /// of the other end (the caller runs it beside the stream), or why it may not have one.
     async fn transfer(
@@ -2039,6 +2435,13 @@ impl Incoming {
                 return;
             }
         };
+        if named_service(&first) == Some(Ok(CircuitService::Consent)) {
+            drop(listener);
+            let gate = self.carrier.consent.read().unwrap_or_else(|e| e.into_inner()).clone();
+            let wait = self.carrier.timings.handshake;
+            crate::consent_grant_service::serve(gate, from, Box::new(link), wait).await;
+            return;
+        }
         if mux::is_mux_hello(&first) && self.carrier.serves_kept.load(Ordering::SeqCst) {
             // A kept circuit: each stream names its own service and is admitted on its own.
             drop(listener);
@@ -2102,6 +2505,16 @@ impl Incoming {
             pump(Box::new(link), local, &self.carrier.stats).await;
             return;
         }
+        if named_service(&first) == Some(Ok(CircuitService::Echo)) {
+            // The echo is answered in this process; the acpmux listener's connection closes unused.
+            drop(listener);
+            if link.send(service_answer(&Ok(()))).await.is_err() {
+                let _ = link.close().await;
+                return;
+            }
+            pump(Box::new(link), echo_stream(), &self.carrier.stats).await;
+            return;
+        }
         if named_service(&first) == Some(Ok(CircuitService::TransferSource)) {
             // A move's pages: served in process, never through the WebSocket listener.
             drop(listener);
@@ -2152,9 +2565,12 @@ impl Incoming {
                     Ok(
                         CircuitService::CmuxTuiResume { .. }
                         | CircuitService::CmuxTuiSession
+                        | CircuitService::Consent
                         | CircuitService::MachineCall
                         | CircuitService::TransferSource
-                        | CircuitService::LaneGhBroker,
+                        | CircuitService::Echo
+                        | CircuitService::LaneGhBroker
+                        | CircuitService::DirectOffer,
                     ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
                     Err(refusal) => Err(refusal),
                 };
@@ -2230,6 +2646,16 @@ where
     }
     let _ = write.shutdown().await;
     let _ = link.close().await;
+}
+
+/// Keep the services the Register answer named for each machine (none when it named none).
+fn set_peer_services(known: &RwLock<HashMap<String, HashSet<String>>>, answer: &CarrierAnswer) {
+    let named = answer
+        .peer_services
+        .iter()
+        .map(|(key, names)| (key.clone(), names.iter().cloned().collect()))
+        .collect();
+    *known.write().unwrap_or_else(|e| e.into_inner()) = named;
 }
 
 fn set_allowed(allowed: &RwLock<HashSet<[u8; 32]>>, peers: &[String]) {
@@ -2561,6 +2987,9 @@ pub async fn start_configured(
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
+    // Switches only by a grant a key pinned here signed (`consent_grant_service.rs`).
+    carrier
+        .set_consent_gate(Arc::new(crate::consent_grant_service::ConfiguredConsentGate::new(hub)));
     // Off under the same grant: this machine runs Computer Use calls for those machines.
     carrier.set_machine_call_gate(Arc::new(crate::machine_call_service::ConfiguredGate::new(hub)));
     // A move's pages, only to the machine its move names (`hub/transfer_pull.rs`); and this
@@ -2572,6 +3001,8 @@ pub async fn start_configured(
     hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     carrier.keep_reopening();
+    // Off unless `ACPMUX_HUB_HOLD_CIRCUITS` names machines (`hub_carrier_hold.rs`).
+    carrier.hold_configured(hub);
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -2579,9 +3010,16 @@ pub async fn start_configured(
     let direct_port = hub.config.read().await.direct_port;
     let mut serving = carrier.serve(websocket);
     serving.lease = lease;
-    if let Some(port) = direct_port {
-        serving.direct = start_direct(hub, &carrier, port).await;
-    }
+    serving.direct = match direct_port {
+        // `directPort` 0: no direct path at all.
+        Some(0) => None,
+        Some(port) => start_direct(hub, &carrier, port).await,
+        // Unset: no dialing by name, but a port of its own for punches (on by default).
+        None if punch::enabled() => start_punch(&carrier, 0),
+        None => None,
+    };
+    // After the direct path is set, so a kept circuit that ran on it opens on it again.
+    saved::keep_across_restarts(&carrier, state_dir);
     Some(serving)
 }
 
@@ -2604,26 +3042,33 @@ async fn start_direct(
                 .map(|(_, host)| host)
         })),
     );
-    match tokio::net::TcpListener::bind((std::net::Ipv6Addr::UNSPECIFIED, port)).await {
-        Ok(listener) => {
-            tracing::info!("hub carrier direct: listening on port {port}");
-            Some(carrier.serve_direct(listener))
-        }
-        Err(e) => {
-            match tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port)).await {
-                Ok(listener) => {
-                    tracing::info!("hub carrier direct: listening on port {port} (IPv4)");
-                    Some(carrier.serve_direct(listener))
-                }
-                Err(e4) => {
-                    tracing::warn!(
-                        "hub carrier direct: port {port} will not bind ({e}; {e4}); dialing only"
-                    );
-                    None
-                }
-            }
-        }
+    let served = start_punch(carrier, port);
+    if served.is_none() {
+        tracing::warn!("hub carrier direct: port {port} will not bind; dialing only");
     }
+    served
+}
+
+/// Listen for direct connections on `port` (0: a port of its own) where punches can open from
+/// the same port, map it on the router when PCP or NAT-PMP grants one, and serve it.
+fn start_punch(carrier: &Arc<HubCarrier>, port: u16) -> Option<tokio::task::JoinHandle<()>> {
+    let listener = match punch::punch_listener(port) {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::warn!("hub carrier punch: no listener on port {port}: {e}");
+            return None;
+        }
+    };
+    let port = listener.local_addr().ok()?.port();
+    tracing::info!("hub carrier direct: listening on port {port}");
+    if punch::enabled() {
+        carrier.set_punch_port(port);
+        let mapping = Arc::downgrade(carrier);
+        direct::scope().spawn_named("hub carrier port map", async move {
+            punch::portmap::keep_mapped(mapping, port).await;
+        });
+    }
+    Some(carrier.serve_direct(listener))
 }
 
 /// [`start_configured`] on the daemon's key lock (its WireGuard transport's, else the carrier's
@@ -2670,14 +3115,32 @@ pub mod broker;
 #[path = "hub_carrier_rehome.rs"]
 mod rehome;
 
+#[path = "hub_carrier_hold.rs"]
+mod hold;
+pub use hold::{HOLD_BOOK_WAIT, HOLD_CIRCUITS_ENV, held_machines, is_daemon_id, resolve_held};
+
+#[path = "hub_carrier_placed.rs"]
+pub mod placed;
+
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
+
+#[path = "hub_carrier_punch.rs"]
+pub mod punch;
+
+#[path = "hub_carrier_kept_saved.rs"]
+mod saved;
+
+#[path = "hub_carrier_kept_hedge.rs"]
+mod hedge;
 
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Path {
     Relay,
     Direct(SocketAddr),
+    /// A connection both machines opened toward each other (`hub_carrier_punch.rs`).
+    Punched,
 }
 
 #[cfg(test)]
@@ -2689,5 +3152,17 @@ mod register_log_tests;
 mod key_lock_tests;
 
 #[cfg(test)]
+#[path = "hub_carrier_services_tests.rs"]
+mod services_tests;
+
+#[cfg(test)]
 #[path = "hub_carrier_silent_circuit_tests.rs"]
 mod silent_circuit_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_hedge_tests.rs"]
+mod kept_hedge_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_prune_tests.rs"]
+mod kept_prune_tests;

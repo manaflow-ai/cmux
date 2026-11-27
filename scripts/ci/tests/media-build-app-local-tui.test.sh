@@ -42,7 +42,8 @@ run() { # DIR [ENV...]
 make_source "$tmp/none" none
 run "$tmp/none"
 grep -qx "local=$tmp/none/client/cmux-tui" "$tmp/none/reload-env" || fail "reload.sh did not get the local build: $(cat "$tmp/none/reload-env")"
-grep -q "cmux-ci-media/cmux-tui-client-target/r1" "$tmp/none/client-built" || fail "no per-runner Cargo target"
+grep -q "cmux-ci-media/cmux-tui-client-target/shared" "$tmp/none/client-built" || fail "no per-host Cargo target"
+grep -q "cmux-tui-client-target/r1" "$tmp/none/client-built" && fail "a per-runner Cargo target (one ~12 GiB copy per runner)"
 
 # Published tree: no local build.
 make_source "$tmp/ready" ready
@@ -59,5 +60,44 @@ run "$tmp/standin" CMUX_TUI_TREE_KEY="$(printf "a%.0s" {1..40})"
 make_source "$tmp/bin" none
 run "$tmp/bin" CMUX_NEXT_TUI_BIN=/x/cmux-tui
 [ ! -e "$tmp/bin/client-built" ] || fail "built cmux-tui despite CMUX_NEXT_TUI_BIN"
+
+# A Swift package resolution failure (GitHub 403, job 139577219503) is retried;
+# the build shares a per-runner SourcePackages dir.
+make_source "$tmp/spm" ready
+cat > "$tmp/spm/scripts/reload.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "spm=${CMUX_SOURCE_PACKAGES_DIR:-}" > "$PWD/reload-env"
+n=$(( $(cat "$PWD/tries" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$PWD/tries"
+if [ "$n" -lt 2 ]; then echo "xcodebuild: error: Could not resolve package dependencies:"; exit 74; fi
+mkdir -p "$PWD/Out.app"; echo "App path:"; echo "  $PWD/Out.app"
+STUB
+chmod +x "$tmp/spm/scripts/reload.sh"
+run "$tmp/spm" MEDIA_SPM_RETRY_SECONDS=0
+[ "$(cat "$tmp/spm/tries")" = 2 ] || fail "resolution failure not retried once: $(cat "$tmp/spm/tries")"
+grep -qx "spm=$tmp/home/Library/Caches/cmux-ci-media/source-packages/r1" "$tmp/spm/reload-env" || fail "no per-runner SourcePackages: $(cat "$tmp/spm/reload-env")"
+
+# Any other build failure is not retried.
+make_source "$tmp/bad" ready
+cat > "$tmp/bad/scripts/reload.sh" <<'STUB'
+#!/usr/bin/env bash
+n=$(( $(cat "$PWD/tries" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$PWD/tries"
+echo "error: compile failed"; exit 65
+STUB
+chmod +x "$tmp/bad/scripts/reload.sh"
+if env HOME="$tmp/home" GITHUB_OUTPUT="$tmp/out" RUNNER_NAME=r1 MEDIA_SPM_RETRY_SECONDS=0 \
+  bash "$script" "$tmp/bad" t "$tmp/bad/log" app >/dev/null 2>&1; then fail "a compile failure passed"; fi
+[ "$(cat "$tmp/bad/tries")" = 1 ] || fail "a compile failure was retried"
+
+# Resolution that keeps failing gives up after MEDIA_SPM_TRIES.
+make_source "$tmp/down" ready
+cat > "$tmp/down/scripts/reload.sh" <<'STUB'
+#!/usr/bin/env bash
+n=$(( $(cat "$PWD/tries" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$PWD/tries"
+echo "xcodebuild: error: Could not resolve package dependencies:"; exit 74
+STUB
+chmod +x "$tmp/down/scripts/reload.sh"
+if env HOME="$tmp/home" GITHUB_OUTPUT="$tmp/out" RUNNER_NAME=r1 MEDIA_SPM_RETRY_SECONDS=0 \
+  bash "$script" "$tmp/down" t "$tmp/down/log" app >/dev/null 2>&1; then fail "endless resolution failure passed"; fi
+[ "$(cat "$tmp/down/tries")" = 3 ] || fail "gave up after $(cat "$tmp/down/tries") tries, not 3"
 
 echo "media-build-app-local-tui: ok"
