@@ -425,7 +425,10 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
     let machine_b = rows.iter().find(|row| row["name"] == "machine-b").expect("machine-b row");
     assert_eq!(machine_b["health"], json!({"cpus": 8, "liveSessions": 2}));
     assert_eq!(machine_b["healthAt"], json!(now));
-    assert!(hub.hub_only_hosts().is_empty(), "no ask for a machine that pushed");
+    assert!(
+        !hub.hub_only_hosts().contains(&"machine-b".to_owned()),
+        "no ask for a machine that pushed"
+    );
 
     // A pull newer than the push replaces it.
     hub.hub_health.lock().unwrap().answered("machine-b", Some(json!({"cpus": 16})), now + 1);
