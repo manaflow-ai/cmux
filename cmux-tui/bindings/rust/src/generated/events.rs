@@ -216,6 +216,13 @@ pub struct ClientDetachedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ClientDisconnectedByEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub by: Option<T::SizeDetachActor>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ClientListInvalidatedEvent {
 }
 
@@ -1136,6 +1143,7 @@ pub enum Event {
     ClientAttached(ClientAttachedEvent),
     ClientChanged(ClientChangedEvent),
     ClientDetached(ClientDetachedEvent),
+    ClientDisconnectedBy(ClientDisconnectedByEvent),
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
     CloudConversationLive(CloudConversationLiveEvent),
@@ -1244,6 +1252,7 @@ impl Event {
             Self::ClientAttached(_) => Some("client-attached"),
             Self::ClientChanged(_) => Some("client-changed"),
             Self::ClientDetached(_) => Some("client-detached"),
+            Self::ClientDisconnectedBy(_) => Some("client-disconnected-by"),
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
             Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
@@ -1351,6 +1360,7 @@ impl Event {
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
             Self::ClientChanged(_) => Some(&CLIENT_CHANGED_EVENT_METADATA),
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
+            Self::ClientDisconnectedBy(_) => Some(&CLIENT_DISCONNECTED_BY_EVENT_METADATA),
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
             Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
@@ -1567,6 +1577,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("client-detached") => match serde_json::from_value::<ClientDetachedEvent>(raw.clone()) {
             Ok(event) => Event::ClientDetached(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("client-disconnected-by") => match serde_json::from_value::<ClientDisconnectedByEvent>(raw.clone()) {
+            Ok(event) => Event::ClientDisconnectedBy(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

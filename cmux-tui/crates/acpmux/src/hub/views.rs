@@ -1091,6 +1091,10 @@ impl Hub {
         // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
         // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
         extras.push(("bgTasksRunning", json!(self.bg_running_count(session))));
+        // Those of them that are re-armable waits (`rearm.rs`, `session-bg-waits-v1`): a move
+        // starts each again at the destination, so rebalance moves a session whose every task
+        // is one.
+        extras.push(("bgWaits", json!(self.bg_waits(session))));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with

@@ -144,6 +144,11 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
   "client": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type ClientDisconnectedByEvent = { event: "client-disconnected-by" } & {
+  "by"?: T.SizeDetachActor;
+};
+
 /** Protocol v9; emission: serialized-never-emitted; streams: subscribe. */
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
 };
@@ -843,6 +848,7 @@ export type KnownCmuxEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | ClientDisconnectedByEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
   | CloudConversationPresenceEvent

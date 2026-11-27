@@ -1316,6 +1316,42 @@ func (ClientDetachedEvent) EventName() string { return "client-detached" }
 func (ClientDetachedEvent) isDeltaEvent()     {}
 func (ClientDetachedEvent) isSubscribeEvent() {}
 
+// ClientDisconnectedByEvent is emitted by protocol v12.
+type ClientDisconnectedByEvent struct {
+	By *SizeDetachActor `json:"by,omitempty"`
+}
+
+func (value *ClientDisconnectedByEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: expected object")
+	}
+	var fields struct {
+		Event *string                              `json:"event"`
+		By    optionalNonNullJSON[SizeDetachActor] `json:"by"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: %w", err)
+	}
+	if fields.Event == nil {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: required field event is missing or null")
+	}
+	if *fields.Event != "client-disconnected-by" {
+		return fmt.Errorf("decode ClientDisconnectedByEvent.event: invalid value %q", *fields.Event)
+	}
+	type wire ClientDisconnectedByEvent
+	var decoded wire
+	if fields.By.null {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: non-nullable field by is null")
+	}
+	if fields.By.set {
+		decoded.By = &fields.By.value
+	}
+	*value = ClientDisconnectedByEvent(decoded)
+	return nil
+}
+
+func (ClientDisconnectedByEvent) EventName() string { return "client-disconnected-by" }
+
 // ClientListInvalidatedEvent is emitted by protocol v9.
 type ClientListInvalidatedEvent struct {
 }
@@ -6663,6 +6699,11 @@ func parseEvent(raw map[string]any) Event {
 		}
 	case "client-detached":
 		var event ClientDetachedEvent
+		if decodeEvent(raw, &event) {
+			return event
+		}
+	case "client-disconnected-by":
+		var event ClientDisconnectedByEvent
 		if decodeEvent(raw, &event) {
 			return event
 		}

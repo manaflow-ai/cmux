@@ -1117,6 +1117,63 @@ class SkippedProbeTest(unittest.TestCase):
         self.assertEqual(pmb.probe_conclusion(ran, probe), "failure")
 
 
+class LoneJobProbeTest(unittest.TestCase):
+    """A red job with no manifest id is probed alone first ('lone-<name>'), not with the whole suite: cmux-tui-spec's
+    ~1 min `changes` check bisected with ~80 runner-min whole-suite runs (run 46048381428, 11-27), and
+    webviews-test-history with three ~450 runner-min whole-web runs at one commit, none with a verdict."""
+
+    suite = pmb.Suite("web", "ci-web.yml", ["web/**"], {"web-tests": "Web tests"})
+
+    def judge(self, only: str, jobs: list[dict], tries: int = 0):
+        origin = {"id": 60, "status": "completed", "head_sha": "6" * 40, "display_title": f"{pmb.BATCH} tick",
+                  "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "feat-cmux-next"}
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="6" * 40, suite="web", job="web / webviews-test-history", only=only, probe_sha="6" * 40,
+                         good="5" * 40, bad="", origin="60", tries=str(tries), pieces="", dry_run=False, summary=None,
+                         github_output=None)
+        sent: list = []
+        found = [("web / webviews-test-history", "web", "5" * 40)]
+        with mock.patch.object(pmb, "run_jobs", return_value=jobs), mock.patch.object(pmb, "gh_api", return_value=origin), \
+                mock.patch.object(pmb, "list_runs", return_value=[]), mock.patch.object(pmb, "new_reds", return_value=(found, [])), \
+                mock.patch.object(pmb, "stuck_reds", return_value=[]), mock.patch.object(pmb, "first_parent_range", return_value=["6" * 40]), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)):
+            return pmb.cmd_judge(args), sent
+
+    def test_an_id_less_job_probes_alone(self) -> None:
+        self.assertEqual(self.suite.probe_only("Web tests (2/4)"), "web-tests")
+        self.assertEqual(self.suite.probe_only("webviews-test-history"), "lone-webviews-test-history")
+        self.assertEqual(self.suite.probe_only("plan (changed Cargo workspaces)"), "lone-plan")
+        with mock.patch.dict(os.environ, {"POST_MERGE_PROBE_WHOLE_SUITE": "1"}):
+            self.assertEqual(self.suite.probe_only("webviews-test-history"), "")
+
+    def test_a_lone_job_that_ran_gives_its_own_verdict(self) -> None:
+        probe = pmb.Probe("web", "web / changes", "lone-changes", "c1", "g", "c3", "1")
+        self.assertEqual(pmb.probe_conclusion({"web / changes": ("web", "failure")}, probe), "failure")
+        self.assertEqual(pmb.probe_conclusion({"web / changes": ("web", "success"), "web / scope": ("web", "failure")}, probe), "success")
+        # Not the suite's worst job: the lone job did not run, so there is no verdict.
+        self.assertEqual(pmb.probe_conclusion({"web / scope": ("web", "failure")}, probe), "")
+
+    def test_a_lone_job_that_did_not_run_falls_back_to_the_whole_suite_once(self) -> None:
+        jobs = [{"name": "web / web-subarea-scope", "status": "completed", "conclusion": "success"},
+                {"name": "web / webviews-test-history", "status": "completed", "conclusion": "skipped"}]
+        code, sent = self.judge("lone-webviews-test-history", jobs)
+        self.assertEqual(code, 0)
+        self.assertEqual([(p.only, p.sha, p.tries) for p in sent], [("", "6" * 40, 0)])
+
+    def test_a_whole_suite_skip_with_nothing_lost_is_not_run_again(self) -> None:
+        step = [{"name": "Test webviews", "conclusion": "failure"}]
+        jobs = [{"name": "web / react-apps-check (5)", "status": "completed", "conclusion": "failure", "steps": step},
+                {"name": "web / webviews-test-history", "status": "completed", "conclusion": "skipped"}]
+        code, sent = self.judge("", jobs)
+        self.assertEqual((code, sent), (0, []))
+
+    def test_a_whole_suite_skip_behind_a_lost_runner_runs_again(self) -> None:
+        jobs = [{"name": "web / react-apps-check (5)", "status": "completed", "conclusion": "failure", "steps": []},
+                {"name": "web / webviews-test-history", "status": "completed", "conclusion": "skipped"}]
+        code, sent = self.judge("", jobs)
+        self.assertEqual([(p.only, p.tries) for p in sent], [("", 1)])
+
+
 class FirstUnknownProbeTest(unittest.TestCase):
     """A stuck red's bisect starts again about hourly: its first probe skips the commits earlier bisects probed."""
     commits = [c * 40 for c in "bcdefghi"]  # good a, bad i
