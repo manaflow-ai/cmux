@@ -11,6 +11,8 @@ import {
   type StatusActionId,
   type StatusLineText,
 } from "./computerStatus";
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
 
 /// `beside` sits next to the button (the RFD's pick); `row` is a quiet row above the composer;
 /// `chip` is one pill with the headline only, the rest on hover.
@@ -20,36 +22,38 @@ export function AutoStatusLine({
   status,
   nowMs,
   look = "beside",
+  offered,
   onAction,
 }: {
   status: ComputerStatus;
   nowMs: number;
   look?: StatusLineLook;
+  /// The actions the caller can run; the others are not drawn (every one when absent, as the gallery draws).
+  offered?: readonly StatusActionId[];
   onAction(id: StatusActionId): void;
 }) {
   const t = useT();
-  const line: StatusLineText | undefined = statusLine(status, nowMs, t);
-  if (!line) return null;
+  const said: StatusLineText | undefined = statusLine(status, nowMs, t);
+  if (!said) return null;
+  const line = offered ? { ...said, actions: said.actions.filter((action) => offered.includes(action.id)) } : said;
   const chip = look === "chip";
   return (
-    <output
-      className="acpmux-computer-status"
-      data-look={look}
-      data-phase={status.phase}
-      title={chip ? line.text : undefined}
-    >
-      <span className="acpmux-computer-status-text">{chip ? statusChipText(line) : line.text}</span>
-      {line.actions.map((action) => (
-        <button
-          key={action.id}
-          type="button"
-          className="acpmux-computer-status-action"
-          data-action={action.id}
-          onClick={() => onAction(action.id)}
-        >
-          {action.label}
-        </button>
-      ))}
-    </output>
+    <Tooltip label={line.text} disabled={!chip}>
+      <output className="acpmux-computer-status" data-look={look} data-phase={status.phase}>
+        <span className="acpmux-computer-status-text">{chip ? statusChipText(line) : line.text}</span>
+        {line.actions.map((action) => (
+          <Button
+            bare
+            key={action.id}
+            type="button"
+            className="acpmux-computer-status-action"
+            data-action={action.id}
+            onClick={() => onAction(action.id)}
+          >
+            {action.label}
+          </Button>
+        ))}
+      </output>
+    </Tooltip>
   );
 }
