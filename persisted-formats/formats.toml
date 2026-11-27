@@ -390,6 +390,9 @@ key = "cmux.diffViewer.layout"
 key = "cmux.diffViewer.options"
 
 [[storage_key]]
+key = "cmux.draft-attachments.authority."
+
+[[storage_key]]
 key = "cmux.editor.keySequence"
 
 [[storage_key]]
@@ -427,3 +430,6 @@ key = "cmux.tunables"
 
 [[storage_key]]
 key = "cmux.webSwap.focus"
+
+[[storage_key]]
+key = "cmux.webSwap.handoff"
