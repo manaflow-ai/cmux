@@ -49,6 +49,7 @@ pub mod mailbox_client;
 pub mod media;
 pub mod names;
 pub mod net_return;
+pub mod outbox_wait;
 pub mod path_report;
 pub mod reconnect;
 pub mod relay_cache;

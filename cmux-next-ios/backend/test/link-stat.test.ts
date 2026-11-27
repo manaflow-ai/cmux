@@ -133,6 +133,17 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat({ echo: "fast", spikes: "none" }), "phone", ingress, null)).not.toHaveProperty("echoN")
   })
 
+  it("flattens the outbox wait in µs, clamped to 600 s", () => {
+    const line = linkStatLine(
+      stat({ outboxUs: { n: 5000, p50: 180, p95: 900, p99: 4200, max: 1e12 } }),
+      "phone",
+      ingress,
+      null
+    )!
+    expect(line).toMatchObject({ outboxUsN: 5000, outboxUsP50: 180, outboxUsP95: 900, outboxUsP99: 4200, outboxUsMax: 600_000_000 })
+    expect(linkStatLine(stat({ outboxUs: [1, 2] }), "phone", ingress, null)).not.toHaveProperty("outboxUsN")
+  })
+
   it("rejects a malformed stat", () => {
     for (const bad of [{ v: 2 }, { transport: "carrier-pigeon" }, { path: "10.0.0.1:443" }, { reason: "because" }, { pings: -1 }, { lost: "none" }, { pings: Number.NaN }]) {
       expect(linkStatLine(stat(bad), "phone", ingress, null)).toBeNull()
