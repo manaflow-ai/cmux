@@ -61,8 +61,63 @@ pub(crate) async fn route(
             Check::Refuse(text) => return Err(refusal(&target, text)),
             Check::Queue(why) => unchecked = why,
         }
+    } else if !target.contains('/')
+        && !valid_role(&target)
+        && hub.resolve(&target).is_err()
+        && let Some(mesh) = hub.mesh.get()
+        && let Ok(Ok(book)) = tokio::time::timeout(BOOK_WAIT, mesh.sessions()).await
+    {
+        match bare_id(&book, &target) {
+            Check::Successor(key) => {
+                target = key;
+                request["sessionId"] = json!(target);
+            }
+            Check::Refuse(text) => return Err(refusal(&target, text)),
+            Check::Queue(_) => {}
+        }
     }
     Ok((target, unchecked))
+}
+
+/// A bare session id no session here holds, against one read of the hub's book: `HOST/ID` when
+/// exactly one live session there has it, refused when none does and nothing took it over (the
+/// hub routes only a qualified address, so the outbox would accept it, exit 0, and fail it with
+/// `mesh.unknown_recipient` after all its attempts: a lost message nobody saw), else as it was.
+/// Only an id: a bare name may be a role or a peer's own short name this check does not see.
+pub(crate) fn bare_id(book: &AddressBook, target: &str) -> Check {
+    if let Some(key) = qualified(book, target) {
+        return Check::Successor(key);
+    }
+    let listed =
+        |s: &BookSession| s.session_id == target || s.former_names.iter().any(|n| n == target);
+    if !looks_like_session_id(target) || book.sessions.iter().any(listed) {
+        return Check::Queue(None);
+    }
+    Check::Refuse(format!(
+        "no session: {target} (no session here has that id, and the mesh hub's address book lists \
+         none; address a peer's session as HOST/ID)"
+    ))
+}
+
+/// A UUID's shape: 36 characters, hex digits and four hyphens at 8, 13, 18 and 23.
+fn looks_like_session_id(s: &str) -> bool {
+    s.len() == 36
+        && s.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
+/// A bare session id no session here holds, as `HOST/ID` when exactly one live session on the
+/// hub's book has that id. The hub routes only a qualified address: a send to the bare id was
+/// queued, accepted (exit 0) and then failed in the outbox with `mesh.unknown_recipient` after
+/// all its attempts, so a scripted wake to a peer's session by its id never arrived.
+pub(crate) fn qualified(book: &AddressBook, target: &str) -> Option<String> {
+    let mut found = book.sessions.iter().filter(|s| s.session_id == target);
+    match (found.next(), found.next()) {
+        (Some(s), None) => Some(format!("{}/{}", s.host, s.session_id)),
+        _ => None,
+    }
 }
 
 /// The send's answer says which session it went to when that is not the one asked for, and

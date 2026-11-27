@@ -255,6 +255,7 @@
           "\"connected\"",
           "\"connecting\"",
           "\"degraded\"",
+          "\"idle\"",
           "\"offline\"",
           "\"paused\"",
           "\"reconnecting\"",
@@ -434,6 +435,34 @@
       "/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "event:_acpmux/room": {
+      "/deltas": {
+        "ty": "array"
+      },
+      "/deltas/*": {
+        "ty": "json"
+      },
+      "/left": {
+        "ty": "array"
+      },
+      "/left/*": {
+        "ty": "string"
+      },
+      "/presence": {
+        "ty": "array",
+        "required": true
+      },
+      "/presence/*": {
+        "ty": "json"
+      },
+      "/room": {
+        "ty": "json",
+        "required": true
+      },
+      "/snapshot": {
+        "ty": "boolean"
       }
     },
     "event:_acpmux/rows_lagged": {
@@ -1592,6 +1621,22 @@
         "required": true,
         "nullable": true
       },
+      "/session/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/session/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/session/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/session/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/session/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -1960,6 +2005,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -2260,6 +2308,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -2567,6 +2618,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -2864,6 +2918,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3168,6 +3225,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -3462,6 +3522,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3772,6 +3835,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -4071,6 +4137,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -4365,6 +4434,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -4669,6 +4741,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -4971,6 +5046,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -5268,6 +5346,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -5572,6 +5653,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -5871,6 +5955,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -6168,6 +6255,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -6493,6 +6583,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -6634,6 +6727,10 @@
         "nullable": true
       },
       "/eventStream": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/hold": {
         "ty": "boolean",
         "nullable": true
       },
@@ -6860,6 +6957,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7233,6 +7333,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -7527,6 +7630,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7859,6 +7965,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8209,6 +8318,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8813,6 +8925,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9151,6 +9266,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9447,6 +9565,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9711,6 +9832,47 @@
         "nullable": true
       }
     },
+    "request:_acpmux/follow": {
+      "/_meta": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/approval": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "owner"
+        ]
+      },
+      "/_meta/acpmux/author/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/login": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/node": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/target": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:_acpmux/forum/ack": {
       "/*untyped*": {
         "ty": "json",
@@ -9914,6 +10076,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10263,6 +10428,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -10557,6 +10725,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10867,6 +11038,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -11164,6 +11338,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11469,6 +11646,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11789,6 +11969,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -12148,6 +12331,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -12445,6 +12631,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -12746,6 +12935,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -12859,6 +13051,12 @@
       },
       "/cwd": {
         "ty": "json"
+      }
+    },
+    "request:_acpmux/heap_profile": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
       }
     },
     "request:_acpmux/here": {
@@ -13208,6 +13406,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -13538,6 +13739,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -14078,6 +14282,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -14401,6 +14608,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -14715,6 +14925,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -15017,6 +15230,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -15314,6 +15530,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -15622,6 +15841,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16001,6 +16223,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -16307,6 +16532,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16624,6 +16852,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16951,6 +17182,9 @@
       "/answers": {
         "ty": "json"
       },
+      "/forkCheckpoint": {
+        "ty": "json"
+      },
       "/optionId": {
         "ty": "string",
         "nullable": true
@@ -17225,6 +17459,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -17563,6 +17800,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -17863,6 +18103,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -18176,6 +18419,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -18487,6 +18733,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -18792,6 +19041,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -19088,6 +19340,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -19379,6 +19634,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19679,6 +19937,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19986,6 +20247,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -20283,6 +20547,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -20596,6 +20863,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -20893,6 +21163,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -21242,6 +21515,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -21568,6 +21844,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -21727,6 +22006,20 @@
       "/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "request:_acpmux/rooms": {
+      "/chats": {
+        "ty": "array"
+      },
+      "/chats/*": {
+        "ty": "string"
+      },
+      "/workspaces": {
+        "ty": "array"
+      },
+      "/workspaces/*": {
+        "ty": "string"
       }
     },
     "request:_acpmux/route/add": {
@@ -21928,6 +22221,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -22092,6 +22388,12 @@
       }
     },
     "request:_acpmux/scorecard": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/scorecard_replay": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -22290,6 +22592,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -22460,6 +22765,12 @@
       }
     },
     "request:_acpmux/send_fanout": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/send_hop": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -22790,6 +23101,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -23110,6 +23424,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -23407,6 +23724,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -23711,6 +24031,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -24008,6 +24331,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24309,6 +24635,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -24603,6 +24932,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24902,6 +25234,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -25215,6 +25550,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -25526,6 +25864,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -25823,6 +26164,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -26136,6 +26480,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -26445,6 +26792,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27030,6 +27380,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -27336,6 +27689,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27793,6 +28149,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -28134,6 +28493,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -28534,6 +28896,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -28834,6 +29199,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -29189,6 +29557,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -29495,6 +29866,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -29823,6 +30197,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -30123,6 +30500,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -30433,6 +30813,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -30735,6 +31118,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -31032,6 +31418,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -32552,6 +32941,22 @@
         "required": true,
         "nullable": true
       },
+      "/data/session/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/session/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/data/session/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -33315,6 +33720,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/follow": {
+      "/data/following": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "response:_acpmux/forum/ack": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33514,6 +33925,12 @@
       }
     },
     "response:_acpmux/harnesses": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/heap_profile": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -35647,6 +36064,22 @@
         "required": true,
         "nullable": true
       },
+      "/data/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/data/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -36046,6 +36479,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/rooms": {
+      "/data/rooms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:_acpmux/route/add": {
       "/data/*untyped*": {
         "ty": "json",
@@ -36124,6 +36563,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/scorecard_replay": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/secret_request": {
       "/data/*untyped*": {
         "ty": "json",
@@ -36149,6 +36594,12 @@
       }
     },
     "response:_acpmux/send_fanout": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/send_hop": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37440,6 +37891,22 @@
         "required": true,
         "nullable": true
       },
+      "/data/sessions/*/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/data/sessions/*/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -38049,6 +38516,22 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/usage/*/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usage/*/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/usage/*/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usage/*/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
       },
       "/data/usage/*/cacheReadShare24h": {
         "ty": "double",
@@ -39355,6 +39838,22 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
       },
       "/data/sessions/*/usageStats/cacheReadShare24h": {
         "ty": "double",

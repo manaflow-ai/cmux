@@ -29,6 +29,7 @@ pub mod cache;
 pub mod diagnostics;
 pub mod domains;
 pub mod effective;
+pub mod explain;
 pub mod font_faces;
 pub mod fsio;
 pub mod guard;
@@ -39,22 +40,27 @@ pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;
 pub mod language;
+pub mod link_rules;
 pub mod location;
 pub mod managed;
 pub mod migrations;
+pub mod notifications;
 pub mod owner;
+pub mod project;
 pub mod project_actions;
 pub mod refusal;
 pub mod render;
 pub mod schema;
 pub mod session_worktrees;
 pub mod sidebar_look;
+pub mod site_engines;
 pub mod store;
 pub mod text;
 pub mod theme_file;
 pub mod transcript_look;
 pub mod value;
 pub mod watch;
+pub mod worktree_names;
 pub mod youtube;
 
 pub use diagnostics::{Diagnostic, DiagnosticKind};
@@ -65,7 +71,9 @@ pub use keybindings::owner::{
     KeybindingsApplied, KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal,
     KeybindingsStore,
 };
-pub use location::{CONFIG_OVERRIDE, NEXT_DIR, config_path, keybindings_path, seed_path};
+pub use location::{
+    CONFIG_OVERRIDE, NEXT_DIR, cache_dir, cache_dir_from, config_path, keybindings_path, seed_path,
+};
 pub use managed::{ManagedPreferences, ManagedReader, ManagedSource, Policy, TeamPolicyLayer};
 pub use owner::{ApplyResult, ConfigStore};
 pub use refusal::Refusal;

@@ -154,6 +154,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 
 - Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
+- Hang reports: `com.cmuxterm.app.next.hang-resolve` (HangReportCollector's stack resolution, utility, serial:
+  started by a user-data-or source the main thread signals at a sampled stall's end, no allocation on main; it
+  blocks on nothing but dyld reads; at most 16 samples wait, more are dropped)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
@@ -161,6 +164,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   the bundled `cmux cloud hands` child's stdin, user-initiated, serial: its pipe writes block only it and keep
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
+- Cloud event socket: `com.cmuxterm.next.cloud.wire.path` (CloudMachineWire's `NWPathMonitor` updates, utility,
+  serial: it blocks on nothing and hops each usable path change to the main actor; one per started wire)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,

@@ -353,9 +353,9 @@ final class WindowManager {
         let isFirstRun = firstWorkspace != nil && document.windows.isEmpty // Meet Chief decides before Home's welcome:
         services.onboarding.chief.begin(freshInstall: isFirstRun && ChiefIntroStore(defaults: .standard).welcomePending)
         Task {
+            let route = services.onboarding.firstRunRoute(isFirstRun: isFirstRun) // the card first: the migration asks on its cmux Classic row
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            // One step at a time: the Set Up cmux card, or the first-run windows one after another.
-            await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            await services.onboarding.showFirstRunSteps(route, isFirstRun: isFirstRun)
             // A new person's first launch: a new agent chat, ready to type (cmux#48416).
             await services.onboarding.openFirstChat(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
@@ -455,7 +455,7 @@ final class WindowManager {
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
         // controller's own observer would install it a main-actor hop later.
-        controller.showWorkspace(requested: state.workspaceID)
+        DebugTimings.markLaunch("window.configured"); controller.showWorkspace(requested: state.workspaceID); DebugTimings.markLaunch("window.workspace_shown")
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.

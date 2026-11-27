@@ -13,7 +13,7 @@ import { dockBand } from "../dockBand.experiment";
 import { DOCK_NOTICE } from "../noticeSlotModel";
 // The asks stack has no surface of its own: a "Needs your input" line and a card. The rows stay in
 // sight across its band but for what it draws (besideStack.ts `bandMask`).
-import { bandMask, besideMask, joinMasks, type BandHole } from "./besideStack";
+import { bandMask, besideMask, clippedRect, joinMasks, type BandHole } from "./besideStack";
 
 const VARIABLES = ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"] as const;
 const SURFACE = ".acpmux-running-tray, .acpmux-composer-box, .acpmux-asks-stack > *";
@@ -119,8 +119,14 @@ export function useBesideStack(
             holes.push(...drawn(part as HTMLElement, box));
             continue;
           }
+          // A leaving ask keeps its card laid out while `useFold` shrinks the section and clips it.
+          // The card's own rect still reports its full height during that motion, so using it as a
+          // hole would hide the transcript below the visible part of the card and blank the rest of
+          // the row. Clip every pending part to the section that actually paints it.
+          const visible = part.getBoundingClientRect();
           for (const element of part.querySelectorAll<HTMLElement>(PENDING_PARTS)) {
-            const rect = element.getBoundingClientRect();
+            const rect = clippedRect(element.getBoundingClientRect(), visible);
+            if (!rect) continue;
             holes.push({
               left: rect.left - box.left,
               top: rect.top - box.top,

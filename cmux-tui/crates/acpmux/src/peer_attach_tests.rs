@@ -122,3 +122,32 @@ async fn a_chat_marked_again_while_its_refused_attach_was_out_stays_marked() {
     serving.abort();
     fake.abort();
 }
+
+/// A failed attach sorts by code and `data.reason`: the peer's `not_found` is a chat gone there,
+/// its refusal of the request no class it can name, a wait past its deadline and a dropped or
+/// stalled link by their reasons. Only the refusals stop the retries.
+#[test]
+fn attach_refusal_and_timeout_classes() {
+    use crate::rpc::RpcError;
+    use acpmux_list_types::resume::ResumeErrorClass;
+    use serde_json::json;
+    let gone = RpcError::not_found("no session matches \"s1\"");
+    assert!(refuses_attach(&gone));
+    assert_eq!(attach_failure_class(&gone), ResumeErrorClass::GapTooOld);
+    for refused in [RpcError::method_not_found(method::MUX_ATTACH), RpcError::invalid_params("x")] {
+        assert!(refuses_attach(&refused));
+        assert_eq!(attach_failure_class(&refused), ResumeErrorClass::Unknown);
+    }
+    let timed_out = RpcError::internal("peer p timed out after 30s")
+        .with_data(json!({"reason": "deadline_exceeded", "peer": "p"}));
+    assert!(!refuses_attach(&timed_out));
+    assert_eq!(attach_failure_class(&timed_out), ResumeErrorClass::DeadlineExceeded);
+    for reason in ["peer_unreachable", "peer_disconnected"] {
+        let dropped = RpcError::internal("the link dropped").with_data(json!({"reason": reason}));
+        assert!(!refuses_attach(&dropped));
+        assert_eq!(attach_failure_class(&dropped), ResumeErrorClass::Transient);
+    }
+    // The message is never read: a timeout's wording with no reason is no class.
+    let worded = RpcError::internal("peer p timed out after 30s");
+    assert_eq!(attach_failure_class(&worded), ResumeErrorClass::Unknown);
+}
