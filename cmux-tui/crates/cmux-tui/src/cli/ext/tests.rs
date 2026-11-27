@@ -242,6 +242,47 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
 }
 
 #[test]
+fn headless_loads_catalog_only_commands_before_reporting_done() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    std::fs::write(dir.join("dist/main.js"), "throw new Error('catalog-only init')").unwrap();
+
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    options.build = Some("true".into());
+    let outcome = super::headless::once(&options);
+    assert_eq!(outcome.phase, Phase::Load, "{outcome:?}");
+    assert!(
+        outcome.errors.iter().any(|error| error.message.contains("catalog-only init")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn headless_accepts_manifest_only_composer_contributions() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "standup");
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest.as_object_mut().unwrap().remove("runtime");
+    manifest["implements"] = json!({
+        "cmux.composer.command/1": { "options": { "commands": [
+            { "name": "standup", "description": "Ask for today's standup", "insert": "Write my standup notes." }
+        ] } }
+    });
+    manifest["files"] = json!([]);
+    std::fs::write(&path, manifest.to_string()).unwrap();
+
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = super::headless::once(&options);
+    assert_eq!(outcome.phase, Phase::Done, "{outcome:?}");
+    assert!(outcome.probe.is_none(), "manifest-only contributions do not render: {outcome:?}");
+    assert!(outcome.next.as_deref().unwrap_or_default().contains("manifest-only"), "{outcome:?}");
+}
+
+#[test]
 fn package_files_refuse_links_and_paths_out_of_the_folder() {
     let root = tempfile::tempdir().unwrap();
     let dir = new_extension(root.path(), "linked");

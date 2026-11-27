@@ -11,16 +11,11 @@ use serde_json::{Value, json};
 use super::DevOptions;
 use super::dev::{self, Outcome, Phase, Problem};
 
-/// What the real app host renders when `export` of the script `main` mounts: QuickJS runs it
-/// as the daemon's host does, every call it makes is answered with no value, and the scene's
-/// op batches are returned in order (or the init or mount failure).
-pub(super) fn host_scene(
-    app: &str,
-    main: &str,
-    export: &str,
-    context: &Value,
-) -> Result<Value, String> {
-    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
+/// Initializes the real app host for a runtime-bearing extension. QuickJS runs the script's
+/// top-level code as the daemon's host does, so an init failure is reported even when the
+/// extension has no view to mount.
+fn init_vm(app: &str, main: &str) -> Result<cmux_app_host::AppVm, String> {
+    use cmux_app_host::{AppInfo, AppVm, InitParams, Limits};
     let mut vm = AppVm::new(Limits::default())?;
     vm.init(InitParams {
         app: AppInfo { id: app.into(), version: "0.1.0".into() },
@@ -34,6 +29,25 @@ pub(super) fn host_scene(
         main_name: Some("dist/main.js".into()),
     })
     .map_err(|e| format!("init: {e:?}"))?;
+    Ok(vm)
+}
+
+/// Loads a command-only extension's top-level script. Catalog-only commands have
+/// no `implements` export to mount, but they still need the same QuickJS init
+/// proof as a view or manifest export.
+pub(super) fn host_init(app: &str, main: &str) -> Result<(), String> {
+    let _ = init_vm(app, main)?;
+    Ok(())
+}
+
+pub(super) fn host_scene(
+    app: &str,
+    main: &str,
+    export: &str,
+    context: &Value,
+) -> Result<Value, String> {
+    use cmux_app_host::FromHost;
+    let mut vm = init_vm(app, main)?;
     if let Some(refused) = vm.mount("probe", export, context).map_err(|e| format!("{e:?}"))? {
         return Err(refused);
     }
@@ -60,7 +74,9 @@ pub(super) fn host_scene(
     Ok(Value::Array(ops))
 }
 
-/// One headless reload: validate, build, validate again, then load and render the probe.
+/// One headless reload: validate, build, validate again, then load and render the probe when
+/// the extension has a runtime view. Manifest-only contributions are already fully validated
+/// from their manifest and do not have a script to load.
 pub(super) fn once(options: &DevOptions) -> Outcome {
     let builds =
         dev::build_will_run(&options.dir, options.build.as_deref(), options.bun.as_deref());
@@ -90,15 +106,23 @@ pub(super) fn once(options: &DevOptions) -> Outcome {
         Ok(pkg) => pkg,
         Err(errors) => return outcome.failed(Phase::Manifest, errors),
     };
-    outcome.next = Some(
-        "headless: validated, built and rendered here; run `cmux ext dev` with cmux open to see it in the window"
-            .to_owned(),
-    );
-    let Some(interface) = dev::probe_interface(&pkg.manifest) else {
+    let interface = dev::probe_interface(&pkg.manifest);
+    let has_runtime = pkg.manifest.pointer("/runtime/main").is_some();
+    if interface.is_none() && !has_runtime {
+        outcome.next = Some(
+            "headless: validated this manifest-only extension; it has no runtime view to render"
+                .to_owned(),
+        );
         outcome.phase = Phase::Done;
         return outcome;
-    };
-    outcome.probe = Some(interface.clone());
+    }
+    outcome.next = Some(if interface.is_some() {
+        "headless: validated, built and rendered here; run `cmux ext dev` with cmux open to see it in the window"
+            .to_owned()
+    } else {
+        "headless: validated, built and loaded here; this extension has no view to render"
+            .to_owned()
+    });
     let main_path =
         pkg.manifest.pointer("/runtime/main").and_then(Value::as_str).unwrap_or("dist/main.js");
     let script = match std::fs::read_to_string(pkg.dir.join(main_path)) {
@@ -108,6 +132,16 @@ pub(super) fn once(options: &DevOptions) -> Outcome {
                 .failed(Phase::Load, vec![Problem::message(format!("{main_path}: {error}"))]);
         }
     };
+    let Some(interface) = interface else {
+        return match host_init(&pkg.id, &script) {
+            Ok(()) => {
+                outcome.phase = Phase::Done;
+                outcome
+            }
+            Err(reason) => outcome.failed(Phase::Load, vec![dev::load_problem(&reason)]),
+        };
+    };
+    outcome.probe = Some(interface.clone());
     let export = pkg.manifest["implements"][&interface]["export"].as_str().unwrap_or("");
     // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
     // `surface: "widget"`, which gives its ctx the host-owned now() clock.
