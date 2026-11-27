@@ -26,9 +26,9 @@ public final class UpdateController {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
-    /// Hosts that share Sparkle's defaults domain with another cmux app leave this true only
-    /// when they own that domain. cmux NEXT keeps Sparkle's silent-install preference intact and
-    /// lets ``UpdateDriver`` intercept the silent callback instead.
+    /// Hosts that still permit Sparkle's silent driver leave this true so the app-owned driver can
+    /// replace its staged installer. NEXT release bundles set `SUAllowsAutomaticUpdates=false`,
+    /// so Sparkle never starts that silent path and this preference stays untouched.
     public var disablesSparkleSilentStagingPreference = true
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
     /// the public release appcast. See ``UpdateFeedResolver/isDevLikeBundleIdentifier(_:)``.
@@ -41,24 +41,6 @@ public final class UpdateController {
         guard disablesSparkleSilentStagingPreference else { return false }
         guard defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return false }
         defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
-        return true
-    }
-
-    /// NEXT keeps the shared `SUAutomaticallyUpdate` value enabled for the classic app, but its
-    /// own updater must not let Sparkle's scheduled driver download before the app-owned policy
-    /// has checked network, build, preparation, and live-session conditions. Sparkle's setter
-    /// persists to that shared defaults domain, so restore the value immediately after changing
-    /// this updater instance.
-    @discardableResult
-    func disableSparkleAutomaticDownloadsForThisUpdater() -> Bool {
-        guard updater.automaticallyDownloadsUpdates else { return false }
-        let sharedValue = defaults.object(forKey: UpdateSettings.automaticallyUpdateKey)
-        updater.automaticallyDownloadsUpdates = false
-        if let sharedValue {
-            defaults.set(sharedValue, forKey: UpdateSettings.automaticallyUpdateKey)
-        } else {
-            defaults.removeObject(forKey: UpdateSettings.automaticallyUpdateKey)
-        }
         return true
     }
 
@@ -329,7 +311,6 @@ public final class UpdateController {
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
             defaults.removeObject(forKey: UpdateSettings.intervalMigrationKey)
-            defaults.removeObject(forKey: UpdateSettings.automaticInstallMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }

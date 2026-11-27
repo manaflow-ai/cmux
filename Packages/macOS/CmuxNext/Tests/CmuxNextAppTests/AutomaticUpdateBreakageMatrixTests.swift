@@ -122,8 +122,7 @@ import Testing
             defer { defaults.removePersistentDomain(forName: suite) }
             defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
             UpdateSettings().apply(to: defaults)
-            #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
-            #expect(defaults.bool(forKey: UpdateSettings.automaticInstallMigrationKey))
+            #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
 
         case .explicitAutomaticInstallOptOut:
             let (defaults, suite) = Self.freshDefaults()

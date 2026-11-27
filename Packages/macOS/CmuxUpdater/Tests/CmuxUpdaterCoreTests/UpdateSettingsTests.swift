@@ -30,18 +30,16 @@ import Testing
         UpdateSettings().apply(to: defaults)
 
         #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
-        #expect(defaults.bool(forKey: UpdateSettings.automaticInstallMigrationKey))
     }
 
-    @Test func legacyAutomaticInstallDefaultMigratesOnce() throws {
+    @Test func explicitAutomaticInstallOptOutStaysFalse() throws {
         let (defaults, suite) = try freshDefaults()
         defer { TestDefaults.remove(suite) }
         defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
 
         UpdateSettings().apply(to: defaults)
-        #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
 
-        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
         UpdateSettings().apply(to: defaults)
         #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
