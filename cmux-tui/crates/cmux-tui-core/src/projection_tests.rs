@@ -760,3 +760,31 @@ fn a_swap_link_out_of_the_served_home_keeps_the_projected_git() {
     assert!(swap_link_served(Path::new("/srv/app"), Path::new("/var/state/p"), Some(home)));
     assert!(swap_link_served(at, Path::new("/var/state/p"), None));
 }
+
+#[test]
+fn the_bulk_copy_runs_unless_turned_off_and_its_log_line_says_why_it_ended() {
+    use std::ffi::OsStr;
+    assert!(super::bulk_copy_enabled(None));
+    assert!(super::bulk_copy_enabled(Some(OsStr::new("1"))));
+    for off in ["0", "false", "OFF"] {
+        assert!(!super::bulk_copy_enabled(Some(OsStr::new(off))), "{off}");
+    }
+    let took = std::time::Duration::from_millis(1200);
+    let mut report = cmux_projection::overlay::bulk::BulkReport {
+        files: 3,
+        bytes: 4096,
+        requests: 2,
+        complete: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        super::bulk_copy_line(&report, took),
+        "complete; 3 files, 4096 bytes in 2 requests, 1200 ms"
+    );
+    report.complete = false;
+    report.full = true;
+    assert!(super::bulk_copy_line(&report, took).starts_with("stopped: the rest does not fit"));
+    report.full = false;
+    report.away = true;
+    assert!(super::bulk_copy_line(&report, took).starts_with("stopped: the Mac went away"));
+}

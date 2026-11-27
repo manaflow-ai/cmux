@@ -1460,15 +1460,25 @@ fn mount(
         });
     }
     // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
-    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
-    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
-    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+    // folder ends up local (Leo, 2026-11-27: "first with projectionfs then with the full or
+    // compressed amount fast"). On unless `CMUX_PROJECTION_BULK_COPY=0`: it rides the wire's
+    // batched answers at nice 19, pauses after every batch (ten times longer while the agent's own
+    // reads fault), stops when the Mac is away and never fills the cache past three quarters, so
+    // the agent's reads are never behind it. Its report is logged, so a copy that stopped short
+    // says why.
+    if bulk_copy_enabled(std::env::var_os("CMUX_PROJECTION_BULK_COPY").as_deref()) {
         let copying = overlay.clone();
+        let named = name.to_owned();
         let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
             cmux_projection::overlay::bulk::lower_priority();
-            let _ = copying.bulk_copy(
+            let started = std::time::Instant::now();
+            let report = copying.bulk_copy(
                 &cmux_projection::overlay::bulk::BulkOptions::default(),
                 &std::sync::atomic::AtomicBool::new(false),
+            );
+            eprintln!(
+                "cmux projection: bulk copy of {named}: {}",
+                bulk_copy_line(&report, started.elapsed())
             );
         });
     }
@@ -1671,6 +1681,38 @@ fn fnv(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
     })
+}
+
+/// Whether a projected start copies the rest of its tree behind the mount: on unless
+/// `CMUX_PROJECTION_BULK_COPY` is `0`, `false` or `off`.
+fn bulk_copy_enabled(value: Option<&std::ffi::OsStr>) -> bool {
+    !value.is_some_and(|value| {
+        let value = value.to_string_lossy();
+        ["0", "false", "off"].iter().any(|off| value.eq_ignore_ascii_case(off))
+    })
+}
+
+/// The log line of a finished bulk copy: what it moved, how long it took, and why it ended.
+fn bulk_copy_line(
+    report: &cmux_projection::overlay::bulk::BulkReport,
+    took: std::time::Duration,
+) -> String {
+    let ended = if report.complete {
+        "complete"
+    } else if report.away {
+        "stopped: the Mac went away"
+    } else if report.full {
+        "stopped: the rest does not fit the cache"
+    } else {
+        "stopped: no disk cache, or a fetch failed"
+    };
+    format!(
+        "{ended}; {} files, {} bytes in {} requests, {} ms",
+        report.files,
+        report.bytes,
+        report.requests,
+        took.as_millis()
+    )
 }
 
 #[cfg(test)]
