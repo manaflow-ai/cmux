@@ -217,7 +217,15 @@ export type LaunchMark =
   /// The page's first paint report of a chat (App.tsx `pane.painted`): its rows are on screen.
   | "rowsDrawn"
   /// The frame that drew acpmux's settled view of the chat was reported (`pane.painted` `settled`).
-  | "settledDrawn";
+  | "settledDrawn"
+  // The connect's steps, for where a restart's time goes (bench/first-load-after-restart.bench.ts WIRE_TRACE=1): the
+  // socket open, `initialize` answered and taken, the open's attach sent and answered, the kept tail drawn.
+  | "socketOpen"
+  | "initialized"
+  | "attachSent"
+  | "attachAnswered"
+  | "restoredTailDrawn"
+  | "tailWhileConnecting";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 /// How many of a page's start states `startStateTrail` keeps (the newest).
@@ -247,6 +255,27 @@ export function typingSummary(samples: TypingSample[]) {
     to_work: stages(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
     samples: samples.map((sample) => ({ ...sample })),
   };
+}
+
+/// The first task after the frame a key's rAF callback ran in: the frame's style, layout and paint are done. Where the
+/// engine has a prioritized task API (Chromium's `scheduler.postTask`), at user-blocking priority. A posted message is a
+/// default-priority task: under a stream Chromium runs the later keys' input and the frames ahead of it, so on
+/// composer-typing L1 it ran 35 ms (p50) to 133 ms (p95) after its key, behind about 100 other tasks, while the
+/// key's rAF callback ran at 17 ms (p95). WebKit has no `scheduler.postTask` and keeps the posted message.
+export function afterFrame(done: () => void): void {
+  const scheduler = (
+    globalThis as { scheduler?: { postTask?: (task: () => void, options: { priority: string }) => unknown } }
+  ).scheduler;
+  if (typeof scheduler?.postTask === "function") {
+    void scheduler.postTask(done, { priority: "user-blocking" });
+    return;
+  }
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    channel.port1.close();
+    done();
+  };
+  channel.port2.postMessage(0);
 }
 
 /**
@@ -325,8 +354,7 @@ export class AcpmuxPerf {
         performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
         page.removeEventListener("input", input);
-        const channel = new MessageChannel();
-        channel.port1.onmessage = () => {
+        afterFrame(() => {
           performance.mark?.("acpmux:key-paint");
           sample.frame = frame - start;
           const painted = performance.now();
@@ -334,9 +362,7 @@ export class AcpmuxPerf {
           sample.paint_epoch_ms = performance.timeOrigin + painted;
           this.typing.push(sample);
           if (this.typing.length > 4096) this.typing.shift();
-          channel.port1.close();
-        };
-        channel.port2.postMessage(0);
+        });
       });
     };
     this.keyTarget = target;
