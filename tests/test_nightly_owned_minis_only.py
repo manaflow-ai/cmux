@@ -97,7 +97,7 @@ HOSTED_DISPATCH_JOBS = {
     "dispatch-published-in": "asks for the post-publication run; a refused dispatch moves to another App's hour",
 }
 HOSTED_DISPATCH_SECRETS = {"CMUX_BOT_APP_KEY", "CMUX_CI_POOL_KEYS"}
-# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on an ephemeral
+# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): loop-run jobs on an ephemeral
 # VM (GitHub-hosted Ubuntu then, JIT_LABEL now). job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
 # runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
 # 2-89 s in the same runs' tails. It holds the push group as before, so a slow JIT VM start would hold it too: the
@@ -105,6 +105,8 @@ HOSTED_DISPATCH_SECRETS = {"CMUX_BOT_APP_KEY", "CMUX_CI_POOL_KEYS"}
 HOSTED_LOOP_JOBS = {
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
                                    "an ephemeral JIT VM; on the signer it held the whole Mac",
+    "keep-published-dsyms": "downloads and retains symbols with release credentials; on the signer its API and R2 work "
+                            "held the whole Mac",
 }
 # The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
 # queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
@@ -140,7 +142,6 @@ TRACK_HOSTED = f"github.ref != 'refs/heads/nightly-next' && '{JIT_LABEL}' ||"
 _PUBLISHER_SWITCH = f"vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && '{JIT_LABEL}' || "
 HOSTED_SIGNING_SWITCHES = {
     "publish-nightly": _PUBLISHER_SWITCH,
-    "keep-published-dsyms": _PUBLISHER_SWITCH,
     "republish-nightly-deltas": _PUBLISHER_SWITCH,
 }
 
@@ -165,11 +166,11 @@ def manaflow_routes(name: str) -> list[str] | None:
     return [route.replace(TRACK_HOSTED, "", 1) for route in routes] if name in NIGHTLY_NEXT_ONLY_OWNED else routes
 
 
-# Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
-# GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
-# push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
+# Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last two ran on
+# GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; republish-nightly-deltas follows
+# generate-nightly-deltas' own hold.
 EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly",
-                        "keep-published-dsyms", "republish-nightly-deltas", "promote-nightly-next-acked")
+                        "republish-nightly-deltas", "promote-nightly-next-acked")
 # Of those, the ones that need no sign pick: promote-nightly-next and its retired (if: false) acked twin share a route.
 PROMOTE_ROUTE = ("promote-nightly-next", "promote-nightly-next-acked")
 SIGNER = "glaeda-trusted-next-signing"
@@ -288,7 +289,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
         # put the release App key on a mini without the whole-Mac claim, so its route is the literal JIT label on every
         # attempt (the fork branch keeps GitHub-hosted Ubuntu).
-        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
+        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github", "keep-published-dsyms"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
             resolved = workflow_jobs.resolve(job, name)
@@ -296,7 +297,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(resolved.runs_on_cells,
                                  ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                   f"'{JIT_LABEL}' }}}}"])
-                self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
+                if name == "publish-nightly-next-github":
+                    self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
+                else:
+                    self.assertIn("secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())
                 self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
