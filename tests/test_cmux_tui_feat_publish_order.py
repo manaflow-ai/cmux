@@ -221,7 +221,14 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
              if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
     _check(calls[:1] == ['scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree'],
            f"point-machine-channel keeps a channel of the same tree key ({calls[:1]})")
-    _check(len(calls) == 2 and "--same-tree" not in calls[1], f"only the Cloud machine call takes --same-tree ({calls})")
+    # #60636 moved the Linux release file's call into scripts/ci/linux-release-sign.sh: the step calls the
+    # Cloud machine point directly, then runs that script, whose own call never takes --same-tree.
+    sign = Path(ROOT, "scripts/ci/linux-release-sign.sh").read_text()
+    sign_calls = [line.strip() for line in sign.splitlines()
+                  if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
+    _check(len(calls) == 1 and "scripts/ci/linux-release-sign.sh" in script
+           and len(sign_calls) == 1 and "--same-tree" not in sign_calls[0],
+           f"only the Cloud machine call takes --same-tree ({calls}, {sign_calls})")
     channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
     for name in ("point-x86_64", "point-linux"):
         _check(not any("--same-tree" in str(step.get("run", "")) for step in channel[name]["steps"]),
