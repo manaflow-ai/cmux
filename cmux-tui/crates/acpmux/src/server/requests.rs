@@ -4627,7 +4627,8 @@ async fn dispatch_request_with_identity(
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
             // A method with its own file (`methods/mod.rs`) before the harness gets it.
-            if let Some(reply) = super::methods::dispatch(hub, conn, other, &params).await {
+            if let Some(reply) = heap(|| super::methods::dispatch(hub, conn, other, &params)).await
+            {
                 return reply;
             }
             let key = session_key(&params).map_err(|_| match other {

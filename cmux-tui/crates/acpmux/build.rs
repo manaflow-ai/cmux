@@ -125,7 +125,7 @@ fn methods_dispatch() -> Result<()> {
     for (name, _) in &names {
         let _ = writeln!(
             generated,
-            "        {name}::METHOD => Some({name}::handle(hub, conn, params).await),"
+            "        {name}::METHOD => Some(crate::heap_future::heap(|| {name}::handle(hub, conn, params)).await),"
         );
     }
     generated.push_str("        _ => None,\n    }\n}\n");
