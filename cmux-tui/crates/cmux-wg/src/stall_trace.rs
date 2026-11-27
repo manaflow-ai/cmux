@@ -27,6 +27,63 @@ fn now_ms() -> u64 {
     u64::try_from(epoch().elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
+/// Trace only: `CMUX_WG_TCP_TRACE=1` prints the first [`TCP_TRACE_MAX`] TCP
+/// segments a process's tunnel stacks receive (`rx`) or send (`tx`) on
+/// stderr (`WGTCP` lines): ports, flags, sequence and ACK numbers, payload
+/// length. Off, one cached env read.
+pub(crate) fn tcp_segment(dir: &str, packet: &[u8]) {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    static PRINTED: AtomicU64 = AtomicU64::new(0);
+    let enabled = *ENABLED.get_or_init(|| {
+        std::env::var("CMUX_WG_TCP_TRACE").is_ok_and(|value| !value.is_empty() && value != "0")
+    });
+    if !enabled || PRINTED.load(Ordering::Relaxed) >= TCP_TRACE_MAX {
+        return;
+    }
+    let Some(text) = describe_tcp(packet) else { return };
+    if PRINTED.fetch_add(1, Ordering::Relaxed) < TCP_TRACE_MAX {
+        eprintln!("WGTCP t={:.3} {dir} {text}", now_ms() as f64 / 1000.0);
+    }
+}
+
+const TCP_TRACE_MAX: u64 = 600;
+
+/// `sport>dport FLAGS seq=S ack=A len=L win=W` for an IPv4 or IPv6 TCP packet.
+fn describe_tcp(packet: &[u8]) -> Option<String> {
+    let (proto, offset) = match packet.first()? >> 4 {
+        4 => (*packet.get(9)?, usize::from(packet.first()? & 0x0f) * 4),
+        6 => (*packet.get(6)?, 40),
+        _ => return None,
+    };
+    if proto != 6 {
+        return None;
+    }
+    let tcp = packet.get(offset..)?;
+    let word = |at: usize| -> Option<u32> {
+        Some(u32::from_be_bytes(tcp.get(at..at + 4)?.try_into().ok()?))
+    };
+    let port = |at: usize| -> Option<u16> {
+        Some(u16::from_be_bytes(tcp.get(at..at + 2)?.try_into().ok()?))
+    };
+    let header = usize::from(tcp.get(12)? >> 4) * 4;
+    let flags = *tcp.get(13)?;
+    let names: String = [(0x02, 'S'), (0x10, 'A'), (0x08, 'P'), (0x01, 'F'), (0x04, 'R')]
+        .iter()
+        .filter(|(bit, _)| flags & bit != 0)
+        .map(|(_, name)| *name)
+        .collect();
+    Some(format!(
+        "{}>{} {} seq={} ack={} len={} win={}",
+        port(0)?,
+        port(2)?,
+        names,
+        word(4)?,
+        word(8)?,
+        tcp.len().saturating_sub(header),
+        port(14)?
+    ))
+}
+
 pub(crate) fn line(label: &str, text: &str) {
     eprintln!("WGTRACE t={:.3} {label} {text}", now_ms() as f64 / 1000.0);
 }
