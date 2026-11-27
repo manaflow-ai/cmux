@@ -455,6 +455,21 @@ crates saves nothing (it's the front end, not codegen). Splitting those crates i
 toward a second. From a build host on another machine add the copy: the debug `cmux-tui` is 614
 MB, 263 MB once the build host strips its debug info (the loop does), and rsync sends only the
 change against the last build. That took 19 s from the fleet box to a Mac over the tailnet.
+Nearly all of that was rsync's `-z`: zlib runs over the whole file to shrink a delta that is
+already about 0.4 MB. Without it the copy takes about 1 s, and the strip on the host another 1.3 s
+(`scripts/measure/rust-live-fetch.py`, a fleet Linux box with both rsync ends on it, 3 edits each):
+
+| Copy of the stripped cmux-tui after a one-line edit | p50 | sent |
+|---|---|---|
+| `rsync -z` (zlib), before | 13.66 s | 0.1 MB |
+| `rsync` (no compression), now | 0.96 s | 0.4 MB |
+| `rsync -z` with zstd (rsync 3.2+ on both ends) | 1.03 s | 0.1 MB |
+| `zstd -T0 -1` piped, no delta | 1.17 s | 142.6 MB |
+| `rsync -z --whole-file`, no delta | 12.61 s | 136.4 MB |
+
+So the loop sends without compression. That works with any rsync, a Mac's openrsync included, and
+0.4 MB takes under 0.1 s even at 200 Mbit/s. The first pull, which has no earlier build to diff
+against, sends the whole 263 MB once.
 
 The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
 daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit

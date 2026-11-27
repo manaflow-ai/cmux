@@ -18,7 +18,7 @@ The loop (`start`; `cmux live start --rust` runs it):
    checkout on that host, which keeps its own warm target/ and uses sccache
    when the host has it. Without it the build runs here, in the checkout's
    own target/. Leo's Macs never build: pass --build-host there.
-3. Bring the binaries back (rsync, compressed, over the tailnet) into a new
+3. Bring the binaries back (rsync's delta against the last build, over the tailnet) into a new
    folder per build, so the running daemon's file is never overwritten.
 4. Swap the running daemon for the new build the way
    scripts/cmux-next/daemon-swap-check.py measures it (1-1.3 s): the old
@@ -539,14 +539,17 @@ class Builder:
                 rsh = " ".join(["ssh", *map(shlex.quote, ssh_options(self.state))])
                 built_file = f"{self.remote}/target/{self.out_dir()}/{binary}"
                 # Without its debug info the debug cmux-tui is 263 MB, not 614 (x86_64 Linux,
-                # 2026-11-05), and rsync then sends only what changed against the last build here.
+                # 2026-11-05), and rsync then sends only what changed against the last build here:
+                # about 0.4 MB for a one-line edit. No -z: zlib over the whole 263 MB, to send 0.1 MB
+                # instead, cost 13.7 s of the copy; without it the copy takes 0.96 s
+                # (scripts/measure/rust-live-fetch.py, RFD 0174 slice 5).
                 strip = (f"objcopy --strip-debug {built_file} {built_file}.live 2>/dev/null"
                          f" || strip -S -o {built_file}.live {built_file}")
                 result = run(["ssh", *ssh_options(self.state), self.host, strip])
                 if result.returncode != 0:
                     raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
                 source = f"{self.host}:{built_file}.live"
-                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
+                result = run(["rsync", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:
