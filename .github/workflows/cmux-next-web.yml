@@ -223,6 +223,20 @@ jobs:
         if: ${{ startsWith(runner.name, 'fsr-') }}
         run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Saved only on feat-cmux-next, whose scope every ref reads; a hand dispatch on another ref (tick=true) only
       # restores, so it adds no copy that only that ref reads again (handbook run-scoped-cache-key-evicts-the-store).
       - name: Cache Bun package cache
@@ -238,7 +252,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 5
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache

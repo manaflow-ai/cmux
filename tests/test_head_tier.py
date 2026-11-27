@@ -13,6 +13,19 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+# CI_HEAVY_AT_LAND is on by default; tests of the other rules read decide() with it off, and the heavy-at-land
+# tests set it themselves.
+_HEAVY_AT_LAND = unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"})
+
+
+def setUpModule() -> None:
+    _HEAVY_AT_LAND.start()
+
+
+def tearDownModule() -> None:
+    _HEAVY_AT_LAND.stop()
+
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
@@ -252,6 +265,16 @@ class LandTierTests(unittest.TestCase):
             self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
         with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"}):
             self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+
+    def test_heavy_at_land_is_on_when_the_variable_is_unset(self) -> None:
+        ev = land_event(labels=("full-ci",))
+        with unittest.mock.patch.dict(os.environ, {"CI_IDLE_BASE_MERGE_SKIP": "0", "CI_SYNC_MERGE_CHEAP": "0",
+                                                   "CI_GREEN_BASE_MERGE_SKIP": "0", "CI_LAND_CARRY": "0"}):
+            os.environ.pop("CI_HEAVY_AT_LAND", None)
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+        for workflow in ("ci.yml", "cmux-next.yml", "cmux-tui-spec.yml", "pr-router.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text()
+            self.assertIn("CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}", text, workflow)
 
     def test_the_router_starts_only_cheap_callees_then_everything_on_the_land_label(self) -> None:
         ev = land_event()
@@ -938,7 +961,7 @@ GATED = {name: "pull_request" for name in (
     "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
     # 17.4k runner-min per 10.8 h on pull request heads (11-25 05:30Z-16:18Z), every push of every head before:
     # rust-workspaces' plan, reads and workspace matrix; cmux-tui-spec's changes router and acpmux/clippy jobs.
-    "rust-workspaces.yml", "cmux-tui-spec.yml")}
+    "rust-workspaces.yml", "cmux-tui-spec.yml", "session-move-tests.yml")}
 GATED["backend-migrations.yml"] = "pull_request_target"
 # Only the draft tier: its one job runs only when the motion-golden label is the one added (a person asks for it).
 DRAFT_ONLY = {"cmux-next-motion-golden.yml": "pull_request"}
@@ -954,7 +977,8 @@ RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
 # records a pass on every pull request so land-judge's required list can name it.
-KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds")}
+KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds"),
+                      ("cmux-next-guards.yml", "app-store-shelf-pr")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
 # land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition. It runs only
 # where those jobs would (full-ci or CI_LAND_FULL_PER_PR; ios-e2e's PR tailnet gate too), or its runner decides nothing.
@@ -1142,7 +1166,8 @@ class CiWebLandTierTests(unittest.TestCase):
     def test_the_jobs_that_need_the_shards_skip_with_them(self) -> None:
         jobs = _job_ifs(self.TEXT)
         self.assertNotIn("always()", jobs["react-apps-base-check"])
-        self.assertNotIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("needs.react-apps-check-shard.result == 'success'", jobs["react-apps-base-check"])
         self.assertIn("needs.react-apps-check-shard.result != 'skipped'", jobs["webviews-test-durations"])
 
     def test_the_verdict_jobs_still_run_and_read_the_same_condition(self) -> None:

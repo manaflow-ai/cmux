@@ -37,6 +37,8 @@ pub fn catalog_urls(debug_build: bool, override_url: Option<&str>) -> Vec<String
         Some(url)
             if debug_build && url.starts_with("https://") && reqwest::Url::parse(url).is_ok() =>
         {
+            // A dev build's override the developer set: a host they name.
+            cmux_egress::allow_named(url);
             vec![url.to_owned()]
         }
         _ => vec![CATALOG_URL.to_owned(), FALLBACK_CATALOG_URL.to_owned()],
