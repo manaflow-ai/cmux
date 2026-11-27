@@ -14,7 +14,7 @@
 //   to its output drawn as Markdown, never raw JSON (`outputMarkdown`).
 // An agent names its model only where it is not the workflow's. A running agent is a spinner, never
 // a pulsing dot.
-import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
 import { CountLine, type CountPart } from "../summary/LiveCount";
@@ -24,6 +24,7 @@ import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import { modelName, phaseAgents, tally, workflowDetailRequest, type Tally } from "../summary/foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "../summary/workflow";
 import {
@@ -85,13 +86,6 @@ export function WorkflowTasks({
   const t = useT();
   const running = workflows.filter(isRunning);
   const finished = workflows.filter((workflow) => !isRunning(workflow));
-  // One clock for every row: a running workflow's elapsed time keeps moving even before its first
-  // agent event arrives (or while all of its agents are queued), and so does a command one of its
-  // agents left running. Nothing running, no timer.
-  const commandRuns = [...(commands?.byAgent.values() ?? []), ...(commands?.byWorkflow.values() ?? [])].some((list) =>
-    list.some((command) => command.state === "running"),
-  );
-  const now = useNow(running.length > 0 || commandRuns);
   return (
     <div className="acpmux-workflow-tasks">
       {/* One keyed list preserves phase disclosure and row identity across lifecycle changes. */}
@@ -105,7 +99,6 @@ export function WorkflowTasks({
           )}
           <WorkflowTask
             workflow={workflow}
-            now={now}
             commands={commands}
             finishedHeadingShown={running.length > 0 && finished.length > 0}
             onStop={isRunning(workflow) ? onStop : undefined}
@@ -134,7 +127,6 @@ const tokensLabel = (t: Translate, tokens: number) =>
 
 function WorkflowTask({
   workflow,
-  now,
   commands,
   finishedHeadingShown,
   onStop,
@@ -144,7 +136,6 @@ function WorkflowTask({
   agentRowVariant,
 }: {
   workflow: WorkflowSummary;
-  now: number;
   commands?: WorkflowCommands;
   finishedHeadingShown: boolean;
   onStop?: (id: string) => Promise<unknown>;
@@ -157,8 +148,6 @@ function WorkflowTask({
   const running = isRunning(workflow);
   const counts = tally(workflow.agents);
   const shared = sharedModel(workflow.agents);
-  const elapsed =
-    workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
   const tokens = workflow.tokens !== undefined ? [tokensLabel(t, workflow.tokens)] : [];
   // The workflow's model and effort, named once here: an agent row names its own only where it differs.
   const model = shared.model
@@ -182,7 +171,15 @@ function WorkflowTask({
     <section className="acpmux-workflow-task" data-state={workflow.state} aria-label={workflow.title}>
       <div className="acpmux-workflow-task__head">
         <span className="acpmux-workflow-task__name">{workflow.title}</span>
-        {elapsed !== undefined && <span className="acpmux-session-info-task__time">{formatDuration(elapsed)}</span>}
+        {workflow.elapsedMs !== undefined ? (
+          <span className="acpmux-session-info-task__time">{formatDuration(workflow.elapsedMs)}</span>
+        ) : (
+          workflow.startedAt !== undefined && (
+            <span className="acpmux-session-info-task__time">
+              <Elapsed since={workflow.startedAt} ended={!running} />
+            </span>
+          )
+        )}
         {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} solid />}
       </div>
       {meta.length > 0 && (
@@ -198,7 +195,6 @@ function WorkflowTask({
               key={phase.id}
               workflow={workflow}
               phase={phase}
-              now={now}
               shared={shared}
               commandsOf={agentCommands}
               onStopCommand={onStopCommand}
@@ -209,12 +205,11 @@ function WorkflowTask({
           ))}
         </ul>
       )}
-      {own.length > 0 && <CommandList commands={own} now={now} onStop={onStopCommand} />}
+      {own.length > 0 && <CommandList commands={own} onStop={onStopCommand} />}
       {finished.length > 0 && (
         <FinishedAgents
           workflow={workflow}
           agents={finished}
-          now={now}
           shared={shared}
           commandsOf={agentCommands}
           onStopCommand={onStopCommand}
@@ -235,7 +230,6 @@ function stateWord(t: Translate, state: WorkflowSummary["state"]): string {
 function WorkflowPhaseRow({
   workflow,
   phase,
-  now,
   shared,
   commandsOf,
   onStopCommand,
@@ -245,7 +239,6 @@ function WorkflowPhaseRow({
 }: {
   workflow: WorkflowSummary;
   phase: WorkflowPhase;
-  now: number;
   shared: { model?: string; effort?: string };
   commandsOf: (agent: WorkflowAgent) => readonly BackgroundCommand[];
   onStopCommand?: (id: string) => Promise<unknown>;
@@ -295,7 +288,6 @@ function WorkflowPhaseRow({
                 key={agent.id}
                 workflow={workflow}
                 agent={agent}
-                now={now}
                 shared={shared}
                 commands={commandsOf(agent)}
                 onStopCommand={onStopCommand}
@@ -316,7 +308,6 @@ function WorkflowPhaseRow({
 function FinishedAgents({
   workflow,
   agents,
-  now,
   shared,
   commandsOf,
   onStopCommand,
@@ -324,7 +315,6 @@ function FinishedAgents({
 }: {
   workflow: WorkflowSummary;
   agents: readonly WorkflowAgent[];
-  now: number;
   shared: { model?: string; effort?: string };
   commandsOf: (agent: WorkflowAgent) => readonly BackgroundCommand[];
   onStopCommand?: (id: string) => Promise<unknown>;
@@ -342,7 +332,6 @@ function FinishedAgents({
       key={agent.id}
       workflow={workflow}
       agent={agent}
-      now={now}
       shared={shared}
       commands={commandsOf(agent)}
       onStopCommand={onStopCommand}
@@ -383,11 +372,9 @@ function FinishedAgents({
 /// they took and how they ended.
 function CommandList({
   commands,
-  now,
   onStop,
 }: {
   commands: readonly BackgroundCommand[];
-  now: number;
   onStop?: (id: string) => Promise<unknown>;
 }) {
   const t = useT();
@@ -398,14 +385,16 @@ function CommandList({
     <ul className="acpmux-session-info-list acpmux-workflow-commands">
       {ordered.map((command) => {
         const running = command.state === "running";
+        const duration =
+          command.endedAt !== undefined && command.startedAt !== undefined
+            ? spanDuration(t, command.endedAt - command.startedAt)
+            : undefined;
         const time =
-          command.startedAt === undefined
-            ? undefined
-            : running
-              ? formatDuration(Math.max(0, now - command.startedAt))
-              : command.endedAt !== undefined
-                ? spanDuration(t, command.endedAt - command.startedAt)
-                : undefined;
+          running && command.startedAt !== undefined ? (
+            <Elapsed since={command.startedAt} clock="acpmux-session-info-task__time" />
+          ) : !running && duration !== undefined ? (
+            <Clock className="acpmux-session-info-task__time" text={duration} />
+          ) : null;
         const label = sendLabel(t, command) ?? commandLabel(command);
         return (
           <li
@@ -415,7 +404,7 @@ function CommandList({
           >
             <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
             <span className="acpmux-session-info-task__command">{label}</span>
-            {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
+            {time}
             {!running && <span className="acpmux-session-info-task__state">{t(COMMAND_STATE[command.state])}</span>}
             {running && command.processId && onStop && (
               <StopButton id={command.processId} name={command.command} stop={onStop} solid />
@@ -445,8 +434,7 @@ export function WorkflowAgentRow({
   workflow: WorkflowSummary;
   /// The folded workflow agent to render.
   agent: WorkflowAgent;
-  /// The shared current time used for running elapsed durations.
-  now: number;
+  now?: number;
   /// The workflow's model and effort, which the row leaves out; read from `workflow` when absent.
   shared?: { model?: string; effort?: string };
   /// The commands this agent started (summary/workflowView.ts `attributeCommands`).
@@ -461,12 +449,8 @@ export function WorkflowAgentRow({
 }) {
   const t = useT();
   const [outputOpen, setOutputOpen] = useState(false);
-  const queued = agent.state === "waiting" || agent.state === "pending";
   // A row that finished well opens to its output (and the commands it started that ended).
   const expandable = agent.state === "completed";
-  const elapsed =
-    agent.elapsedMs ??
-    (agent.state === "running" && agent.startedAt !== undefined ? Math.max(0, now - agent.startedAt) : undefined);
   const state = agentStateWord(t, agent.state);
   // Its model where it is not the workflow's (with its effort), else its effort alone where only that
   // differs.
@@ -478,8 +462,6 @@ export function WorkflowAgentRow({
     : own?.effort;
   const message = agentLine(agent);
   const output = agent.state === "completed" ? outputMarkdown(agent) : undefined;
-  const time = queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
-  const accessibleLabel = [agent.name, modelLabel, message, state, time].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
   // ordinary subagent opener.
@@ -506,7 +488,6 @@ export function WorkflowAgentRow({
         {message && <span className="acpmux-workflow-agent__doing">{message}</span>}
       </span>
       <StateMark className="acpmux-workflow-agent__state" state={agent.state} label={state} />
-      <span className="acpmux-session-info-task__time">{time}</span>
     </>
   );
   // Its commands show under it, but for one that finished well the ended ones go with its output.
@@ -528,18 +509,16 @@ export function WorkflowAgentRow({
             <Icon name={outputOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
         )}
-        {openable ? (
-          <button
-            type="button"
-            className={className}
-            aria-label={accessibleLabel}
-            onClick={() => onOpenWorkflowAgent?.(agent)}
-          >
-            {content}
-          </button>
-        ) : (
-          <div className={className}>{content}</div>
-        )}
+        <WorkflowAgentButton
+          agent={agent}
+          now={now}
+          running={isRunning(workflow)}
+          className={className}
+          label={[agent.name, modelLabel, message, state].filter(Boolean).join(", ")}
+          onOpen={openable ? () => onOpenWorkflowAgent?.(agent) : undefined}
+        >
+          {content}
+        </WorkflowAgentButton>
       </div>
       {expandable && outputOpen && (
         <div className="acpmux-workflow-agent__output">
@@ -548,11 +527,49 @@ export function WorkflowAgentRow({
           ) : agent.state === "completed" ? (
             <p className="acpmux-workflow-agent__no-output">{t("workflow.noOutput")}</p>
           ) : null}
-          {endedCommands.length > 0 && <CommandList commands={endedCommands} now={now} onStop={onStopCommand} />}
+          {endedCommands.length > 0 && <CommandList commands={endedCommands} onStop={onStopCommand} />}
         </div>
       )}
-      {shownCommands.length > 0 && <CommandList commands={shownCommands} now={now} onStop={onStopCommand} />}
+      {shownCommands.length > 0 && <CommandList commands={shownCommands} onStop={onStopCommand} />}
     </li>
+  );
+}
+
+// The button's accessible name includes the same elapsed text as its last column. Its stable
+// children (identity, message and state) pass through untouched when the label ticks.
+function WorkflowAgentButton({
+  agent,
+  now,
+  running,
+  className,
+  label,
+  onOpen,
+  children,
+}: {
+  agent: WorkflowAgent;
+  now?: number;
+  running: boolean;
+  className: string;
+  label: string;
+  onOpen?: () => void;
+  children: ReactNode;
+}) {
+  const live = agent.state === "running" && agent.startedAt !== undefined && agent.elapsedMs === undefined;
+  const sample = useNow(running && live && now === undefined);
+  const ms = agent.elapsedMs ?? (live ? Math.max(0, (now ?? sample) - agent.startedAt!) : undefined);
+  const time =
+    agent.state === "waiting" || agent.state === "pending" || ms === undefined ? undefined : formatDuration(ms);
+  const elapsed = <span className="acpmux-session-info-task__time">{time}</span>;
+  return onOpen ? (
+    <button type="button" className={className} aria-label={time ? `${label}, ${time}` : label} onClick={onOpen}>
+      {children}
+      {elapsed}
+    </button>
+  ) : (
+    <div className={className}>
+      {children}
+      {elapsed}
+    </div>
   );
 }
 
