@@ -153,7 +153,8 @@ import Testing
         log.committed(displayed: 100.150, ended: 100.152)
         log.settle()
         #expect(!log.isSettling)
-        let object = try #require(JSONSerialization.jsonObject(with: Data(try #require(lines.first).utf8)) as? [String: Any])
+        let first = try #require(lines.first)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(first.utf8)) as? [String: Any])
         #expect(lines.count == 1)
         #expect(object["transition"] as? String == "split_open")
         #expect(abs((object["ms"] as? Double ?? 0) - 12) < 0.02)
@@ -177,7 +178,8 @@ import Testing
         log.cancel() // past its first frame: kept to its settle
         #expect(log.isSettling)
         log.arm(.paneClose)
-        let object = try #require(JSONSerialization.jsonObject(with: Data(try #require(lines.first).utf8)) as? [String: Any])
+        let first = try #require(lines.first)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(first.utf8)) as? [String: Any])
         #expect(object["transition"] as? String == "side_open")
         #expect(object["settled_ts"] as? Double == object["first_frame_ts"] as? Double) // nothing moved after it
         #expect(object["blank_first_frame"] == nil) // no signal: no field
