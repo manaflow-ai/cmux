@@ -184,8 +184,10 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
         # fat-LTO group can use the standalone package's unqualified features.
         lines = self.WORKFLOW.read_text().splitlines()
         assignments = [line.strip() for line in lines
-                       if line.strip().startswith(('acpmux_features=', 'acpmux_group=('))
-                       or (line.strip().startswith('lead+=') and '-p acpmux-standalone' in line)]
+                       if line.strip().startswith('acpmux_features=')
+                       or (line.strip().startswith(('acpmux_group=(', 'lead+='))
+                           and '-p acpmux-standalone' in line)]
+        self.assertEqual(len(assignments), 3, "expected feature resolution and both build commands")
         script = '\n'.join([
             'set -euo pipefail', 't=$1', 'lead=""',
             'zb() { echo cargo zigbuild; }', *assignments,
