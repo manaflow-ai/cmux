@@ -53,12 +53,12 @@ public final class StreamedBrowserDirectory {
     public var isLive: Bool { opener != nil || macOpener != nil }
 
     /// Native browser tabs' `localhost:<port>` pages, forwarded to their Mac's loopback.
-    public private(set) lazy var localhost = LocalhostForwarder { [weak self] macID, port in
+    public private(set) lazy var localhost = LocalhostForwarder(openHost: { [weak self] macID, host, port in
         guard let link = await self?.link(macID: macID) else {
             throw LinkError(code: "no-link", message: "Not connected to the Mac")
         }
-        return try await link.openLocalhost(port: port)
-    }
+        return try await link.openLocalhost(port: port, host: host)
+    })
 
     /// A Mac's link (`macID`: its own; nil: the focused Mac's), or nil when not linked.
     func link(macID: String?) async -> (any BrowserStreamOpening)? {

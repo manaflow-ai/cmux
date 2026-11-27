@@ -5,6 +5,7 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 import WebKit
+import Network
 import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxTabsKit
@@ -41,6 +42,8 @@ public final class BrowserTabModel: BrowserTabState {
     @ObservationIgnored var loopbackPolicy: (@MainActor (URL) -> LoopbackForward)?
     /// Readies the page's port (forwarded to the Mac's loopback) before it loads.
     @ObservationIgnored var forwardLoopback: (@MainActor (URL) async -> LoopbackForward)?
+    /// Prepares an origin-preserving CONNECT route for a named private host.
+    @ObservationIgnored var preparePrivateHost: (@MainActor (URL) async -> Bool)?
     /// The address this tab itself is loading (the address bar, Open on iPhone, a
     /// restored page): a navigation the person started, which may open a new port.
     @ObservationIgnored var ownLoad: URL?
@@ -58,6 +61,7 @@ public final class BrowserTabModel: BrowserTabState {
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
+    @ObservationIgnored private let websiteDataStore: WKWebsiteDataStore
 
     public struct Problem: Equatable {
         public var url: URL
@@ -80,10 +84,13 @@ public final class BrowserTabModel: BrowserTabState {
         case macOnly(detail: String?)
     }
 
-    public init(url: URL?, guardsMacAddresses: Bool = false) {
+    public init(url: URL?, guardsMacAddresses: Bool = false, storeIdentifier: UUID = UUID()) {
         let configuration = WKWebViewConfiguration()
+        let store = WKWebsiteDataStore(forIdentifier: storeIdentifier)
+        configuration.websiteDataStore = store
         configuration.allowsInlineMediaPlayback = true
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 402, height: 874), configuration: configuration)
+        websiteDataStore = store
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
@@ -120,6 +127,22 @@ public final class BrowserTabModel: BrowserTabState {
             }
             ownLoad = target
         }
+        if guardian != nil, reach == .privateNetwork, let preparePrivateHost {
+            ownLoad = target
+            problem = nil
+            url = target
+            urlChanged?(target)
+            forwardingLoad?.cancel()
+            forwardingLoad = Task { @MainActor [weak self] in
+                guard let self, await preparePrivateHost(target), !Task.isCancelled else {
+                    if let self, !Task.isCancelled { self.refuse(target) }
+                    return
+                }
+                self.webView.load(URLRequest(url: target))
+            }
+            return
+        }
+        websiteDataStore.proxyConfigurations = []
         problem = nil
         // The address bar shows where the page is going at once (as Safari's does).
         url = target
@@ -176,6 +199,7 @@ public final class BrowserTabModel: BrowserTabState {
     func pause() {
         webView.stopLoading()
         webView.pauseAllMediaPlayback()
+        forwardingLoad?.cancel()
     }
 
     private func observe() {
