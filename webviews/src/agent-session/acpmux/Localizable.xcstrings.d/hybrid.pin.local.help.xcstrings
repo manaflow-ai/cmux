@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.pin.local.help" : {
+      "comment" : "Agent pane, the three-state cloud control: tooltip of the Only on This Mac choice",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل دائمًا على هذا الـ Mac. تتوقف مؤقتًا عند سكونه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uvijek radi na ovom Macu. Pauzira se kada on spava."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kører altid på denne Mac. Sættes på pause, når den sover."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Läuft immer auf diesem Mac. Pausiert, wenn er schläft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always runs on this Mac. Pauses when it sleeps."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siempre se ejecuta en este Mac. Se pausa cuando entra en reposo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "S’exécute toujours sur ce Mac. Se met en pause quand il est en veille."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viene sempre eseguita su questo Mac. Va in pausa quando è in stop."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "常にこのMacで実行します。スリープ中は一時停止します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការលើ Mac នេះជានិច្ច។ ផ្អាកនៅពេលវាដេក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "항상 이 Mac에서 실행됩니다. 잠자기 상태에서는 일시 정지됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjører alltid på denne Macen. Settes på pause når den sover."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zawsze działa na tym Macu. Wstrzymuje się, gdy on śpi."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sempre é executada neste Mac. Pausa quando ele entra em repouso."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Всегда работает на этом Mac. Приостанавливается, когда он спит."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำงานบน Mac เครื่องนี้เสมอ หยุดชั่วคราวเมื่อพักเครื่อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her zaman bu Mac’te çalışır. Mac uyuduğunda duraklar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Завжди працює на цьому Mac. Призупиняється, коли він спить."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Luôn chạy trên máy Mac này. Tạm dừng khi máy ngủ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "始终在这台 Mac 上运行。睡眠时暂停。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一律在這台 Mac 上執行。睡眠時暫停。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

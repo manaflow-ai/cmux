@@ -74,7 +74,9 @@ test("a trust answer that did not save shows no host text under Couldn't save th
   });
 });
 
-test("a share refusal with an unknown code says That didn't finish. Try again.", () => {
+// An unmapped refusal keeps the generic line and names its code, so a report can quote it (RFD 0076 D4);
+// the daemon's raw message never shows, and an error with no code gets the plain line.
+test("a share refusal with an unknown code says That didn't finish. Try again. and names the code", () => {
   expect(shareFailureText(new Error("share: 500 Internal Server Error"))).toBe(translate("share.error.generic"));
   // The raw words never show; the code does, so a report names it.
   expect(shareFailureText({ code: "share.weird", message: "raw server words" })).toBe(

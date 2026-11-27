@@ -22,12 +22,15 @@ export type ShareDemoProps = {
   fail?: string;
   /** A look the gallery compares with the shipped sheet (Share.gallery.css); none is the shipped one. */
   look?: "two-primaries" | "popover" | "outline" | "row-hover" | "row-filled" | "row-bleed";
+  /** The daemon does not answer the dialog's read: it reads again on its own and says Still reading. */
+  unread?: boolean;
 };
 
-function fixtureHost(shares: ChatShare[], fail?: string): ShareCall {
+function fixtureHost(shares: ChatShare[], fail?: string, unread = false): ShareCall {
   let next = shares.map((share) => ({ ...share }));
   return async (op, params = {}) => {
     if (fail) throw Object.assign(new Error(fail), { code: fail });
+    if (op === "state" && unread) throw new Error("share: 503 Service Unavailable");
     if (op === "state") return { shares: next };
     if (op === "link") {
       const made: ChatShare = { ...LINK, shareId: `demo-${next.length}`, createdAt: Date.now() };
@@ -75,10 +78,11 @@ export function ShareDemo({
   open = false,
   toast,
   fail,
+  unread,
   look,
   chat = "Add retries to the uploader",
 }: ShareDemoProps) {
-  const [call] = useState(() => fixtureHost(shares, fail));
+  const [call] = useState(() => fixtureHost(shares, fail, unread));
   const [shown, setShown] = useState(open);
   // The dialog portals out of this tree, so the look is on the root.
   useEffect(() => {

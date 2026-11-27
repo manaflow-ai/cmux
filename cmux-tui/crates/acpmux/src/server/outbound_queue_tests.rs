@@ -495,3 +495,35 @@ async fn rows_past_their_bound_end_the_connection_once() {
 }
 
 mod flood_bulk;
+mod flood_interactive;
+
+/// A peer link's send window (`Outbound::set_window`, `ACPMUX_PEER_SEND_WINDOW_KB`): the transport
+/// holds at most that many bytes of the bulk lane, the rest waits in the queue, and every line
+/// still comes, in order, as the reader reads.
+#[tokio::test]
+async fn a_set_window_bounds_the_bulk_bytes_in_the_transport() {
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, mut rx) = mpsc::channel(4096);
+    let (out, _) = start_bounded(&scope, None, transport, OUTBOUND_BYTE_BOUND);
+    let size = note(0).len();
+    out.set_window(2 * size);
+    for n in 0..40 {
+        assert!(out.push(note(n)));
+    }
+    // The pump fills the window and stops: two lines, not all forty.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while rx.len() < 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the window fills");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(rx.len(), 2, "the transport holds only the window");
+    for n in 0..40 {
+        let line = next(&mut rx).await.expect("a line");
+        assert_eq!(line["params"]["n"], n, "in order, none skipped");
+        assert!(rx.len() <= 2, "past the window: {}", rx.len());
+    }
+}
+mod stall_check_order;

@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
+import { useAutoRetry } from "../autoRetry";
 import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
 import { NativeError } from "../nativeError";
@@ -31,8 +32,8 @@ export const shareToasts = createNoticeQueue(1);
 
 const EMPTY: ShareView = shareView([]);
 
-/** A daemon refusal's line for the dialog's status. */
-export function shareFailureText(error: unknown): string {
+/** A daemon refusal the dialog has its own words for, else undefined. */
+function shareRefusalText(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | undefined)?.code ?? (error as Error | undefined)?.message;
   if (code === "share.no_room") return translate("share.error.noRoom");
   if (code === "share.needs_sign_in") return translate("share.error.signIn");
@@ -42,9 +43,7 @@ export function shareFailureText(error: unknown): string {
   if (code === "share.limit") return translate("share.error.limit");
   if (code === "share.room_unreachable") return translate("share.error.offline");
   if (code === "share.room_refused") return translate("share.error.refused");
-  // The app's own sentence for a share refusal (AgentShareStrings: share.room_unconfigured's "This
-  // Cloud machine can't make share links yet…", share.not_owner's, …) arrives as a bridge
-  // error's message, already in the app's language: the person reads that, not the generic line.
+  // The app's localized share refusal is safe to show; raw server errors use the generic line.
   if (
     error instanceof NativeError &&
     typeof code === "string" &&
@@ -53,9 +52,18 @@ export function shareFailureText(error: unknown): string {
     error.message !== translate("error.requestFailed")
   )
     return error.message;
+  return undefined;
+}
+
+/** A daemon refusal's line for the dialog's status, after a step (a write) failed. */
+export function shareFailureText(error: unknown): string {
   // Any other refusal is the daemon's or the server's English: the log keeps it, the status says
   // "That didn't finish. Try again." plus the refusal's code when it has one, so a report names it.
+  const known = shareRefusalText(error);
+  if (known) return known;
   console.warn("agent pane: sharing failed", error);
+  // retry-prompt-ok: a step is a write (an invite, a role, a removal, a link); doing it again is the person's choice.
+  const code = (error as { code?: unknown } | undefined)?.code ?? (error as Error | undefined)?.message;
   const generic = translate("share.error.generic");
   return typeof code === "string" && /^[a-z]+(?:[._][a-z]+)+$/.test(code) ? `${generic} (${code})` : generic;
 }
@@ -87,12 +95,21 @@ export function ShareDialogHost({
   /// The chat's shares have been read since this host mounted: until then every step waits, so a
   /// step never acts on another chat's view (App keys this host by the chat's session).
   const [loaded, setLoaded] = useState(initial !== undefined);
+  /// The open's read failed: it is read again on the shared backoff (autoRetry.ts) while the dialog
+  /// is open, with no "Try again" (Leo, 2026-11-22: "vacuous decisions like that should be just
+  /// done"); a refusal with its own words says them at once, any other only once it has lasted.
+  const [readFailed, setReadFailed] = useState<{ error: unknown }>();
+  const [reads, setReads] = useState(0);
+  const { stillTrying } = useAutoRetry(open ? readFailed : undefined, () => setReads((count) => count + 1));
 
+  // The read after a step: one that fails is read again on its own, as the open's is (readFailed).
   const reload = async () => {
     try {
       setView(await client.state());
+      setReadFailed(undefined);
     } catch (error) {
-      setStatus(shareFailureText(error));
+      console.warn("agent pane: reading the chat's shares failed", error);
+      setReadFailed({ error });
     }
   };
   /// `done` is the status line a step that worked leaves (a role change says so); else it clears.
@@ -118,13 +135,21 @@ export function ShareDialogHost({
         if (!current) return;
         setView(next);
         setLoaded(true);
+        setReadFailed(undefined);
       },
-      (error: unknown) => current && setStatus(shareFailureText(error)),
+      (error: unknown) => {
+        if (!current) return;
+        console.warn("agent pane: reading the chat's shares failed", error);
+        setReadFailed({ error });
+      },
     );
     return () => {
       current = false;
     };
-  }, [open, client]);
+  }, [open, client, reads]);
+  const readLine = readFailed
+    ? (shareRefusalText(readFailed.error) ?? (stillTrying ? t("share.stillReading") : null))
+    : null;
   const copy = () =>
     void step(async () => {
       // Restricted copies the invite link (only invited people get in); Anyone copies the viewer link.
@@ -168,7 +193,7 @@ export function ShareDialogHost({
         <ShareDialogBody
           chat={chat}
           view={view}
-          status={status}
+          status={status ?? readLine}
           notice={notice}
           busy={busy || !loaded}
           onInvite={invite}

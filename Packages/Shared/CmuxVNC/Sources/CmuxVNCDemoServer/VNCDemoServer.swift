@@ -1,8 +1,8 @@
+#if canImport(CoreGraphics) && canImport(CoreText) && canImport(Network)
 import CmuxVNC
 import CoreGraphics
 import Foundation
 import Network
-import zlib
 
 /// A loopback RFB 3.8 server over `DemoScene`, for tests and offline demos.
 /// It speaks no authentication or VNC password authentication, sends Raw or
@@ -19,14 +19,17 @@ public final class VNCDemoServer: @unchecked Sendable {
         public var password: String?
         /// Animation steps per second (0 stops the bouncing tile).
         public var framesPerSecond: Int
+        /// Checks a password client's answer (cmux-vnc's DES); a password server needs them.
+        public var rules: VNCRules
 
         public init(width: Int = 1280, height: Int = 800, name: String = "cmux VNC demo", password: String? = nil,
-                    framesPerSecond: Int = 30) {
+                    framesPerSecond: Int = 30, rules: VNCRules = VNCRules()) {
             self.width = width
             self.height = height
             self.name = name
             self.password = password
             self.framesPerSecond = framesPerSecond
+            self.rules = rules
         }
     }
 
@@ -258,7 +261,7 @@ final class DemoConnection: @unchecked Sendable {
                 }
             case .auth:
                 guard let response = take(16) else { return }
-                let expected = DemoVNCAuth(password: configuration.password ?? "").response(challenge: challenge)
+                let expected = VNCPasswordResponse(password: configuration.password ?? "", challenge: challenge, rules: configuration.rules).bytes
                 guard response == expected else {
                     fail("Authentication failed")
                     return
@@ -443,52 +446,6 @@ struct ZRLEEncoder {
     }
 }
 
-/// One deflate stream per connection, flushed per rectangle.
-final class Deflater {
-    private let stream: UnsafeMutablePointer<z_stream>
-
-    init() {
-        stream = .allocate(capacity: 1)
-        stream.initialize(to: z_stream())
-        deflateInit_(stream, Z_DEFAULT_COMPRESSION, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-    }
-
-    deinit {
-        deflateEnd(stream)
-        stream.deinitialize(count: 1)
-        stream.deallocate()
-    }
-
-    func deflate(_ input: [UInt8]) -> [UInt8] {
-        var input = input
-        var result: [UInt8] = []
-        var chunk = [UInt8](repeating: 0, count: 1 << 16)
-        input.withUnsafeMutableBufferPointer { source in
-            stream.pointee.next_in = source.baseAddress
-            stream.pointee.avail_in = uInt(source.count)
-            repeat {
-                let produced = chunk.withUnsafeMutableBufferPointer { out -> Int in
-                    stream.pointee.next_out = out.baseAddress
-                    stream.pointee.avail_out = uInt(out.count)
-                    zlib.deflate(stream, Z_SYNC_FLUSH)
-                    return out.count - Int(stream.pointee.avail_out)
-                }
-                result.append(contentsOf: chunk[0 ..< produced])
-            } while stream.pointee.avail_out == 0
-        }
-        return result
-    }
-}
-
-/// The server side of VNC password authentication (same DES as the client).
-struct DemoVNCAuth {
-    var password: String
-
-    func response(challenge: [UInt8]) -> [UInt8] {
-        VNCPasswordResponse(password: password, challenge: challenge).bytes
-    }
-}
-
 /// A small arrow cursor as a Cursor pseudo-encoding rectangle.
 struct DemoCursor {
     func rectangle() -> [UInt8] {
@@ -517,3 +474,4 @@ struct DemoCursor {
         return bytes.data
     }
 }
+#endif

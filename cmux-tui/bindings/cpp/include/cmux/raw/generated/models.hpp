@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a";
+inline constexpr std::string_view kProtocolIrSha256 = "6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -116,6 +116,7 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct ListWorkspacesKnown;
+struct ListWorkspacesSince;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -143,6 +144,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct ReleaseWorkspaceNamesResult;
 struct RemoteHostAppPermissions;
 struct RemoteHostAppResult;
 struct RenderCursor;
@@ -172,6 +174,7 @@ struct ServerStatsCommandRow;
 struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
+struct ServerStatsDiskCheckpoints;
 struct ServerStatsDiskFile;
 struct ServerStatsDiskJournal;
 struct ServerStatsDiskJournalKind;
@@ -427,6 +430,8 @@ struct FeedLocalHandoffDoneRequest;
 struct FeedLocalListRequest;
 struct FeedLocalReadRequest;
 struct FloatPaneRequest;
+struct FlushLaunchSnapshotRequest;
+struct FlushLaunchSnapshotResult;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -522,6 +527,7 @@ struct ReattachViewRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
+struct ReleaseWorkspaceNamesRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
 struct RemoteHostAppRequest;
@@ -642,6 +648,7 @@ struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct AgentSessionShareChangedEvent;
+struct AppsCloudMachineEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -764,6 +771,7 @@ enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
+enum class AppsCloudMachineEventKind;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
@@ -787,7 +795,10 @@ struct AckTabNotificationsRequest {
 
 struct ActivitySnapshot {
     std::uint32_t attached_clients{};
+    Field<std::uint64_t> echo_at_ms{};
+    Field<std::uint64_t> echo_input_at_ms{};
     std::optional<std::uint64_t> last_agent_action_at_ms{};
+    Field<std::uint64_t> last_person_attach_at_ms{};
     std::optional<std::uint64_t> last_user_input_at_ms{};
     std::uint32_t live_agents{};
     friend bool operator==(const ActivitySnapshot&, const ActivitySnapshot&) = default;
@@ -997,6 +1008,24 @@ struct ApplyLayoutResult {
     friend bool operator==(const ApplyLayoutResult&, const ApplyLayoutResult&) = default;
 };
 
+enum class AppsCloudMachineEventKind {
+    record,
+    live,
+    lost,
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct AppsCloudMachineEvent {
+    AppsCloudMachineEventKind kind{};
+    std::string machine{};
+    std::optional<JsonValue> record{};
+    friend bool operator==(const AppsCloudMachineEvent&, const AppsCloudMachineEvent&) = default;
+};
+
 enum class AttachSurfaceRequestMode {
     bytes,
     render,
@@ -1013,6 +1042,7 @@ struct AttachSurfaceRequest {
     Field<std::uint32_t> replay_history_rows{};
     Field<std::uint64_t> replay_history_start{};
     Field<std::string> resume_generation{};
+    Field<std::uint64_t> resume_max_bytes{};
     Field<std::uint64_t> resume_offset{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
@@ -1347,11 +1377,6 @@ struct ChiefInspectRequest {
     std::string path{};
     std::optional<std::map<std::string, std::string, std::less<>>> query{};
     friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ChiefInspectResult {
@@ -2487,6 +2512,7 @@ struct ConversationInboxChangedEvent {
 struct ConversationInboxOpRequest {
     std::string conversation{};
     std::optional<JsonValue> op{};
+    Field<std::string> op_id{};
     friend bool operator==(const ConversationInboxOpRequest&, const ConversationInboxOpRequest&) = default;
 };
 
@@ -2879,6 +2905,11 @@ struct CreateWorkspaceGroupRequest {
     friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct WorkspaceFirstTabBrowser {
     std::optional<bool> activate{};
     Field<std::uint16_t> cols{};
@@ -2906,6 +2937,7 @@ struct CreateWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
+    Field<NameSource> name_source{};
     Field<std::string> origin{};
     friend bool operator==(const CreateWorkspaceRequest&, const CreateWorkspaceRequest&) = default;
 };
@@ -3138,6 +3170,15 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
+};
+
+struct FlushLaunchSnapshotRequest {
+    friend bool operator==(const FlushLaunchSnapshotRequest&, const FlushLaunchSnapshotRequest&) = default;
+};
+
+struct FlushLaunchSnapshotResult {
+    bool flushed{};
+    friend bool operator==(const FlushLaunchSnapshotResult&, const FlushLaunchSnapshotResult&) = default;
 };
 
 enum class PaneDirection {
@@ -3751,6 +3792,7 @@ struct ListClientsResult {
 
 struct ListNotificationsRequest {
     Field<std::uint64_t> limit{};
+    std::optional<bool> stats{};
     friend bool operator==(const ListNotificationsRequest&, const ListNotificationsRequest&) = default;
 };
 
@@ -3897,10 +3939,17 @@ struct ListWorkspacesKnown {
     friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
 };
 
+struct ListWorkspacesSince {
+    std::string epoch{};
+    std::uint64_t seq{};
+    friend bool operator==(const ListWorkspacesSince&, const ListWorkspacesSince&) = default;
+};
+
 struct ListWorkspacesRequest {
     Field<std::uint64_t> after{};
     Field<ListWorkspacesKnown> known{};
     Field<std::uint64_t> limit{};
+    Field<ListWorkspacesSince> since{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -4260,11 +4309,6 @@ struct MoveWorkspaceToGroupRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
-};
-
-enum class NameSource {
-    user,
-    auto_,
 };
 
 struct NewBrowserTabRequest {
@@ -4791,6 +4835,16 @@ struct ReleaseAttachedViewSizeRequest {
 struct ReleaseSurfaceSizeRequest {
     Id surface{};
     friend bool operator==(const ReleaseSurfaceSizeRequest&, const ReleaseSurfaceSizeRequest&) = default;
+};
+
+struct ReleaseWorkspaceNamesRequest {
+    friend bool operator==(const ReleaseWorkspaceNamesRequest&, const ReleaseWorkspaceNamesRequest&) = default;
+};
+
+struct ReleaseWorkspaceNamesResult {
+    std::uint64_t released{};
+    std::uint64_t still_pinned{};
+    friend bool operator==(const ReleaseWorkspaceNamesResult&, const ReleaseWorkspaceNamesResult&) = default;
 };
 
 struct ReloadConfigRequest {
@@ -5332,6 +5386,15 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsDiskCheckpoints {
+    std::uint64_t budget_bytes{};
+    std::uint64_t bytes{};
+    std::uint64_t checkpoints{};
+    std::uint64_t largest_bytes{};
+    bool over_budget{};
+    friend bool operator==(const ServerStatsDiskCheckpoints&, const ServerStatsDiskCheckpoints&) = default;
+};
+
 struct ServerStatsDiskFile {
     std::uint64_t bytes{};
     std::uint64_t files{};
@@ -5387,6 +5450,7 @@ struct ServerStatsDiskSegments {
 };
 
 struct ServerStatsDisk {
+    Field<ServerStatsDiskCheckpoints> checkpoints{};
     std::optional<std::string> error{};
     std::vector<ServerStatsDiskFile> files{};
     bool files_truncated{};
@@ -5855,6 +5919,7 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> icon{};
+    Field<bool> keep_awake{};
     Field<std::string> key{};
     Field<bool> marked_unread{};
     Field<std::string> mutation_id{};
@@ -6469,10 +6534,16 @@ struct Workspace {
 };
 
 struct Tree {
+    std::optional<std::vector<Workspace>> changed{};
+    std::optional<bool> delta{};
+    std::optional<std::string> epoch{};
     std::optional<std::string> generation{};
     std::optional<std::uint64_t> next{};
+    std::optional<std::vector<Id>> order{};
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
+    std::optional<std::vector<Id>> removed{};
+    std::optional<std::uint64_t> seq{};
     std::optional<std::uint64_t> terminal_revision{};
     std::optional<std::uint64_t> total{};
     std::optional<std::string> tree_revision{};
@@ -7407,6 +7478,12 @@ struct Codec<ListWorkspacesKnown> {
 };
 
 template <>
+struct Codec<ListWorkspacesSince> {
+    static Result<Json> encode(const ListWorkspacesSince& value);
+    static Result<ListWorkspacesSince> decode(const Json& value);
+};
+
+template <>
 struct Codec<LivePane> {
     static Result<Json> encode(const LivePane& value);
     static Result<LivePane> decode(const Json& value);
@@ -7566,6 +7643,12 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReleaseWorkspaceNamesResult> {
+    static Result<Json> encode(const ReleaseWorkspaceNamesResult& value);
+    static Result<ReleaseWorkspaceNamesResult> decode(const Json& value);
 };
 
 template <>
@@ -7740,6 +7823,12 @@ template <>
 struct Codec<ServerStatsDisk> {
     static Result<Json> encode(const ServerStatsDisk& value);
     static Result<ServerStatsDisk> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskCheckpoints> {
+    static Result<Json> encode(const ServerStatsDiskCheckpoints& value);
+    static Result<ServerStatsDiskCheckpoints> decode(const Json& value);
 };
 
 template <>
@@ -9273,6 +9362,18 @@ struct Codec<FloatPaneRequest> {
 };
 
 template <>
+struct Codec<FlushLaunchSnapshotRequest> {
+    static Result<Json> encode(const FlushLaunchSnapshotRequest& value);
+    static Result<FlushLaunchSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotResult> {
+    static Result<Json> encode(const FlushLaunchSnapshotResult& value);
+    static Result<FlushLaunchSnapshotResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<FocusDirectionRequest> {
     static Result<Json> encode(const FocusDirectionRequest& value);
     static Result<FocusDirectionRequest> decode(const Json& value);
@@ -9840,6 +9941,12 @@ template <>
 struct Codec<ReleaseSurfaceSizeRequest> {
     static Result<Json> encode(const ReleaseSurfaceSizeRequest& value);
     static Result<ReleaseSurfaceSizeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReleaseWorkspaceNamesRequest> {
+    static Result<Json> encode(const ReleaseWorkspaceNamesRequest& value);
+    static Result<ReleaseWorkspaceNamesRequest> decode(const Json& value);
 };
 
 template <>
@@ -10560,6 +10667,12 @@ template <>
 struct Codec<AgentSessionShareChangedEvent> {
     static Result<Json> encode(const AgentSessionShareChangedEvent& value);
     static Result<AgentSessionShareChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppsCloudMachineEvent> {
+    static Result<Json> encode(const AppsCloudMachineEvent& value);
+    static Result<AppsCloudMachineEvent> decode(const Json& value);
 };
 
 template <>
@@ -11292,6 +11405,12 @@ template <>
 struct Codec<ZoomPaneRequestMode> {
     static Result<Json> encode(const ZoomPaneRequestMode& value);
     static Result<ZoomPaneRequestMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppsCloudMachineEventKind> {
+    static Result<Json> encode(const AppsCloudMachineEventKind& value);
+    static Result<AppsCloudMachineEventKind> decode(const Json& value);
 };
 
 template <>

@@ -15,6 +15,8 @@ extension IPhoneHostService {
             "status": .string(statusText),
             // Msg 3790: where the status says to sign in, the card shows the Sign In button.
             "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
+            // Under it: what that Sign In signs in to ("Signs in to cmux.com").
+            "sign_in_backend": statusText == IPhoneHostStrings.signedOut ? signInBackend.map(JSONValue.string) ?? .null : .null,
             "phase": .string(phaseName),
             // This Mac's mobile device id once hostd registered it (the id phones list it under;
             // cmux-next-ios review.sh focuses the same tag's phone on it). Not a secret.
@@ -121,6 +123,7 @@ extension IPhoneHostService {
         case .online: return "online"
         case .waiting: return "waiting"
         case .removed: return "removed"
+        case .deviceIDTaken: return "waiting"
         }
     }
 
@@ -134,6 +137,9 @@ extension IPhoneHostService {
         case .online:
             return [IPhoneHostStrings.online, IPhoneHostStrings.phonesConnected(state.phones.count)].joined(separator: " · ")
         case .removed: return IPhoneHostStrings.removed
+        // Passing: a new id is registered at once (when that keeps failing, the phase becomes
+        // `.unavailable` with ``IPhoneHostStrings/deviceIDTaken``).
+        case .deviceIDTaken: return IPhoneHostStrings.connecting
         case .waiting(let reason):
             return reason.isEmpty ? IPhoneHostStrings.reconnecting : "\(IPhoneHostStrings.reconnecting) (\(reason))"
         }

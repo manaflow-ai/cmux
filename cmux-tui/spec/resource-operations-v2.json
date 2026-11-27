@@ -8128,6 +8128,80 @@
       },
       "extra": false
     },
+    "SettingsHistory": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SettingsHistoryEntry"
+            }
+          },
+          "description": "Recorded changes of the settings file, newest first."
+        }
+      },
+      "extra": false
+    },
+    "SettingsHistoryEntry": {
+      "kind": "object",
+      "fields": {
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the change was published, in unix milliseconds."
+        },
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed."
+        },
+        "origin": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "user",
+              "cli",
+              "mcp",
+              "script",
+              "remote",
+              "app",
+              "file"
+            ]
+          },
+          "description": "Who made the change; file is a hand edit the daemon found on disk."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The settings revision the change produced; settings.restore takes it."
+        },
+        "undoes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Present on a settings.undo: the revision it took back."
+        }
+      },
+      "extra": false
+    },
     "SettingsEdit": {
       "kind": "object",
       "fields": {
@@ -15326,6 +15400,40 @@
     "ClassicImportPlanResult": {
       "kind": "object",
       "fields": {
+        "available": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The metadata-only check found a potential Classic import at a known path."
+        },
+        "already_imported": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The last accepted import finished with the same observed files and its workspaces are still open."
+        },
+        "observed": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "Opaque stamp of Classic file metadata observed when offering the import."
+        },
+        "settings_only": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The accepted import found Classic settings and no saved workspaces."
+        },
         "ledger": {
           "required": true,
           "type": {
@@ -15412,7 +15520,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "The plan's counts for the confirmation (the crate's Preview)."
+          "description": "The decoded plan's counts, available after consent."
         }
       },
       "extra": false
@@ -15958,6 +16066,78 @@
             "name": "ThemeScheme"
           },
           "description": "The colors read."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSlotsResolveResult": {
+      "kind": "object",
+      "fields": {
+        "slots": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Each `slots` key to its variant id, for each entry of the file's `slots` that schemas/theme/slots.json ships; the app passes it to its web views as the theme's `slots`."
+        },
+        "diagnostics": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ThemeSlotsDiagnostic"
+            }
+          },
+          "description": "Each refused `slots` entry, or the file itself when it does not parse."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSlotsDiagnostic": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unreadable_file",
+              "invalid_value",
+              "corrected_value"
+            ]
+          }
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The dotted key (`slots.<id>`, or `slots`); empty for the file itself."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "One line, as a compiler prints it: `themes/NAME.json:LINE: key = value: message`."
+        },
+        "line": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "The 1-based line of the entry, when it was found in the text."
         }
       },
       "extra": false
@@ -21077,6 +21257,15 @@
             },
             "description": "automatic for the launch's own run, manual for Import Workspaces from Classic cmux."
           },
+          "consented": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "True only after the person accepts the Classic import. Omitted or false checks known paths and the NEXT ledger without opening Classic files."
+          },
           "outline": {
             "required": false,
             "type": {
@@ -21089,7 +21278,7 @@
         },
         "extra": false,
         "constraints": [
-          "Reads classic's session files under the daemon's HOME, never a path from the caller: every classic channel, the one saved last first (the channel matching bundle_id on a tie), trying each one's session file, -previous copy and newest archive in turn.",
+          "After consent, reads Classic's session files under the daemon's HOME, never a path from the caller: every classic channel, the one saved last first (the channel matching bundle_id on a tie), trying each one's session file, -previous copy and newest archive in turn.",
           "Plans against the ledger, the workspaces open now and the workspace groups that exist now: a workspace recorded done stays left out unless a manual run finds its cmux workspace closed.",
           "A ledger from a newer cmux stops both modes (decision ledger_not_usable, or error \"ledger from a newer cmux\"); it is left as it is. An unreadable ledger is moved aside."
         ]
@@ -21137,6 +21326,7 @@
               "values": [
                 "seen",
                 "baseline",
+                "settings",
                 "begin",
                 "workspace",
                 "group",
@@ -21144,7 +21334,17 @@
                 "finish"
               ]
             },
-            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; decline keeps a launch's No (the ledger's declinedAt; later launches skip with declined until a run begins or finishes, which clears it); finish completes the run."
+            "description": "seen and baseline record a launch's first contact (nothing made); settings imports Classic terminal settings and harnesses after consent; begin starts a confirmed workspace run; workspace and group record what was made; decline keeps a launch's No (the ledger's declinedAt; later launches skip with declined until a run begins or finishes, which clears it); finish completes the run."
+          },
+          "observed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "With baseline and finish, the metadata stamp from the check that offered this import."
           },
           "source": {
             "required": false,
@@ -22208,6 +22408,128 @@
         "validation.invalid"
       ]
     },
+    "cloud.machine.fork": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Forks a Cloud machine over cmux-platform's POST /v1/machines/{id}/fork (machines.fork): a running copy, memory and disk, made by the carrier's snapshot then restore, so a session placed on it starts with the parent's files, processes and warm caches (RFD 0168). Only the machine's creator may fork it; the copy bills its creator from its first running second. Worker auth; args are machine (the parent's id), clientKey (1 to 128 characters; a retry with the same key answers the same copy) and visibility (private or team, optional). Answers the platform's TeamMachine for the copy; a platform refusal (400, 401, 403) comes back as it is. Stack auth is refused (not on this cloud).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "cloud.machine.io": {
       "class": "mutation",
       "idempotency": "required",
@@ -22304,6 +22626,128 @@
         "extra": false,
         "constraints": [
           "Calls a Cloud machine's files and exec: a Worker machine's straight to its provider with a client session when it can, else through the cmux API; a classic one's /api/vm/{id}/exec and /fs/* (args are op, machine, path, data_base64, mode, command, timeout_ms, route; a cache_dir is dropped).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.machine.setup_desktop": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Starts the desktop closure on a running Worker Cloud machine over cmux-platform's POST /v1/cloud/machines/{id}/desktop, which does the root-owned capability repair itself. Owner or worker auth; args are id (the machine id, vm_ and 20 characters). Answers the route's {ok}; a platform refusal (a plan or budget refusal is plan_required) comes back as it is. A stack call or an id that is not a machine id sends nothing.",
           "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
           "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
           "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
@@ -22941,6 +23385,248 @@
         "validation.invalid"
       ]
     },
+    "cloud.owner.github_clone_token": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.github_complete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "cloud.owner.github_connect": {
       "class": "mutation",
       "idempotency": "required",
@@ -23054,6 +23740,120 @@
       },
       "errors": [
         "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.github_list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
         "operation.failed",
         "origin.forbidden",
         "selector.ambiguous",
@@ -23754,6 +24554,369 @@
         "name": "JsonValue"
       },
       "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.op": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's POST /v1/ops or /v1/read (args.route) with args.body as sent (owner auth: Authorization, x-cmux-team and, from args.client_version, x-cmux-client-version, which is no secret). Answers {status, reply} for every HTTP status: reply is the body when it is a JSON object, else null.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.slack": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.owner.slack_awake": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Calls the cmux API Worker's person route for the call (owner auth: Authorization and x-cmux-team only).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",
         "selector.ambiguous",
@@ -37332,6 +38495,39 @@
         "validation.invalid"
       ]
     },
+    "settings.history": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Every published change of the settings file this daemon recorded (at most 100, newest first), whoever made it: settings writes from the page, palette, CLI and MCP, and hand edits of the file (origin file). Each entry's revision is what settings.restore takes; the file texts stay in the daemon's state directory. No state directory: no entries."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SettingsHistory"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "settings.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -37554,6 +38750,161 @@
         "validation.invalid"
       ]
     },
+    "settings.reset_group": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "A Settings section id (appearance), every row of the section, or section.group (appearance.sidebar: the section and the last part of the group's localization key), the rows of that group."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Removes every key of the group's schema rows (their defaults apply) in one write with one revision and one settings.history entry; rows of other groups, keys the schema does not know and managed keys stay. An unknown group is validation.invalid and its message lists the groups. An origin other than user or app is settings.agent_refused when the group sets a user-only row."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
+    "settings.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A settings.history entry's revision: the file goes back to its text just before that change."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The settings file becomes its text just before the change that produced revision, as one write that is itself recorded (settings.undo takes it back). A revision settings.history does not hold is validation.invalid. A settings file that does not parse is never rewritten. A managed key's file value may change; the managed value still wins. An origin other than user or app may restore only when every row whose value changes is one settings.set lets it change (settings.agent_refused)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
     "settings.schema": {
       "class": "read",
       "idempotency": "forbidden",
@@ -37732,6 +39083,75 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.undo": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Takes back the newest change in settings.history that is not itself an undo and was not undone yet, whoever made it (page, palette, CLI, MCP, a hand edit): the settings file becomes its text before that change, as one write that is itself recorded. Repeated undo walks back one change at a time; a change made after an undo is undone first. Nothing left to undo is validation.invalid. A settings file that does not parse is never rewritten. A managed key's file value may change; the managed value still wins. An origin other than user or app may undo only changes to the rows settings.set lets it change (settings.agent_refused)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
         "validation.invalid"
       ]
     },
@@ -42818,6 +44238,61 @@
       "result": {
         "kind": "ref",
         "name": "ThemeSchemeFromImageResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "theme.slots.resolve": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 262144
+            },
+            "description": "A theme file's or theme pack's text, JSONC (at most 256 KiB)."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            },
+            "description": "The theme file's name, for the diagnostics' `themes/NAME.json` (default theme)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls.",
+          "Each `slots` entry is checked against schemas/theme/slots.json: an unknown key or variant is left out with a diagnostic and the others are kept."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSlotsResolveResult"
       },
       "errors": [
         "operation.failed",

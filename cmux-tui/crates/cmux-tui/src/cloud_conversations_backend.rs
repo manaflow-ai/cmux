@@ -77,13 +77,13 @@ impl RemoteCloudBackend {
             .thread_name("mux-cloud-io")
             .enable_all()
             .build()?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_tui::cloud_conversations_backend")
             .default_headers(headers.clone())
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        let files = reqwest::Client::builder()
+        let files = cmux_egress::client_builder("cmux_tui::cloud_conversations_backend")
             .default_headers(headers)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
@@ -438,7 +438,11 @@ impl RemoteCloudBackend {
             request.headers_mut().insert(CLIENT_VERSION_HEADER, version);
         }
         let handshake = self.runtime.block_on(async move {
-            tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::connect_async(request)).await
+            tokio::time::timeout(
+                HANDSHAKE_TIMEOUT,
+                cmux_egress::ws::connect_async(request, "cmux_tui::cloud_conversations_backend"),
+            )
+            .await
         });
         match handshake {
             Err(_) => Err(unavailable("handshake timed out".into())),
@@ -551,3 +555,7 @@ pub(crate) fn install(mux: &Arc<Mux>) {
 #[cfg(test)]
 #[path = "cloud_conversations_backend_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cloud_conversations_backend_seeded_tests.rs"]
+mod seeded_tests;

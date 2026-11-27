@@ -45,24 +45,24 @@ const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end befor
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use the `cmux agent send` front door instead of running a shell command; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like the engine's queued send: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply. With class question or block, the receiver's turn that answers it comes back to you as a report from that session (only for a session on this machine), so do not poll last or ask again; otherwise read a reply later with last. The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
+        "description": "Message another agent session (or host/name on a peer): the `cmux agent send` front door, not a shell command; for several, batch them in one call with messages. Returns promptId and deliveryId in seconds (the outbox retries). class question or block: the answer comes back to you as a report, so do not poll; else read replies with last. Steers into a running turn unless steer: false.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
+                "to": {"type": "string", "description": "Session name, id, or host/name (as ls lists them)."},
                 "text": {"type": "string", "description": "The message, self-contained."},
-                "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-                "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
-                "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
-                "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
-                "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
-                "attach": {"type": "array", "items": {"type": "string"}, "description": "Files to send with the message, as absolute paths on this machine (a screenshot, a log), of any size and number, as acpmux send --attach: an image reaches the receiver and its chat as an image (a preview), any other file as a link to its saved copy. Hand over an image this way, never as a provider's own file id (libfile_...), which nobody here can open."},
-                "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), not yourself."},
-                "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
-                "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
+                "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step; false: after it."},
+                "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "block/blocker: you are stuck until it acts; question: you wait on its answer (both wake it). result/action (default): wakes it only if you started it or gave it work. fyi: wakes no one."},
+                "pr": {"type": "integer", "description": "The PR it is about; the receiver's inbox threads by it."},
+                "thread": {"type": "string", "description": "A topic or an inbox_read threadId (default: by the PR its first line names, else all yours)."},
+                "file": {"type": "string", "description": "Instead of text: a file holding it, any size."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Absolute paths of files to send with it, any size: images show as images, others as links. Never a provider file id (libfile_...)."},
+                "tag": {"type": "string", "description": "Instead of to: every live session with this tag (key or key=value), not you."},
+                "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under it is replaced by this one."},
+                "notice": notice_schema("Send as a tool's notice (severity, title, links); text is its body."),
                 "messages": {
                     "type": "array",
-                    "description": "A batch: one message per item, sent in order. The fields above are each item's defaults; an item's to or tag replaces the default recipient, its text or file the default message.",
+                    "description": "A batch, sent in order: each item takes the fields above, which are its defaults.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -72,11 +72,11 @@ pub(super) fn tool() -> Value {
                             "file": {"type": "string"},
                             "attach": {"type": "array", "items": {"type": "string"}},
                             "steer": {"type": "boolean"},
-                            "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"]},
+                            "class": {"type": "string"},
                             "pr": {"type": "integer"},
                             "thread": {"type": "string"},
                             "supersede": {"type": "string"},
-                            "notice": notice_schema("This item as a tool's notice.")
+                            "notice": {"type": "object"}
                         }
                     }
                 }
@@ -91,8 +91,8 @@ fn notice_schema(description: &str) -> Value {
         "type": "object",
         "description": description,
         "properties": {
-            "sender": {"type": "string", "description": "Who sends it, a tool or role, one line of at most 64 characters (default: this session's name)."},
-            "host": {"type": "string", "description": "The machine it comes from (default: this one)."},
+            "sender": {"type": "string", "description": "A tool or role, at most 64 characters (default: this session)."},
+            "host": {"type": "string"},
             "severity": {"type": "string", "enum": crate::prompt_provenance::NOTICE_SEVERITIES},
             "title": {"type": "string", "description": "One line, at most 200 characters."},
             "links": {
@@ -656,11 +656,14 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
                 if tokio::time::Instant::now() >= deadline {
                     return (name, None, true);
                 }
-                let id =
-                    tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(&daemon, &name))
-                        .await
-                        .ok()
-                        .and_then(Result::ok);
+                let id = tokio::time::timeout_at(
+                    deadline,
+                    crate::cli::resolve::control_route(&daemon, &name),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(|(id, current)| current.then_some(id));
                 (name, id, false)
             }
             .boxed()

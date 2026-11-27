@@ -81,6 +81,11 @@ for _suite in ("relaunch", "wake"):
 if "--suite=chat-size" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat-size-ratio.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-size"])
+# `--suite=chat-snappy`: Enter to the sent row's frame, the reserved turn in that frame, layout shifts per send, first
+# token and chat switch, plain and under duress (scripts/measure/snappy-bench.py; the perf cron's chat-snappy part).
+if "--suite=chat-snappy" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "snappy-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-snappy"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
@@ -138,6 +143,12 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=right-split-open`: Cmd-D's first frame with the snapshot-first right split off and on, from the app's own
+# frame-timing log (scripts/cmux-next/right-split-open-bench.py; the instant-splits goal).
+if "--suite=right-split-open" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "right-split-open-bench.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=right-split-open"])
 # `--suite=split-move`: the same bench's move family (a tab or a pane from one split to another, forth and back, in a
 # half, a third and a quarter, per pane content), judged frame by frame by split_move_metrics.py.
 if "--suite=split-move" in sys.argv:

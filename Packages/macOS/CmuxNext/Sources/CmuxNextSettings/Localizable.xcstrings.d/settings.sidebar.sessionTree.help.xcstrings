@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.sessionTree.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lists workspaces an agent started under the workspace that started them."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض مساحات العمل التي بدأها وكيل تحت مساحة العمل التي بدأتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje radne prostore koje je pokrenuo agent ispod radnog prostora koji ih je pokrenuo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser arbejdsområder, en agent har startet, under det arbejdsområde, der startede dem."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt Arbeitsbereiche, die ein Agent gestartet hat, unter dem Arbeitsbereich, der sie gestartet hat."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra los espacios de trabajo que inició un agente debajo del espacio de trabajo que los inició."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche sous un espace de travail ceux que son agent a lancés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra gli spazi di lavoro avviati da un agente sotto lo spazio di lavoro che li ha avviati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントが開始したワークスペースを、開始元のワークスペースの下に表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញកន្លែងធ្វើការដែលភ្នាក់ងារបានចាប់ផ្តើម នៅក្រោមកន្លែងធ្វើការដែលបានចាប់ផ្តើមវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 시작한 작업 공간을 그것을 시작한 작업 공간 아래에 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser arbeidsområder en agent startet, under arbeidsområdet som startet dem."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje obszary robocze uruchomione przez agenta pod obszarem, który je uruchomił."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lista os espaços de trabalho que um agente iniciou abaixo do espaço de trabalho que os iniciou."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает рабочие пространства, запущенные агентом, под пространством, которое их запустило."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงพื้นที่ทำงานที่เอเจนต์เริ่มไว้ใต้พื้นที่ทำงานที่เริ่มมัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir ajanın başlattığı çalışma alanlarını, onları başlatan çalışma alanının altında listeler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує робочі простори, запущені агентом, під тим простором, що їх запустив."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị không gian làm việc do tác tử khởi chạy bên dưới không gian đã khởi chạy nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将代理启动的工作区列在启动它们的工作区下方。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將代理啟動的工作區列在啟動它的工作區下方。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

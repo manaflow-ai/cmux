@@ -47,3 +47,58 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
+
+.kit-gallery-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.kit-gallery-motion {
+  display: grid;
+  gap: var(--ds-space-1);
+  margin: 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.kit-gallery-motion-step {
+  display: flex;
+  gap: var(--ds-space-2);
+}
+.kit-gallery-motion-step dt {
+  min-width: calc(var(--ds-space-6) * 2);
+  color: var(--ds-color-muted);
+}
+.kit-gallery-motion-step dd {
+  margin: 0;
+}
+
+/* The scene-parity variants (kit.gallery.tsx Variants): a host's own row fill and button sheet, as
+   apps/scene/scene.css draws them, and swatches of the grid lengths and the full radius. */
+.kit-gallery-host-row {
+  --kit-row-selected-fill: color-mix(in srgb, var(--ds-color-accent) 16%, transparent);
+}
+.kit-gallery-tinted {
+  color: var(--ds-color-accent);
+}
+.kit-gallery-bare-button {
+  padding: var(--grid-base) var(--grid-gap);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: var(--ds-color-fg);
+  font: inherit;
+}
+.kit-gallery-bare-button:hover:enabled {
+  background: var(--ds-color-hover);
+}
+.kit-gallery-grid-swatch {
+  display: inline-block;
+  background: var(--ds-color-hover);
+}
+.kit-gallery-full-swatch {
+  display: inline-block;
+  width: calc(var(--ds-space-6) * 2);
+  height: var(--grid-icon-box);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-color-selection);
+}

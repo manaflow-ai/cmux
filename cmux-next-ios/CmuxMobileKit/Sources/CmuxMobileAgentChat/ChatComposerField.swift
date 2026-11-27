@@ -19,11 +19,16 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
     /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
     /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
     var onLineChange: (() -> Void)?
 
-    static let maxLines = ComposerFieldHeight.defaultMaxLines
+    static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.chatFaceHidden) private var faceHidden
@@ -59,8 +64,14 @@ struct ChatComposerField: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -70,8 +81,8 @@ struct ChatComposerField: UIViewRepresentable {
             view.refreshPlaceholderFont()
             view.invalidateIntrinsicContentSize()
         }
-        if view.text != text {
-            view.text = text
+        if view.differs(from: text) {
+            view.takeDraft(text)
             if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
@@ -98,6 +109,9 @@ struct ChatComposerField: UIViewRepresentable {
     private func markReadyIfShown() {
         guard !faceHidden else { return }
         LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -129,14 +143,19 @@ struct ChatComposerField: UIViewRepresentable {
                 // A line came or went: the field grows (or shrinks) on the same short spring the
                 // stack and the transcript above it take, one motion (`ComposerLineMotion`).
                 parent.onLineChange?()
-                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = textView.text }
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = Self.draft(of: textView) }
             } else {
-                parent.text = textView.text
+                parent.text = Self.draft(of: textView)
             }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
             // The height is settled once per edit, and SwiftUI asked again only when it changed.
             (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerReturnTextView)?.followCaret()
+        }
+
+        /// A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+        static func draft(of textView: UITextView) -> String {
+            (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
@@ -154,8 +173,26 @@ extension EnvironmentValues {
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
+    /// A finger is scrolling a draft taller than the field (past `maxLines`). Both swipe-down-to-dismiss
+    /// paths (the bottom stack's drag and the dock's pan) read it and leave the keyboard up: a drag that
+    /// scrolls the draft scrolls the draft (Leo, 2026-11-23: "when i try to scroll in the composer in ios
+    /// it [...] swipes the entire thing down instead of scrolling through the composer").
+    @MainActor static var isScrollingDraft = false
+
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
+        panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+    }
+
+    @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            Self.isScrollingDraft = contentSize.height > bounds.height + 1
+        case .ended, .cancelled, .failed:
+            Self.isScrollingDraft = false
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)

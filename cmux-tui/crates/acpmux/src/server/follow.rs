@@ -143,7 +143,6 @@ impl Follows {
         // Read before this book's lock: `view::subscribe_local` takes them the other way round.
         let begins =
             local && kind == "transfer_out" && conn.sub_opts(id).is_some_and(|opts| !opts.remote);
-        if !kind.is_empty() || !local {}
         if !self.any() && !begins {
             return Step::Send;
         }
@@ -341,6 +340,7 @@ async fn follow(
                         summary: PeerRow::new(&json!({"sessionId": id})),
                     }),
                     update_line: Default::default(),
+                    event_params: Default::default(),
                     row: Default::default(),
                     list_seq: 0,
                     peer_batch: false,

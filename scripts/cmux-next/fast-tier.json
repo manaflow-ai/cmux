@@ -8,7 +8,6 @@
     {"name": "matrix entries", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "ModelMatrixTests", "owner": "op-next-split", "bead": "cx-gkyi1"},
     {"name": "pane zoom motion", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "PaneZoomMotionTests", "owner": "op-next-newtab", "bead": "cx-v0v8k"},
     {"name": "cef previous log", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "CEFProfileStorageLogTests", "owner": "cx-gallery-feed", "bead": "cx-urd.2"},
-    {"name": "subagent pane focus", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AgentSubagentPanesFocusTests", "owner": "op-next-agent-pane"},
     {"name": "app handler coverage", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "HandlerCoverageTests", "owner": "op-next-screen-sharing"},
     {"name": "acpmux client wrapper", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxClientTests", "owner": "v2-sidebar-list-stream", "bead": "cmux#43937"},
     {"name": "agent pane initialize contract", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneInitializeParamsContractTests", "owner": "op-next-agent-pane", "bead": "cmux#49148"},

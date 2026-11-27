@@ -100,3 +100,23 @@ fn a_file_kept_on_the_mac_keeps_its_stat_and_reason_across_the_wire_and_builds()
     bad.kept.insert(ROOT, "x".into());
     assert!(Manifest::decode(&bad.encode().unwrap()).is_err());
 }
+
+#[test]
+fn case_collisions_follow_the_source_filesystem() {
+    let mac = Manifest::build_with(
+        1,
+        vec![file("Foo", 1), file("foo", 2), file("Dir/a", 3), file("dir/a", 4)],
+        Case::Insensitive,
+    );
+    assert!(mac.is_err());
+    let linux = Manifest::build_with(
+        1,
+        vec![file("Foo", 1), file("foo", 2), file("Dir/a", 3), file("dir/a", 4)],
+        Case::Sensitive,
+    )
+    .unwrap();
+    for (path, size) in [("Foo", 1), ("foo", 2), ("Dir/a", 3), ("dir/a", 4)] {
+        let entry = linux.entry(linux.resolve(path).unwrap()).unwrap();
+        assert_eq!(entry.size, size, "{path}");
+    }
+}

@@ -148,7 +148,9 @@ TARGETS = package_targets(root)
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
-    ("blocking wait (semaphore/group/condition)", r"\.wait\((timeout:|wallTimeout:|until:)?[^)]*\)"),
+    # `.wait(owner:` is CmuxNextWakeups' Backoff: an awaited clock sleep, the very primitive the
+    # sleep rule's hint names, never a blocking wait (FreeTierAttestProvider needed an allow for it).
+    ("blocking wait (semaphore/group/condition)", r"\.wait\((?!owner:)(timeout:|wallTimeout:|until:)?[^)]*\)"),
     ("DispatchSemaphore", r"\bDispatchSemaphore\("),
     ("DispatchGroup (wait-capable)", r"\bDispatchGroup\(\)"),
     ("Thread.sleep", r"\bThread\.sleep\b"),

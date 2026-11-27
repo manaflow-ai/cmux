@@ -11,6 +11,7 @@ import { ShareDialogBody } from "./ShareDialog";
 import { translate } from "../i18n";
 import type { ShareView } from "./shareState";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { actTurn, until } from "../../../../test/support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -294,4 +295,29 @@ test("Approve grants Can view unless the row picks Can send; Decline is one pres
   expect(decline.getAttribute("aria-label")).toBe(translate("share.declineWho", { account: "riley@example.com" }));
   await act(async () => decline.click());
   expect(calls).toEqual(["approve mei@example.com view", "approve @jordan talk", "decline riley@example.com"]);
+});
+
+test("a failed read of the chat's shares is read again on its own, with no Try again", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done": the open's read asks again
+  // on the shared backoff (autoRetry.ts, first ask within 1 s) and says nothing at first.
+  installDom();
+  const { ShareDialogHost } = await import("./ShareControl");
+  let reads = 0;
+  const call = async (op: string) => {
+    if (op !== "state") return {};
+    reads += 1;
+    if (reads === 1) throw new Error("share: 503 Service Unavailable");
+    return { shares: [] };
+  };
+  root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root!.render(<ShareDialogHost sessionId="s" chat="Demo" open onOpenChange={() => undefined} call={call} />),
+  );
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(reads).toBe(1);
+  expect(document.body.textContent).not.toContain(translate("share.error.generic"));
+  await until(() => reads >= 2, actTurn);
+  expect(reads).toBe(2);
+  expect(document.body.textContent).not.toContain(translate("share.error.generic"));
+  expect(document.body.textContent).not.toContain(translate("share.stillReading"));
 });

@@ -11,6 +11,7 @@ description = "Cloud-hosted agent session histories: a cold chat's archive, encr
 workspace = true
 
 [dependencies]
+cmux-egress.workspace = true
 anyhow.workspace = true
 cmux-session-pack = { path = "../cmux-session-pack" }
 chacha20poly1305 = "0.10"
@@ -25,4 +26,6 @@ tokio.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 tempfile = "3"

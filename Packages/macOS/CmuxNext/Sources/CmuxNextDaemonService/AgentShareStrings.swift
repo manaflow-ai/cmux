@@ -17,6 +17,7 @@ enum AgentShareStrings {
     }
 
     static var cloudRoomMissing: String {
+        // retry-prompt-ok: updating the Cloud machine replaces its binaries
         String(localized: "agentShare.cloudRoomMissing", defaultValue: "This Cloud machine can’t make share links yet. Update the machine, then try again.", table: "AgentShare", bundle: .localizedModule)
     }
 
@@ -33,6 +34,7 @@ enum AgentShareStrings {
     }
 
     static var timedOut: String {
+        // retry-prompt-ok: making a share link publishes the chat (a side effect the person chooses)
         String(localized: "agentShare.timedOut", defaultValue: "The share service didn’t answer in time, so no link was made. Try again.", table: "AgentShare", bundle: .localizedModule)
     }
 
@@ -64,6 +66,7 @@ enum AgentShareStrings {
     static func reason(_ code: String) -> String? {
         switch code {
         case "share.needs_sign_in": String(localized: "agentShare.needsSignIn", defaultValue: "Sign in to cmux to share a chat.", table: "AgentShare", bundle: .localizedModule)
+        // retry-prompt-ok: making a share link publishes the chat (a side effect the person chooses)
         case "share.room_unreachable": String(localized: "agentShare.roomUnreachable", defaultValue: "The share service didn’t answer. Try again in a moment.", table: "AgentShare", bundle: .localizedModule)
         case "share.room_refused": String(localized: "agentShare.roomRefused", defaultValue: "Sharing is off for this account.", table: "AgentShare", bundle: .localizedModule)
         case "share.not_a_chat": notAChat
@@ -152,7 +155,7 @@ enum AgentShareStrings {
     }
 
     static var inviteConsentDetail: String {
-        String(localized: "agentShare.invite.consent.detail", defaultValue: "An agent or script asked to invite this account. Once they sign in, they see the chat as you do, including command output and the agent’s reasoning.", table: "AgentShare", bundle: .localizedModule)
+        String(localized: "agentShare.invite.consent.detail", defaultValue: "An agent asked to invite this person. They’ll see the whole chat, including command output.", table: "AgentShare", bundle: .localizedModule)
     }
 
     /// What the invited account may do, in the sheet's words.
@@ -200,6 +203,33 @@ enum AgentShareStrings {
     }
 }
 
+extension AgentShareStrings {
+    /// The Invite People sheet's words for a failure, in the web Share dialog's words: never a CLI flag
+    /// (`--role`, `--uses`) or the daemon's own text, which ``failure(_:)`` keeps for the CLI and MCP.
+    static func sheetFailure(_ error: any Error) -> String {
+        if case DaemonError.command(_, _, let code?, _, _) = error, code.hasPrefix("share.") {
+            switch code {
+            case "share.limit":
+                return String(localized: "agentShare.sheet.error.limit", defaultValue: "Too many shared chats on this Mac. End one in Settings > Shared links.", table: "AgentShare", bundle: .localizedModule)
+            case "share.room_unreachable":
+                return String(localized: "agentShare.sheet.error.roomUnreachable", defaultValue: "Couldn’t reach the share server. Check your connection and try again.", table: "AgentShare", bundle: .localizedModule)
+            case "share.room_refused":
+                return String(localized: "agentShare.sheet.error.roomRefused", defaultValue: "Sharing is off for this chat’s server.", table: "AgentShare", bundle: .localizedModule)
+            default:
+                return reason(code) ?? sheetGeneric
+            }
+        }
+        // A CLI refusal (a flag's shape) has no words for the sheet.
+        if error is AgentShareRefusal { return sheetGeneric }
+        return failure(error).message
+    }
+
+    /// The web Share dialog's `share.error.generic`.
+    static var sheetGeneric: String {
+        String(localized: "agentShare.sheet.error.generic", defaultValue: "That didn’t finish. Try again.", table: "AgentShare", bundle: .localizedModule)
+    }
+}
+
 /// The Invite People sheet's words (design chat-multiplayer.md 2), for the App's view.
 public extension AgentShareInviteSheetModel {
     var title: String {
@@ -207,7 +237,7 @@ public extension AgentShareInviteSheetModel {
     }
 
     var intro: String {
-        String(localized: "agentShare.sheet.body", defaultValue: "People you invite sign in with their cmux account and see this chat as you do, including command output and the agent’s reasoning.", table: "AgentShare", bundle: .localizedModule)
+        String(localized: "agentShare.sheet.body", defaultValue: "They sign in with their cmux account and see the whole chat, including command output.", table: "AgentShare", bundle: .localizedModule)
     }
 
     var accountPlaceholder: String {
@@ -221,7 +251,7 @@ public extension AgentShareInviteSheetModel {
         if role == "view" {
             return String(localized: "agentShare.sheet.canView", defaultValue: "Can view", table: "AgentShare", bundle: .localizedModule)
         }
-        return String(localized: "agentShare.sheet.canTalk", defaultValue: "Can talk", table: "AgentShare", bundle: .localizedModule)
+        return String(localized: "agentShare.sheet.canTalk", defaultValue: "Can send", table: "AgentShare", bundle: .localizedModule)
     }
 
     /// What the chosen role lets them do, under the field.
@@ -237,13 +267,18 @@ public extension AgentShareInviteSheetModel {
         String(localized: "agentShare.sheet.remove", defaultValue: "Remove", table: "AgentShare", bundle: .localizedModule)
     }
 
+    /// A row's Remove button, for VoiceOver: names whom it removes.
+    func removeAccessibilityLabel(_ account: String) -> String {
+        String(format: String(localized: "agentShare.sheet.removeAccessibility", defaultValue: "Remove %@", table: "AgentShare", bundle: .localizedModule), account)
+    }
+
     var emptyText: String {
         String(localized: "agentShare.sheet.empty", defaultValue: "No one is invited yet.", table: "AgentShare", bundle: .localizedModule)
     }
 
     /// Remove (the account) versus removing one device from the chat (a kick).
     var removeNote: String {
-        String(localized: "agentShare.sheet.removeNote", defaultValue: "Remove ends their access on every device. Removing just one of their devices from the chat doesn’t keep their account out.", table: "AgentShare", bundle: .localizedModule)
+        String(localized: "agentShare.sheet.removeNote", defaultValue: "Remove ends their access on every device.", table: "AgentShare", bundle: .localizedModule)
     }
 
     var closeTitle: String {
