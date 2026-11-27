@@ -296,6 +296,32 @@
           ]
         },
         {
+          "key": "labs.chatMultiplayer",
+          "name": "chatMultiplayer",
+          "note": "Chat multiplayer for a teammate this Mac shares a chat with (`cmux host share`, plans/cmux-next/chat-multiplayer/DESIGN.md phase 1b): on, the teammate's app also says when they view the shared chat and when a member types, so both people see each other's face and typing row. Off by default; off, a teammate gets exactly what it got before (read, and a member's prompt and cancel). Read by `cmux host serve` and the daemon on each frame. The person turns it on: agents may not (it widens what a teammate may send). Leo 2026-10-26: \"we can still do the regular chat multiplayer\".",
+          "title": {
+            "key": "settings.labs.chatMultiplayer",
+            "text": "Chat Multiplayer"
+          },
+          "help": {
+            "key": "settings.labs.chatMultiplayer.help",
+            "text": "Teammates you share a chat with show when they view it and when they type."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "multiplayer",
+            "share",
+            "shared",
+            "teammate",
+            "presence",
+            "typing",
+            "together",
+            "chat"
+          ]
+        },
+        {
           "key": "labs.commentThreads",
           "name": "commentThreads",
           "note": "Opt-in comment threads from the browser pane and terminal selections (goal all-surface-comments-round-trip): a design mode card's Send, and Comment\u2026 on a terminal selection, save the comment on the session host and send it in a threaded diff.comments.send (diff-comments-threads-v1), so the agent's reply comes back into the same thread. Off by default: the browser card sends as a chip and Comment\u2026 on a terminal selection stays unavailable, as before. Off while Leo's UI merge hold stands (2026-11-24, ask-82b08b7ed7).",

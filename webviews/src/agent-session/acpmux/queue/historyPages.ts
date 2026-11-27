@@ -10,6 +10,7 @@ import type { AsksScreen } from "../asks/AsksScreen";
 import type { LedgerScreen, LedgerSaveOutcome } from "../ledger/LedgerScreen";
 import type { LedgerExportKind } from "../ledger/ledgerModel";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
+import type { DirectoryMethod, TeamDirectoryScreen } from "../teamDirectory/TeamDirectoryScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -23,6 +24,7 @@ export type HistoryPagesClient = {
   /// `_acpmux/asks` (asks/asksModel.ts).
   askLedger?(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
+  teamDirectory(method: DirectoryMethod, params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
   reviewVerdict(params: Record<string, unknown>): Promise<unknown>;
   audit(params?: Record<string, unknown>): Promise<unknown>;
@@ -103,6 +105,7 @@ export function historyPages({
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
   yourAsks: ComponentProps<typeof AsksScreen>;
+  directory: ComponentProps<typeof TeamDirectoryScreen>;
 } {
   const connected = () => {
     const current = client();
@@ -187,6 +190,13 @@ export function historyPages({
       },
       openSession: selectSession,
       openUrl: (url) => void callNative("tab.open", { kind: "browser", text: url }).catch(() => undefined),
+    },
+    // People (RFD 0170): the team navigator, Send to and a session's links, each answered by acpmux's
+    // `_acpmux/team/*` reads; History shows it only while the `team-directory` experiment is on.
+    directory: {
+      load: async (method, params) => connected().teamDirectory(method, params),
+      openSession: selectSession,
+      copy,
     },
   };
 }
