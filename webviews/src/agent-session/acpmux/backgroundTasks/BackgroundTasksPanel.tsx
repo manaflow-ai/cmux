@@ -41,12 +41,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { formatDuration, spanDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import { useOwnLog, type OwnLogChat, type ReadOwnLog } from "../subagents/subagentOwnLog";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
@@ -72,7 +72,12 @@ const StopsAgents = createContext(true);
 
 /// How a workflow agent's transcript is read (App.tsx `readWorkflowAgent`); unset, a workflow's
 /// agents are listed but open nothing.
-export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
+export type WorkflowReads = {
+  sessionId?: string;
+  chat: string;
+  connection: string;
+  read: TranscriptRead;
+};
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
 
 /// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
@@ -155,9 +160,12 @@ export function BackgroundTasksPanel({
   const [stack, setStack] = useState<Drill[]>(() => (initialDrill ? [initialDrill] : []));
   // Workflows turned off (Labs) while a workflow agent's transcript shows: there is nothing to read
   // it with, so the panel steps back out of it rather than show a blank pane.
-  if (!workflow && stack.some((entry) => entry.workflow)) setStack(stack.filter((entry) => !entry.workflow));
+  if (!workflow && stack.some((entry) => entry.workflow))
+    setStack(stack.filter((entry) => !entry.workflow));
   // The request the panel acts on, and the latest one it has seen.
-  const [target, setTarget] = useState(() => (focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined));
+  const [target, setTarget] = useState(() =>
+    focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined,
+  );
   const [seenFocus, setSeenFocus] = useState(focus?.at);
   if (focus && focus.at !== seenFocus) {
     setSeenFocus(focus.at);
@@ -199,7 +207,9 @@ export function BackgroundTasksPanel({
   );
   const ownRows = drillAgent ? own.log?.views[drillAgent] : undefined;
   const drillRows =
-    viewRows?.length && (drillRunning || (ownRows?.length ?? 0) <= viewRows.length) ? viewRows : (ownRows ?? []);
+    viewRows?.length && (drillRunning || (ownRows?.length ?? 0) <= viewRows.length)
+      ? viewRows
+      : (ownRows ?? []);
   return (
     <StopsAgents.Provider value={stopsAgents}>
       <ReadsOutput.Provider value={readsOutput}>
@@ -213,7 +223,12 @@ export function BackgroundTasksPanel({
             onExpand={onExpand}
             onClose={onClose}
           >
-            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+            <div
+              ref={list}
+              className="acpmux-bg__list"
+              data-look={look}
+              hidden={drill !== undefined}
+            >
               {groups.length === 0 ? (
                 <p className="acpmux-bg__empty">
                   {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
@@ -272,7 +287,9 @@ export function BackgroundTasksPanel({
                   rows={drillRows}
                   running={drillRunning}
                   anchor={drill.rowId}
-                  notice={drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined}
+                  notice={
+                    drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined
+                  }
                 />
               </NestedAgents.Provider>
             )}
@@ -331,15 +348,18 @@ function Section({
 }
 
 /// The time of the request (`focus`) that names one of `tasks`, if one does.
-const focusedIn = (tasks: readonly BackgroundTask[], focus: { toolCallId: string; at: number } | undefined) =>
-  focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined;
+const focusedIn = (
+  tasks: readonly BackgroundTask[],
+  focus: { toolCallId: string; at: number } | undefined,
+) => (focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined);
 
 /// The group a subagent is, or the one it is a task of.
 function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
   for (const group of groups) {
     if (group.agentId === agentId) return { name: group.name, state: group.state };
     for (const task of [...group.running, ...group.finished]) {
-      if (task.kind === "agent" && task.agentId === agentId) return { name: task.title, state: task.state };
+      if (task.kind === "agent" && task.agentId === agentId)
+        return { name: task.title, state: task.state };
       if (task.workflow?.pane === agentId)
         return { name: task.title, state: task.state, workflow: task.workflow.agent };
     }
@@ -361,10 +381,20 @@ function WorkflowAgentTranscript({
   running: boolean;
   reads: WorkflowReads;
 }) {
-  const transcript = useWorkflowTranscript(pane, reads.sessionId, true, agent, reads.read, reads.connection);
+  const transcript = useWorkflowTranscript(
+    pane,
+    reads.sessionId,
+    true,
+    agent,
+    reads.read,
+    reads.connection,
+  );
   // The panel's head names the agent. The hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
   // the window is taken from the agent's rows when they arrive, never from the notice.
-  const rows = useMemo(() => (transcript.rows ?? []).filter((row) => row.kind !== "notice"), [transcript.rows]);
+  const rows = useMemo(
+    () => (transcript.rows ?? []).filter((row) => row.kind !== "notice"),
+    [transcript.rows],
+  );
   const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);
@@ -486,29 +516,16 @@ function PanelFrame({
 /// Elapsed while it runs; once ended, its duration ("856ms" under a second, spanDuration), or
 /// nothing when its end time is unknown (a command known only from the transcript) or it was
 /// stamped at one moment, never a time that keeps counting or a floored "0s".
-function BackgroundElapsed({
-  t,
-  from,
-  to,
-  running,
-  clock = false,
-}: {
-  t: Translate;
-  from?: number;
-  to?: number;
-  running: boolean;
-  clock?: boolean;
-}): ReactNode {
-  const now = useNow(running);
-  const text =
-    from === undefined
-      ? ""
-      : running
-        ? formatDuration(Math.max(0, now - from))
-        : to === undefined
-          ? ""
-          : spanDuration(t, to - from);
-  return clock ? <Clock className="acpmux-bg__time" text={text} /> : text || undefined;
+function backgroundTime(
+  t: Translate,
+  from?: number,
+  to?: number,
+  running = false,
+  clock?: string,
+): ReactNode {
+  if (running && from !== undefined) return <Elapsed since={from} clock={clock} />;
+  const text = from !== undefined && to !== undefined ? spanDuration(t, to - from) : undefined;
+  return clock ? <Clock className={clock} text={text ?? ""} /> : text;
 }
 
 function GroupBlock({
@@ -541,9 +558,19 @@ function GroupBlock({
   // A group whose own agent ended still runs while any of its tasks (a nested agent) does.
   const live = isLive(group);
   return (
-    <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
+    <div
+      className="acpmux-bg__group"
+      data-state={live ? "running" : group.state}
+      data-group={group.id}
+    >
       <div className="acpmux-bg__agent">
-        <Button variant="ghost" type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
+        <Button
+          variant="ghost"
+          type="button"
+          className="acpmux-bg__name"
+          disabled={!opens}
+          onClick={opens}
+        >
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -565,7 +592,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <BackgroundElapsed t={t} from={group.startedAt} to={group.endedAt} running={live} clock />
+          backgroundTime(t, group.startedAt, group.endedAt, live, "acpmux-bg__time")
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -597,7 +624,9 @@ function GroupBlock({
 /// "39 tasks, 3 failed", the failures in the danger colour.
 function Counts({ total, failed }: { total: number; failed: number }) {
   const t = useT();
-  const tasks = t(total === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", { n: total });
+  const tasks = t(total === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", {
+    n: total,
+  });
   if (failed === 0) return <span>{tasks}</span>;
   return (
     <span>
@@ -639,7 +668,13 @@ function TaskList({
     if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), task]);
   }
   const taskRow = (task: BackgroundTask) => (
-    <TaskRow key={task.id} task={task} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
+    <TaskRow
+      key={task.id}
+      task={task}
+      onDrill={onDrill}
+      onStop={onStop}
+      onOpenCommand={onOpenCommand}
+    />
   );
   const row = (task: BackgroundTask) => {
     const under = kids.get(task.id);
@@ -716,11 +751,7 @@ function TaskRow({
         toolCallId={task.toolCallId}
         processId={task.processId}
         state={task.state}
-        time={
-          task.startedAt !== undefined && (task.state === "running" || task.endedAt !== undefined) ? (
-            <BackgroundElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} />
-          ) : undefined
-        }
+        time={backgroundTime(t, task.startedAt, task.endedAt, task.state === "running")}
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
         openAt={openAt}
@@ -736,14 +767,20 @@ function TaskRow({
         : undefined;
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
-      <Button variant="ghost" type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
+      <Button
+        variant="ghost"
+        type="button"
+        className="acpmux-bg__task-open"
+        disabled={!opens}
+        onClick={opens}
+      >
         {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
         <span className="acpmux-bg__disclosure" aria-hidden="true">
           <Icon name="disclosure.collapsed" size={12} row />
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <BackgroundElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} clock />
+      {backgroundTime(t, task.startedAt, task.endedAt, task.state === "running", "acpmux-bg__time")}
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );
@@ -767,7 +804,9 @@ function StopSlot({
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
   // retry-prompt-ok: stopping a task is a destructive action the person chooses, so a failed stop is theirs to try again.
-  const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
+  const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", {
+    name,
+  });
   return (
     <span className="acpmux-bg__stop-slot">
       <Button
