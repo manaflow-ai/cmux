@@ -229,6 +229,7 @@ impl Hub {
                             class,
                             report: is_report(provenance),
                             waited,
+                            gather: super::super::cold_wake::requested(provenance),
                             at: now,
                             within: crate::prompt_provenance::within(provenance),
                             text: text.clone(),
@@ -369,6 +370,7 @@ impl Hub {
                     class: PromptClass::Result,
                     report: true,
                     waited: false,
+                    gather: false,
                     at,
                     within: None,
                     text: text.to_owned(),
@@ -630,22 +632,32 @@ impl Hub {
                                     None => end,
                                 }
                             };
-                            let cold = if blocker || waking.is_none() {
-                                None
-                            } else {
+                            // A bridge can explicitly join the cold batch even when its class
+                            // alone would wait for the inbox deadline. Keep page and reader holds.
+                            let gather = || {
+                                new.iter().any(|i| {
+                                    i.gather && !i.surge_held && i.verdict.is_none() && !quiet(i)
+                                })
+                            };
+                            let cold = if !blocker && (waking.is_some() || (lapsed && gather())) {
                                 self.cold_batch_due(session, &meta, now)
+                            } else {
+                                None
                             };
                             let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
-                                waking.map_or(flush, |at| {
-                                    let burst = if holds {
-                                        hold_end(at)
-                                    } else {
-                                        at.saturating_add(WAKE_DEBOUNCE_MS)
-                                    };
-                                    cold.unwrap_or(burst).min(flush)
+                                cold.or_else(|| {
+                                    waking.map(|at| {
+                                        if holds {
+                                            hold_end(at)
+                                        } else {
+                                            at.saturating_add(WAKE_DEBOUNCE_MS)
+                                        }
+                                    })
                                 })
+                                .unwrap_or(flush)
+                                .min(flush)
                             };
                             let retry = match inbox.refused_at {
                                 0 => 0,

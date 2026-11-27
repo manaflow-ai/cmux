@@ -245,6 +245,8 @@ pub(super) struct Item {
     /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
     /// rather than sit to a flush a parked machine never reaches.
     pub(super) waited: bool,
+    /// The sender requested the receiver's cold batch with `--gather`.
+    pub(super) gather: bool,
     pub(super) at: u64,
     /// The sender's own deadline (`acpmux send --within`), which tightens its class's
     /// ([`Item::due`]).
@@ -293,6 +295,7 @@ impl Item {
             class: PromptClass::Result,
             report: false,
             waited: false,
+            gather: false,
             at: now_ms(),
             within: None,
             text: text.to_owned(),

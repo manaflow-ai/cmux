@@ -318,6 +318,7 @@ impl Hub {
             report: is_report(provenance),
             // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
             waited: false,
+            gather: false,
             at: now,
             within: None,
             text,

@@ -160,6 +160,7 @@ impl Hub {
                     class: PromptClass::Result,
                     report: false,
                     waited: false,
+                    gather: false,
                     at: now_ms(),
                     // A plain chat's own exit-0 end waits a short while (`bg_notify.rs`
                     // `OWN_END_HOLD_MS`); a coordinator's its class's deadline.
