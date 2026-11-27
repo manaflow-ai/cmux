@@ -35,6 +35,12 @@ final class TerminalKeyRowOnDemandUITests: XCTestCase {
         XCTAssertEqual(key.frame.height, 28, accuracy: 0.5)
         XCTAssertEqual(key.frame.width, 40, accuracy: 0.5)
         XCTAssertEqual(key.label, "Hide Keyboard")
+        // The row rides the keyboard, never floating up over terminal text (regression row 2 in
+        // cmux-next-ios/FlowSuite/README.md, from cmux#53325): its bottom edge is at or above the keyboard's top.
+        XCTAssertLessThanOrEqual(key.frame.maxY, keyboard.frame.minY + 0.5,
+                                 "the key row (\(key.frame)) overlaps the keyboard (\(keyboard.frame))")
+        XCTAssertGreaterThan(key.frame.minY, keyboard.frame.minY - 160,
+                             "the key row (\(key.frame)) floats far above the keyboard (\(keyboard.frame))")
 
         // A finger's tap in the key's middle (not `tap()`, which first asks XCUITest's hit point).
         key.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
