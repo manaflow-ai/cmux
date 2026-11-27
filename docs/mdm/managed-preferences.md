@@ -27,6 +27,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
 | `app.captureScreenshotGlobalHotKey` | boolean | `false` |  | Capture Screenshot to Chat from Any App. Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `false` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
+| `app.backgroundReady` | string | `"off"` | `off`, `warmAtLogin`, `afterQuit`, `afterQuitAndLogin` | Stay Ready in the Background. After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory. Warm at Login keeps nothing running: at login, a small reader loads cmux’s code into memory and exits, so the first open after a restart is faster. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only. |

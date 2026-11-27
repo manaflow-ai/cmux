@@ -632,6 +632,70 @@
           }
         },
         {
+          "key": "app.backgroundReady",
+          "note": "Leo 2026-11-17 (ask-b2b0f899c1): \"how can we improve those? startup in background maybe?\" Off when unset or invalid; off changes nothing. warmAtLogin (Leo 2026-11-18: \"well did you guys have more solution ideas tho for getting faster draws and settles?\") keeps nothing running: it registers a LaunchAgent that reads the app's code into memory at login (cmux-launch-preread) and exits; afterQuitAndLogin needs no pre-read, since it starts the app at login. The decisions are cmux-background-ready's (Rust); the value string goes to it as is.",
+          "title": {
+            "key": "settings.app.backgroundReady",
+            "text": "Stay Ready in the Background"
+          },
+          "help": {
+            "key": "settings.app.backgroundReady.help",
+            "text": "After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory. Warm at Login keeps nothing running: at login, a small reader loads cmux’s code into memory and exits, so the first open after a restart is faster."
+          },
+          "summary": {
+            "key": "settings.app.backgroundReady.summary",
+            "text": "Runs hidden after Quit to open instantly, at a memory cost"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.backgroundReadyOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "warmAtLogin",
+              "title": {
+                "key": "settings.choice.backgroundReadyWarmAtLogin",
+                "text": "Warm at Login"
+              }
+            },
+            {
+              "value": "afterQuit",
+              "title": {
+                "key": "settings.choice.backgroundReadyAfterQuit",
+                "text": "After Quit"
+              }
+            },
+            {
+              "value": "afterQuitAndLogin",
+              "title": {
+                "key": "settings.choice.backgroundReadyAfterQuitAndLogin",
+                "text": "After Quit and at Login"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "background",
+            "ready",
+            "instant",
+            "fast",
+            "launch",
+            "startup",
+            "quit",
+            "hidden",
+            "login",
+            "memory",
+            "warm",
+            "preload",
+            "restart"
+          ],
+          "swift_owner": "BackgroundReadySetting"
+        },
+        {
           "key": "app.showMenuBarIcon",
           "note": "On when unset or invalid.",
           "title": {

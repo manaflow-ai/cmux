@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextQuit
 
 /// At launch, one toast per recovered draft (R96 quit hook): "Recovered
 /// unsaved changes in <title>", with Open (the editor side's

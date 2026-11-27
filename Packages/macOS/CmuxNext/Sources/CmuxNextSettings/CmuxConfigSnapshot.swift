@@ -539,7 +539,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
-        snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + Self.showMenuBarIconDiagnostics(root)
+        snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + Self.showMenuBarIconDiagnostics(root) + BackgroundReadySetting.diagnostics(root)
             + MachineColorsSetting().parse(root).1
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root)
             + Self.captureScreenshotGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.backgroundReady.help" : {
+      "comment" : "Help under Stay Ready in the Background.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "بعد الإنهاء، يواصل cmux العمل مخفيًا، فيُفتح فورًا. يستخدم ذاكرة أكثر. «التحميل المسبق عند تسجيل الدخول» لا يُبقي شيئًا قيد التشغيل: عند تسجيل الدخول يقرأ قارئ صغير شيفرة cmux إلى الذاكرة ثم يخرج، فيصبح أول فتح بعد إعادة التشغيل أسرع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nakon izlaza, cmux nastavlja raditi skriven, pa se otvara odmah. Koristi više memorije. Zagrijavanje pri prijavi ne ostavlja ništa pokrenuto: pri prijavi mali čitač učita kod cmuxa u memoriju i izađe, pa je prvo otvaranje nakon ponovnog pokretanja brže."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Efter Afslut kører cmux videre skjult, så det åbner med det samme. Bruger mere hukommelse. Forbered ved login lader intet køre: ved login læser et lille program cmux’ kode ind i hukommelsen og afslutter, så første åbning efter en genstart går hurtigere."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nach dem Beenden läuft cmux verborgen weiter und öffnet sich sofort. Braucht mehr Arbeitsspeicher. „Bei Anmeldung vorladen“ lässt nichts laufen: Bei der Anmeldung liest ein kleines Hilfsprogramm den Code von cmux in den Arbeitsspeicher und beendet sich, sodass das erste Öffnen nach einem Neustart schneller geht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory. Warm at Login keeps nothing running: at login, a small reader loads cmux’s code into memory and exits, so the first open after a restart is faster."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tras salir, cmux sigue ejecutándose oculto, así que se abre al instante. Usa más memoria. Precargar al iniciar sesión no deja nada en ejecución: al iniciar sesión, un pequeño lector carga el código de cmux en la memoria y termina, así que la primera apertura tras reiniciar es más rápida."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Après Quitter, cmux continue de s’exécuter en arrière-plan et s’ouvre instantanément. Utilise plus de mémoire. Précharger à la connexion ne laisse rien tourner : à la connexion, un petit lecteur charge le code de cmux en mémoire puis se ferme, et la première ouverture après un redémarrage est plus rapide."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dopo Esci, cmux resta in esecuzione nascosto, così si apre subito. Usa più memoria. Precarica all’accesso non lascia nulla in esecuzione: all’accesso un piccolo lettore carica in memoria il codice di cmux ed esce, così la prima apertura dopo un riavvio è più veloce."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "終了後も cmux は非表示のまま動作し続けるため、すぐに開きます。メモリの使用量が増えます。「ログイン時に事前読み込み」では何も常駐しません。ログイン時に小さな読み込みツールが cmux のコードをメモリに読み込んで終了するため、再起動後の最初の起動が速くなります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាប់ពីចាកចេញ cmux បន្តដំណើរការដោយលាក់ ដូច្នេះវាបើកភ្លាមៗ។ ប្រើអង្គចងចាំច្រើនជាង។ ផ្ទុកជាមុននៅពេលចូល មិនទុកអ្វីដំណើរការទេ៖ នៅពេលចូល កម្មវិធីអានតូចមួយផ្ទុកកូដរបស់ cmux ទៅក្នុងអង្គចងចាំ ហើយចាកចេញ ដូច្នេះការបើកលើកដំបូងបន្ទាប់ពីចាប់ផ្ដើមឡើងវិញលឿនជាង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "종료 후에도 cmux가 숨겨진 채로 계속 실행되어 바로 열립니다. 메모리를 더 사용합니다. 로그인 시 미리 불러오기는 아무것도 계속 실행하지 않습니다. 로그인할 때 작은 읽기 도구가 cmux 코드를 메모리에 읽어 들인 뒤 종료되므로, 재시동 후 처음 열 때 더 빠릅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Etter Avslutt fortsetter cmux å kjøre skjult, så det åpnes med en gang. Bruker mer minne. Forbered ved pålogging lar ingenting kjøre: ved pålogging leser et lite program koden til cmux inn i minnet og avslutter, så første åpning etter en omstart går raskere."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Po zakończeniu cmux działa dalej w ukryciu, więc otwiera się natychmiast. Zużywa więcej pamięci. Wczytaj przy logowaniu nie zostawia niczego uruchomionego: przy logowaniu mały czytnik wczytuje kod cmux do pamięci i kończy działanie, więc pierwsze otwarcie po ponownym uruchomieniu jest szybsze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Depois de Encerrar, o cmux continua rodando oculto e abre na hora. Usa mais memória. Pré-carregar ao iniciar sessão não deixa nada rodando: ao iniciar a sessão, um pequeno leitor carrega o código do cmux na memória e sai, então a primeira abertura depois de reiniciar é mais rápida."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "После завершения cmux продолжает работать скрыто и открывается мгновенно. Использует больше памяти. «Подготовка при входе» ничего не оставляет запущенным: при входе небольшая программа считывает код cmux в память и завершается, поэтому первое открытие после перезагрузки быстрее."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หลังจากออก cmux จะยังทำงานแบบซ่อนอยู่ จึงเปิดได้ทันที ใช้หน่วยความจำมากขึ้น โหลดล่วงหน้าเมื่อเข้าสู่ระบบจะไม่ทิ้งอะไรไว้ทำงาน: เมื่อเข้าสู่ระบบ ตัวอ่านขนาดเล็กจะโหลดโค้ดของ cmux เข้าหน่วยความจำแล้วออก การเปิดครั้งแรกหลังรีสตาร์ทจึงเร็วขึ้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çıkıştan sonra cmux gizli olarak çalışmaya devam eder, böylece anında açılır. Daha fazla bellek kullanır. Girişte önceden yükle hiçbir şeyi çalışır bırakmaz: girişte küçük bir okuyucu cmux kodunu belleğe yükler ve çıkar, böylece yeniden başlatmadan sonraki ilk açılış daha hızlı olur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Після завершення cmux працює далі приховано, тож відкривається миттєво. Використовує більше пам’яті. «Підготовка під час входу» нічого не залишає запущеним: під час входу невелика програма зчитує код cmux у пам’ять і завершується, тож перше відкриття після перезавантаження швидше."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sau khi Thoát, cmux vẫn chạy ẩn nên mở ra ngay lập tức. Dùng nhiều bộ nhớ hơn. Tải trước khi đăng nhập không để gì chạy: khi đăng nhập, một trình đọc nhỏ nạp mã của cmux vào bộ nhớ rồi thoát, nên lần mở đầu tiên sau khi khởi động lại nhanh hơn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "退出后，cmux 会在隐藏状态下继续运行，因此可以立即打开。会占用更多内存。“登录时预载”不会让任何程序保持运行：登录时，一个小型读取程序会把 cmux 的代码读入内存后退出，因此重启后的首次打开更快。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "結束後，cmux 會在隱藏狀態下繼續執行，因此可以立即開啟。會使用更多記憶體。「登入時預載」不會讓任何程式保持執行：登入時，一個小型讀取程式會將 cmux 的程式碼讀入記憶體後結束，因此重新開機後的首次開啟更快。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
