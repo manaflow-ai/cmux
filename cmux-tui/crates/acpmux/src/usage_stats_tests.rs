@@ -128,6 +128,33 @@ fn a_chat_whose_transcript_is_not_found_has_no_stats() {
 }
 
 #[test]
+fn a_closed_chat_whose_transcript_was_compressed_spent_zero_since_it_was_last_written() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    let archived = path.with_extension("jsonl.zst");
+    std::fs::create_dir_all(archived.parent().unwrap()).unwrap();
+    std::fs::write(&archived, b"compressed bytes are never read").unwrap();
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now - 2 * DAY_MS);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.calls24h), (Some(0), Some(0)));
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+    assert_eq!(stats.tokens_by_model1h, Some(BTreeMap::new()));
+
+    // Written two hours ago: the hours since are known, the day is not.
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now - 2 * HOUR_MS);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.tokens24h, None);
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+
+    // Resumed: codex and claude write the plain file again, and it is read.
+    append(&path, &[assistant("msg_1", "2026-10-30T11:59:00Z", usage(1, 0, 0, 1), false)]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(2));
+}
+
+#[test]
 fn claude_subagents_count_as_spawns_and_spend_and_live_until_finished() {
     let home = tempfile::tempdir().unwrap();
     let (source, path) = claude(home.path());
@@ -271,6 +298,39 @@ fn a_first_read_cut_at_a_line_start_keeps_that_line() {
     let stats = tracker.refresh(&source, now, &models()).unwrap();
     assert_eq!(stats.context_tokens, Some(3), "the line at the cut was read");
     assert_eq!(stats.tokens24h, Some(0), "it starts before the day: the day's count is known");
+}
+
+/// A first read cut mid-day leaves the day unknown, but the hours it read in full are known:
+/// the previous UTC hour's spend is metered without waiting a day for the cut to age out.
+#[test]
+fn a_first_read_cut_mid_day_still_knows_the_hours_it_covers() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:20:00Z");
+    let early = assistant("msg_0", "2026-10-30T02:00:00Z", usage(1, 0, 0, 1), false);
+    let before = assistant("msg_1", "2026-10-30T10:30:00Z", usage(3, 0, 0, 4), false);
+    let previous = assistant("msg_2", "2026-10-30T11:10:00Z", usage(5, 0, 0, 6), false);
+    let current = assistant("msg_3", "2026-10-30T12:05:00Z", usage(7, 0, 0, 8), false);
+    append(&path, &[early, before.clone(), previous.clone(), current.clone()]);
+    // The first read takes only the last three lines: it covers from 10:30.
+    let first = [&before, &previous, &current].iter().map(|v| format!("{v}\n").len() as u64).sum();
+    let mut tracker = Tracker { limits: Some((first, u64::MAX)), ..Tracker::default() };
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.tokens24h, None, "the day before 10:30 was not read");
+    assert_eq!(stats.calls24h, None);
+    assert_eq!(stats.tokens_by_model_previous_utc_hour.unwrap()["claude-opus-5-5"], 11);
+    // The rolling hour (11:20 to 12:20) holds only the 12:05 call.
+    assert_eq!(stats.tokens_by_model1h.unwrap()["claude-opus-5-5"], 15);
+
+    // A cut that starts inside the previous hour leaves that hour unknown, not short.
+    let late = ms("2026-10-30T11:30:00Z") + HOUR_MS;
+    let mut short = Tracker {
+        limits: Some((format!("{current}\n").len() as u64, u64::MAX)),
+        ..Tracker::default()
+    };
+    let stats = short.refresh(&source, late, &models()).unwrap();
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, None);
+    assert_eq!(stats.tokens_by_model1h, None);
 }
 
 /// Review of #28015: a line still being written, or one longer than a read step, never reads
@@ -445,8 +505,9 @@ fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
     source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "auto".into());
     assert!(!claude_autocompact_unset(&source), "the env's window");
     source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
-    let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
-    source.env.insert(key.into(), value.into());
+    // The window acpmux adds when the settings name one (`harness_limits::lift_claude`).
+    let key = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW_ENV;
+    source.env.insert(key.into(), "400000".into());
     assert_eq!(autocompact(&source, None), (Autocompact::Capped, Some(400_000)));
     source.argv = None;
     assert!(!claude_autocompact_unset(&source), "a chat this daemon did not start");
@@ -917,11 +978,15 @@ fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
     let stats = tracker.refresh(&source, now, &models()).unwrap();
     assert_eq!(stats.calls24h, Some(3));
     assert_eq!(stats.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 270_330);
+    assert_eq!(stats.cache_read_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 180_000);
     let next = tracker.refresh(&source, now + 15 * MINUTE_MS, &models()).unwrap();
     assert_eq!(next.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 90_110);
+    assert_eq!(next.cache_read_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 90_000);
     assert_eq!(next.tokens_by_model_previous_utc_hour, stats.tokens_by_model1h);
+    assert_eq!(next.cache_read_by_model_previous_utc_hour, stats.cache_read_by_model1h);
     let later = tracker.refresh(&source, now + HOUR_MS, &models()).unwrap();
     assert!(later.tokens_by_model_previous_utc_hour.unwrap().is_empty());
+    assert!(later.cache_read_by_model_previous_utc_hour.unwrap().is_empty());
     assert_eq!(next.tokens24h, stats.tokens24h);
     // 180,000 of 270,030 prompt tokens came from the cache.
     assert_eq!(stats.cache_read_share24h, Some(0.6666));

@@ -31,7 +31,7 @@
 //     last: BOOT_ENTRY) trails production's newest roll by more than n rolls (default MAX_ROLLS_BEHIND).
 //
 // Every edit rewrites only the two VM_BOOT_IMAGES string values; the rest of wrangler.jsonc keeps its bytes.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -52,7 +52,7 @@ export const MAX_ENTRIES = 32;
  * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
 export const MAX_BYTES = 5_120;
 export const SERVICES = {
-  production: ["cloud-platform-production", "ci-product-smoke"],
+  production: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
 } as const;
 /** The paths whose change is a change to what the image carries (the push trigger's paths). */
@@ -172,11 +172,11 @@ export function largeOf(candidate: Candidate): LargeVariant | undefined {
 }
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = []): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = [], keepAuto = KEEP_AUTO): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
   // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= KEEP_AUTO);
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= keepAuto);
   return newestFirst ? kept : kept.reverse();
 }
 
@@ -243,22 +243,32 @@ export function approve(text: string, entry: BootImage, keep: readonly string[] 
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
   const { large, ...plain } = entry;
-  const lists = (withLarge: boolean, keepOlder: boolean) => {
+  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
+  const lists = (withLarge: boolean, keepOlder: boolean, keepAuto: number) => {
     const listed = (env: Env): BootImage => ({ ...(withLarge && LARGE_ENVS.includes(env) ? entry : plain), services: [...SERVICES[env]] });
     const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) && !keepOlder ? images.map(({ large: _dropped, ...i }) => i) : images);
     return {
-      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep), "production", fallback),
-      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep), "staging", fallback),
+      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep, keepAuto), "production", fallback),
+      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep, keepAuto), "staging", fallback),
     };
   };
-  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
   // An entry that stays listed keeps its large image while the list fits: a create journaled on it and retried after
   // this roll's deploy must find the same snapshot (the Worker refuses to boot another one). The older ones go first
   // when the list is too long, then this entry's.
+  //
+  // Only when no list fits at KEEP_AUTO rolls does each keep fewer, oldest unpinned roll first, down to this roll
+  // alone. A pinned roll does not count toward KEEP_AUTO, so with one pinned a list holds KEEP_AUTO + 1 rolls: at about
+  // 376 bytes each, production came to 5,150 bytes and every promote threw (roll 45625813906, 2026-11-25). A
+  // hand-approved entry, a pin and this roll are never trimmed.
   const wants = large !== undefined;
-  const tries = [lists(wants, true), lists(wants, false), lists(false, false)];
-  const at = tries.findIndex((t) => LARGE_ENVS.every((env) => fits(t[env])));
-  const next = tries[at < 0 ? 2 : at]!;
+  const variants = (n: number) => [lists(wants, true, n), lists(wants, false, n), lists(false, false, n)];
+  let next = variants(KEEP_AUTO)[2]!;
+  let at = -1;
+  for (let n = KEEP_AUTO; n >= 1 && at < 0; n--) {
+    const tries = variants(n);
+    at = tries.findIndex((t) => fits(t.production) && fits(t.staging));
+    if (at >= 0) next = tries[at]!;
+  }
   const listLarge = wants && at >= 0 && at < 2;
   for (const [before, after, env] of [[prod, next.production, "production"], [staging, next.staging, "staging"]] as const) {
     for (const id of keep) {
@@ -382,8 +392,10 @@ export type SettleOutcome = "green" | "superseded" | "rollback" | "verified" | "
 export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: number };
 
 /**
- * A roll: green only when the deploy and the product create are green and the create booted this image. Anything
- * else (failed, cancelled, timed out, skipped, another image booted) rolls back while the image is in either list
+ * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
+ * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out, skipped
+ * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
  * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
  * proves nothing: the production deploy queue never cancels a running deploy, so a cancel is a person or a
@@ -400,6 +412,11 @@ export function settle(s: SettleInput): Settle {
   if (s.kind === "roll") {
     if (smokeGreen && s.bootImage === s.image && s.deployedFirst === s.image) return done("green", `${s.image} booted in production (${seen})`);
     if (!s.tipHas) return done("superseded", `${seen}; ${s.image} is already in neither list at the tip (production's first is ${s.tipFirst || "none"})`);
+    // The production deploy never ran (its check failed or hung first) and no create booted anything: production
+    // still serves the last deploy, so nothing is known about the image. Deploy the roll again, as a rollback's
+    // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
+    if (s.deploy === "skipped" && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
@@ -468,6 +485,95 @@ function behindTip(pin: string, pinned: string): string {
   return `cmux-tui ${pin.slice(0, 12)} is older than the tip's pinned ${pinned.slice(0, 12)}: a newer roll landed while this one baked`;
 }
 
+/**
+ * The newest published cmux-tui build (files.cmux.com's latest manifest) when a push roll may pin it: on TIP, newer
+ * than PINNED and carrying other binaries. Otherwise pin "" (keep the lock's), with why. Never throws: a push roll
+ * whose lookup fails still bakes its image change on the pinned build, as before.
+ *
+ * latest/ tracks main, not feat-cmux-next. When it names a build that is not on TIP, the newest feat-cmux-next build
+ * with a published commit manifest is pinned instead (publishedOnTip). 2026-11-27: latest/ named main's 3bb7a878, so
+ * every push roll from 00:28Z to 04:00Z kept the lock's 348e8a8a ("latest build 3bb7a878c526 is not on HEAD") while
+ * feat-cmux-next builds to f7b548a5 were published; only a dispatched roll could move the pin, and the Cloud image
+ * lock sat 182 min behind main (bound 120).
+ */
+async function newestPublished(pinned: string, tip: string, lock: string): Promise<{ pin: string; why: string }> {
+  const keep = (why: string) => ({ pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (${why})` });
+  const r = spawnSync("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--latest", "--lock", lock], { encoding: "utf8", timeout: 180_000 });
+  if (r.status !== 0) return keep(`latest build unreadable: ${(r.stderr ?? "").trim().split("\n").pop() ?? ""}`);
+  let latest: { commit?: unknown; unchanged?: unknown };
+  try {
+    latest = JSON.parse(r.stdout) as { commit?: unknown; unchanged?: unknown };
+  } catch {
+    return keep("latest build answered no JSON");
+  }
+  const commit = typeof latest.commit === "string" ? latest.commit : "";
+  if (!/^[0-9a-f]{40}$/u.test(commit)) return keep("latest build names no commit");
+  if (commit === pinned || latest.unchanged === true) return keep(`latest build ${commit.slice(0, 12)} carries the pinned binaries`);
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return keep("shallow checkout");
+  if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`]) || !gitOk(["cat-file", "-e", `${commit}^{commit}`])) return keep(`latest build ${commit.slice(0, 12)} or the pin is not in this checkout`);
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) {
+    const onTip = await publishedOnTip(pinned, tip, lock);
+    if (onTip.commit === "") return keep(`latest build ${commit.slice(0, 12)} is not on ${tip}; ${onTip.why}`);
+    if (onTip.unchanged) return keep(`newest build on ${tip}, ${onTip.commit.slice(0, 12)}, carries the pinned binaries`);
+    return { pin: onTip.commit, why: `cmux-tui ${onTip.commit.slice(0, 12)}, the newest build published on ${tip} (pinned ${pinned.slice(0, 12)}; latest build ${commit.slice(0, 12)} is not on ${tip})` };
+  }
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return keep(`latest build ${commit.slice(0, 12)} is not newer`);
+  return { pin: commit, why: `cmux-tui ${commit.slice(0, 12)}, the newest published build (pinned ${pinned.slice(0, 12)})` };
+}
+
+/**
+ * First-parent commits of TIP after PINNED that publishedOnTip may ask files.cmux.com about, newest first. 2026-11-27:
+ * at 40, push roll 45961450781 (07:52Z) kept cmux-tui f7b548a5 (02:41Z, 516 commits back) because publishing lagged
+ * from 06:26Z: the newest published build, 3894c456, was 185 commits deep, so none of the 40 asked had one and the
+ * guest fix e7dcf033 waited for a build it could not see. The whole range is asked, up to this bound.
+ */
+export const PUBLISHED_PROBE_LIMIT = 2000;
+/** pin-cmux-tui.ts --commit lookups publishedOnTip runs at once. */
+export const PUBLISHED_PROBE_PARALLEL = 16;
+
+/** pin-cmux-tui.ts --commit CANDIDATE's answer when its build is published, else null. Never rejects. */
+function probePublished(candidate: string, lock: string): Promise<{ commit: string; unchanged: boolean } | null> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    const child = spawn("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--commit", candidate, "--lock", lock], { stdio: ["ignore", "pipe", "ignore"] });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (stdout += chunk));
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0) return resolve(null);
+      try {
+        const out = JSON.parse(stdout) as { commit?: unknown; unchanged?: unknown };
+        resolve(out.commit === candidate ? { commit: candidate, unchanged: out.unchanged === true } : null);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * The newest first-parent commit of TIP after PINNED whose cmux-tui build files.cmux.com publishes (pin-cmux-tui.ts
+ * --commit reads its manifest, or its Cloud machine build under machine/ (MACHINE_BUILD); a commit with neither
+ * answers non-zero), at most PUBLISHED_PROBE_LIMIT asked, PUBLISHED_PROBE_PARALLEL at a time, newest batch first.
+ * Builds coalesce, so most commits have none. commit "" with why when none is found.
+ */
+async function publishedOnTip(pinned: string, tip: string, lock: string): Promise<{ commit: string; unchanged: boolean; why: string }> {
+  const list = git(["rev-list", "--first-parent", `--max-count=${PUBLISHED_PROBE_LIMIT}`, `${pinned}..${tip}`]);
+  if (list.status !== 0) return { commit: "", unchanged: false, why: `no commit list after the pin: ${list.stderr.trim()}` };
+  const commits = list.stdout.split("\n").filter((c) => /^[0-9a-f]{40}$/u.test(c));
+  for (let i = 0; i < commits.length; i += PUBLISHED_PROBE_PARALLEL) {
+    const batch = await Promise.all(commits.slice(i, i + PUBLISHED_PROBE_PARALLEL).map((c) => probePublished(c, lock)));
+    const hit = batch.find((b) => b !== null);
+    if (hit) return { ...hit, why: "" };
+  }
+  return { commit: "", unchanged: false, why: `none of the ${commits.length} newest commits after the pin has a published build` };
+}
+
 async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
@@ -476,11 +582,17 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
   if (mode === "off" && opts.event !== "dispatch") return none("images/cmux-vm/auto-roll.json says off");
 
   if (opts.event === "push") {
-    // An image change landed (the trigger's paths); the cmux-tui pin stays.
+    // An image change landed (the trigger's paths). The bake also takes the newest published cmux-tui build when it
+    // is on the tip and newer than the pin: a push roll that kept the pin re-baked a stale build. 2026-11-26: the
+    // lock pinned 99de33e5 (13:23Z) while builds to 97bd0527 (16:35Z) were published, the 16:52Z push roll promoted
+    // 99de33e5 again, and push roll 45862819601 failed its Agent tools probe on that old acpmux; NOW's Cloud
+    // image lag sat past its bound until a dispatch roll re-pinned. Any doubt about the newer build keeps the pin.
     const range = /^[0-9a-f]{40}$/u.test(opts.before) && !/^0+$/u.test(opts.before) ? `${opts.before}..${opts.commit}` : `${opts.commit}~1..${opts.commit}`;
     const fixes = fixCommits(range, IMAGE_PATHS);
     if (fixes.length === 0) return none(`no commit in ${range} changes the image inputs`);
-    return { roll: true, reason: `image inputs changed in ${range}`, pin: "", cmuxTui: pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
+    const newer = await newestPublished(pinned, opts.tip, opts.lock);
+    const reason = `image inputs changed in ${range}; ${newer.why}`;
+    return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
   }
   if (opts.commit === "") {
     if (opts.event !== "dispatch") return none("no commit");

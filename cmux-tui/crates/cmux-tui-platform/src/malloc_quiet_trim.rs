@@ -18,7 +18,9 @@
 //! serves nothing (a CLI call) never starts it.
 //!
 //! Only glibc has `malloc_trim`: the musl builds and macOS compile this to
-//! nothing.
+//! nothing. musl's malloc never gives the pages back at all, so acpmux on Linux
+//! runs on mimalloc, which purges freed pages itself (acpmux-standalone's
+//! main.rs, RFD 0156).
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -67,6 +69,11 @@ fn start() -> &'static Trimmer {
         lock: Mutex::new(()),
         wake: Condvar::new(),
     }));
+    // `CMUX_MALLOC_QUIET_TRIM=0` (bench only: the allocator A/B's `glibc-notrim` arm in
+    // infinite-items-linux.sh) starts no worker, so a run measures what the trim gives back.
+    if std::env::var_os("CMUX_MALLOC_QUIET_TRIM").is_some_and(|v| v == "0") {
+        return trimmer;
+    }
     // A failed spawn leaves the pages where they are, as before.
     let _ = std::thread::Builder::new()
         .name("malloc-quiet-trim".into())

@@ -308,6 +308,21 @@ mod elicitation_tests;
 #[cfg(test)]
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
+mod dedupe;
+mod dedupe_search;
+/// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dedupe::enabled as dedupe_enabled;
+#[cfg(test)]
+pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
+mod dedupe_shell;
+mod dir_rules;
+/// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dir_rules::enabled as dir_rules_enabled;
+#[cfg(test)]
+mod dedupe_tests;
+// Harness magic `pathRules`: a repo's rule loads when a session touches its paths.
+#[cfg(test)]
+mod dir_rules_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -317,18 +332,28 @@ mod hook_callback_tests;
 mod inbound;
 #[cfg(test)]
 mod initialize_tests;
+mod path_rules;
+/// The feature name and its gate, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use path_rules::{FEATURE as PATH_RULES_FEATURE, enabled as path_rules_enabled};
+#[cfg(test)]
+mod path_rules_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
+pub mod cache_faults;
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+// When each model call went out and came back, for the turn's Timeline (`model_calls.rs`).
+mod model_calls;
+#[cfg(test)]
+mod model_calls_tests;
 pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
@@ -346,8 +371,15 @@ mod result_images_tests;
 // A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
 #[cfg(test)]
 mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// A "success" result after Claude Code's own API error line is the turn's failure.
+mod api_error;
+#[cfg(test)]
+mod api_error_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
 mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -362,9 +394,6 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
-mod task_plan;
-#[cfg(test)]
-mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
@@ -615,9 +644,18 @@ pub struct Translator {
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
     /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
     gate: policy_gate::PolicyGate,
+    /// Harness magic `dedupe` (dedupe.rs).
+    dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `pathRules` (path_rules.rs).
+    path_rules: Arc<path_rules::PathRules>,
+    /// Harness magic `dirRules` (dir_rules.rs).
+    dir_rules: Arc<dir_rules::DirRules>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
+    pub(crate) stop_condition: AtomicBool,
+    /// Present only when this launch included cmux's local session plugin.
+    pub(crate) plugin_hook_home: std::sync::OnceLock<std::path::PathBuf>,
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
@@ -636,6 +674,12 @@ pub struct Translator {
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
+    /// The text of the turn's last assistant line when that line is Claude Code's own API
+    /// error (`is_api_error_message`, or a `<synthetic>` line saying "API Error: ..."), else
+    /// None. A result that follows it is the turn's failure even when Claude Code calls it a
+    /// success (`api_error.rs`): "API Error: Repeated 529 Overloaded errors" left chats idle
+    /// with no retry (Leo, 2026-11-24: "do they get stranded!?").
+    api_error: Mutex<Option<String>>,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
@@ -673,14 +717,22 @@ pub struct Translator {
     step_stopped: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
     /// The skills Claude Code names in its system/init (`skills`, names
-    /// without "/"): their slash commands are tagged as skills.
-    skills: Mutex<Vec<String>>,
+    /// without "/"): their slash commands are tagged as skills. None until
+    /// the first system/init, which comes only with the first turn.
+    skills: Mutex<Option<Vec<String>>>,
     /// The `availableCommands` list last sent, so a turn's system/init that
     /// changes nothing sends no new one.
     sent_commands: Mutex<Option<Vec<Value>>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
-    /// to control requests acpmux declines). The reader drains them.
-    stdin_replies: Mutex<Vec<Value>>,
+    /// to control requests acpmux declines). The reader drains them after each line, and
+    /// again whenever [`Translator::replies_ready`] fires: an answer worked out off the
+    /// reader (`hook_callback.rs`) lands here later.
+    stdin_replies: Arc<Mutex<Vec<Value>>>,
+    /// Notified when a line lands in `stdin_replies` off the stdout reader.
+    replies_ready: Arc<tokio::sync::Notify>,
+    /// Owns the tasks that work out answers off the stdout reader, and the ones that write
+    /// them (`hook_callback.rs`, [`Translator::scope`]): they end with the translator.
+    scope: cmux_scope::Scope,
     /// Running Agent (Task) tool calls: tool_use id -> the subagent session
     /// id their lines stream under.
     subagents: Mutex<HashMap<String, String>>,
@@ -716,6 +768,8 @@ pub struct Translator {
     context_from_compaction: AtomicBool,
     /// When the chat's prompt cache expires (`prompt_cache.rs`).
     cache: prompt_cache::CacheClock,
+    /// When the main loop's model call went out and came back (`model_calls.rs`).
+    model_clock: model_calls::ModelClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -763,9 +817,6 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
-    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
-    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
-    task_plan: Mutex<task_plan::TaskPlan>,
     /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
     loops: Mutex<loops::Loops>,
 }
@@ -821,9 +872,14 @@ impl Translator {
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
+            dedupe: Default::default(),
+            path_rules: Default::default(),
+            dir_rules: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
+            plugin_hook_home: Default::default(),
+            stop_condition: AtomicBool::new(false),
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
@@ -834,6 +890,7 @@ impl Translator {
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
+            api_error: Mutex::new(None),
             prompt_echo: Mutex::new(None),
             prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
@@ -846,22 +903,24 @@ impl Translator {
             cancelled: AtomicBool::new(false),
             step_stopped: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
-            skills: Mutex::new(Vec::new()),
+            skills: Mutex::new(None),
             sent_commands: Mutex::new(None),
-            stdin_replies: Mutex::new(Vec::new()),
+            stdin_replies: Arc::new(Mutex::new(Vec::new())),
+            replies_ready: Arc::new(tokio::sync::Notify::new()),
+            scope: cmux_scope::Scope::new("claude-translator"),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
-            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_end: AtomicU64::new(0),
             turn_calls: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
             cache: Default::default(),
+            model_clock: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
@@ -992,29 +1051,58 @@ impl Translator {
         std::mem::take(&mut *self.stdin_replies.lock().await)
     }
 
+    /// Fires (keeping a permit when nobody waits) each time an answer worked out off the
+    /// stdout reader lands in the stdin replies: whoever writes claude's stdin then takes
+    /// them with [`Translator::take_stdin_replies`] without waiting for its next stdout line.
+    pub fn replies_ready(&self) -> Arc<tokio::sync::Notify> {
+        self.replies_ready.clone()
+    }
+
+    /// The owner of this translator's background tasks, which its drop cancels. A task
+    /// spawned here holds no strong handle to the translator (that would keep it alive).
+    pub fn scope(&self) -> &cmux_scope::Scope {
+        &self.scope
+    }
+
     /// The `available_commands_update` for Claude's slash commands, an entry
     /// per command with `_meta.kind: "skill"` on a skill's (the pane's picker
-    /// labels it "Skill"). Without `always`, a list that is unchanged, or
-    /// empty before any was sent, sends nothing.
+    /// labels it "Skill", and lists it mid-prompt too). Without `always`, a
+    /// list that is unchanged, or empty before any was sent, sends nothing.
+    ///
+    /// Before the first system/init names the skills (a chat with no turn
+    /// yet, such as the New Tab's deferred one), a command that Claude Code's
+    /// `initialize` answer does not mark `builtin` is a skill: the person's,
+    /// a project's or a plugin's, when the answer marks any command at all
+    /// (an older Claude Code marks none, and gets no tags until its init).
+    /// Its bundled skills are `builtin`, so they are tagged once the init
+    /// names them.
     async fn commands_update(&self, always: bool) -> Option<Value> {
         let skills = self.skills.lock().await.clone();
-        let list: Vec<Value> = self
-            .slash_commands
-            .lock()
-            .await
+        let commands = self.slash_commands.lock().await;
+        // Only a Claude Code that marks its own commands `builtin` says which are skills before its
+        // init: an older one marks none, and then nothing is tagged until the init names the skills.
+        let marks_builtins = commands.iter().any(|c| c.get("builtin").is_some());
+        let list: Vec<Value> = commands
             .iter()
             .map(|c| {
                 let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
                 let name = c.get("name").and_then(Value::as_str).unwrap_or("");
                 let name = name.strip_prefix('/').unwrap_or(name);
-                if !name.is_empty()
-                    && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
-                {
+                let skill = match &skills {
+                    Some(skills) => {
+                        skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
+                    }
+                    None => {
+                        marks_builtins && c.get("builtin").and_then(Value::as_bool) != Some(true)
+                    }
+                };
+                if !name.is_empty() && skill {
                     entry.set("_meta", json!({"kind": "skill"}));
                 }
                 entry
             })
             .collect();
+        drop(commands);
         let mut sent = self.sent_commands.lock().await;
         let unchanged = match sent.as_ref() {
             Some(before) => *before == list,
@@ -1074,8 +1162,25 @@ impl Translator {
 /// its id and status): kind, title, input, and an edit's diffs and file. A live turn
 /// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
 pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    // The transcript can describe a command in prose; permission requests still identify
+    // the command itself. Other tools keep the title identifying them (e.g. an MCP name)
+    // and carry any authored description alongside it in rawInput.
+    let title = match name {
+        "Bash" => input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|description| !description.is_empty())
+            .map(str::to_owned),
+        "Grep" => input
+            .get("pattern")
+            .and_then(Value::as_str)
+            .filter(|pattern| !pattern.is_empty())
+            .map(|pattern| format!("Search for {pattern}")),
+        _ => None,
+    };
     let mut call = json!({
-        "title": tool_title(name, input),
+        "title": title.unwrap_or_else(|| tool_title(name, input)),
         "kind": tool_kind(name),
         "rawInput": input,
         "_meta": {"claude": {"tool": name}}

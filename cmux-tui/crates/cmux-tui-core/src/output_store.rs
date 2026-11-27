@@ -47,7 +47,7 @@ mod parked_trim;
 mod recovery;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
-pub(crate) use recovery::RecoveryCut;
+pub(crate) use recovery::{RecoveryCut, RecoveryRace};
 mod start;
 mod tail;
 mod writer;
@@ -119,8 +119,11 @@ const RESIZE_SETTLE: Duration = Duration::from_secs(1);
 /// failed write.
 const STORE_RETRY_MIN: Duration = Duration::from_secs(1);
 const STORE_RETRY_MAX: Duration = Duration::from_secs(30);
-/// Snapshot mode keeps the screen plus about this many recent lines.
-pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 2_000;
+/// Snapshot mode targets this many lines when sizing a replay request. The
+/// replay is ultimately bounded by `MAX_SNAPSHOT_REPLAY_BYTES`, so terminals
+/// with long lines keep fewer rows while short-line terminals retain much
+/// older scrollback.
+pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 100_000;
 /// Snapshot mode: total disk across terminals; the oldest terminals go first.
 pub(crate) const SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES: u64 = 50 * 1024 * 1024;
 /// Full mode: segment bytes per terminal; the oldest segments go first.
@@ -1062,6 +1065,12 @@ impl OutputStore {
         self.writer.mark_dirty(Duration::ZERO);
     }
 
+    /// A parked terminal mirror (surface/mirror_park.rs) is rebuilt at the
+    /// configured scrollback: its budget limit is measured afresh.
+    pub(crate) fn forget_scrollback_budget(&self, terminal_id: &TerminalPublicId) {
+        self.memory_budget.forget(terminal_id);
+    }
+
     /// Forget a terminal runtime that left this daemon: its memory. Its
     /// files stay while the terminal is in the session (a respawn after a
     /// lost host reads them); the next write pass removes the files of
@@ -1091,13 +1100,16 @@ impl OutputStore {
 
     /// The screen a respawn after a lost host starts with: in full mode the
     /// terminal rebuilt from its stored bytes (the long scrollback), else its
-    /// last snapshot. `None` in memory mode or when nothing was written.
+    /// last snapshot and the tail after it. `None` in memory mode or when
+    /// nothing was written. `scrollback` is the respawned terminal's
+    /// scrollback limit: a rebuild keeps as much history as it will.
     /// Memory mode: the writer removes every file at start, and a respawn
     /// that runs before it finds nothing either, since memory mode never
     /// wrote one.
     pub(crate) fn previous_screen(
         &self,
         terminal_id: &TerminalPublicId,
+        scrollback: usize,
     ) -> Option<crate::workspace_registry::terminal_respawn_store::TerminalReplay> {
         let directory = self.directory.as_deref()?;
         if self.memory_only() {
@@ -1125,12 +1137,43 @@ impl OutputStore {
             (snapshot, generation, tail)
         };
         if full
-            && let Some(rebuilt) =
-                segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
+            && let Some(rebuilt) = segments::rebuild(
+                directory,
+                terminal_id,
+                &generation,
+                snapshot.cols,
+                snapshot.rows,
+                scrollback,
+            )
         {
             return Some(rebuilt);
         }
-        Some(tail::restore(snapshot, &tail))
+        Some(tail::restore(snapshot, &tail, scrollback))
+    }
+
+    /// Tests: persist `terminal` the way the writer's pass does in snapshot
+    /// mode, at the default policy: its snapshot (the bounded replay the
+    /// pass captures) at stream offset `snapshot_end`, then `tail`, the
+    /// output after it, in the tail file.
+    #[cfg(test)]
+    pub(crate) fn persist_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+        generation: &str,
+        terminal: &mut ghostty_vt::Terminal,
+        snapshot_end: u64,
+        tail: &[u8],
+    ) -> anyhow::Result<()> {
+        let directory = self
+            .directory
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("the store has no directory"))?;
+        let policy = PersistencePolicy::resolve(None, None, None);
+        let (cols, rows) = (terminal.cols(), terminal.rows());
+        let budget = snapshot::replay_budget(cols, rows, policy.max_bytes_per_terminal);
+        let replay = terminal.vt_replay_bounded(budget)?.into_self_contained_bytes();
+        snapshot::write(directory, terminal_id, generation, snapshot_end, cols, rows, &replay)?;
+        tail::append(directory, terminal_id, generation, snapshot_end, snapshot_end, tail, false)
     }
 
     /// The logs whose terminal printed since the writer last looked; their

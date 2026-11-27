@@ -34,6 +34,8 @@ pub struct Item {
     pub outcome: Option<Result<String, String>>,
     /// Answers marked `_meta.acpmux.duplicate` (a resend answered from the log).
     pub duplicate_answers: u32,
+    /// Simulated time the first answer arrived (the liveness invariant reads it).
+    pub answered_at: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -200,6 +202,7 @@ impl Conn {
             item.duplicate_answers += duplicate as u32;
             if item.outcome.is_none() {
                 item.outcome = Some(outcome);
+                item.answered_at = Some(now());
             }
         }
     }

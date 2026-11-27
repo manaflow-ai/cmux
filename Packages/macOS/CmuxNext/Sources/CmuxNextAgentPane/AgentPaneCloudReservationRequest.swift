@@ -13,10 +13,20 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     /// same id `cloud.startChat` sends as `replacesChat`): the pane reserves for it only while it shows that
     /// chat (``AgentPaneModel/reserveReplaces(_:)``). Nil: a compose with no chat. Never forwarded to Rust.
     public let replacesChat: String?
+    /// The page asks at its composer's open, with no gesture (cloudComposeReservation.ts `opened`): the pane
+    /// takes it only under ``AgentPaneCloudLeaseOnOpenFlag`` (``AgentPaneModel/takeCloudOpenLease(_:)``). Never forwarded to Rust.
+    public let atOpen: Bool
+    /// The page reserves for Auto (AutoCloud) picked on its New Tab page, not Cloud (cloudComposeReservation.ts
+    /// `auto`): only the log line says so. Never forwarded to Rust.
+    public let auto: Bool
 
     init?(method: String, params: [String: Any]?) {
         var object = params ?? [:]
         let replaces = object.removeValue(forKey: "replacesChat")
+        let atOpen = object.removeValue(forKey: "atOpen")
+        let auto = object.removeValue(forKey: "auto")
+        if let atOpen, !(atOpen is Bool) { return nil }
+        if let auto, !(auto is Bool) { return nil }
         if let replaces, !((replaces as? String).map { !$0.isEmpty && $0.count <= 128 } ?? false) { return nil }
         guard Self.methods.contains(method),
               let data = try? JSONSerialization.data(withJSONObject: object),
@@ -25,6 +35,8 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         self.params = params
         composeKey = params["composeKey"]?.stringValue
         replacesChat = replaces as? String
+        self.atOpen = atOpen as? Bool ?? false
+        self.auto = auto as? Bool ?? false
     }
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the
@@ -38,7 +50,7 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         }
         // One line as it begins and one as it ends, with its time and outcome: a Send waits on the reserve
         // (cloudComposeReservation.ts), and a slow one used to leave nothing at all in the app log.
-        let verb = release ? "release" : "reserve"
+        let verb = release ? "release" : (atOpen ? "reserve at open" : "reserve") + (auto ? " for auto" : "")
         let began = ContinuousClock.now
         Self.log.notice("cloud \(verb, privacy: .public): begin")
         let reply = await call(binary: binary, platform: platform, auth: auth, install: install, reserved: reserved)

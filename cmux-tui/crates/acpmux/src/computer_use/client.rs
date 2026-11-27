@@ -34,6 +34,9 @@ const MAX_DAEMON_REPLY: u64 = 1 << 20;
 /// The daemon command that names the worker (lane `worker` serves it).
 pub const ENDPOINT_CMD: &str = "computer-use-endpoint";
 
+/// What an agent does when Computer Use is off: open the guided setup for the person.
+const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it opens without taking their focus; there the person turns Computer Use on and grants the two macOS permissions), tell them it is open, and try again once they finish.";
+
 /// Where the worker serves, from the daemon.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -153,6 +156,12 @@ pub struct SocketDaemon {
 impl SocketDaemon {
     pub fn from_env() -> Self {
         Self::from_candidates(super::daemon_socket::from_process())
+    }
+
+    /// The daemon at `path` and no other: a socket another process's environment named (the
+    /// terminal a chat types into, `hub/terminal_input.rs`).
+    pub fn at(path: PathBuf) -> Self {
+        Self { path, looked: Vec::new() }
     }
 
     /// The first of `candidates` whose socket exists, else the first.
@@ -454,11 +463,14 @@ impl Outcome {
             Outcome::Output(out) => out.to_mcp(),
             Outcome::Off(reason) => ToolOutput::error(
                 "computer_use_off",
-                if reason.is_empty() {
-                    "Computer Use is off on this machine. The person can turn it on in Settings > Computer Use.".to_owned()
-                } else {
-                    format!("Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use.")
-                },
+                format!(
+                    "Computer Use is off{}. {OFF_NEXT}",
+                    if reason.is_empty() {
+                        " on this machine".to_owned()
+                    } else {
+                        format!(": {reason}")
+                    }
+                ),
             )
             .to_mcp(),
             Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()).to_mcp(),
@@ -781,7 +793,7 @@ impl<D: Daemon> Caller<D> {
                 return Err(Outcome::Failed {
                     code: "computer_use_unavailable".into(),
                     message: format!(
-                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; try again in a moment, or call status.",
+                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; status shows when it is back.",
                         self.budget.as_secs()
                     ),
                 });
@@ -789,6 +801,19 @@ impl<D: Daemon> Caller<D> {
             (self.sleep)(backoff.min(deadline - now));
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
+    }
+
+    /// The person's other machines a call this Mac refused as locked can run on instead (design
+    /// L3, the "remote" route): reachable now, Computer Use `ready` there, never `except` (the
+    /// machine that just answered locked). Only machines the person already joined to this one,
+    /// over their authenticated link; nothing here unlocks a Mac. Empty for a call another machine
+    /// sent (it runs only here, never one hop further) and when the daemon cannot list them.
+    pub fn routable_machines(&self, except: Option<&str>) -> Vec<String> {
+        if self.origin.is_some() {
+            return Vec::new();
+        }
+        let Ok(data) = self.daemon.machines() else { return Vec::new() };
+        routable_in(&data, except)
     }
 
     /// `list_machines`: this machine's daemon knows the person's machines.
@@ -861,6 +886,19 @@ impl<D: Daemon> Caller<D> {
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
     }
+}
+
+/// The machine names in a `_acpmux/computer_use_machines` answer that can take a call now.
+pub(crate) fn routable_in(data: &Value, except: Option<&str>) -> Vec<String> {
+    data.get("machines")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| m["reachable"].as_bool() == Some(true) && m["computer_use"] == "ready")
+        .filter_map(|m| m["name"].as_str())
+        .filter(|name| Some(*name) != except)
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]

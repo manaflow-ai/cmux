@@ -29,6 +29,11 @@ serde_json = "1"
 cmux-encode = { path = "../cmux-encode" }
 # The secure link of device hub sessions (`cmux-rd serve`).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
+cmux-wg = { path = "../cmux-wg" }
+getrandom = "0.3"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = "1"
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 # VP9 and AV1 for measurement (features `vp9`, `av1`).
@@ -50,6 +55,9 @@ cmux-file-lock = { path = "../cmux-file-lock" }
 # stream they open.
 # pipewire links libpipewire-0.3 (build needs libpipewire-0.3-dev, libspa-0.2-dev, clang).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# Already in zbus's tree: a bounded wait for mutter's PipeWireStreamAdded (src/mutter.rs).
+async-io = { version = "2", optional = true }
+futures-lite = { version = "2", optional = true }
 pipewire = { version = "0.10", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -60,8 +68,11 @@ cmux-computer-use = { path = "../cmux-computer-use", features = ["desktop", "ser
 cmux-process = { path = "../cmux-process" }
 
 [target.'cfg(windows)'.dependencies]
-# `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
+# `cmux-rd windows-host` (src/windows_host.rs): the same device hub client and session serving
+# as `linux-host`.
 cmux-hub-host = { path = "../cmux-hub-host" }
+# `windows-serve-selftest`'s own `cmux-rd serve` child: owned, ended with the test.
+cmux-process = { path = "../cmux-process" }
 windows = { version = "0.62.2", features = [
     "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi",
@@ -72,6 +83,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
+    "Win32_System_Performance",
     "Win32_System_RemoteDesktop",
     "Win32_System_StationsAndDesktops",
     "Win32_UI_Input_KeyboardAndMouse",
@@ -95,7 +107,7 @@ default = ["bench", "openh264", "link", "portal", "computer-use"]
 # RemoteDesktop handshakes over D-Bus (the one-time grant `linux-host enable` makes, and the
 # input calls), pure Rust; `portal` adds the PipeWire capture (links libpipewire-0.3).
 # Their dependencies are Linux-only, so on macOS and Windows the features compile nothing.
-portal-dbus = ["dep:zbus"]
+portal-dbus = ["dep:zbus", "dep:async-io", "dep:futures-lite"]
 portal = ["portal-dbus", "dep:pipewire"]
 # The default encoder: Cisco's OpenH264 binary downloaded from Cisco at run time
 # (`cmux-rd openh264-install`; Cisco pays the royalties), loaded after its pinned SHA-256.
@@ -117,3 +129,15 @@ av1 = ["bench", "dep:cmux-codecs", "cmux-codecs/av1"]
 opt-level = 3
 debug = 1
 lto = "thin"
+
+# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
+# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
+# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
+# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
+# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
+# is unchanged.
+[profile.release.build-override]
+strip = false
+
+[patch.crates-io]
+smoltcp = { path = "../../vendor/smoltcp" }

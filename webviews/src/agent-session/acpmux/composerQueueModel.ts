@@ -25,3 +25,10 @@ export function heldReason(entry: Pick<QueuedEntry, "held" | "waking">): HeldRea
   if (!entry.held) return undefined;
   return entry.waking ? "wait" : "trust";
 }
+
+/// Each queued prompt once, in order: a second entry under an id already seen is dropped, so a
+/// prompt acpmux listed twice (a replayed or restored record) never draws twice.
+export function uniqueById<T extends { id: string }>(entries: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => !seen.has(entry.id) && seen.add(entry.id));
+}

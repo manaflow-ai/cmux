@@ -623,6 +623,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final FlushLaunchSnapshotResult flushLaunchSnapshot() throws CmuxException {
+        Object result = execute(Commands.FLUSH_LAUNCH_SNAPSHOT, Map.of());
+        return FlushLaunchSnapshotResult.fromWire(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);
@@ -961,6 +966,11 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
+    public final PhoneLinkOfferResult offerLinkToPhone(OfferLinkToPhoneRequest request) throws CmuxException {
+        Object result = execute(Commands.OFFER_LINK_TO_PHONE, request.toWire());
+        return PhoneLinkOfferResult.fromWire(result);
+    }
+
     public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
         Object result = execute(Commands.PAGE_CREDENTIAL, request.toWire());
         return Wire.immutableJson(result);
@@ -994,6 +1004,11 @@ public abstract class GeneratedCmuxClient {
     public final PingResult ping() throws CmuxException {
         Object result = execute(Commands.PING, Map.of());
         return PingResult.fromWire(result);
+    }
+
+    public final Object processCensus() throws CmuxException {
+        Object result = execute(Commands.PROCESS_CENSUS, Map.of());
+        return Wire.immutableJson(result);
     }
 
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
@@ -1049,6 +1064,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult releaseSurfaceSize(ReleaseSurfaceSizeRequest request) throws CmuxException {
         Object result = execute(Commands.RELEASE_SURFACE_SIZE, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final ReleaseWorkspaceNamesResult releaseWorkspaceNames() throws CmuxException {
+        Object result = execute(Commands.RELEASE_WORKSPACE_NAMES, Map.of());
+        return ReleaseWorkspaceNamesResult.fromWire(result);
     }
 
     public final ReloadConfigResult reloadConfig() throws CmuxException {
@@ -1216,9 +1236,9 @@ public abstract class GeneratedCmuxClient {
         return SetCellPixelsResult.fromWire(result);
     }
 
-    public final EmptyResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
+    public final SetClientInfoResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CLIENT_INFO, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SetClientInfoResult.fromWire(result);
     }
 
     public final EmptyResult setClientSizing(SetClientSizingRequest request) throws CmuxException {
@@ -1416,6 +1436,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final Object terminalFind(TerminalFindRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_FIND, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {

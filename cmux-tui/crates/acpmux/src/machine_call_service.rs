@@ -27,7 +27,9 @@
 //!
 //! The wire: each request is one line `{"id":N,"method":M,"params":{..}}`, each answer one line
 //! `{"id":N,"result":..}` or `{"id":N,"error":{code,message,data}}`. Methods are a fixed list
-//! ([`METHODS`]); nothing here spawns a process, reads or writes a path, or takes a command.
+//! ([`METHODS`]). The Computer Use methods spawn no process and take no path or command;
+//! [`FILES_CALL`] reads and writes files and runs one command, under the hand's policy for a
+//! person's machine (`machine_files.rs` says what it may do).
 //! Requests on one circuit run one at a time, in order; a caller that wants two at once opens two
 //! streams (each is one frame on the machine's kept circuit).
 
@@ -49,11 +51,16 @@ use crate::session_service::{CONSENT_DECLINED, Decision};
 pub const COMPUTER_USE_CALL: &str = "computer_use_call";
 /// Whether Computer Use is on here.
 pub const COMPUTER_USE_STATE: &str = "computer_use_state";
+/// One file or command action here (`machine_files.rs`).
+pub const FILES_CALL: &str = "files_call";
+/// One send for a session here, carried directly while the team hub is down
+/// (`server/mesh_direct.rs`): answered only with `meshRelay.directSend` on here.
+pub const MESH_SEND: &str = crate::server::mesh_direct::METHOD;
 /// Every method the service answers.
-pub const METHODS: &[&str] = &[COMPUTER_USE_CALL, COMPUTER_USE_STATE];
+pub const METHODS: &[&str] = &[COMPUTER_USE_CALL, COMPUTER_USE_STATE, FILES_CALL, MESH_SEND];
 
-/// The longest request line: a tool's name and arguments, never a file.
-const MAX_REQUEST_BYTES: usize = 1 << 20;
+/// The longest request line: a tool's name and arguments, or one file's new text.
+const MAX_REQUEST_BYTES: usize = 16 << 20;
 /// The longest answer line a dialer reads: a screenshot is a few MiB of base64.
 const MAX_ANSWER_BYTES: usize = 64 << 20;
 /// The circuit's in-process buffer, each way.
@@ -255,12 +262,25 @@ impl MachineCallGate for ConfiguredGate {
                  try again in a moment",
             ));
         };
-        granted(host.clone()).await?;
+        // With direct sends on here, a circuit opens without the control grant: its one
+        // request that needs none is a direct send (`MESH_SEND`), which checks the switch and
+        // the book again itself. Every other request still needs the grant, read below.
+        if !crate::server::mesh_direct::switch_on(&hub).await {
+            granted(host.clone()).await?;
+        }
         let (near, far) = tokio::io::duplex(PIPE_BYTES);
+        let weak = self.hub.clone();
+        let from = from.to_owned();
         // Ends when the circuit does: the carrier drops `near`, and the read sees the end.
         let serving = serve(far, move |method, params| {
             let machine = host.clone();
+            let weak = weak.clone();
+            let from = from.clone();
             async move {
+                if method == MESH_SEND {
+                    let hub = weak.upgrade().ok_or_else(|| refused("service.off", "stopping"))?;
+                    return crate::server::mesh_direct::run_from(&hub, &from, &params).await;
+                }
                 // The grant is read again for every request, so one taken back stops a circuit
                 // that was opened while it held.
                 granted(machine.clone())
@@ -270,6 +290,7 @@ impl MachineCallGate for ConfiguredGate {
                     COMPUTER_USE_CALL => {
                         crate::server::computer_use_relay::run_from(&machine, &params).await
                     }
+                    FILES_CALL => crate::machine_files::run_from(&params).await,
                     _ => Ok(crate::server::computer_use_relay::state_here().await),
                 }
             }

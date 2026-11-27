@@ -60,7 +60,7 @@ fn a_folder_outside_home_or_a_relative_target_home_is_refused() {
 }
 
 #[test]
-fn a_detached_dirty_or_originless_checkout_is_refused() {
+fn a_detached_or_dirty_checkout_is_refused() {
     let home = Path::new("/Users/me");
     let cwd = Path::new("/Users/me/w");
     let e = plan_folder(cwd, home, Some(&checkout("/Users/me/w", None, false)), "/h", false, None);
@@ -70,11 +70,6 @@ fn a_detached_dirty_or_originless_checkout_is_refused() {
     assert!(e.contains("uncommitted changes") && e.contains("--leave-dirty"), "{e}");
     let f = plan_folder(cwd, home, Some(&dirty), "/h", true, None).unwrap();
     assert!(matches!(f, Folder::Worktree { dirty: true, .. }), "--leave-dirty moves it: {f:?}");
-    let mut none = checkout("/Users/me/w", Some("b"), false);
-    none.origin = None;
-    assert!(
-        plan_folder(cwd, home, Some(&none), "/h", false, None).unwrap_err().contains("no origin")
-    );
     let bad = checkout("/Users/me/w", Some("-oProxyCommand=x"), false);
     assert!(
         plan_folder(cwd, home, Some(&bad), "/h", false, None).unwrap_err().contains("plain branch")
@@ -147,6 +142,58 @@ fn a_shared_default_branch_moves_as_a_snapshot_never_pushed() {
         assert!(
             matches!(f, Folder::Worktree { snapshot: s, dirty: true, .. } if s == snapshot),
             "{branch} (origin HEAD {default:?}): {f:?}"
+        );
+    }
+}
+
+/// A checkout with no `origin` (a demo found 3 of 3 such chats never moved): it moves as a bundle
+/// of its own into the same path under the target's home, dirty or clean, its subfolder kept.
+#[test]
+fn a_checkout_with_no_origin_moves_as_a_bundle_at_the_same_path() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/scratch/demo/src");
+    let mut none = checkout("/Users/me/scratch/demo", Some("main"), false);
+    none.origin = None;
+    let f = plan_folder(cwd, home, Some(&none), "/home/cmux", false, None).unwrap();
+    assert_eq!(
+        f,
+        Folder::Bundle {
+            top: "/home/cmux/scratch/demo".into(),
+            branch: "main".into(),
+            subdir: "src".into(),
+            dirty: false,
+        }
+    );
+    none.dirty = true;
+    let e = plan_folder(cwd, home, Some(&none), "/home/cmux", false, None).unwrap_err();
+    assert!(e.contains("--carry-changes"), "dirty still asks first: {e}");
+    let f = plan_folder(cwd, home, Some(&none), "/home/cmux", true, None).unwrap();
+    assert!(matches!(f, Folder::Bundle { dirty: true, .. }), "{f:?}");
+    let outside = Checkout { top: "/srv/demo".into(), ..none.clone() };
+    let e = plan_folder(Path::new("/srv/demo"), home, Some(&outside), "/h", true, None);
+    assert!(e.unwrap_err().contains("outside this machine's home"));
+}
+
+/// A checkout whose `origin` is not an owner/name remote (a local path, a `file://` URL, a nested
+/// group) moves as one with no origin does, as a bundle, instead of failing once a fresh Cloud
+/// machine runs ("origin of PATH is not an owner/name remote").
+#[test]
+fn a_checkout_whose_origin_is_not_owner_name_moves_as_a_bundle() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/scratch/demo");
+    for origin in ["/Users/me/bare/demo.git", "file:///Users/me/bare/demo.git", "../demo.git"] {
+        let mut c = checkout("/Users/me/scratch/demo", Some("main"), true);
+        c.origin = Some(origin.into());
+        let f = plan_folder(cwd, home, Some(&c), "/home/cmux", true, None).unwrap();
+        assert_eq!(
+            f,
+            Folder::Bundle {
+                top: "/home/cmux/scratch/demo".into(),
+                branch: "main".into(),
+                subdir: String::new(),
+                dirty: true,
+            },
+            "{origin}"
         );
     }
 }

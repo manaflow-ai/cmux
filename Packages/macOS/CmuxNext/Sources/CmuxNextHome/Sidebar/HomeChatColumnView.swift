@@ -10,9 +10,16 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     let content: NSView
     let compose: HomeChatComposeButton
     let chats: HomeChatListButton
-    /// The compose button's left inset and its centre's distance from the top: the list header's
-    /// row (`HomeSidebarHeaderLayout.band`), where the traffic lights sit.
-    static let composeInset: CGFloat = 12
+    /// The Chats button's left inset from the column's edge: Messages' compose sits 8 pt right of
+    /// its list's edge (the user, 2026-11-23: "make spacing here aligned (imessage sidebar +
+    /// imessage compose button)").
+    static let composeInset: CGFloat = 8
+    /// The gap between Chats and compose, and between the traffic lights (with the titlebar
+    /// accessory after them) and Chats: macOS 26's gap between two separate glass toolbar items
+    /// (8 pt in both its regular and compact toolbars).
+    static let buttonGap: CGFloat = 8
+    /// The buttons' centre's distance from the top with no traffic lights (full screen): the
+    /// middle of the list header's row (`HomeSidebarHeaderLayout.band`).
     static let composeCenterY: CGFloat = HomeSidebarHeaderLayout.band / 2
 
     init(content: NSView, compose: HomeChatComposeButton, chats: HomeChatListButton = HomeChatListButton()) {
@@ -49,8 +56,12 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     /// The traffic lights' row (its line) and what of them lies over the column, at its last layout.
     private var windowControls: (row: CGRect?, over: CGRect?)
 
+    /// The line from the lights' row (else, in full screen, the toolbar band's own line), and what to
+    /// keep clear of: the lights and the band at its fully open width (`homeTopRowReserve`), never
+    /// its width of the moment, so the corner hover never moves the buttons.
     private var currentWindowControls: (row: CGRect?, over: CGRect?) {
-        (homeLightsRow(band: HomeSidebarHeaderLayout.band), homeWindowControls(band: HomeSidebarHeaderLayout.band))
+        let reserve = homeTopRowReserve(band: HomeSidebarHeaderLayout.band)
+        return (homeLightsRow(band: HomeSidebarHeaderLayout.band) ?? reserve?.line, reserve?.clear)
     }
 
     /// Relays out only when the traffic lights over the column changed (the page moved in its window).
@@ -74,15 +85,31 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
 
     override func layout() {
         super.layout()
-        let side = HomeChatComposeButton.side
-        var frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
         windowControls = currentWindowControls
-        if let line = windowControls.row { frame.origin.y = (line.midY - side / 2).rounded() }
-        if let lights = windowControls.over, lights.minX < frame.maxX + Metrics.space3 {
-            frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
+        let frames = Self.buttonFrames(height: bounds.height, row: windowControls.row, over: windowControls.over,
+                                       scale: window?.backingScaleFactor ?? 2)
+        chats.frame = frames.chats
+        compose.frame = frames.compose
+    }
+
+    /// Chats and compose in a column `height` tall (unflipped): one size, ``buttonGap`` apart, centred
+    /// on the traffic lights' line (`row`) to the backing pixel, as Messages centres its compose on its
+    /// lights. Whole-point rounding put them half a point above the lights when the line fell on a half
+    /// point. Chats starts ``composeInset`` in, or ``buttonGap`` after the lights and the accessory when
+    /// they lie over the column (`over`). With no lights (full screen) they are centred in the header's band.
+    static func buttonFrames(height: CGFloat, row: CGRect?, over: CGRect?, scale: CGFloat) -> (chats: NSRect, compose: NSRect) {
+        let s = max(scale, 1)
+        let side = HomeChatComposeButton.side
+        // On the lights' line only when the lights lie over the column (the buttons sit beside them,
+        // as Messages' compose). Elsewhere (the chat right of the list or a pane's strip) they are
+        // centred in the header's band, 11 pt from the top: on the lights' line they sat 6 pt from
+        // the edge (the person, 2026-11-26: "we still need padding above the imessage
+        // compose/sidebar buttons ... ideally center it").
+        let midY = (over != nil ? row?.midY : nil) ?? height - composeCenterY
+        var frame = NSRect(x: composeInset, y: ((midY - side / 2) * s).rounded() / s, width: side, height: side)
+        if let lights = over, lights.minX < frame.maxX + buttonGap {
+            frame.origin.x = max(frame.minX, ((lights.maxX + buttonGap) * s).rounded(.up) / s)
         }
-        chats.frame = frame
-        // Compose sits right of Chats, one gap apart, on the same line.
-        compose.frame = frame.offsetBy(dx: side + Metrics.space2, dy: 0)
+        return (frame, frame.offsetBy(dx: side + buttonGap, dy: 0))
     }
 }

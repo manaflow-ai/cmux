@@ -327,7 +327,7 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
     let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
     let want = MoveSessionsArgs {
         sessions: vec!["a".into(), "b".into()],
-        host: "huge-blue".into(),
+        host: Some("huge-blue".into()),
         all_idle: false,
         interrupt: true,
         after_turn: false,
@@ -337,7 +337,11 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
         cwd: None,
         dry_run: true,
         from: Some("mini-3".into()),
+        slow_ok: false,
+        abort: false,
+        take_back: false,
         from_snapshot: false,
+        as_harness: None,
     };
     for verb in [&["move-sessions"][..], &["session", "move"][..]] {
         for machine in ["--machine", "--host"] {
@@ -672,4 +676,26 @@ fn stale_nested_command_is_rejected() {
     let shapes = command_shapes();
     let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
     assert!(documented_shape(&words, &shapes).is_none());
+}
+
+/// `session fork -m MODEL` without `--harness` forks onto another model of the chat's own
+/// harness; it was refused, so no fork could change only its model.
+#[test]
+fn a_fork_takes_a_model_without_a_harness() {
+    use super::{Command, flatten};
+    let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+    for argv in [
+        &["acpmux", "session", "fork", "chat", "-m", "opencode/big-pickle"][..],
+        &["acpmux", "fork", "chat", "-m", "opencode/big-pickle"][..],
+    ] {
+        let fork = parse(argv);
+        assert!(
+            matches!(
+                fork,
+                Ok(Command::Fork { ref model, ref harness, .. })
+                    if model.as_deref() == Some("opencode/big-pickle") && harness.is_none()
+            ),
+            "{argv:?}"
+        );
+    }
 }

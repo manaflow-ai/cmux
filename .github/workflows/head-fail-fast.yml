@@ -1,0 +1,62 @@
+name: head fail-fast
+
+# A pull request job failed red of its own: cancel the head's other heavy runs still queued or running, and say so
+# in this job's summary (scripts/ci/head_fail_fast.py has the rules and the numbers). Leo, 2026-11-21: "de facto,
+# im asking for 99% fewer minutes of ci time, period."
+#
+# A caller job `needs:` only the job it watches, so it starts the moment that job fails:
+#
+#   <job>-fail-fast:
+#     needs: <job>
+#     if: ${{ failure() && needs.<job>.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+#     uses: ./.github/workflows/head-fail-fast.yml
+#     with: { workflow: <this file> }
+#     permissions: { actions: write, contents: read }
+#
+# The caller's own run is never cancelled (the failed check keeps its verdict); a failed job that is red on the base
+# too cancels nothing (land-judge excuses it, and the head may still land once the rest is green).
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: the caller's workflow file name (its base verdicts are read from that workflow's base runs)
+        required: true
+        type: string
+      base_events:
+        description: comma-separated base run events that judge the failed job (base_red_skip.py --events)
+        required: false
+        type: string
+        default: push
+      dispatch_title:
+        description: keep only dispatched base runs whose title starts with this (base_red_skip.py --dispatch-title)
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  cancel:
+    name: head fail-fast
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          path: .head-fail-fast-src
+          sparse-checkout: scripts/ci
+      - name: Cancel this head's other heavy runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'feat-cmux-next' }}
+          WORKFLOW_FILE: ${{ inputs.workflow }}
+          BASE_EVENTS: ${{ inputs.base_events }}
+          DISPATCH_TITLE: ${{ inputs.dispatch_title }}
+        run: |
+          python3 -I .head-fail-fast-src/scripts/ci/head_fail_fast.py cancel --workflow "$WORKFLOW_FILE" \
+            --base "$BASE_REF" --base-events "$BASE_EVENTS" --dispatch-title "$DISPATCH_TITLE"

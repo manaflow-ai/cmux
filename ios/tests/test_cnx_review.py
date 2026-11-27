@@ -13,11 +13,13 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import signal
 from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -98,6 +100,82 @@ review_run
         self.assertIn('Simulator:  fleet simulator (aws-m4pro-3', r.stdout)
         self.assertIn(f'iPhone:     iPhone (iPhone 16 Plus, {PHONE}): installed, signed in (auto_login), paired', r.stdout)
         self.assertIn('after the Mac app relaunched: signed in (restored), paired and linked', r.stdout)
+
+    def test_a_rerun_reuses_this_heads_iphone_build_that_passed(self):
+        # 2026-11-24: the hand-off of 0e728c2b25 passed its iPhone step (3808c362) while the Mac build failed; the
+        # rerun sent the iPhone step again, the controller refused its key ("409: step_key already names a different
+        # step": a new sign-in key), and the run had nothing for the phone. A head's passed iPhone build is reused.
+        reuse = """mkdir -p "$STATE"; printf '%s\\n' step-passed > "$STATE/ios-passed"; echo zip > "$STATE/ios.zip"
+fleet_start_sim() { echo SIM_STARTED; }
+fleet_finish_sim() { echo SIM_FINISHED; }
+read_ios_artifact() { echo "READ_STEP=$SIM_STEP"; REPORT_SIM="fleet simulator (aws-m4pro-3, iPhone-17 on iOS-26-5), signed in: /e"; }"""
+        r = self.run_review([(PHONE, 'iPhone')], reuse)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('SIM_STARTED', r.stdout)
+        self.assertNotIn('SIM_FINISHED', r.stdout)
+        self.assertIn("==> iPhone app: reusing this head's build from step step-passed (its simulator check passed)", r.stdout)
+        self.assertIn('READ_STEP=step-passed', r.stdout)
+        # No marker, or a marker with no artifact beside it: a step as before.
+        for setup in ('', 'mkdir -p "$STATE"; echo step-passed > "$STATE/ios-passed"'):
+            with self.subTest(setup=setup):
+                r = self.run_review([(PHONE, 'iPhone')], setup + "\nfleet_start_sim() { echo SIM_STARTED; }")
+                self.assertIn('SIM_STARTED', r.stdout, r.stderr)
+                self.assertNotIn('reusing this head', r.stdout)
+
+    def test_a_rerun_downloads_a_passed_steps_artifact_again_instead_of_a_new_step(self):
+        # 2026-11-25: vcorp1125d's iPhone step 9fd70d54 passed but its artifact did not download; the rerun sent a new
+        # step, the controller refused its key ("409: step_key already names a different step"), and the run had
+        # nothing for the phone. The passed step is saved before the download, and a rerun fetches it again.
+        step = '9fd70d548f30e9577207cfc4'
+        again = f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+fleet_start_sim() {{ echo SIM_STARTED; }}
+fleet_finish_sim() {{ echo SIM_FINISHED; }}
+cmux_ci() {{ [ "$1" = artifact ] && echo "$2" > "$STATE/artifact-call" && echo zip > "$3"; }}
+read_ios_artifact() {{ echo "READ_STEP=$SIM_STEP ARTIFACT=$(cat "$STATE/artifact-call") ZIP=$(cat "$STATE/ios.zip")"; REPORT_SIM="fleet simulator (aws-m4pro-3, iPhone-17 on iOS-26-5), signed in: /e"; }}"""
+        r = self.run_review([(PHONE, 'iPhone')], again)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('SIM_STARTED', r.stdout)
+        self.assertIn(f'==> iPhone app: step {step} passed before; downloading its artifact again', r.stdout)
+        self.assertIn(f'ARTIFACT={step} ZIP=zip', r.stdout)
+        self.assertIn(f'READ_STEP={step}', r.stdout)
+        # A download that fails again forgets the step and sends a new one; a malformed id is never fetched.
+        for setup in (f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}""",
+                      'mkdir -p "$STATE"; echo not-a-step > "$STATE/sim-passed"'):
+            with self.subTest(setup=setup):
+                r = self.run_review([(PHONE, 'iPhone')], setup + '\nfleet_start_sim() { echo "SIM_STARTED KEY=$(sim_key)"; }')
+                self.assertIn('SIM_STARTED', r.stdout, r.stderr)
+        # The passed step given up after a second failed download: the new step goes out under a new key, which the
+        # controller accepts (the old key names the old step: "409: step_key already names a different step").
+        r = self.run_review([(PHONE, 'iPhone')], f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}
+fleet_start_sim() {{ echo "SIM_STARTED KEY=$(sim_key)"; }}""")
+        self.assertIn(f'SIM_STARTED KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout, r.stderr)
+
+    def test_a_failed_simulator_check_is_never_fetched_again(self):
+        # A step that ran to its end but whose check failed (or whose artifact was rejected) is forgotten: the
+        # retry the report names sends a new step under a new key instead of downloading the same failure.
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            (state / 'sim-passed').write_text('0123456789abcdef01234567\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" SIM_STEP=0123456789abcdef01234567
+echo not-a-zip > "$STATE/ios.zip"
+rc=0; read_ios_artifact || rc=$?; echo "RC=$rc"; echo "KEY=$(sim_key)"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertFalse((state / 'sim-passed').exists())
+            self.assertIn(f'KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout)
+
+    def test_a_passed_step_is_saved_before_its_artifact_downloads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}"
+SIM_PID=$$; wait() {{ return 0; }}
+printf 'cmux-ci: step 0123456789abcdef01234567 (simulator)\\n' > "$STATE/sim-step.err"; : > "$STATE/sim-step.log"
+cmux_ci() {{ return 1; }}
+rc=0; fleet_finish_sim || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_SIM"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('passed but its artifact did not download', r.stdout)
+            self.assertEqual((state / 'sim-passed').read_text().strip(), '0123456789abcdef01234567')
 
     def test_two_phones_get_one_line_each(self):
         other = '00008110-000000000000001E'
@@ -193,11 +271,15 @@ class PhoneLaunchTests(unittest.TestCase):
     """phone_launch_and_check: the credentials reach only the signed-in launch, never argv; the
     credential-free relaunch carries none; the receipt of that very launch decides."""
 
-    def launch(self, session, receipt_fields, pair_url='', backend='', mobile='', phone='', phone_mobile=''):
+    def launch(self, session, receipt_fields, focus_mac='', backend='', mobile='', phone='', phone_mobile='', extra='',
+               settled=None, settle='0'):
+        """settled: receipt fields of every copy after the first (the path the link settled on); settle:
+        CNX_REVIEW_PATH_SETTLE."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
             fields = json.dumps(receipt_fields)
+            settled_json = json.dumps(settled)
             # The stand-in phone: `process launch` records its argv and environment and writes the receipt
             # the app would (with the launch's own nonce); `copy from` hands it back.
             xcrun = root / 'bin/xcrun'
@@ -218,9 +300,16 @@ if args[:3] == ["devicectl", "device", "process"]:
                    session_source="auto_login" if env.get("DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL") else "restored")
     receipt.update(json.loads({fields!r}))
     open(os.path.join(root, "receipt.json"), "w").write(json.dumps(receipt))
+    if {settled_json!r} != "null":
+        receipt.update(json.loads({settled_json!r}))
+        open(os.path.join(root, "receipt-settled.json"), "w").write(json.dumps(receipt))
 elif args[:3] == ["devicectl", "device", "copy"]:
     dest = args[args.index("--destination") + 1]
-    open(dest, "w").write(open(os.path.join(root, "receipt.json")).read())
+    copies = os.path.join(root, "copies")
+    first = not os.path.exists(copies)
+    open(copies, "a").write("1")
+    settled = os.path.join(root, "receipt-settled.json")
+    open(dest, "w").write(open(settled if not first and os.path.exists(settled) else os.path.join(root, "receipt.json")).read())
 else:
     sys.exit(1)
 ''')
@@ -233,9 +322,11 @@ BACKEND_URL="{backend}" BACKEND_MOBILE_URL="{mobile}" BACKEND_PHONE_URL="{phone}
 export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND=https://ambient.example
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 export DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=ambient-leak
-if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PASS: $PHONE_VERDICT"; else echo "FAIL: $PHONE_REASON"; fi
+export DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=ambient-relay
+{extra}
+if phone_launch_and_check {PHONE} client-1 {session} "{focus_mac}"; then echo "PASS: $PHONE_VERDICT"; else echo "FAIL: $PHONE_REASON"; fi
 '''
-            r = bash(script, {'PATH': f"{root / 'bin'}:{os.environ['PATH']}"})
+            r = bash(script, {'PATH': f"{root / 'bin'}:{os.environ['PATH']}", 'CNX_REVIEW_PATH_SETTLE': settle})
             argv = json.loads((root / 'argv').read_text()) if (root / 'argv').exists() else []
             env = json.loads((root / 'env').read_text()) if (root / 'env').exists() else {}
             return r, argv, env
@@ -244,20 +335,20 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
     # Every receipt of this build names its Cloud backend (DogfoodReadiness.cloud_backend).
     linked = {'cloud_backend': DEFAULT, 'paired_macs': [{'id': 'mac-tagged', 'name': 'cmux DEV cnx', 'linked': True}]}
 
-    def test_signed_in_launch_carries_the_account_and_code_in_its_environment_only(self):
-        r, argv, env = self.launch('auto_login', self.linked, pair_url='cmux-next://pair?t=tok123')
+    def test_signed_in_launch_carries_the_account_and_mac_in_its_environment_only(self):
+        r, argv, env = self.launch('auto_login', self.linked, focus_mac='mac-tagged')
         self.assertIn('PASS: signed in (auto_login), paired and linked with cmux DEV cnx', r.stdout, r.stderr)
         self.assertEqual(env['DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD'], 'pw-secret')
-        self.assertEqual(env['DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL'], 'cmux-next://pair?t=tok123')
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC'], 'mac-tagged')
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', env)
         self.assertNotIn('pw-secret', ' '.join(argv))
-        self.assertNotIn('tok123', ' '.join(argv) + r.stdout + r.stderr)
         self.assertIn('--terminate-existing', argv)
 
     def test_credential_free_relaunch_carries_nothing_and_must_restore(self):
         r, argv, env = self.launch('restored', self.linked)
         self.assertIn('PASS: signed in (restored)', r.stdout, r.stderr)
         for key in ('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', 'DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD',
-                    'DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL'):
+                    'DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC'):
             self.assertNotIn(key, env)
         self.assertIn('DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE', env)
 
@@ -270,7 +361,7 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
         self.assertIn("FAIL: restored launch: linked with another Mac, not this tag's: x (other-mac), not the tagged Mac mac-tagged",
                       r.stdout)
         r, _, _ = self.launch('restored', {'paired_macs': []})
-        self.assertIn('FAIL: restored launch: not paired with the tagged Mac yet', r.stdout)
+        self.assertIn('FAIL: restored launch: not on the tagged Mac yet (the phone has picked no Mac so far)', r.stdout)
 
     STACK = 'https://cmux-dev-backend-1.tail137216.ts.net:3850'
 
@@ -337,6 +428,49 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
         r, _, _ = self.launch('restored', {'nonce': 'old', **self.linked})
         self.assertIn('FAIL: restored launch: the receipt is from another launch', r.stdout)
 
+    def routed(self, **route):
+        return {**self.linked, 'paired_macs': [{**self.linked['paired_macs'][0], **route}]}
+
+    def test_every_check_names_the_links_path(self):
+        r, _, env = self.launch('restored', self.routed(transport='wireguard', path='direct-lan', tailnet=False))
+        self.assertIn('PASS: signed in (restored), paired and linked with cmux DEV cnx over WireGuard, direct LAN', r.stdout, r.stderr)
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY', env, 'an ambient relay switch never leaks into a launch')
+
+    def test_the_relay_only_relaunch_carries_only_the_relay_switch_and_must_link_via_turn(self):
+        turn = self.routed(transport='wireguard', path='turn', tailnet=False)
+        r, argv, env = self.launch('relay-only', turn)
+        self.assertIn('PASS: signed in (restored), paired and linked with cmux DEV cnx over WireGuard, via TURN', r.stdout, r.stderr)
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY'], '1')
+        for key in ('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', 'DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD',
+                    'DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', 'DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'):
+            self.assertNotIn(key, env, 'the relay-only relaunch is the person\'s cold launch plus the relay switch')
+        self.assertNotIn('RELAY_ONLY', ' '.join(argv))
+        # A phone that still linked direct (the switch not honored) fails at once, naming the path.
+        r, _, _ = self.launch('relay-only', self.routed(transport='wireguard', path='direct-lan', tailnet=False))
+        self.assertIn('FAIL: relay-only launch: the relay-only launch linked direct LAN with cmux DEV cnx, not via TURN', r.stdout)
+
+    def test_forbid_tailnet_fails_a_phone_linked_over_the_tailnet(self):
+        tailnet = self.routed(transport='wireguard', path='direct-wan', tailnet=True)
+        r, _, _ = self.launch('restored', tailnet)
+        self.assertIn('PASS: signed in (restored), paired and linked with cmux DEV cnx over WireGuard, direct over the tailnet',
+                      r.stdout, r.stderr)
+        r, _, _ = self.launch('restored', tailnet, extra='FORBID_TAILNET=1')
+        self.assertIn('FAIL: restored launch: linked with cmux DEV cnx over the tailnet (--forbid-tailnet)', r.stdout, r.stderr)
+
+    def test_the_path_the_link_settles_on_decides(self):
+        # WireGuard may answer through TURN first and move to the direct route it confirms a moment later: the
+        # verdict is the settled path's, so a link that settles on the tailnet never passes as TURN.
+        turn = self.routed(transport='wireguard', path='turn', tailnet=False)
+        tailnet = self.routed(transport='wireguard', path='direct-wan', tailnet=True)
+        r, _, _ = self.launch('restored', turn, settled=tailnet, settle='1')
+        self.assertIn('PASS: signed in (restored), paired and linked with cmux DEV cnx over WireGuard, direct over the tailnet',
+                      r.stdout, r.stderr)
+        r, _, _ = self.launch('restored', turn, settled=tailnet, settle='1', extra='FORBID_TAILNET=1')
+        self.assertIn('FAIL: restored launch: linked with cmux DEV cnx over the tailnet (--forbid-tailnet)', r.stdout, r.stderr)
+        # A second read that is not ready (a receipt between writes) keeps the first verdict.
+        r, _, _ = self.launch('restored', turn, settled={'nonce': 'old'}, settle='1')
+        self.assertIn('PASS: signed in (restored), paired and linked with cmux DEV cnx over WireGuard, via TURN', r.stdout, r.stderr)
+
 
 def load_review_mac():
     spec = importlib.util.spec_from_file_location('review_mac', ROOT / 'cmux-next-ios/scripts/review_mac.py')
@@ -402,9 +536,13 @@ class BackendTests(unittest.TestCase):
 
     def test_resolve_backend(self):
         r = self.resolve('')
-        self.assertIn('URL=\n', r.stdout, r.stderr)
-        self.assertIn('REPORT=shared dev Workers (default, no override)', r.stdout)
+        self.assertIn('URL=\n', r.stdout, r.stderr)  # the default reads the stack only once its up ran
+        self.assertIn("REPORT=this tag's stack (not up yet)", r.stdout)
         self.assertNotIn('--backend', r.stdout)
+        r = self.resolve('dev')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('REPORT=shared dev Workers (--backend dev, no override)', r.stdout)
+        self.assertIn('--backend dev', r.stdout)
         r = self.resolve(self.STACK + '/')
         self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)
         self.assertIn(f'--backend {self.STACK}/', r.stdout)
@@ -427,6 +565,70 @@ class BackendTests(unittest.TestCase):
         r = self.resolve('tag-stack', '#!/bin/sh\necho "no stack for this tag" >&2; exit 3\n')
         self.assertEqual(r.returncode, 2)
         self.assertIn('no stack for this tag', r.stderr)
+
+    def default(self, stack_body, arg=''):
+        """review_start_stack then review_await_backend (the default), against a fake cloud-dev-stack.sh that logs
+        each call."""
+        with tempfile.TemporaryDirectory() as temp:
+            calls = Path(temp) / 'calls'
+            stack = Path(temp) / 'cloud-dev-stack.sh'
+            stack.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n' + stack_body)
+            stack.chmod(0o755)
+            script = '\n'.join([
+                'set -euo pipefail',
+                f'source "{REVIEW}"',
+                f'SLUG={TAG} BACKEND_ARG="{arg}" TAG_STATE="{temp}/state"',
+                'review_resolve_backend',
+                'review_start_stack',
+                'review_await_backend',
+                'echo "URL=$BACKEND_URL"; echo "PHONE=$BACKEND_PHONE_URL"; echo "MOBILE=$BACKEND_MOBILE_URL"; echo "REPORT=$BACKEND_REPORT"',
+                'echo "LAUNCH=${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}"',
+            ])
+            r = bash(script, {'CNX_CLOUD_DEV_STACK': str(stack)})
+            return r, (calls.read_text() if calls.exists() else '')
+
+    def test_the_default_brings_the_tags_stack_up_and_points_both_apps_at_it(self):
+        body = ('case "$*" in up*) echo "== up in 31 s" ;; *--public*--service*) echo https://mobile.s7.wdev.cmux.dev ;; '
+                '*--public*) echo https://api.s7.wdev.cmux.dev ;; *--service*) echo https://cmux-dev-backend-1.tail137216.ts.net:3851 ;; '
+                f'*) echo {self.STACK} ;; esac\n')
+        r, calls = self.default(body)
+        self.assertEqual(calls.splitlines()[0], f'up --tag {TAG}', calls)
+        self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)  # the Mac: the tailnet origin
+        self.assertIn('PHONE=https://api.s7.wdev.cmux.dev\n', r.stdout)  # the phone: the public one
+        self.assertIn('LAUNCH=https://api.s7.wdev.cmux.dev\n', r.stdout)
+        self.assertIn('MOBILE=https://cmux-dev-backend-1.tail137216.ts.net:3851\n', r.stdout)
+        self.assertIn("this tag's stack: API, mobile Worker and device hub, default)", r.stdout)
+
+    def test_a_stack_that_does_not_come_up_falls_back_to_the_shared_workers_and_says_why(self):
+        r, calls = self.default('case "$*" in up*) echo "cloud-dev-stack: ssh: connect to host cmux-dev-backend-1: timed out" >&2; exit 1 ;; '
+                                f'*) echo {self.STACK} ;; esac\n')
+        self.assertEqual(r.returncode, 0, r.stderr)  # the hand-off still finishes
+        self.assertEqual(calls.splitlines(), [f'up --tag {TAG}'], 'no url read after a failed up')
+        self.assertIn('URL=\n', r.stdout)
+        self.assertIn('LAUNCH=default\n', r.stdout)  # the phone's kept override is cleared
+        self.assertIn('REPORT=shared dev Workers (FALLBACK: this tag\'s stack did not come up: cloud-dev-stack: ssh: connect to host '
+                      'cmux-dev-backend-1: timed out', r.stdout)
+        # An up that passed but names an origin outside the allowlist falls back too.
+        r, _ = self.default('case "$*" in up*) exit 0 ;; *) echo https://attacker.example ;; esac\n')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('is not a tailnet origin', r.stdout)
+
+    def test_an_up_that_fails_silently_still_falls_back(self):
+        r, _ = self.default('case "$*" in up*) exit 1 ;; *) exit 0 ;; esac\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("did not come up: up exited 1", r.stdout)
+
+    def test_a_stack_with_no_public_slot_says_the_phone_is_tailnet_only(self):
+        r, _ = self.default(f'case "$*" in up*) exit 0 ;; *--public*) echo "stack has no public origin" >&2; exit 3 ;; *) echo {self.STACK} ;; esac\n')
+        self.assertIn('PHONE=\n', r.stdout, r.stderr)
+        self.assertIn(f'LAUNCH={self.STACK}\n', r.stdout)
+        self.assertIn('the phone: tailnet only (no free public slot', r.stdout)
+
+    def test_backend_dev_touches_no_stack(self):
+        r, calls = self.default(f'echo {self.STACK}\n', arg='dev')
+        self.assertEqual(calls, '', 'no up, no url')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('LAUNCH=default\n', r.stdout)
 
     def check_mac(self, backend_url, answer):
         with tempfile.TemporaryDirectory() as temp:
@@ -540,6 +742,35 @@ class ReceiptCheckTests(unittest.TestCase):
         self.assertEqual(self.check({**self.base, 'paired_macs': []}, '--session', 'restored', '--mac-id', 'm1').returncode, 1)
         self.assertEqual(self.check(self.base, '--session', 'restored', '--mac-id', 'm1').returncode, 3)
 
+    def test_a_phone_on_the_tagged_mac_that_was_not_let_in_is_not_called_paired(self):
+        # pv1121e-ap (2026-11-21): the receipt names the Mac the phone picked from the account's Mac list
+        # (`paired_macs` is its focused Mac), not a Mac that let it in; nobody had pressed Allow.
+        mac = {'id': 'm1', 'name': 'Aziz’s MacBook Pro', 'linked': False}
+        receipt = {**self.base, 'session_source': 'auto_login', 'paired_macs': [mac]}
+        r = self.check(receipt, '--session', 'auto_login', '--mac-id', 'm1')
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertNotIn('paired', r.stdout)
+        self.assertIn('on the tagged Mac Aziz’s MacBook Pro, not linked yet', r.stdout)
+
+    def test_want_asking_passes_once_the_phone_is_on_the_tagged_mac(self):
+        # --approve-first: the first launch only has to reach the tagged Mac; the Mac's own answer (allow-state)
+        # says whether it waits for Allow.
+        mac = {'id': 'm1', 'name': 'Aziz’s MacBook Pro', 'linked': False}
+        receipt = {**self.base, 'session_source': 'auto_login', 'paired_macs': [mac]}
+        r = self.check(receipt, '--session', 'auto_login', '--mac-id', 'm1', '--want', 'asking')
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (0, 'signed in (auto_login), on the tagged Mac Aziz’s MacBook Pro, not linked yet'))
+        r = self.check({**receipt, 'paired_macs': [{**mac, 'linked': True}]}, '--session', 'auto_login', '--mac-id', 'm1',
+                       '--want', 'asking')
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (0, 'signed in (auto_login), paired and linked with Aziz’s MacBook Pro'))
+        # Another Mac, or none yet: still not this tag's Mac.
+        r = self.check({**receipt, 'paired_macs': [{**mac, 'id': 'other'}]}, '--session', 'auto_login', '--mac-id', 'm1',
+                       '--want', 'asking')
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.check({**receipt, 'paired_macs': []}, '--session', 'auto_login', '--mac-id', 'm1',
+                                    '--want', 'asking').returncode, 1)
+
     def test_a_phone_on_another_tags_mac_says_which(self):
         # Aziz's 2026-11-18 ios-infinite-scroll-v3 and ios-onboard receipts: the phone linked the cu-all
         # dev build, not its tag's Mac. Never accepted; the reason names the other Mac and the tagged one.
@@ -572,6 +803,68 @@ class ReceiptCheckTests(unittest.TestCase):
         self.assertEqual(self.check(out, '--session', 'signed_out', '--build-space', space).returncode, 3)
         # Without --build-space (an older review.sh) the field is not required.
         self.assertEqual(self.check(self.base, '--session', 'restored').returncode, 0)
+
+    def linked(self, linked=True, **route):
+        """A receipt whose focused Mac m1 is linked, with the link's transport, path and tailnet flag."""
+        return {**self.base, 'paired_macs': [{'id': 'm1', 'name': 'Mac', 'linked': linked, **route}]}
+
+    LAN = dict(transport='wireguard', path='direct-lan', tailnet=False)
+    TAILNET = dict(transport='wireguard', path='direct-wan', tailnet=True)
+    TURN = dict(transport='wireguard', path='turn', tailnet=False)
+
+    def test_the_verdict_names_the_links_transport_and_path(self):
+        # Aziz's iPhone and Mac are both on Tailscale: a hand-off at home may link over the tailnet, which no
+        # user without Tailscale gets. The verdict says which path the link took.
+        for route, words in ((self.LAN, 'over WireGuard, direct LAN'),
+                             (self.TAILNET, 'over WireGuard, direct over the tailnet'),
+                             ({**self.TAILNET, 'tailnet': False}, 'over WireGuard, direct over the internet'),
+                             (self.TURN, 'over WireGuard, via TURN'),
+                             ({**self.TURN, 'path': 'turn-tls'}, 'over WireGuard, via TURN over TLS'),
+                             (dict(transport='webrtc', path='turn', tailnet=False), 'over WebRTC, via TURN'),
+                             (dict(transport='webrtc', path='direct', tailnet=False), 'over WebRTC, direct (peer address unknown)')):
+            with self.subTest(route=route):
+                r = self.check(self.linked(**route), '--session', 'restored', '--mac-id', 'm1')
+                self.assertEqual((r.returncode, r.stdout.strip()), (0, f'signed in (restored), paired and linked with Mac {words}'))
+        # An app from before the path fields: the verdict as before, with no path.
+        r = self.check(self.linked(), '--session', 'restored', '--mac-id', 'm1')
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'signed in (restored), paired and linked with Mac'))
+        # Up, but no route at the moment (WireGuard before the peer's first datagram authenticated): not yet.
+        r = self.check(self.linked(**{**self.LAN, 'path': 'none'}), '--session', 'restored', '--mac-id', 'm1')
+        self.assertEqual((r.returncode, r.stdout.strip()), (1, 'linked with Mac, no route at the moment'))
+
+    def test_forbid_tailnet_fails_a_link_over_the_tailnet(self):
+        r = self.check(self.linked(**self.TAILNET), '--session', 'restored', '--mac-id', 'm1', '--forbid-tailnet')
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertIn('linked with Mac over the tailnet (--forbid-tailnet)', r.stdout)
+        for route in (self.LAN, {**self.TAILNET, 'tailnet': False}, self.TURN):
+            with self.subTest(route=route):
+                r = self.check(self.linked(**route), '--session', 'restored', '--mac-id', 'm1', '--forbid-tailnet')
+                self.assertEqual(r.returncode, 0, r.stdout)
+        # No path to judge (an app from before the path fields) is refused, never passed.
+        r = self.check(self.linked(), '--session', 'restored', '--mac-id', 'm1', '--forbid-tailnet')
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertIn('names no link path', r.stdout)
+        # Not linked yet: keep waiting; the path counts once the link is up.
+        r = self.check(self.linked(False, **self.TAILNET), '--session', 'restored', '--mac-id', 'm1', '--forbid-tailnet')
+        self.assertEqual(r.returncode, 1, r.stdout)
+
+    def test_require_turn_takes_only_a_link_through_turn(self):
+        # The relay-only relaunch (CMUX_MOBILE_DEV_RELAY_ONLY=1): the path a phone away from home takes.
+        for route in (self.TURN, {**self.TURN, 'path': 'turn-tls'}):
+            with self.subTest(route=route):
+                r = self.check(self.linked(**route), '--session', 'restored', '--mac-id', 'm1', '--require-turn')
+                self.assertEqual(r.returncode, 0, r.stdout)
+        for route in (self.LAN, self.TAILNET):
+            with self.subTest(route=route):
+                r = self.check(self.linked(**route), '--session', 'restored', '--mac-id', 'm1', '--require-turn')
+                self.assertEqual(r.returncode, 3, r.stdout)
+                self.assertIn('the relay-only launch linked direct', r.stdout)
+                self.assertIn('not via TURN', r.stdout)
+        # No route at the moment: keep waiting for TURN.
+        r = self.check(self.linked(**{**self.TURN, 'path': 'none'}), '--session', 'restored', '--mac-id', 'm1', '--require-turn')
+        self.assertEqual(r.returncode, 1, r.stdout)
+        r = self.check(self.linked(), '--session', 'restored', '--mac-id', 'm1', '--require-turn')
+        self.assertEqual(r.returncode, 3, r.stdout)
 
     def test_env_value_reads_without_sourcing(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -680,28 +973,84 @@ class SignerTests(unittest.TestCase):
 
 
 class FleetStepTests(unittest.TestCase):
-    def test_a_stale_ffi_pin_builds_the_mac_app_on_a_mac(self):
-        # At a head whose FFI sources are ahead of app-ffi-pin.json, `--builder auto` sent the Mac build
-        # to the Linux pool, which cannot build the FFI from source: job 9fa436759cd7bb0f72e3e928 failed
-        # "stale FFI" in 2.5 s at 0e6e7019af (2026-11-19). An up-to-date pin keeps the default builder.
-        for pin_ok, want_mac in ((False, True), (True, False)):
+    def test_a_stale_ffi_pin_keeps_the_default_builder(self):
+        # review.sh sent every head whose FFI sources were ahead of app-ffi-pin.json to `--builder mac`
+        # (#47722, after pool job 9fa436759cd7bb0f72e3e928 failed "stale FFI" at 0e6e7019af, 2026-11-19).
+        # The pool has built such heads since hq#16145/#16334/#16431 (2026-11-21): it links the newest
+        # published release with the head's FFI inputs, or cross-builds the library, or the whole
+        # xcframework when the headers changed. With FFI commits landing every half hour the pin is behind
+        # nearly always (f85c0754cb on 2026-11-23, 198 files behind), so every hand-off queued for the few
+        # Macs, for hours, and a Mac fails a head whose headers changed ("the FFI headers at 9edfda1061
+        # drop or change declarations of the pinned f85c0754", job cb3e5fa3159ea9806ae980fe). A stale pin
+        # and a fresh one submit the same build, and the pin check is not run at all.
+        for pin_ok in (False, True):
             with self.subTest(pin_ok=pin_ok), tempfile.TemporaryDirectory() as temp:
                 ci = Path(temp) / 'cmux-ci'
                 ci.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s/args"\necho \'{"id": "job123"}\'\n' % temp)
                 ci.chmod(0o755)
                 pin = Path(temp) / 'pin'
-                pin.write_text('#!/bin/sh\nexit %d\n' % (0 if pin_ok else 1))
+                pin.write_text('#!/bin/sh\ntouch "%s/pin-checked"\nexit %d\n' % (temp, 0 if pin_ok else 1))
                 pin.chmod(0o755)
                 r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" WORKSPACE=w CMUX_CI="{ci}"
 fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_FFI_PIN_CHECK': str(pin)})
                 self.assertIn('JOB=job123', r.stdout, r.stderr)
                 args = (Path(temp) / 'args').read_text().splitlines()
                 self.assertEqual(args[:2], ['build', 'cmux'])
-                if want_mac:
-                    self.assertEqual(args[args.index('--builder') + 1], 'mac')
-                    self.assertTrue(args[args.index('--reason') + 1])
-                else:
-                    self.assertNotIn('--builder', args)
+                self.assertNotIn('--builder', args)
+                self.assertNotIn('--reason', args)
+                self.assertFalse((Path(temp) / 'pin-checked').exists())
+                self.assertNotIn('builds on a Mac', r.stdout)
+
+    def test_a_head_that_changes_nothing_in_the_mac_app_builds_its_base(self):
+        # Leo, 2026-11-24: "examine if his recent prs have actually needed dev builds". #53007 changed 7
+        # CmuxMobileKit files and queued a full Mac build of its head for 3+ hours. build_select.py says when the
+        # Mac app is the base's: the tag gets the base's build, which --any-tag answers from one the fleet made.
+        for mac, want_base in (('none', True), ('build', False)):
+            with self.subTest(mac=mac), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp) / 'repo'
+                repo.mkdir()
+                git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], check=True, capture_output=True,
+                                                text=True).stdout.strip()
+                git('init', '-q')
+                git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'base')
+                base = git('rev-parse', 'HEAD')
+                git('update-ref', 'refs/remotes/origin/feat-cmux-next', base)
+                git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'head')
+                head = git('rev-parse', 'HEAD')
+                select = Path(temp) / 'select.py'
+                select.write_text('import json,sys\nprint(json.dumps({"mac": "%s", "ios": "build"}))\n' % mac)
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s/args"\necho \'{"id": "job123"}\'\n' % temp)
+                ci.chmod(0o755)
+                state = Path(temp) / 'state'
+                state.mkdir()
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={head} STATE="{state}" WORKSPACE=w CMUX_CI="{ci}" REPO_ROOT="{repo}"
+fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_BUILD_SELECT': str(select)})
+                self.assertIn('JOB=job123', r.stdout, r.stderr)
+                args = (Path(temp) / 'args').read_text().splitlines()
+                ref = args[args.index('--ref') + 1]
+                self.assertEqual(ref, base if want_base else head)
+                self.assertEqual('--any-tag' in args, want_base)
+                # The fleet client's swap-first default queues nothing for a change it can swap; the hand-off
+                # needs the tagged Mac app itself, for its head as for its base (vfix1125, 2026-11-25).
+                self.assertIn('--build', args)
+                self.assertEqual((state / 'mac-ref').read_text().strip(), ref)
+
+    def test_a_build_the_fleet_does_not_queue_says_what_the_client_said(self):
+        # Before: `KeyError: 'id'` on stderr and "printed no job id"; the client's reason was lost.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\necho "Nothing queued (swap first): pass --build to build anyway."\n')
+            ci.chmod(0o755)
+            state = Path(temp) / 'state'
+            state.mkdir()
+            (state / 'mac-ref').write_text(SHA + '\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" WORKSPACE=w CMUX_CI="{ci}"
+rc=0; fleet_submit_mac || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_MAC"''', {'CMUX_CI': str(ci)})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('REPORT=BLOCKED: cmux-ci build cmux queued no job: Nothing queued (swap first)', r.stdout)
+            self.assertNotIn('KeyError', r.stderr)
+            self.assertFalse((state / 'cmux-job').exists())
 
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -722,6 +1071,76 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertIn('--sign-in agent', ' '.join(args))
         self.assertNotIn('--label', args)
         self.assertNotIn('--detach', args)
+
+    def test_urgent_puts_the_simulator_step_first_and_promotes_the_mac_build(self):
+        # A hand-off with the person waiting on the phone (2026-11-23): the simulator step sat 2 h in a
+        # queue of 126 (step 1e1c4a5c2700774f73411917) and the Mac build 45 min at agent priority (job
+        # dc0dd1e42a065339b8191fb2), until both were raised by hand. --urgent does it, with a reason.
+        for urgent in (0, 1):
+            with self.subTest(urgent=urgent), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\necho "$@" >> "%s/calls"\n'
+                              '[ "$1" = build ] && echo \'{"id": "job123"}\'\n'
+                              '[ "$1" = run ] && echo "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\n'
+                              'exit 0\n' % temp)
+                ci.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" WORKSPACE=w URGENT={urgent} CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim; fleet_submit_mac; echo "JOB=$MAC_JOB"; echo "RETRY=$(retry_command)"''', {'CMUX_CI': str(ci)})
+                self.assertIn('JOB=job123', r.stdout, r.stderr)
+                calls = (Path(temp) / 'calls').read_text().splitlines()
+                run = next(c for c in calls if c.startswith('run '))
+                promote = [c for c in calls if c.startswith('promote ')]
+                if urgent:
+                    self.assertIn(' --urgent ', run + ' ')
+                    self.assertIn('--reason', run)
+                    self.assertEqual(len(promote), 1)
+                    self.assertTrue(promote[0].startswith('promote job123 --reason '), promote)
+                    self.assertIn(' --urgent', r.stdout.split('RETRY=')[1])
+                else:
+                    self.assertNotIn('--urgent', run)
+                    self.assertEqual(promote, [])
+                    self.assertNotIn('--urgent', r.stdout.split('RETRY=')[1])
+
+    def test_a_step_that_got_no_sign_in_session_is_sent_once_more(self):
+        # Step 1e1c4a5c2700774f73411917 (2026-11-24) ran after 2 h in the queue and failed: "sign-in: no session
+        # was delivered within 10m0s" while the controller timed out. Nothing about the build was wrong, so the
+        # hand-off sends one new step (a new key) by itself; a second miss is reported as the sign-in delivery.
+        # A status read that fails too (the controller timing out) still sends the new step under a new key.
+        # Step df827ca8f4eb26596c17942e (2026-11-24) restarted with the controller and then read "sign-in: the
+        # controller no longer lists this run as the step's (409 Conflict)": the same lost delivery, other words.
+        timeout_line = "sign-in: no session was delivered within 10m0s; the submitter\\'s cmux-ci must follow the step to deliver it"
+        conflict_line = "sign-in: the controller no longer lists this run as the step\\'s (409 Conflict)"
+        # Step c50f2a91d132270d466e64d8 (2026-11-24): its worker stopped mid-step ("lease lost"), another loss
+        # that says nothing about the build.
+        lease_line = "cmux-ci: step x failed on cmux23: lease lost: cmux23 stopped renewing the step\\'s lease (worker unreachable or down)"
+        for second_ok, status_ok, line in ((True, True, timeout_line), (False, True, timeout_line), (True, False, timeout_line),
+                                           (True, True, conflict_line), (False, False, conflict_line),
+                                           (True, True, lease_line), (False, True, lease_line)):
+            with self.subTest(second_ok=second_ok, status_ok=status_ok, line=line[:30]), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                status = 'echo \'{"id": "x", "state": "failed"}\'; exit 0' if status_ok else 'echo "cmux-ci: cannot reach the build controller" >&2; exit 69'
+                ci.write_text('#!/bin/sh\n'
+                              f'if [ "$1" = status ]; then {status}; fi\n'
+                              f'[ "$1" = run ] || exit 0\necho "$@" >> "{temp}/args"\n'
+                              f'n=$(wc -l < "{temp}/args" | tr -d " ")\n'
+                              'echo "cmux-ci: step 00000000000000000000000$n (simulator, key k)" >&2\n'
+                              f'if [ "$n" = 1 ] || [ "{0 if second_ok else 1}" = 1 ]; then\n'
+                              f'  echo "{line}"\n'
+                              '  echo "ci-step k exited 1"; exit 1\nfi\nexit 0\n')
+                ci.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} TAG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; if fleet_finish_sim; then echo "OK STEP=$SIM_STEP"; else echo "SIM=$REPORT_SIM"; fi''', {'CMUX_CI': str(ci)})
+                keys = [line.split('--key ')[1].split()[0] for line in (Path(temp) / 'args').read_text().splitlines()]
+                base = f'cnx-ios-handoff-{TAG}-{SHA[:12]}'
+                self.assertEqual(keys, [base, base + '-r1'], r.stdout + r.stderr)
+                lease = line is lease_line
+                self.assertIn('its fleet worker stopped mid-step' if lease else 'no sign-in session reached it', r.stdout)
+                if second_ok:
+                    self.assertIn('OK STEP=000000000000000000000002', r.stdout)
+                elif lease:
+                    self.assertIn('SIM=BLOCKED: the fleet iPhone build lost its worker mid-step twice', r.stdout)
+                else:
+                    self.assertIn('SIM=BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice', r.stdout)
 
     def test_a_superseded_simulator_step_is_not_reported_as_a_failed_build(self):
         # A newer head of the same tag cancels this head's step; the report said "the fleet iPhone build
@@ -780,10 +1199,12 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
 
     def test_handoff_mode_takes_one_tag(self):
         for args, want in ((['handoff'], 'handoff takes one argument, tag=TAG'),
-                           (['handoff', 'tag=Bad_Tag'], 'handoff tag= wants lowercase'),
-                           (['handoff', 'tag=default'], 'handoff tag= wants lowercase'),
+                           # The shared tag rule (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag).
+                           (['handoff', 'tag=Bad_Tag'], "'Bad_Tag' is not a canonical tag"),
+                           (['handoff', 'tag=bad--tag'], "'bad--tag' is not a canonical tag"),
+                           (['handoff', 'tag=default'], 'reserved for the stable app instance'),
                            # The fleet controller's form of the same step.
-                           (['shots', 'handoff=Bad_Tag'], 'handoff tag= wants lowercase')):
+                           (['shots', 'handoff=Bad_Tag'], 'handoff tag=Bad_Tag refused')):
             with self.subTest(args=args):
                 r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
                                    env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)
@@ -930,8 +1351,9 @@ mac_open''')
 MAC_PY = ROOT / 'cmux-next-ios/scripts/review_mac.py'
 
 
-class PairingCodeTests(unittest.TestCase):
-    """A pairing code is recorded as used only after a phone paired with it."""
+class PhoneReviewFocusTests(unittest.TestCase):
+    """The default hand-off names the tagged Mac to the phone (its device id, no secret) and asks the Mac
+    for no pairing code: the phone pairs on its own, approved by the tagged Mac's dev auto-approve."""
 
     def run_phone_review(self, launch_ok):
         with tempfile.TemporaryDirectory() as temp:
@@ -944,17 +1366,11 @@ class PairingCodeTests(unittest.TestCase):
             script = f"""
 set -euo pipefail
 source "{REVIEW}"
-BUNDLE_ID=dev.cmux.mobile.{TAG} STATE="{root}" TAG_STATE="{root}" MAC_SOCKET=/nonexistent SLUG={TAG} SHA={SHA}
+BUNDLE_ID=dev.cmux.mobile.{TAG} STATE="{root}" TAG_STATE="{root}" MAC_SOCKET=/nonexistent SLUG={TAG} SHA={SHA} MAC_DEVICE_ID=mac-tagged
 REPO_ROOT="{root}"; mkdir -p "$REPO_ROOT/scripts"; printf '#!/bin/sh\\nexit 0\\n' > "$REPO_ROOT/scripts/ios-device-process.sh"; chmod +x "$REPO_ROOT/scripts/ios-device-process.sh"
-mac_py() {{
-  case "$1" in
-    pair-url) echo "cmux-next://pair?mac=m1&t=tok-secret"; ;;
-    mark-used) echo "MARK_USED $(cat)" >> "{root}/calls" ;;
-    *) command /usr/bin/python3 -I "{MAC_PY}" "$@" ;;
-  esac
-}}
+mac_py() {{ echo "MAC_PY $1" >> "{root}/calls"; command /usr/bin/python3 -I "{MAC_PY}" "$@"; }}
 sign_app() {{ echo '{{}}'; }}
-phone_launch_and_check() {{ echo "LAUNCH $3" >> "{root}/calls"; [[ {1 if launch_ok else 0} -eq 1 ]] || {{ PHONE_REASON=x; return 1; }}; PHONE_VERDICT=ok; }}
+phone_launch_and_check() {{ echo "LAUNCH $3 ${{4:-}}" >> "{root}/calls"; [[ {1 if launch_ok else 0} -eq 1 ]] || {{ PHONE_REASON=x; return 1; }}; PHONE_VERDICT=ok; }}
 mac_sees_phone() {{ return 0; }}
 if phone_review {PHONE} iPhone; then echo PASS; else echo "FAIL $PHONE_REASON"; fi
 """
@@ -962,40 +1378,34 @@ if phone_review {PHONE} iPhone; then echo PASS; else echo "FAIL $PHONE_REASON"; 
             calls = (root / 'calls').read_text() if (root / 'calls').exists() else ''
             return r, calls
 
-    def test_a_failed_launch_leaves_the_code_unused(self):
-        r, calls = self.run_phone_review(False)
-        self.assertIn('FAIL', r.stdout, r.stderr)
-        self.assertIn('LAUNCH auto_login', calls)
-        self.assertNotIn('MARK_USED', calls)
-
-    def test_a_paired_phone_marks_its_code_used(self):
+    def test_the_first_launch_names_the_tagged_mac(self):
         r, calls = self.run_phone_review(True)
         self.assertIn('PASS', r.stdout, r.stderr)
-        self.assertIn('MARK_USED cmux-next://pair?mac=m1&t=tok-secret', calls)
-        self.assertNotIn('tok-secret', r.stdout + r.stderr)
+        self.assertIn('LAUNCH auto_login mac-tagged', calls)
+        self.assertNotIn('MAC_PY pair-url', calls)
 
-    def test_pair_url_only_reads_the_used_file_and_mark_used_writes_it(self):
-        with tempfile.TemporaryDirectory() as temp:
-            used = Path(temp) / 'used'
-            r = subprocess.run(['python3', str(MAC_PY), 'mark-used', str(used)], input='cmux-next://pair?t=a',
-                               capture_output=True, text=True)
-            self.assertEqual(r.returncode, 0)
-            import hashlib
-            self.assertEqual(used.read_text().strip(), hashlib.sha256(b'cmux-next://pair?t=a').hexdigest())
+    def test_a_failed_launch_fails_the_phone(self):
+        r, calls = self.run_phone_review(False)
+        self.assertIn('FAIL', r.stdout, r.stderr)
+        self.assertIn('LAUNCH auto_login mac-tagged', calls)
+
+    def test_review_mac_offers_no_pairing_code_ops(self):
         text = MAC_PY.read_text()
-        pair_block = text[text.index('if a.op == "pair-url":'):text.index('if a.op == "mark-used":')]
-        self.assertNotIn('open(a.used, "a"', pair_block)
+        self.assertNotIn('pair-url', text)
+        self.assertNotIn('mark-used', text)
 
 
 class FakeMacSocket:
-    """A tagged Mac's control socket answering cmux.mobilePairing.status with VALUE."""
+    """A tagged Mac's control socket answering every call (the Settings page's `cmux.settings.host.lists`) with VALUE."""
 
-    def __init__(self, path, value):
+    def __init__(self, path, value, dialogs=()):
         import socket, threading
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(path)
         self.server.listen(8)
         self.value = value
+        self.dialogs = list(dialogs)
+        self.methods = []
         threading.Thread(target=self.serve, daemon=True).start()
 
     def serve(self):
@@ -1005,35 +1415,113 @@ class FakeMacSocket:
             except OSError:
                 return
             with conn:
-                conn.recv(1 << 16)
-                conn.sendall((json.dumps({'ok': True, 'result': {'value': self.value}}) + '\n').encode())
+                request = json.loads(conn.recv(1 << 16) or b'{}')
+                self.methods.append((request.get('method'), request.get('params')))
+                if request.get('method') == 'debug.dialog':
+                    result = {'dialogs': self.dialogs}
+                else:
+                    result = {'value': self.value() if callable(self.value) else self.value}
+                conn.sendall((json.dumps({'ok': True, 'result': result}) + '\n').encode())
 
     def close(self):
         self.server.close()
 
 
 class MacIdTests(unittest.TestCase):
-    def test_mac_id_comes_from_the_pairing_link(self):
+    def test_mac_id_comes_from_the_settings_iphone_card(self):
         with tempfile.TemporaryDirectory(dir='/tmp') as temp:
             sock = os.path.join(temp, 's')
-            fake = FakeMacSocket(sock, {'state': 'ready', 'qr': {'url': 'cmux-next://pair?mac=mac-abc&team=t&t=secret-token'}})
+            fake = FakeMacSocket(sock, {'iphone': {'allowed': True, 'phase': 'online', 'device_id': 'mac-abc'}})
             try:
                 r = subprocess.run(['python3', str(MAC_PY), 'mac-id', sock, '--timeout', '3'], capture_output=True, text=True)
             finally:
                 fake.close()
         self.assertEqual(r.stdout.strip(), 'mac-abc')
-        self.assertNotIn('secret-token', r.stdout + r.stderr)
 
-    def test_no_code_says_why(self):
+    def test_connections_off_says_why(self):
         with tempfile.TemporaryDirectory(dir='/tmp') as temp:
             sock = os.path.join(temp, 's')
-            fake = FakeMacSocket(sock, {'state': 'off', 'allowed': False})
+            fake = FakeMacSocket(sock, {'iphone': {'allowed': False, 'phase': 'off', 'device_id': None}})
             try:
-                r = subprocess.run(['python3', str(MAC_PY), 'pair-url', sock, '--timeout', '2'], capture_output=True, text=True)
+                r = subprocess.run(['python3', str(MAC_PY), 'mac-id', sock, '--timeout', '2'], capture_output=True, text=True)
             finally:
                 fake.close()
         self.assertEqual(r.returncode, 3)
         self.assertIn('iPhone connections are off', r.stderr)
+
+
+class MacAllowStateTests(unittest.TestCase):
+    """review_mac.py allow-state: what the tagged Mac shows for a phone of `--approve-first`, read from its
+    Mobile Pairing status (the request waiting, the phone paired) and its open dialogs (the prompt). It
+    only reads: it never presses Allow."""
+
+    PROMPT = {'id': 7, 'identifier': 'cmux.dialog.iphonePair', 'title': 'Allow “iPhone” (f0982d96) to connect to this Mac?',
+              'visible': True}
+    # The Settings page's iPhone card (`iphone` in `cmux.settings.host.lists`, IPhoneHostService+Page.swift) since the
+    # Mobile Pairing page went (#48532). It names no Mac: allow-state takes this computer's name (scutil).
+    WAITING = {'iphone': {'allowed': True, 'phase': 'online', 'device_id': 'mac-tagged',
+        'pending': [{'id': 'link-1', 'title': '“iPhone” wants to connect to this Mac', 'subtitle': 'Signed in as me'}],
+        'phones': [{'id': 'presence-1', 'title': 'iPhone · cmux (iOS)', 'paired': False, 'connected': False}]}}
+    PAIRED = {'iphone': {'allowed': True, 'phase': 'online', 'device_id': 'mac-tagged',
+        'pending': [], 'phones': [{'id': 'presence-1', 'title': 'iPhone · cmux (iOS)', 'paired': True, 'connected': True}]}}
+
+    def state(self, value, dialogs=(), *extra):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temp:
+            sock = os.path.join(temp, 's')
+            fake = FakeMacSocket(sock, value, dialogs)
+            # This computer's name, as scutil --get ComputerName says it.
+            scutil = Path(temp) / 'scutil'
+            scutil.write_text('#!/bin/sh\n[ "$*" = "--get ComputerName" ] && echo "Aziz’s MacBook Pro"\n')
+            scutil.chmod(0o755)
+            try:
+                r = subprocess.run(['python3', str(MAC_PY), 'allow-state', sock, '--phone-id', 'link-1',
+                                    '--phone-id', 'presence-1', *extra], capture_output=True, text=True, timeout=30,
+                                   env={**os.environ, 'PATH': f"{temp}:{os.environ['PATH']}"})
+            finally:
+                fake.close()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout), fake.methods
+
+    def test_a_waiting_request_and_its_open_prompt(self):
+        got, methods = self.state(self.WAITING, [self.PROMPT], '--timeout', '2')
+        self.assertEqual(got['state'], 'waiting')
+        self.assertEqual(got['mac_name'], 'Aziz’s MacBook Pro')
+        self.assertEqual(got['prompt'], 'Allow “iPhone” (f0982d96) to connect to this Mac?')
+        self.assertEqual(got['request'], '“iPhone” wants to connect to this Mac')
+        # Only reads: the dialog list asks for no press, key or dismissal.
+        for method, params in methods:
+            if method == 'debug.dialog':
+                self.assertEqual(params, {})
+
+    def test_a_waiting_request_with_no_prompt_on_screen(self):
+        other = {**self.PROMPT, 'identifier': 'cmux.dialog.other', 'title': 'Something else'}
+        got, _ = self.state(self.WAITING, [other, {**self.PROMPT, 'visible': False}], '--timeout', '2')
+        self.assertEqual((got['state'], got['prompt']), ('waiting', None))
+
+    def test_paired_after_the_allow_and_no_request_at_all(self):
+        got, _ = self.state(self.PAIRED, [], '--timeout', '2')
+        self.assertEqual((got['state'], got['connected']), ('paired', True))
+        empty = {'iphone': {**self.PAIRED['iphone'], 'pending': [], 'phones': []}}
+        got, _ = self.state(empty, [], '--timeout', '1')
+        self.assertEqual(got['state'], 'none')
+        got, _ = self.state({'iphone': {**empty['iphone'], 'allowed': False}}, [], '--timeout', '1')
+        self.assertEqual(got['state'], 'off')
+
+    def test_until_answered_waits_for_the_allow(self):
+        answers = iter([self.WAITING] * 2 + [self.PAIRED] * 50)
+        got, _ = self.state(lambda: next(answers), [self.PROMPT], '--until', 'answered', '--timeout', '20')
+        self.assertEqual(got['state'], 'paired')
+
+    def test_until_answered_reports_a_request_that_went_without_an_allow(self):
+        # Don't Allow (or the phone signed out): the request is gone and the phone is not paired.
+        gone = {'iphone': {**self.WAITING['iphone'], 'pending': []}}
+        answers = iter([self.WAITING] + [gone] * 50)
+        got, _ = self.state(lambda: next(answers), [], '--until', 'answered', '--timeout', '20')
+        self.assertEqual(got['state'], 'gone')
+
+    def test_until_answered_times_out_still_waiting(self):
+        got, _ = self.state(self.WAITING, [self.PROMPT], '--until', 'answered', '--timeout', '2')
+        self.assertEqual((got['state'], got['prompt']), ('waiting', self.PROMPT['title']))
 
 
 class MacBuildSpaceTests(unittest.TestCase):
@@ -1188,6 +1676,39 @@ safe_unzip() {{ :; }}
 read_ios_artifact; echo "SIM=$REPORT_SIM\"""")
         self.assertIn("SIM=BLOCKED: step step1: handoff.json does not match this run: tag is 'other'", r.stdout)
 
+    def test_a_passed_artifact_marks_the_head_reusable_and_a_failed_one_does_not(self):
+        for status, marked in (('pass', True), ('fail', False)):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'ios').mkdir()
+                (root / 'ios/handoff.json').write_text(json.dumps({**self.good, 'simulator': {
+                    'status': status, 'device': 'iPhone-17', 'reason': '' if status == 'pass' else 'no receipt'}}))
+                (root / 'ios-passed').write_text('older-step\n')
+                r = bash(f"""source "{REVIEW}"; set +e; SLUG={TAG} SHA={SHA} STATE="{root}" SIM_STEP=step1
+safe_unzip() {{ [ "$2" = "{root}/device" ] && mkdir -p "$2/CmuxMobileApp.app"; :; }}
+read_ios_artifact; echo RC=$?""")
+                self.assertIn('RC=0', r.stdout, r.stderr)
+                marker = root / 'ios-passed'
+                self.assertEqual(marker.exists(), marked)
+                if marked:
+                    self.assertEqual(marker.read_text().strip(), 'step1')
+
+    def test_an_unsafe_zip_or_another_heads_manifest_clears_the_reuse_mark(self):
+        # Review of #53313: the mark was cleared only after these early returns, so a stale one survived them and
+        # every rerun reused the bad artifact.
+        for case in ('unsafe-zip', 'other-head'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'ios').mkdir()
+                (root / 'ios/handoff.json').write_text(json.dumps({**self.good, 'source_sha': 'c' * 40}))
+                (root / 'ios-passed').write_text('older-step\n')
+                unzip = 'return 1' if case == 'unsafe-zip' else ':'
+                r = bash(f"""source "{REVIEW}"; set +e; SLUG={TAG} SHA={SHA} STATE="{root}" SIM_STEP=step1
+safe_unzip() {{ {unzip}; }}
+read_ios_artifact; echo RC=$?""")
+                self.assertIn('RC=1', r.stdout, r.stderr)
+                self.assertFalse((root / 'ios-passed').exists())
+
     def zip_with(self, links):
         import zipfile
         temp = tempfile.mkdtemp()
@@ -1269,8 +1790,11 @@ if args[:3] == ['devicectl', 'device', 'process']:
     else:
         source = 'signed_out'
     signed_in = source != 'signed_out'
-    # 'allowed': the person pressed Allow on the Mac (--approve-first).
-    paired = signed_in and (bool(env.get('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL')) or os.path.exists(os.path.join(root, 'paired'))
+    # 'auto-approve': the tagged Mac's dev auto-approve is on (the default hand-off) and the phone
+    # dials it; 'allowed': the person pressed Allow on the Mac (--approve-first).
+    dials = bool(env.get('DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC'))
+    paired = signed_in and ((dials and os.path.exists(os.path.join(root, 'auto-approve')))
+                            or os.path.exists(os.path.join(root, 'paired'))
                             or os.path.exists(os.path.join(root, 'allowed')))
     if paired:
         open(os.path.join(root, 'paired'), 'w').write('1')
@@ -1280,9 +1804,16 @@ if args[:3] == ['devicectl', 'device', 'process']:
                    account_email='me@example.com' if signed_in else '', user_id='u1' if signed_in else '',
                    phone_device_ids=['link-1', 'presence-1'] if signed_in else [],
                    cloud_backend='https://cmux-api-development.debussy.workers.dev',
-                   paired_macs=[{'id': 'mac-tagged', 'name': 'cmux DEV x', 'linked': True}] if paired else [])
+                   # Signed in, the app picks the tagged Mac from the account's Mac list (its focused Mac), linked
+                   # only once that Mac let it in; the receipt is written at launch and never again (as the app's
+                   # stops after DogfoodReadiness.window).
+                   paired_macs=[{'id': 'mac-tagged', 'name': 'cmux DEV x', 'linked': paired}] if signed_in else [])
     if os.path.exists(os.path.join(root, 'phone-space')):
         receipt['build_space'] = open(os.path.join(root, 'phone-space')).read()
+    # A relay-only launch links through TURN, and its receipt says so (DogfoodReadiness.Route).
+    if env.get('DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY') == '1':
+        for mac in receipt['paired_macs']:
+            mac.update(transport='wireguard', path='turn', tailnet=False)
     open(os.path.join(root, 'receipt.json'), 'w').write(json.dumps(receipt))
     sys.exit(0)
 if args[:3] == ['devicectl', 'device', 'copy']:
@@ -1292,11 +1823,27 @@ if args[:3] == ['devicectl', 'device', 'copy']:
 sys.exit(1)
 """
 
-    def review(self, mode, stored=False, allowed=False, mac_space='', phone_space=None):
+    # What the tagged Mac's allow-state says (review_mac.py allow-state) for --approve-first.
+    PROMPT = 'Allow “iPhone” (f0982d96) to connect to this Mac?'
+    WAITING = {'state': 'waiting', 'mac_name': 'Aziz’s MacBook Pro', 'request': '“iPhone” wants to connect to this Mac',
+               'prompt': PROMPT, 'connected': False}
+    ALLOWED = {'state': 'paired', 'mac_name': 'Aziz’s MacBook Pro', 'request': None, 'prompt': None, 'connected': True}
+
+    def review(self, mode, stored=False, allowed=False, mac_space='', phone_space=None, asked=None, answered=None,
+               paired_before=False):
+        """asked / answered: the tagged Mac's allow-state before and after the wait for the person's Allow
+        (`paired` in `answered` is the Allow: the phone is paired from then on). paired_before: the Mac had
+        paired this phone before the run."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             if allowed:
                 (root / 'allowed').write_text('1')
+            if mode == 'paired':
+                (root / 'auto-approve').write_text('1')
+            if paired_before:
+                (root / 'paired').write_text('1')
+            (root / 'mac-asked').write_text(json.dumps(asked or {'state': 'none', 'mac_name': 'Aziz’s MacBook Pro'}))
+            (root / 'mac-answered').write_text(json.dumps(answered or asked or {'state': 'none'}))
             if phone_space is not None:
                 (root / 'phone-space').write_text(phone_space)
             (root / 'bin').mkdir()
@@ -1317,14 +1864,22 @@ PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@ex
 sign_app() {{ echo '{{}}'; }}
 mac_py() {{
   case "$1" in
-    pair-url) echo "PAIR_URL_FETCHED" >> "{root}/calls"; echo "cmux-next://pair?mac=mac-tagged&t=tok" ;;
-    mark-used) echo "MARK_USED" >> "{root}/calls"; cat >/dev/null ;;
-    phones) echo '{{"phones": [{{"id": "link-1", "paired": true, "connected": true}}]}}' ;;
+    pair-url|mark-used) echo "PAIR_URL_FETCHED" >> "{root}/calls" ;;
+    # The Mac's paired phones: only once this phone paired (or was paired before the run).
+    phones)
+      if [[ -f "{root}/paired" ]]; then echo '{{"phones": [{{"id": "link-1", "paired": true, "connected": true}}]}}'
+      else echo '{{"phones": [{{"id": "presence-1", "paired": false, "connected": false}}]}}'; fi ;;
+    # --approve-first: what the Mac shows before the wait (mac-asked) and after it (mac-answered); a paired answer is the Allow.
+    allow-state)
+      echo "ALLOW_STATE $*" >> "{root}/calls"
+      case "$*" in *"--until answered"*) f="{root}/mac-answered" ;; *) f="{root}/mac-asked" ;; esac
+      cat "$f" 2>/dev/null || true
+      ! grep -q '"state": "paired"' "$f" 2>/dev/null || echo 1 >"{root}/paired" ;;
   esac
 }}
 if phone_review {PHONE} "iPhone (iPhone 16 Plus, {PHONE})"; then echo "LINE: $PHONE_LINE"; else echo "FAIL: $PHONE_REASON"; fi
 """
-            r = bash(script, {'PATH': f"{root / 'bin'}:{os.environ['PATH']}"})
+            r = bash(script, {'PATH': f"{root / 'bin'}:{os.environ['PATH']}", 'CNX_REVIEW_PATH_SETTLE': '0'})
             launches = [json.loads(l) for l in (root / 'launches').read_text().splitlines()] if (root / 'launches').exists() else []
             calls = (root / 'calls').read_text() if (root / 'calls').exists() else ''
             still_stored = (root / 'stored-session').exists()
@@ -1335,11 +1890,45 @@ if phone_review {PHONE} "iPhone (iPhone 16 Plus, {PHONE})"; then echo "LINE: $PH
         self.assertIn('LINE: iPhone (iPhone 16 Plus, ', r.stdout, r.stderr)
         self.assertIn('signed in (auto_login), paired and linked with cmux DEV x', r.stdout)
         self.assertIn('credential-free relaunch: signed in (restored), paired and linked', r.stdout)
-        self.assertIn('PAIR_URL_FETCHED', calls)
-        self.assertIn('MARK_USED', calls)
+        self.assertNotIn('PAIR_URL_FETCHED', calls)
+        self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC'], 'mac-tagged')
         self.assertTrue(stored)
-        self.assertEqual(len(launches), 2)
+        self.assertEqual(len(launches), 3)
         self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', launches[1]['env'])
+        for launch in launches[:2]:
+            self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY', launch['env'])
+
+    def test_default_ends_with_a_relay_only_relaunch_that_links_via_turn(self):
+        # At home the phone links over the LAN (or, with Tailscale on both, the tailnet); a person away from home
+        # links through TURN. The hand-off proves that path too, with the relay switch alone.
+        r, launches, calls, stored = self.review('paired')
+        self.assertIn('; relay-only relaunch (TURN only, as a phone away from home): signed in (restored), paired and '
+                      'linked with cmux DEV x over WireGuard, via TURN', r.stdout, r.stderr)
+        relay = launches[2]['env']
+        self.assertEqual(relay.get('DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY'), '1')
+        for key in ('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', 'DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD',
+                    'DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL'):
+            self.assertNotIn(key, relay)
+
+    def test_a_relay_only_relaunch_that_links_direct_is_a_blocker(self):
+        # A build that ignores the relay switch still links over the LAN.
+        saved = self.PHONE_PY
+        self.PHONE_PY = saved.replace("mac.update(transport='wireguard', path='turn', tailnet=False)",
+                                      "mac.update(transport='wireguard', path='direct-lan', tailnet=False)")
+        try:
+            r, *_ = self.review('paired')
+        finally:
+            self.PHONE_PY = saved
+        self.assertIn('FAIL: relay-only launch: the relay-only launch linked direct LAN with cmux DEV x, not via TURN',
+                      r.stdout, r.stderr)
+
+    def test_only_the_default_hand_off_relaunches_relay_only(self):
+        for mode, kwargs in (('manual', {}), ('approve', {'allowed': True}), ('none', {'stored': True})):
+            with self.subTest(mode=mode):
+                _, launches, *_ = self.review(mode, **kwargs)
+                self.assertTrue(launches)
+                for launch in launches:
+                    self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY', launch['env'])
 
     def test_the_phone_must_be_in_the_tagged_macs_build_space(self):
         # A Demo hand-off build without CMUX_MOBILE_DEV_TAG sat in the default space while its Mac was in
@@ -1351,41 +1940,96 @@ if phone_review {PHONE} "iPhone (iPhone 16 Plus, {PHONE})"; then echo "LINE: $PH
                       r.stdout, r.stderr)
         self.assertEqual(len(launches), 1)  # refused at once, not after the receipt deadline
 
-    def test_manual_pairing_signs_in_and_never_hands_over_the_code(self):
+    def test_manual_pairing_signs_in_and_names_no_mac(self):
         r, launches, calls, stored = self.review('manual')
         self.assertIn('LINE: ', r.stdout, r.stderr)
         self.assertIn('installed, signed in (auto_login); credential-free relaunch: signed in (restored); '
                       'pairing left to you (--manual-pairing)', r.stdout)
         self.assertNotIn('paired and linked', r.stdout)
         self.assertNotIn('PAIR_URL_FETCHED', calls)
-        self.assertNotIn('MARK_USED', calls)
         self.assertTrue(stored)
         for launch in launches:
-            self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', launch['env'])
+            self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC', launch['env'])
         self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD'], 'pw-secret')
         self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD', launches[1]['env'])
 
-    def test_approve_first_hands_over_no_code_and_waits_for_the_macs_allow(self):
-        r, launches, calls, stored = self.review('approve', allowed=True)
+    def test_approve_first_waits_for_the_macs_allow(self):
+        # #52876's flow (restored after #48532 merged an older copy over it): the Mac shows the request and its
+        # prompt (asked), then the person's Allow pairs the phone (answered).
+        r, launches, calls, stored = self.review('approve', asked=self.WAITING, answered=self.ALLOWED)
         self.assertIn('waiting for Allow on the Mac', r.stdout, r.stderr)
         self.assertIn('LINE: iPhone (iPhone 16 Plus, ', r.stdout, r.stderr)
-        self.assertIn('installed, signed in (auto_login), paired and linked with cmux DEV x (allowed on the Mac, '
-                      '--approve-first); Mac sees it paired and connected; credential-free relaunch: signed in '
-                      '(restored), paired and linked', r.stdout)
+        self.assertIn('installed, signed in (auto_login), asked the tagged Mac “Aziz’s MacBook Pro” '
+                      f'(cmux DEV {TAG}), which showed “{self.PROMPT}”; allowed on the Mac (--approve-first); '
+                      'credential-free relaunch: signed in (restored), paired and linked with cmux DEV x; '
+                      'Mac sees it paired and connected', r.stdout)
         self.assertNotIn('PAIR_URL_FETCHED', calls)
-        self.assertNotIn('MARK_USED', calls)
         self.assertEqual(len(launches), 2)
-        for launch in launches:
-            self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL', launch['env'])
+        self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC'], 'mac-tagged')
         self.assertEqual(launches[0]['env']['DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD'], 'pw-secret')
         self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD', launches[1]['env'])
+        # The Mac is asked with this phone's own device ids, from its receipt.
+        self.assertIn('allow-state /x --phone-id link-1 --phone-id presence-1 --until asked', calls)
+        self.assertIn('--until answered --timeout 2', calls)
 
-    def test_approve_first_without_the_allow_reports_waiting_for_it(self):
-        r, launches, calls, _ = self.review('approve')
-        self.assertIn('FAIL: waiting for Allow on the Mac: not paired in time (--approve-first; auto_login launch: ',
+    def test_approve_first_an_allow_after_the_first_receipt_still_links(self):
+        # The first launch's receipt says "on the tagged Mac, not linked" and never changes: the app stops
+        # writing it 180 s after launch (DogfoodReadiness.window), and the person pressed Allow later. The
+        # old flow waited 600 s on that receipt, so an Allow after the third minute could never pass.
+        r, launches, *_ = self.review('approve', asked=self.WAITING, answered=self.ALLOWED)
+        self.assertIn('LINE: ', r.stdout, r.stderr)
+        self.assertIn('credential-free relaunch: signed in (restored), paired and linked with cmux DEV x', r.stdout)
+        self.assertEqual([l['env'].get('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL') for l in launches],
+                         ['me@example.com', None])
+
+    def test_approve_first_unattended_says_where_the_prompt_waits_and_what_to_do(self):
+        # pv1121e-ap (2026-11-21): nobody at the Mac. The report says the prompt shows on the tagged Mac, by name
+        # and app, that the phone waits for it, and what the person does next; never "paired ... not linked".
+        r, launches, calls, _ = self.review('approve', asked=self.WAITING)
+        self.assertIn('FAIL: waiting for Allow on the Mac: nobody pressed Allow in 2 s. The tagged Mac '
+                      f'“Aziz’s MacBook Pro” (cmux DEV {TAG}) shows “{self.PROMPT}” (also under Connection Requests '
+                      'in its Settings > Mobile), and the phone is signed in and waiting for it, not linked yet. '
+                      'Next: at that Mac, rerun this command and press Allow when the prompt shows',
                       r.stdout, r.stderr)
-        self.assertIn('(after 2 s)', r.stdout)
+        self.assertNotIn('paired with the tagged Mac', r.stdout)
         self.assertNotIn('PAIR_URL_FETCHED', calls)
+        self.assertEqual(len(launches), 1)
+        # Said before the wait, so the person at the Mac knows what to press.
+        self.assertIn(f'==> iPhone (iPhone 16 Plus, {PHONE}): waiting for Allow on the Mac: “{self.PROMPT}” is showing '
+                      f'on the tagged Mac “Aziz’s MacBook Pro” (cmux DEV {TAG}); press Allow there (up to 2 s)', r.stdout)
+
+    def test_approve_first_a_request_with_no_prompt_on_screen_says_so(self):
+        r, *_ = self.review('approve', asked={**self.WAITING, 'prompt': None})
+        self.assertIn('FAIL: waiting for Allow on the Mac: nobody pressed Allow in 2 s. The tagged Mac '
+                      f'“Aziz’s MacBook Pro” (cmux DEV {TAG}) lists the request under Connection Requests in its '
+                      'Settings > Mobile, but shows no Allow prompt (it shows on a window of that app on screen)',
+                      r.stdout, r.stderr)
+
+    def test_approve_first_with_no_request_on_the_mac_says_so(self):
+        r, launches, *_ = self.review('approve')
+        self.assertIn('FAIL: the phone is signed in and on the tagged Mac “Aziz’s MacBook Pro” '
+                      f'(cmux DEV {TAG}), but that Mac shows no request from it', r.stdout, r.stderr)
+        self.assertEqual(len(launches), 1)
+
+    def test_approve_first_dont_allow_is_reported(self):
+        r, *_ = self.review('approve', asked=self.WAITING, answered={**self.WAITING, 'state': 'gone', 'prompt': None})
+        self.assertIn('FAIL: the request is gone from the tagged Mac “Aziz’s MacBook Pro” '
+                      f"(cmux DEV {TAG}) without an Allow (Don't Allow, or the phone signed out)", r.stdout, r.stderr)
+
+    def test_approve_first_a_phone_paired_before_the_run_is_not_asked(self):
+        # The Mac's paired list outlives its relaunch, so a phone it paired earlier links at once: no prompt.
+        r, *_ = self.review('approve', paired_before=True, asked=self.ALLOWED)
+        self.assertIn('FAIL: not asked: the tagged Mac “Aziz’s MacBook Pro” '
+                      f'(cmux DEV {TAG}) had paired this phone before this run, so it linked with no Allow prompt; '
+                      'to see the prompt, remove the phone in that Mac\'s Settings > Mobile and rerun', r.stdout, r.stderr)
+
+    def test_approve_first_an_allow_before_the_first_receipt_passes(self):
+        # The person was at the Mac and pressed Allow at once: the first receipt is already linked.
+        r, launches, *_ = self.review('approve', allowed=True, asked=self.ALLOWED)
+        self.assertIn('installed, signed in (auto_login), paired and linked with cmux DEV x (allowed on the Mac '
+                      '“Aziz’s MacBook Pro”, --approve-first); credential-free relaunch: signed in (restored), '
+                      'paired and linked with cmux DEV x; Mac sees it paired and connected', r.stdout, r.stderr)
+        self.assertEqual(len(launches), 2)
 
     def test_no_auth_clears_a_stored_session_and_stays_signed_out(self):
         r, launches, calls, stored = self.review('none', stored=True)
@@ -1397,7 +2041,7 @@ if phone_review {PHONE} "iPhone (iPhone 16 Plus, {PHONE})"; then echo "LINE: $PH
         self.assertNotIn('DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH', launches[1]['env'])
         for launch in launches:
             for key in ('DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL', 'DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD',
-                        'DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL'):
+                        'DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC'):
                 self.assertNotIn(key, launch['env'])
         self.assertNotIn('PAIR_URL_FETCHED', calls)
 
@@ -1443,6 +2087,11 @@ main --tag t {' '.join(flags)}""")
         # --no-auth implies no pairing, in either order.
         self.assertIn('MODE=none', self.mode('--no-auth', '--manual-pairing'))
         self.assertIn('MODE=none', self.mode('--manual-pairing', '--no-auth'))
+
+    def test_forbid_tailnet_is_kept_in_the_retry(self):
+        self.assertIn('RETRY=cmux-next-ios/scripts/review.sh --tag t --forbid-tailnet', self.mode('--forbid-tailnet'))
+        self.assertIn('RETRY=cmux-next-ios/scripts/review.sh --tag t --approve-first --forbid-tailnet',
+                      self.mode('--forbid-tailnet', '--approve-first'))
 
     def test_only_the_paired_mode_relaunches_the_mac(self):
         text = REVIEW.read_text()
@@ -1523,6 +2172,26 @@ class TryScriptTests(unittest.TestCase):
                 self.assertNotIn('--sign-in', args)
                 self.assertNotIn('--urgent', args)
 
+    def test_a_key_that_names_an_earlier_step_is_sent_again_under_the_next_key(self):
+        # 2026-11-26, a0a4b2d1: the ahead build's step was cancelled, and the controller refuses its key from then on
+        # ("409: step_key already names a different step"). The tap sends the step again under the next key.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text(f"""#!/bin/bash
+[ "$1" = run ] || exit 1
+for a in "$@"; do case "$a" in cnx-ios-try-*) echo "$a" >> "{temp}/keys";; esac; done
+case "$*" in *-r1*) echo "cmux-ci: step 0123456789abcdef01234567 (simulator)" >&2; exit 0;; esac
+echo "cmux-ci: controller HTTP 409: step_key already names a different step" >&2; exit 1
+""")
+            ci.chmod(0o755)
+            r = bash(f'''source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" CMUX_CI="{ci}"
+try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CMUX_CI': str(ci)})
+            keys = (Path(temp) / 'keys').read_text().split()
+            self.assertEqual(keys, [f'cnx-ios-try-try-{SHA[:12]}', f'cnx-ios-try-try-{SHA[:12]}-r1'], r.stdout + r.stderr)
+            self.assertIn('names an earlier step; sending it again under the next key', r.stdout)
+            # Past the submit: the artifact download is next (this fake has none).
+            self.assertIn('passed but its artifact did not download', r.stdout)
+
     def test_urgent_puts_the_step_first_with_a_reason(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
@@ -1557,6 +2226,113 @@ class TryScriptTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('built ahead or cached: n=1 p50=40 s', r.stdout)
             self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
+
+    def test_list_shows_the_iphone_prs_and_their_build_state(self):
+        check, fleet = 'cmux Dev try build (ahead)', 'cmux Dev try build (fleet)'
+        prs = [
+            {'number': 1, 'title': 'ios ahead', 'author': {'login': 'a'}, 'headRefOid': '1' * 40, 'updatedAt': '2026-11-22T01:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/x.swift'}],
+             'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]},
+            {'number': 2, 'title': 'web only', 'author': {'login': 'b'}, 'headRefOid': '2' * 40, 'updatedAt': '2026-11-22T02:00:00Z',
+             'isDraft': False, 'files': [{'path': 'webviews/x.ts'}], 'statusCheckRollup': []},
+            {'number': 3, 'title': 'ios building', 'author': {'login': 'c'}, 'headRefOid': '3' * 40, 'updatedAt': '2026-11-22T03:00:00Z',
+             'isDraft': True, 'files': [{'path': 'Packages/iOS/y.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'IN_PROGRESS', 'conclusion': ''}]},
+            {'number': 4, 'title': 'ios cached', 'author': {'login': 'd'}, 'headRefOid': '4' * 40, 'updatedAt': '2026-11-22T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/z.swift'}], 'statusCheckRollup': []},
+            {'number': 5, 'title': 'ios failed', 'author': {'login': 'e'}, 'headRefOid': '5' * 40, 'updatedAt': '2026-11-21T00:00:00Z',
+             'isDraft': False, 'files': [], 'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]},
+            # The fleet gave no verdict (a host that could not set up): the fleet job is green, no verdict check.
+            {'number': 6, 'title': 'ios no verdict', 'author': {'login': 'f'}, 'headRefOid': '6' * 40, 'updatedAt': '2026-11-20T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/w.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
+                                   {'name': check, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}]},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, 'prs.json').write_text(json.dumps(prs))
+            gh = Path(temp, 'gh')
+            gh.write_text(f'#!/bin/sh\necho "$@" > "{temp}/gh-args"\ncat "{temp}/prs.json"\n')
+            gh.chmod(0o755)
+            Path(temp, 'cache', '4' * 40, 'device', 'CmuxMobileApp.app').mkdir(parents=True)
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertEqual(out['schema'], 'cmux.ios-try.list.v1')
+            self.assertEqual([(p['number'], p['build']) for p in out['prs']],
+                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed'), (6, 'none')])
+            self.assertTrue(out['prs'][0]['draft'])
+            self.assertIn('--base feat-cmux-next', Path(temp, 'gh-args').read_text())
+            gh.write_text('#!/bin/sh\nexit 1\n')
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('could not list pull requests', json.loads(r.stdout)['error'])
+
+    def test_the_ahead_workflow_submits_the_step_try_sh_attaches_to(self):
+        # Same script, scene, artifact and key as try_fleet: the controller answers try.sh's submit with that step.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        text = TRY.read_text()
+        for needle in ('--script scripts/ci/cmux-next-ios-sim.sh', '--artifact artifacts/ios-sim/evidence.zip',
+                       '--no-supersede', '--arg shots --arg try=dev'):
+            self.assertIn(needle, flow)
+        self.assertIn('--key "cnx-ios-try-try-${HEAD_SHA:0:12}"', flow)
+        self.assertIn('--key "cnx-ios-try-$mode-${SHA:0:12}', text)
+        self.assertIn('--background', flow)
+        self.assertIn('name: cmux Dev try build (ahead)', flow)
+        self.assertIn('name: cmux Dev try build (fleet)', flow)
+        self.assertIn('TRY_AHEAD_CHECK="cmux Dev try build (ahead)"', text)
+        self.assertIn('TRY_FLEET_CHECK="cmux Dev try build (fleet)"', text)
+
+    def test_the_ahead_verdict_is_success_only_when_the_fleet_built_it(self):
+        # 2026-11-26: the step failed at setup (exit 3) and the one check said success, so the picker said "ahead".
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        verdict = flow[flow.index('  verdict:'):]
+        self.assertIn("needs.build-ahead.outputs.outcome == 'built'", verdict)
+        self.assertIn('[[ "$OUTCOME" == built ]]', verdict)
+        # The gateway's hook admits only build-ahead; the verdict job there was refused red at 7df749d8.
+        self.assertNotIn('CI_EVAL_STEP_GATEWAY', verdict)
+        self.assertIn("'cmux-linux'", verdict)
+        fleet = flow[:flow.index('  verdict:')]
+        self.assertEqual(fleet.count('outcome=built'), 1)
+        self.assertIn('if [[ "$state" == done ]]; then echo "outcome=built"', fleet)
+        # Only events that bring a new head: a second run at one head cancelled the first one's step (a0a4b2d1).
+        self.assertIn('types: [opened, synchronize]\n', flow)
+
+    def test_the_fleet_job_reads_its_verdict_from_the_steps_own_state(self):
+        # 2026-11-26, a0a4b2d1: the controller refused the submit (HTTP 409, client exit 1, no step) and the job
+        # said the device app did not build. The outcome comes from the step's state and exit code alone.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        start = flow.index('        run: |\n', flow.index('id: fleet')) + len('        run: |\n')
+        body = textwrap.dedent(flow[start:flow.index('\n\n  verdict:')])
+        step = '0123456789abcdef01234567'
+        cases = [  # client run output, run exit, status JSON -> outcome, job exit
+            ('cmux-ci: controller HTTP 409: step_key already names a different step', 1, '', '', 0),
+            # a121379b: the controller was unreachable; the log names no step.
+            ('cmux-ci: controller unavailable, no verdict (infra): 9 tries over 600 s', 69, '', '', 0),
+            (f'cmux-ci: step {step} queued', 0, '{"state": "done", "exit_code": 0}', 'built', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 1}', 'failed', 1),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 3}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "cancelled"}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '', '', 0),  # status unreadable
+        ]
+        for out, rc, status, outcome, code in cases:
+            with self.subTest(out=out, status=status), tempfile.TemporaryDirectory() as temp:
+                t = Path(temp)
+                client = t / 'cmux-ci'
+                (t / 'status.json').write_text(status)
+                client.write_text(f"""#!/bin/bash
+if [ "$1" = status ]; then [ "$2" = {step} ] && cat "{t}/status.json"; exit 0; fi
+echo {shlex.quote(out)} >&2; exit {rc}
+""")
+                client.chmod(0o755)
+                (t / 'out').write_text('')
+                env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
+                           PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
+                           GITHUB_STEP_SUMMARY=str(t / 'summary'))
+                # The runner's shell: `bash -e {0}` (the step's own line adds -uo pipefail).
+                r = subprocess.run(['bash', '-e', '-c', body], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n' if outcome else '')
+                self.assertEqual('Built ahead' in (t / 'summary').read_text(), outcome == 'built')
 
 if __name__ == '__main__':
     unittest.main()

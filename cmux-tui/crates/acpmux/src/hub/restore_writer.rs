@@ -215,6 +215,58 @@ fn holds_token(session: &Session) -> bool {
 }
 
 impl Hub {
+    /// The store's whole-log reads for a client request or a turn, run off the runtime's workers
+    /// ([`crate::qos::off_worker`]): a long chat's log can be a gigabyte, and a read held on a
+    /// worker stalled every task queued behind it (another chat's prompt, a hello, a status).
+    /// What is read, the order and every lock stay as the plain store read's.
+    pub(super) fn scan_off(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        crate::qos::off_worker(|| self.store.scan(id, after, visit))
+    }
+
+    /// [`Self::scan_off`] of [`crate::store::Store::scan_strict`].
+    pub(super) fn scan_strict_off(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        crate::qos::off_worker(|| self.store.scan_strict(id, after, visit))
+    }
+
+    /// [`Self::scan_off`] of [`crate::store::Store::scan_kinds`] (unindexed kinds: the whole log).
+    pub(super) fn scan_kinds_off(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        crate::qos::off_worker(|| self.store.scan_kinds(id, kinds, visit))
+    }
+
+    /// [`Self::scan_off`] of [`crate::store::Store::scan_heads`].
+    pub(super) fn scan_heads_off(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(&crate::store::RecordHead<'_>) -> bool,
+    ) -> anyhow::Result<()> {
+        crate::qos::off_worker(|| self.store.scan_heads(id, visit))
+    }
+
+    /// [`Self::scan_for_rebuild`] off the runtime's workers, as [`Self::scan_off`].
+    pub(super) fn scan_for_rebuild_off(
+        &self,
+        session: &Session,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        crate::qos::off_worker(|| self.scan_for_rebuild(session, kinds, f))
+    }
+
     /// From now on `session` parks every record but its restore's (`journal_restore.rs`, at its
     /// admission). Try `n`'s token writes.
     pub(super) fn park_writes(&self, session: &Session, n: u64) {
@@ -343,6 +395,21 @@ impl Hub {
             return self.store.scan_kinds(&session.id, kinds, f);
         }
         self.scan_kinds_and_kept(session, kinds, f)
+    }
+
+    /// [`Self::scan_for_rebuild`] of the journal records past `after` (an inbox point's seq,
+    /// `inbox_point.rs`), then the kept ones.
+    pub(super) fn scan_for_rebuild_after(
+        &self,
+        session: &Session,
+        after: u64,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        if self.at_918d() {
+            return self.store.scan_kinds_after(&session.id, after, kinds, f);
+        }
+        self.scan_kinds_after_and_kept(session, after, kinds, f)
     }
 
     /// [`Self::scan_for_rebuild`] of the records whose head `keep` keeps
@@ -738,59 +805,5 @@ fn fails_flush_after_drain(_: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    /// Every append of a chat's journal record is `append_record_locked`'s (the restore's own
-    /// records aside, `journal_restore.rs`): no other code calls the store's `append`, so nothing
-    /// takes a seq while a restore owns the chat but through the writer that parks it. An import
-    /// writes a new chat's log before it is listed; the machine journal is no chat's.
-    #[test]
-    fn a_chat_journal_is_appended_in_one_place() {
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
-        // A move's import (`transfer.rs`, its tail in `transfer_precopy.rs`) writes a chat not
-        // yet listed.
-        let allowed = [
-            "hub/mod.rs",
-            "hub/journal_restore.rs",
-            "hub/transfer.rs",
-            "hub/transfer_precopy.rs",
-            "write_journal.rs",
-        ];
-        // A bench home's fixtures and the store's stress tests write their own homes, no hub's.
-        let fixtures = ["god_fixture.rs", "chat_size_fixture.rs", "stress/"];
-        let mut found = Vec::new();
-        let mut dirs = vec![std::path::PathBuf::from(root)];
-        while let Some(dir) = dirs.pop() {
-            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    dirs.push(path);
-                    continue;
-                }
-                let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
-                // A test module in its own file (`mod tests;` beside its source) is a test module.
-                if !rel.ends_with(".rs")
-                    || rel.ends_with("_tests.rs")
-                    || rel.ends_with("/tests.rs")
-                    || rel.starts_with("store")
-                    || allowed.contains(&rel.as_str())
-                    || fixtures.iter().any(|f| rel.starts_with(f))
-                {
-                    continue;
-                }
-                let text = std::fs::read_to_string(&path).unwrap();
-                // A file's own test module may write a log directly.
-                let text = text.split("#[cfg(test)]\nmod tests").next().unwrap_or_default();
-                for (n, line) in text.lines().enumerate() {
-                    if line.contains("store.append(") || line.contains(".append_line(") {
-                        found.push(format!("{rel}:{}: {}", n + 1, line.trim()));
-                    }
-                }
-            }
-        }
-        assert!(
-            found.is_empty(),
-            "a chat's journal appended past its writer:\n{}",
-            found.join("\n")
-        );
-    }
-}
+#[path = "restore_writer_tests.rs"]
+mod tests;

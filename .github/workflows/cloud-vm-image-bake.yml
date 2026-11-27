@@ -34,6 +34,12 @@ name: Cloud VM image bake
 # candidate records it, as the member `large` of channel-dev.json. The image's own snapshot, id, smoke and
 # candidate fields are the same with it on or off, and a large image that fails is a warning, never a red run:
 # nothing boots it yet (creates still boot the image and grow it).
+# qcow2 (off by default; RFD 0100 step 6) also exports the smoked image as a compressed qcow2 disk with its sha256,
+# the second format beside the Freestyle snapshot chain, for hosts that run agent VMs themselves: one VM booted from
+# the snapshot tars its root filesystem to R2 through a presigned URL (qcow2-export.ts), the runner builds the qcow2
+# (scripts/ci/vm-image-qcow2.sh) and uploads cmux-vm-image/<tag>/cmux-vm-<tag>.qcow2 and .qcow2.sha256 to the
+# private cmux-fleet-artifacts bucket. Nothing is public: a host fetches them with presigned GET URLs. A failed
+# export is a warning, never a red bake.
 on:
   workflow_dispatch:
     inputs:
@@ -97,6 +103,11 @@ on:
         required: false
         default: false
         type: boolean
+      qcow2:
+        description: Also export the smoked image as a compressed qcow2 with a sha256 to the private R2 bucket (cmux-fleet-artifacts, cmux-vm-image/<tag>/), for self-hosted agent VM hosts (RFD 0100). Adds one VM and about 20 runner minutes
+        required: false
+        default: false
+        type: boolean
   # The image roll (cloud-vm-image-roll.yml) calls the bake with roll: true: it pins cmux_tui_commit into this
   # checkout's lock first (when set), and hands the gated candidate back as outputs. Nothing else differs.
   workflow_call:
@@ -108,6 +119,7 @@ on:
       agent_tools: { type: boolean, required: false, default: true }
       layered: { type: boolean, required: false, default: true }
       large_image: { type: boolean, required: false, default: false }
+      qcow2: { type: boolean, required: false, default: false }
       roll: { type: boolean, required: false, default: false }
       cmux_tui_commit: { type: string, required: false, default: "" }
     # The Freestyle key and the UI test login are repository secrets, which a called workflow gets only when its
@@ -118,6 +130,10 @@ on:
       FREESTYLE_API_KEY: { required: false }
       CMUX_UITEST_STACK_EMAIL: { required: false }
       CMUX_UITEST_STACK_PASSWORD: { required: false }
+      # The private R2 copy of a kept image (Upload the image to R2); a caller passes them or inherits.
+      CF_R2_ACCESS_KEY_ID: { required: false }
+      CF_R2_SECRET_ACCESS_KEY: { required: false }
+      CF_R2_ACCOUNT_ID: { required: false }
     outputs:
       candidate:
         description: The kept image's record (channel-dev.json, one line of JSON); empty unless every gate passed
@@ -147,7 +163,7 @@ jobs:
   # environment creates it, unprotected): it must exist and allow feat-cmux-next only.
   prod-gate:
     if: inputs.mode == 'prod-copy'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -169,7 +185,7 @@ jobs:
     needs: prod-gate
     # Every mode but prod-copy skips prod-gate and runs as before; prod-copy runs only after it passed.
     if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.mode != 'prod-copy' && needs.prod-gate.result == 'skipped')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
     # prod-copy alone bakes on the production account, in its own environment.
     # Both environments allow only feat-cmux-next.
@@ -246,20 +262,49 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
 
       # web/'s install was 3.4 of the run's 14 min with a cold package cache (run 41857345925). The cache holds
       # package tarballs only, no secret; this job runs on feat-cmux-next only, so only that branch writes it.
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-vm-image-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-vm-image-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ (!(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref))) && steps.bun-warm.outputs.warm != 'true' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-vm-image-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -329,6 +374,9 @@ jobs:
           # A per-commit (layered) bake samples idle CPU over the idle-wakeup check's own minute; a full bake (the
           # weekly run, and a dev tree bake, which the Bake step always runs in full) keeps the two-minute sample.
           IDLE_SECONDS: ${{ (inputs.layered && !inputs.dev_tree) && '60' || '120' }}
+          # A roll judges the edge-rule clone against the live image (smoke.ts edgeRuleLiveControl): a failure the
+          # live image shares (the provider's TLS-rule resolver) warns on the live-failing issue instead of blocking.
+          EDGE_BASELINE: ${{ inputs.roll && 'live' || 'none' }}
         run: |
           set -euo pipefail
           # A layered bake left its builder for the SBOM and file manifest (inventory.ts); they run beside the
@@ -340,11 +388,13 @@ jobs:
           fi
           smoke_status=0
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --idle-seconds "$IDLE_SECONDS" --out-dir "$OUT_DIR" $PROBES $TEAM_VM | tee "$OUT_DIR/smoke.out" || smoke_status=$?
+          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --idle-seconds "$IDLE_SECONDS" --out-dir "$OUT_DIR" --edge-baseline "$EDGE_BASELINE" $PROBES $TEAM_VM | tee "$OUT_DIR/smoke.out" || smoke_status=$?
           if [ -n "$inventory_pid" ]; then
             inventory_status=0
             wait "$inventory_pid" || inventory_status=$?
-            tail -3 "$OUT_DIR/inventory.out"
+            # Every step's time, not just the last three lines, so a step creeping toward its budget shows in the job log.
+            grep -E '^(ok \[|STEP FAILED|SLOW_STEP|INVENTORY)' "$OUT_DIR/inventory.out" || tail -3 "$OUT_DIR/inventory.out"
+            grep '^SLOW_STEP ' "$OUT_DIR/inventory.out" | sed 's/^/::warning title=Image inventory slow::/' || true
             [ "$inventory_status" -eq 0 ] || { echo "::error title=Image inventory::the SBOM or file manifest failed (inventory.out)"; exit 1; }
           fi
           exit "$smoke_status"
@@ -400,7 +450,7 @@ jobs:
       # A check already failing on the live image warns and does not block (harness-gate.ts LIVE_FAILING_FILE); its
       # lines go on as the live_failing output, which the image roll's report job files on one issue.
       - name: Checks already failing on the live image
-        if: always() && steps.agent_tools_probe.outcome != 'skipped'
+        if: always() && (steps.agent_tools_probe.outcome != 'skipped' || steps.smoke.outcome == 'success')
         id: live_failing
         run: |
           set -euo pipefail
@@ -457,6 +507,7 @@ jobs:
              + (if ($b[0].inputsSha256 // null) != null then {inputs_sha256: $b[0].inputsSha256} else {} end)
              + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
+             + (if ($b[0].disk // null) != null then {disk: $b[0].disk} else {} end)
              + (if $large != null then {large: $large} else {} end)' \
             > "$candidate"
           cat "$candidate"
@@ -606,6 +657,25 @@ jobs:
           snapshot="${DEV_SNAPSHOT:-$(jq -r '.snapshot_id' ../images/cmux-vm/channels/dev.json)}"
           bun ../images/cmux-vm/first-session.ts --snapshot "$snapshot" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-session.out"
 
+      # RFD 0100 step 6: the image as a qcow2 disk with its sha256, beside the snapshot chain. Opt-in (inputs.qcow2),
+      # after a passed smoke. The guest gets only presigned URLs, never the R2 key.
+      - name: Export the qcow2 image
+        if: inputs.mode == 'bake' && inputs.qcow2 && steps.smoke.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          # Private: no r2.dev, no custom domain (fleet-artifact-cdn.yml checks it). A dev image is never
+          # published; readers get presigned GET URLs.
+          R2_BUCKET: cmux-fleet-artifacts
+        # scripts/ci/vm-image-qcow2-publish.sh: the same export the image roll runs for every rolled image.
+        run: bash ../scripts/ci/vm-image-qcow2-publish.sh
+
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.
       - name: Delete everything this run created
@@ -680,7 +750,7 @@ jobs:
   # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.
   first-build-before:
     if: inputs.mode == 'bake' && inputs.dev_tree
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -718,15 +788,20 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -764,7 +839,7 @@ jobs:
   first-build-report:
     if: ${{ !cancelled() && inputs.mode == 'bake' && inputs.dev_tree }}
     needs: [bake, first-build-before]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
@@ -793,15 +868,20 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Download the measurements
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

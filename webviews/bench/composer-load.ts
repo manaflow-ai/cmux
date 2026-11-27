@@ -1,5 +1,11 @@
 // l10n-allow-file: benchmark diagnostics, not shipped UI.
 import type { Frame, Page } from "playwright";
+import { waitForPageHook, watchPageErrors } from "./support/benchPage";
+import leoNightly from "./profiles/leo-nightly.json";
+import { keyPhasesProbe, readKeyPhases } from "./keyPhases";
+
+/// One display refresh at 60 Hz, the headless browsers' frame interval (ms).
+const REFRESH_MS = 1000 / 60;
 
 type Surface = Page | Frame;
 type LoadReceipt = {
@@ -11,13 +17,55 @@ type LoadReceipt = {
   elapsedMs: number;
   maxGapMs: number;
   maxScheduleOffsetMs: number;
+  /// The maxima since the `mark` taken when the typing window opened (see runComposerLoad).
+  windowMaxGapMs: number;
+  windowMaxScheduleOffsetMs: number;
+  windowMaxGapEndMs: number;
   error?: string;
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+/// The page's percentile (perf.ts `summary`): the nearest rank, rounded to 0.01 ms.
+const stage = (xs: number[], p: number) => {
+  const sorted = [...xs].sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  return Math.round(sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * p))]! * 100) / 100;
+};
 const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
 
-export async function seedComposer(surface: Surface, turns: number) {
-  await surface.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+/// The typing budgets on the app's display: a key on screen within 16 ms at p95 and 33 ms at p99 (#44416) on Leo's
+/// 120 Hz display (bench/profiles/leo-nightly.json metrics.display_hz, the 11-26 profile; #58092 draws the sim ladder at
+/// it for the same reason).
+export const APP_BUDGET_P95_MS = 16;
+export const APP_BUDGET_P99_MS = 33;
+export const APP_DISPLAY_HZ = Number(leoNightly.metrics?.display_hz) || 120;
+
+/// The app's budgets as read on a harness whose display refreshes every `refreshMs` (pure). A key waits for the
+/// display's next refresh before its frame starts, a wait spread evenly over one refresh, so its keydown to paint
+/// carries up to one refresh the work did not cause: on the app's 120 Hz display 8.3 ms, on headless Chromium and
+/// Playwright's WebKit, both locked at 60 Hz, 16.7 ms. A 60 Hz harness read 16 ms at p95 against that wait alone
+/// (its p95 is 15.8 ms with no work at all: WebKit's L0 keys read 18), so the budget measured the display, not the
+/// page. The same allowance for the work, past one refresh of the harness's display instead of the app's, is the
+/// budget plus the difference of the two refreshes: 24.3 and 41.3 ms at 60 Hz, the app's own at 120 Hz. A harness as
+/// fast as the app or faster keeps the app's budgets.
+export function displayBudgets(refreshMs: number, appHz = APP_DISPLAY_HZ): { p95: number; p99: number } {
+  const extra = Number.isFinite(refreshMs) ? Math.max(0, refreshMs - 1000 / appHz) : 0;
+  const round = (ms: number) => Math.round(ms * 100) / 100;
+  return { p95: round(APP_BUDGET_P95_MS + extra), p99: round(APP_BUDGET_P99_MS + extra) };
+}
+
+/// The refresh of the display a page drew at, from its frame intervals (pure): their 10th percentile. A dropped
+/// frame makes an interval longer and never shorter, so even a busy page's fastest intervals are its display's
+/// refresh; with no intervals, Chromium's own 60 Hz.
+export function displayRefreshMs(intervals: readonly number[]): number {
+  const sorted = intervals.filter((ms) => Number.isFinite(ms) && ms > 0).sort((a, b) => a - b);
+  if (sorted.length < 10) return 1000 / 60;
+  return sorted[Math.floor((sorted.length - 1) * 0.1)]!;
+}
+
+export async function seedComposer(surface: Surface, turns: number, errors?: string[]) {
+  // Not a bare waitForFunction: a page that threw while it mounted installs no hook, and the wait
+  // then reads as `Timeout ... log: []` with nothing to point at (bench/support/benchPage.ts).
+  await waitForPageHook(surface, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   const receipt = await surface.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,
@@ -51,14 +99,28 @@ export async function runComposerLoad(
     toolLines: number;
     /// Around the typed keys only (a CPU profile of the window the keys wait in, not the setup).
     typing?: { start(): Promise<void>; stop(): Promise<void> };
+    /// Each key's time by phase, from the page's own event timestamps (keyPhases.ts; a `KEY-PHASES` line).
+    phases?: boolean;
+    /// A script file the page runs before its own code; its `window.__probe()` prints as a `PROBE` line after the keys.
+    probe?: string;
   },
 ) {
   const { port, mode, length, keys, gap } = options;
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  // Named apart from the acceptance `errors` list below: these are the page's own thrown/console errors,
+  // collected from the goto onward so a pane that never installs its hook reports what it held instead.
+  const pageErrors = watchPageErrors(page);
+  if (options.phases) await page.addInitScript(keyPhasesProbe);
+  if (options.probe) await page.addInitScript({ path: options.probe });
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A static server that answers `/` with a 404 body loads as a page: without this the bench waits
+  // 60 s for hooks that page could never install (bench/support/benchPage.ts gotoBenchPage).
+  if (status !== undefined && status >= 400)
+    throw new Error(`runComposerLoad: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
   // Always report/check the actual model count too; the old fixture comment omits the summary.
   const requestedRows = mode === "L3" ? 100000 : length;
-  const seed = await seedComposer(page, Math.ceil(requestedRows / 3));
+  const seed = await seedComposer(page, Math.ceil(requestedRows / 3), pageErrors);
   const rows = seed.rows;
   // L3's receipt, taken before any key: the model reports the full total and its own readiness.
   // The mounted window is diagnostic only; a paged transcript may not hold the newest row locally.
@@ -123,13 +185,20 @@ export async function runComposerLoad(
     if (receipt.error) throw new Error(receipt.error);
   }
   await page.waitForTimeout(500);
-  const readLoads = () =>
+  const readLoads = (mark = false) =>
     Promise.all(
       loads.map(
-        (surface) => surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad()) as Promise<LoadReceipt>,
+        (surface) =>
+          surface.evaluate(
+            (mark) => (window as any).cmuxAcpmuxDebug.typingLoad(mark ? { mark: true } : undefined),
+            mark,
+          ) as Promise<LoadReceipt>,
       ),
     );
-  const before = await readLoads();
+  // The rate and continuity checks below cover the window from here to the last key's paint: the
+  // stream's first second (its tool row mounting, the page settling) is before any key is timed, so
+  // a stall there says nothing about whether the keys were typed under the requested load.
+  const before = await readLoads(true);
   await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     debug.resetTyping();
@@ -183,6 +252,11 @@ export async function runComposerLoad(
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
   });
+  if (options.probe)
+    console.log(
+      `PROBE ${JSON.stringify({ mode, length, probe: await page.evaluate(() => (window as any).__probe?.()) })}`,
+    );
+  if (options.phases) console.log(`KEY-PHASES ${JSON.stringify({ mode, length, phases: await readKeyPhases(page) })}`);
   const after = await readLoads();
   for (const surface of loads) await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
   const loadRates = after.map((receipt, i) => {
@@ -192,6 +266,9 @@ export async function runComposerLoad(
       chunks_per_second: (1000 * (receipt.deltas - before[i]!.deltas)) / ms,
       tool_lines_per_second: (1000 * (receipt.toolLines - before[i]!.toolLines)) / ms,
       max_schedule_offset_ms: receipt.maxScheduleOffsetMs,
+      window_max_gap_ms: receipt.windowMaxGapMs,
+      window_max_schedule_offset_ms: receipt.windowMaxScheduleOffsetMs,
+      window_max_gap_end_ms: receipt.windowMaxGapEndMs,
     };
   });
   const samples = result.typing.samples as {
@@ -200,7 +277,21 @@ export async function runComposerLoad(
     paint: number;
     frame: number;
     paint_epoch_ms: number;
+    painted?: number;
+    submitted?: number;
   }[];
+  // Keydown to the paint of the frame that draws the key: that frame's own paint time where the page reports it
+  // (Chromium's element timing, keyPresentation.ts `painted`), else the after-frame proxy (`paint`: a task posted
+  // from the key's frame callback). Under a stream Chromium holds that posted task while input keeps coming: in a
+  // traced L1 run the main thread sat idle for half of a 70 to 84 ms wait after the key's frame had painted (keydown
+  // to that paint p95 18.4 ms, to the posted task 75 ms), so the proxy read the browser's task order, not the key.
+  // WebKit reports no element timing and keeps the proxy.
+  const toPaint = samples.map((s) => (Number.isFinite(s.painted) && s.painted! >= 0 ? s.painted! : s.paint));
+  const presented = samples.flatMap((s) => (Number.isFinite(s.submitted) ? [s.submitted!] : []));
+  const paintP95 = stage(toPaint, 0.95);
+  const paintP99 = stage(toPaint, 0.99);
+  const refreshMs = displayRefreshMs(result.watch.frames);
+  const budgets = displayBudgets(refreshMs);
   const clocksAfter = await readClocks(page, loads);
   const frames = new Map<number, number>();
   for (const sample of samples) frames.set(sample.frame_timestamp_ms, (frames.get(sample.frame_timestamp_ms) ?? 0) + 1);
@@ -225,8 +316,8 @@ export async function runComposerLoad(
         !Number.isFinite(r.chunks_per_second) ||
         r.chunks_per_second < rate * 0.9 ||
         r.tool_lines_per_second < lines * 0.9 ||
-        r.maxGapMs > 250 ||
-        r.maxScheduleOffsetMs > 250 ||
+        r.windowMaxGapMs > 250 ||
+        r.windowMaxScheduleOffsetMs > 250 ||
         streamEndOnPageClock(r, clocksAfter.surfaces[i]) < lastPaint - 250,
     )
   )
@@ -260,29 +351,46 @@ export async function runComposerLoad(
     acceptance_eligible: errors.length === 0 && keys >= 200,
     minimum_acceptance_keys: 200,
     errors,
-    measurement: "DOM-keydown-to-rAF; after-frame is a paint proxy; mock daemon",
+    measurement: samples.some((s) => Number.isFinite(s.painted))
+      ? "DOM-keydown-to-rAF; to_paint is the key's frame's paint (element timing); mock daemon"
+      : "DOM-keydown-to-rAF; after-frame is a paint proxy; mock daemon",
+    painted_keys: samples.filter((s) => Number.isFinite(s.painted)).length,
     load_topology:
       mode === "L2" ? "5 visible + 5 hidden same-origin iframe documents; not native host tabs" : "focused document",
     to_frame_p50: result.typing.to_frame.p50_ms,
     to_frame_p95: result.typing.to_frame.p95_ms,
     to_frame_p99: result.typing.to_frame.p99_ms,
     to_frame_max: result.typing.to_frame.max_ms,
-    to_paint_p95: result.typing.to_paint.p95_ms,
-    to_paint_p99: result.typing.to_paint.p99_ms,
+    to_paint_p95: paintP95,
+    to_paint_p99: paintP99,
+    // Report only: the after-frame proxy as before, and Chromium's presentation of the key's frame.
+    to_paint_proxy_p95: result.typing.to_paint.p95_ms,
+    to_paint_proxy_p99: result.typing.to_paint.p99_ms,
+    to_presented_p95: presented.length ? stage(presented, 0.95) : undefined,
     to_listener_p95: result.typing.to_listener.p95_ms,
     to_work_p95: result.typing.to_work.p95_ms,
     frames_over_16_ms: result.watch.frames.filter((ms: number) => ms > 16).length,
     longest_observed_task_ms: result.watch.longest_observed_task_ms,
     long_task_supported: result.watch.long_task_supported,
     task_observation_threshold_ms: result.watch.task_observation_threshold_ms,
+    // Keys whose frame came more than one refresh after the keydown: the key's task ended past that refresh's
+    // main-frame deadline (or no frame was being produced and the first came a refresh late), so the key waited a
+    // whole refresh more. At a 60 Hz refresh, keydown to the next frame is up to 16.7 ms by phase alone, so a p95
+    // over 16 ms is these keys (nightly a94af724, Chromium L0: 107 of 500, to_paint p95 25.1).
+    keys_missed_refresh: samples.filter((s) => Number.isFinite(s.frame) && s.frame > REFRESH_MS + 1).length,
     keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
     driver_late_p95_ms: quantile(late, 0.95),
+    driver_late_max_ms: Math.max(0, ...late),
+    driver_late_max_key: late.indexOf(Math.max(0, ...late)),
     load_rates: loadRates,
-    budget_p95_ms: 16,
-    budget_p99_ms: 33,
+    display_refresh_ms: Math.round(refreshMs * 100) / 100,
+    app_display_hz: APP_DISPLAY_HZ,
+    app_budget_p95_ms: APP_BUDGET_P95_MS,
+    app_budget_p99_ms: APP_BUDGET_P99_MS,
+    budget_p95_ms: budgets.p95,
+    budget_p99_ms: budgets.p99,
     budget_policy: "report-only",
-    target_met:
-      errors.length === 0 && keys >= 200 && result.typing.to_paint.p95_ms <= 16 && result.typing.to_paint.p99_ms <= 33,
+    target_met: errors.length === 0 && keys >= 200 && paintP95 <= budgets.p95 && paintP99 <= budgets.p99,
     renders: result.renders,
     samples,
   };

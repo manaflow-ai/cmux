@@ -8,6 +8,8 @@
 import { memo, useCallback, type KeyboardEvent } from "react";
 import { useDeadlineNow } from "../../ui/pageClock";
 import type { Strings } from "../shared/i18n";
+import type { KeyStyle, ShortcutLayout } from "../../ui/keyStyle";
+import { useListKeys } from "../../ui/useListKeys";
 import { costLine, costTicks } from "./cost";
 import {
   canPause,
@@ -22,7 +24,7 @@ import {
   type MachineLayout,
   type MachineRow,
 } from "./model";
-import { archiving, deleteDate, shownNotice, type DeleteDate } from "./retention";
+import { archiving, deleteDate, shownNotice, type DeleteDate, noticeKey } from "./retention";
 import { machineCapNote } from "./spendCap";
 import { format, L } from "./strings";
 import { DiskHealthSummary } from "./DiskHealth";
@@ -49,6 +51,9 @@ export interface MachineListProps {
   dismissed?: ReadonlySet<string>;
   onKeep?: (id: string, keep: boolean) => void;
   onDismissNotice?: (id: string, at: number) => void;
+  /** `app.keyStyle` and `app.shortcutLayout`; without them the page's own (Standard). */
+  keyStyle?: KeyStyle;
+  shortcutLayout?: ShortcutLayout;
 }
 
 const NO_DISMISSED: ReadonlySet<string> = new Set<string>();
@@ -65,11 +70,37 @@ export function MachineList({
   dismissed = NO_DISMISSED,
   onKeep,
   onDismissNotice,
+  keyStyle,
+  shortcutLayout,
 }: MachineListProps) {
   const open = (id: string) => {
     if (!rows.find((row) => row.id === id)?.classic) onOpen(id);
   };
+  // `app.keyStyle` (the host's values as props): Vim's j/k, gg/G and l, Emacs' Ctrl-N/P/A/E/F, as
+  // the arrows and Return. The list has no search field, Esc or paging, so those keys go on.
+  const styleKeys = useListKeys({
+    style: keyStyle,
+    layout: shortcutLayout,
+    onCommand: (command) => {
+      const real = rows.filter((row) => row.machine);
+      const to =
+        command === "list.next"
+          ? moveSelection(rows, selection, 1)
+          : command === "list.previous"
+            ? moveSelection(rows, selection, -1)
+            : command === "list.first"
+              ? real[0]?.id
+              : command === "list.last"
+                ? real.at(-1)?.id
+                : undefined;
+      if (to) return onSelect(to);
+      if (command === "list.open" && selection) return open(selection);
+      return ["list.next", "list.previous", "list.first", "list.last"].includes(command);
+    },
+  });
   const onKeyDown = (event: KeyboardEvent) => {
+    styleKeys(event);
+    if (event.defaultPrevented) return;
     // Only keys aimed at the list itself or a row; a focused inline button keeps its own Return.
     if (!plain(event) || (event.target as HTMLElement).tagName === "BUTTON") return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -89,7 +120,7 @@ export function MachineList({
           layout={layout}
           selected={row.id === selection}
           strings={strings}
-          dismissed={dismissed}
+          noticeDismissed={noticeDismissed(row, dismissed)}
           onSelect={onSelect}
           onOpen={onOpen}
           onPause={onPause}
@@ -105,7 +136,14 @@ export function MachineList({
 type MachineItemProps = Omit<MachineListProps, "rows" | "selection" | "dismissed"> & {
   row: MachineRow;
   selected: boolean;
-  dismissed: ReadonlySet<string>;
+  /** This browser dismissed the machine's current notice: a boolean per row, so dismissing one
+   * notice draws that row alone, not every row given the new set. */
+  noticeDismissed: boolean;
+};
+
+const noticeDismissed = (row: MachineRow, dismissed: ReadonlySet<string>) => {
+  const notice = row.machine?.notice;
+  return !!notice && dismissed.has(noticeKey(row.id, notice.at));
 };
 
 /** Rows rebuilt from an unchanged machine (the mirror rebuilds every row on each event) count as
@@ -115,23 +153,27 @@ const sameItem = (a: MachineItemProps, b: MachineItemProps) =>
     key === "row" ? sameRow(a.row, b.row) : Object.is(a[key], b[key]),
   ) && Object.keys(a).length === Object.keys(b).length;
 
-const sameRow = (a: MachineRow, b: MachineRow) =>
-  a === b ||
-  (a.id === b.id &&
-    a.title === b.title &&
-    a.status === b.status &&
-    a.machine === b.machine &&
-    a.pending === b.pending &&
-    a.idle === b.idle &&
-    a.keep === b.keep &&
-    a.classic === b.classic);
+// Every field of a row (its machine by identity: the mirror keeps an unchanged machine's object). A
+// new field fails to compile here until it is listed, so a rebuilt row never hides a change.
+const ROW_FIELDS: Record<keyof MachineRow, true> = {
+  id: true,
+  title: true,
+  status: true,
+  machine: true,
+  pending: true,
+  idle: true,
+  keep: true,
+  classic: true,
+};
+const FIELDS = Object.keys(ROW_FIELDS) as (keyof MachineRow)[];
+const sameRow = (a: MachineRow, b: MachineRow) => a === b || FIELDS.every((key) => Object.is(a[key], b[key]));
 
 const MachineItem = memo(function MachineItem({
   row,
   layout,
   selected,
   strings,
-  dismissed,
+  noticeDismissed,
   onSelect,
   onOpen,
   onPause,
@@ -146,7 +188,7 @@ const MachineItem = memo(function MachineItem({
   // Kept shows at once on a toggle (a quick intent); the platform's record follows.
   const machine = row.machine && row.keep !== undefined ? { ...row.machine, keep: row.keep } : row.machine;
   const leaving = !row.pending && archiving(machine);
-  const notice = row.pending || row.classic ? undefined : shownNotice(machine, dismissed);
+  const notice = row.pending || row.classic || noticeDismissed ? undefined : shownNotice(machine, NO_DISMISSED);
   const kept = !!machine?.keep;
   // Keep and Archive and delete live in the machine's detail header: the row stays one line of
   // status and date, with Keep only on the one-time notice.
