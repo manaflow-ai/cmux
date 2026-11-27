@@ -259,6 +259,24 @@ class SharedWebArtifact(unittest.TestCase):
         save = save[:save.index("\n      - name: ", 1)]
         self.assertIn("path: ${{ runner.temp }}/web-bundles-out", save)
 
+    def test_github_cache_hit_skips_the_preflight_build(self) -> None:
+        import yaml
+        job = yaml.safe_load(CALLEE.read_text())['jobs']['web']
+        gated = {
+            step['name']: step['if']
+            for step in job['steps']
+            if step.get('name') in {
+                'Restore pinned Bun 1.4.4 from the CI cache bucket',
+                'Setup Bun', 'Give this job its own bun',
+                'Restore pinned Node 24.22.1 from the CI cache bucket',
+                'Setup Node', 'Restore the webviews Bun package cache',
+                'Build the web bundles (the build NIGHTLY runs)',
+            }
+        }
+        self.assertEqual(len(gated), 7)
+        for condition in gated.values():
+            self.assertIn("steps.web-bundle-cache.outputs.cache-hit != 'true'", condition)
+
     def test_outage_is_not_hidden_by_rebuilding_or_switching_transport(self) -> None:
         import yaml
         for filename, job_name in (("cmux-next-compile-preflight.yml", "web"),
