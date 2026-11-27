@@ -24,13 +24,13 @@ signature_sha="$(sha256sum "$TMP/notes.json.sig" | awk '{print $1}')"
 mkdir -p "$TMP/artifact"
 cp "$TMP/notes.json" "$TMP/artifact/4567042650501.json"
 cp "$TMP/notes.json.sig" "$TMP/artifact/4567042650501.json.sig"
-(cd "$TMP/artifact" && zip -q "$TMP/release-notes.zip" 4567042650501.json 4567042650501.json.sig)
+(cd "$TMP/artifact" && python3 -m zipfile -c "$TMP/release-notes.zip" 4567042650501.json 4567042650501.json.sig)
 artifact_sha="$(sha256sum "$TMP/release-notes.zip" | awk '{print $1}')"
 mkdir -p "$TMP/source-record"
 cat > "$TMP/source-record/published-build.json" <<'JSON'
 {"source_run":"45670426505","source_attempt":"1","source_sha":"36e9bf23b16acc13dce97cb4558ab5405c5ca597","publish_result":"success","push_clean":"true","track":"nightly-next","should_publish":"true","no_publish":"false","publish_build":"4567042650501","publish_build_sha":"36e9bf23b16acc13dce97cb4558ab5405c5ca597","publish_refused":"false","publish_already_published":"false","publish_source":"built"}
 JSON
-(cd "$TMP/source-record" && zip -q "$TMP/source-record.zip" published-build.json)
+(cd "$TMP/source-record" && python3 -m zipfile -c "$TMP/source-record.zip" published-build.json)
 source_record_artifact_sha="$(sha256sum "$TMP/source-record.zip" | awk '{print $1}')"
 cat > "$TMP/provenance.json" <<JSON
 {"source_run":"45670426505","source_attempt":"1","source_sha":"36e9bf23b16acc13dce97cb4558ab5405c5ca597","build":"4567042650501","notes_sha256":"$notes_sha","signature_sha256":"$signature_sha","artifact_run":"45679817194","artifact_attempt":"1","artifact_id":"15055020121","artifact_sha256":"$artifact_sha","artifact_name":"release-notes","source_record_artifact_id":"15053076204","source_record_artifact_sha256":"$source_record_artifact_sha","source_record_artifact_name":"nightly-published-build-1"}
@@ -48,7 +48,7 @@ case "$path" in
 {"id":45670426505,"run_attempt":1,"path":".github/workflows/nightly.yml","head_branch":"nightly-next","head_sha":"36e9bf23b16acc13dce97cb4558ab5405c5ca597","event":"push","status":"completed","conclusion":"cancelled","repository":{"full_name":"manaflow-ai/cmux"},"head_repository":{"full_name":"manaflow-ai/cmux"}}
 JSON
     ;;
-  repos/manaflow-ai/cmux/actions/runs/45670426505/jobs*)
+  repos/manaflow-ai/cmux/actions/runs/45670426505/attempts/1/jobs*)
     printf '{"jobs":[{"name":"nightly-next-one","conclusion":"success"}]}'
     ;;
   repos/manaflow-ai/cmux/actions/runs/45679817194/attempts/1)
@@ -56,7 +56,7 @@ JSON
 {"id":45679817194,"run_attempt":1,"path":".github/workflows/nightly.yml","head_branch":"nightly-next","head_sha":"36e9bf23b16acc13dce97cb4558ab5405c5ca597","event":"workflow_dispatch","status":"completed","conclusion":"failure","repository":{"full_name":"manaflow-ai/cmux"},"head_repository":{"full_name":"manaflow-ai/cmux"}}
 JSON
     ;;
-  repos/manaflow-ai/cmux/actions/runs/45679817194/jobs*)
+  repos/manaflow-ai/cmux/actions/runs/45679817194/attempts/1/jobs*)
     printf '{"jobs":[{"name":"sign-release-notes","conclusion":"success"}]}'
     ;;
   repos/manaflow-ai/cmux/actions/artifacts/15053076204)
@@ -81,6 +81,13 @@ PATH="$TMP:$PATH" ARTIFACT_SHA="$artifact_sha" ARTIFACT_ZIP="$TMP/release-notes.
   --provenance "$TMP/provenance.json" --public-key "$pub" --dry-run > "$TMP/out"
 grep -q '"create_only": true' "$TMP/out"
 grep -q '"source_record_checked": true' "$TMP/out"
+
+PATH="$TMP:$PATH" ARTIFACT_SHA="$artifact_sha" ARTIFACT_ZIP="$TMP/release-notes.zip" SOURCE_RECORD_ARTIFACT_SHA="$source_record_artifact_sha" SOURCE_RECORD_ARTIFACT_ZIP="$TMP/source-record.zip" NIGHTLY_NEXT_PULLED_URL="file://$TMP/pulled.json" \
+  python3 "$SCRIPT" --provenance "$TMP/provenance.json" --public-key "$pub" --dry-run > "$TMP/artifact-only"
+cmp "$TMP/out" "$TMP/artifact-only"
+mkdir -p "$TMP/notes"
+cp "$TMP/notes.json" "$TMP/notes/4567042650501.json"
+cp "$TMP/notes.json.sig" "$TMP/notes/4567042650501.json.sig"
 
 python3 - "$TMP/notes.json.sig" "$TMP/tampered.sig" <<'PY'
 import base64, sys
@@ -183,7 +190,8 @@ spec.loader.exec_module(module)
 module.CONTENT_PUBLIC_KEY = os.environ["TEST_PUBLIC_KEY"]
 module.UPLOADER = pathlib.Path(tmp) / "fake-uploader"
 module.verify_withdrawal_status = lambda build: None
-module.verify_source_record = lambda provenance, notes, signature: None
+module.verified_artifact_pair = lambda provenance: (pathlib.Path(tmp, "notes.json").read_bytes(), pathlib.Path(tmp, "notes.json.sig").read_bytes())
+module.PUBLIC_FEED_BASE = pathlib.Path(tmp).as_uri()
 sys.argv = [script, "--notes", f"{tmp}/notes.json", "--signature", f"{tmp}/notes.json.sig",
             "--provenance", f"{tmp}/provenance.json"]
 raise SystemExit(module.main())
@@ -212,7 +220,8 @@ spec.loader.exec_module(module)
 module.CONTENT_PUBLIC_KEY = os.environ["TEST_PUBLIC_KEY"]
 module.UPLOADER = pathlib.Path(tmp) / "fake-uploader"
 module.verify_withdrawal_status = lambda build: None
-module.verify_source_record = lambda provenance, notes, signature: None
+module.verified_artifact_pair = lambda provenance: (pathlib.Path(tmp, "notes.json").read_bytes(), pathlib.Path(tmp, "notes.json.sig").read_bytes())
+module.PUBLIC_FEED_BASE = pathlib.Path(tmp).as_uri()
 sys.argv = [script, "--notes", f"{tmp}/notes.json", "--signature", f"{tmp}/notes.json.sig",
             "--provenance", f"{tmp}/provenance.json"]
 raise SystemExit(module.main())
