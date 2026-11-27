@@ -67,6 +67,8 @@ fn command(dir: &Path) -> Command {
         .env("CMUX_TUI_CONFIG", dir.join("config.json"))
         .env("CMUX_NEXT_CONFIG_FILE", dir.join("cmux-next.json"))
         .env("CMUX_TUI_LOG_FILE", dir.join("client.log"))
+        // Its own acpmux home: the owner also sends acpmux's panics.jsonl (RFD 0157).
+        .env("ACPMUX_HOME", dir.join("acpmux"))
         .env_remove("CI");
     command
 }
