@@ -102,6 +102,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
+| `client-disconnected-by` | control (targeted) | connection | protocol 12; sent before intentional disconnection |
 | `client-list-invalidated` | subscribe | session | protocol 9 reserved serializer; core currently emits no instance |
 | `size-state` | subscribe, byte/render attach | `surface` | protocol 12 additive; client capability `shared-sizing-v1` |
 | `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
@@ -1513,6 +1514,32 @@ Example:
 ```
 
 ## Control Events
+
+### client-disconnected-by
+
+| Field | Value |
+| --- | --- |
+| event | `client-disconnected-by` |
+| status | implemented control lifecycle event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"client-disconnected-by",by?:SizeDetachActor}
+```
+
+Sent to the client being intentionally disconnected, before its attached
+streams receive `detached` and its control connection closes. This notice
+also reaches clients with no attached streams. Clients must not reconnect
+automatically after receiving it. `by` identifies the participant requesting
+the disconnect and is omitted when no actor fields are available.
+
+Example:
+
+```json
+{"event":"client-disconnected-by","by":{"display_name":"Maya"}}
+```
 
 ### daemon-shutdown
 

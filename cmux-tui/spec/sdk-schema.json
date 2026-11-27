@@ -31467,6 +31467,36 @@
     "additional_properties": false
    }
   },
+  "client-disconnected-by": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "client-disconnected-by"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "by": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeDetachActor"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "daemon-shutdown": {
    "since": 12,
    "capability": null,
