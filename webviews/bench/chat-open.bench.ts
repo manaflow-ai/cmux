@@ -749,13 +749,14 @@ try {
             __open?: { latest: number; activity: number };
             __remoteTail?: { reconciled: number };
             __composer?: unknown;
+            webkit?: { messageHandlers?: Record<string, unknown> };
           };
           const scroll = document.querySelector(".acpmux-scroll");
           return {
             expectedRow,
             url: location.href,
             body: document.body.innerText.slice(0, 3000),
-            hostHandlers: Object.keys(window.webkit?.messageHandlers ?? {}),
+            hostHandlers: Object.keys(state.webkit?.messageHandlers ?? {}),
             parked: (window as unknown as { __cmuxPageParked?: unknown }).__cmuxPageParked,
             now: performance.now(),
             open: state.__open,
