@@ -625,7 +625,11 @@ fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
     end_child(&mut old_app);
     std::thread::sleep(Duration::from_millis(500));
     let mut new_app = fake_app(Some(&socket));
-    let adopted = old.line(Duration::from_secs(10), |l| l.contains("the owner app is back"));
+    let seen = std::cell::RefCell::new(Vec::new());
+    let adopted = old.line(Duration::from_secs(10), |l| {
+        seen.borrow_mut().push(l.to_owned());
+        l.contains("the owner app is back")
+    });
     drop(holder);
     // Every 20 ms a fresh connection across the swap: the listener's gap.
     let tmp = dir.join("acpmux.new");
@@ -645,7 +649,17 @@ fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let new_pid = new_pid.expect("the installed build took over");
+    let Some(new_pid) = new_pid else {
+        while let Some(l) = old.line(Duration::from_millis(200), |_| true) {
+            seen.borrow_mut().push(l);
+        }
+        panic!(
+            "the installed build did not take over; old alive {}, adopted {adopted:?}, status {:?}, old daemon said:\n{}",
+            unsafe { libc::kill(old_pid as i32, 0) } == 0,
+            status(&dir),
+            seen.borrow().join("\n")
+        );
+    };
     eprintln!(
         "update-handoff: swap {old_pid} -> {new_pid}, longest listener gap {longest:?}; adopted line: {adopted:?}"
     );
