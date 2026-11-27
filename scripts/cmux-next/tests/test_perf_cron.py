@@ -5442,6 +5442,42 @@ class LinuxControllerRouteTests(unittest.TestCase):
         cron.record_part(cur, "diff-viewer", {"state": "done"}, "r", T0)
         self.assertFalse(cron.linux_pool_full(cur, T0), "the pool ran a part: one request a tick again")
 
+    def test_a_starved_linux_part_runs_on_the_runner_not_in_the_request_slot(self):
+        # 2026-11-23 to 11-26: daemon-restart (stored 11-23 01:14Z) and web-ui-scale (11-21), the two stalest Linux
+        # parts, were first in part_order, so each tick one of them was the one request asked of the controller, which
+        # never ran it; each measurement ended before two unanswered windows sent it to the runner, and the NOW row
+        # restart_chat_attach_daemon_ms read nothing for 3 days while every part behind them ran on the runner.
+        t = T0
+        fresh = cron.iso(t - datetime.timedelta(hours=5))
+        state = {"part_stored": {"web-ui-scale": {"at": cron.iso(t - datetime.timedelta(hours=128))},
+                                 "daemon-restart": {"at": cron.iso(t - datetime.timedelta(hours=93))},
+                                 "diff-viewer": {"at": fresh}, "web-ui": {"at": fresh}}}
+        order = ["web-ui-scale", "daemon-restart", "diff-viewer", "web-ui", "coord-sim"]
+        starved = cron.linux_starved(state, order, t)
+        self.assertEqual(starved, {"web-ui-scale", "daemon-restart", "coord-sim"}, "no stored rows is starved too")
+        cur = cron.new_measurement(self.SHA, "tip", list(order), t)
+        self.assertEqual(cron.linux_picks(cur, order, t, True, True, starved),
+                         (["web-ui-scale", "daemon-restart", "coord-sim"], "diff-viewer", []))
+        self.assertEqual(sorted(cur["linux_requests"]), ["diff-viewer"], "a starved part keeps no request")
+        # Before: the stalest part takes the one request and nothing else runs.
+        cur = cron.new_measurement(self.SHA, "tip", list(order), t)
+        self.assertEqual(cron.linux_picks(cur, order, t, True, True), ([], "web-ui-scale", []))
+        # A starved part already asked waits out its answer window, and then goes to the runner at once.
+        cur = cron.new_measurement(self.SHA, "tip", list(order), t)
+        cron.linux_picks(cur, ["daemon-restart"], t, True, True)
+        self.assertEqual(cron.linux_picks(cur, ["daemon-restart"], t + datetime.timedelta(minutes=30), True, True,
+                                          {"daemon-restart"}), ([], "", ["daemon-restart"]))
+        later = t + datetime.timedelta(minutes=cron.linux_answer_minutes("daemon-restart") + 1)
+        self.assertEqual(cron.linux_picks(cur, ["daemon-restart"], later, True, True, {"daemon-restart"}),
+                         (["daemon-restart"], "", []))
+        # Its runner result stores rows, and the next measurement asks the controller for it again.
+        cron.record_part(cur, "daemon-restart", {"state": "done"}, "r", later)
+        self.assertNotIn("daemon-restart", cur["parts_todo"])
+        state["part_stored"]["daemon-restart"] = {"at": cron.iso(later)}
+        self.assertNotIn("daemon-restart", cron.linux_starved(state, order, later))
+        self.assertEqual(cron.linux_starved({}, ["web-ui"], t), {"web-ui"})
+        self.assertEqual(cron.linux_starved({"part_stored": {"web-ui": {"at": None}}}, ["web-ui"], t), {"web-ui"})
+
     def test_a_yield_that_is_not_a_full_pool_keeps_the_request_count(self):
         cur = self.cur()
         cron.linux_route(cur, "web-ui-god", T0, True, True)
@@ -5551,6 +5587,7 @@ class LinuxControllerRouteTests(unittest.TestCase):
         d = tempfile.mkdtemp()
         state = cron.empty_state(T0)
         state["current"] = cron.new_measurement(self.SHA, "tip", ["web-ui-god"], T0)  # one part: nothing else runs while it waits
+        state["part_stored"] = {"web-ui-god": {"at": cron.iso(T0)}}  # fresh rows: not starved (LINUX_STARVED_HOURS)
         state.pop("dirty", None)
         with open(os.path.join(d, "state.json"), "w") as f:
             json.dump(state, f)

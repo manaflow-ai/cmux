@@ -268,7 +268,8 @@ fn codex_switch_round_trips_and_keeps_comments() {
     assert!(text.contains("name = \"cloudflare\""));
     assert!(set_enabled(&f.homes, &change(true)).unwrap().enabled);
     let text = fs::read_to_string(&config).unwrap();
-    assert_eq!(text.matches("[[skills.config]]").count(), 2, "updated in place: {text}");
+    assert_eq!(text.matches("[[skills.config]]").count(), 1, "path rule removed: {text}");
+    assert!(!text.contains(&pdf.display().to_string()), "{text}");
     // A path rule after the name rule turns a skill back on.
     let cloudflare = fs::canonicalize(f.homes.codex.join("skills/cloudflare/SKILL.md")).unwrap();
     let on = set_enabled(

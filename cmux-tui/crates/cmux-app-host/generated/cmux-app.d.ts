@@ -11,6 +11,9 @@ declare namespace Cmux {
   type AgentMessageUnsendResult = { outcome: Cmux.AgentMessageUnsendOutcome; outcomes: Array<{ recipient: string; outcome: Cmux.AgentMessageUnsendOutcome; error?: { reason: string; message: string; acpmux_reason?: string } }>; message: Cmux.AgentMessageSnapshot }
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
+  type AppKvApp = string
+  type AppKvKey = string
+  type AppKvRow = { app: string; key: string; value: string; revision: unknown; updated_ms: unknown }
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null; sharing?: Cmux.Sharing; editors?: Array<Cmux.UserId>; catch_up?: Cmux.CatchUp; home?: "cloud"; epoch?: number; last_slot?: number | null; handoff?: Cmux.Handoff; origin?: { handoff: string; from: string; source_id: string } }
   type AutomationAuditEntry = { n: number; at: number; actor: string; op: string; automation: Cmux.AutomationId; summary: string }
   type AutomationId = string
@@ -647,6 +650,14 @@ interface CmuxGlobal {
     /** `agents.open` (mutation, scope `agents:write`, owner `app:cmux/agents`): Open the Agent CLIs pane. */
     open: CmuxOp<Record<string, never>, unknown>
   }
+  appkv: {
+    /** `appkv.delete` (mutation, scope `appkv:write`): Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds. */
+    delete: CmuxOp<{ app: Cmux.AppKvApp; key: Cmux.AppKvKey; expected_revision?: string }, Cmux.MutationResult<{ app: string; key: string; existed: boolean }>>
+    /** `appkv.list` (read, scope `appkv:read`): Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000). */
+    list: CmuxOp<{ after_revision?: number; limit?: number }, { rows: Array<Cmux.AppKvRow>; next_after_revision: unknown | null; revision: string }>
+    /** `appkv.set` (mutation, scope `appkv:write`): Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins. */
+    set: CmuxOp<{ app: Cmux.AppKvApp; key: Cmux.AppKvKey; value: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AppKvRow>>
+  }
   automation: {
     audit: {
       /** `automation.audit.list` (read, scope `automation:read`): The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
@@ -922,8 +933,8 @@ interface CmuxGlobal {
       get: CmuxOp<Record<string, never>, Cmux.CloudPlan>
     }
     port: {
-      /** `cloud.port.forward` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). One forward per machine and port: a second call returns the same localPort. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger. */
-      forward: CmuxOp<{ machine: string; port: number }, { machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }>
+      /** `cloud.port.forward` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). The optional scheme (http by default, or https for a self-signed HTTPS service) is returned with a loopback url. One forward per machine and port: repeated calls reuse the live forward and return its original localPort and scheme, even if a different scheme is requested. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger. */
+      forward: CmuxOp<{ machine: string; port: number; scheme?: "http" | "https" }, { machine: string; port: number; host: "127.0.0.1"; localPort: number; scheme: "http" | "https"; url: string; generation: number; state: "up" | "down"; reason?: string | null }>
       /** `cloud.port.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List this Mac's port forwards to Cloud machines, up or down. It does not list the machine's listening ports (no route for that). */
       list: CmuxOp<{ machine?: string }, { forwards: Array<{ machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }> }>
     }
