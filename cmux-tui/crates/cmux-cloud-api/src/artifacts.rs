@@ -14,13 +14,14 @@
 //! The answer is `{status, content_type, commit, size, body_base64}` for every status (the app
 //! reads 401, 403 and 404 itself): `commit` is `X-Artifacts-Commit`, `size` the body's length.
 //! A body longer than the route's limit ([`FILE_BODY_LIMIT`] for a file, which the page shows as
-//! too large to preview, [`BODY_LIMIT`] else) comes back without `body_base64`.
+//! too large to preview, [`BODY_LIMIT`] else) comes back without `body_base64`, at any length: it
+//! is counted, never kept, so it is not a failure. A param the page may not send is a 400
+//! `artifacts.invalid_params`, before any request.
 
 use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use reqwest::Method;
 use serde_json::{Map, Value, json};
 
 use super::http::Http;
@@ -44,7 +45,9 @@ pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 pub(crate) fn query(
     args: &Map<String, Value>,
 ) -> Result<(&'static str, Vec<(&'static str, String)>), Failure> {
-    let invalid = Failure::Transport;
+    let invalid = |message: String| {
+        Failure::http(400, Some("artifacts.invalid_params".to_owned()), Some(message))
+    };
     let text = |name: &'static str, max: usize| -> Result<Option<&str>, Failure> {
         match args.get(name) {
             None | Some(Value::Null) => Ok(None),
@@ -104,16 +107,16 @@ pub(crate) async fn read(http: &Http, args: &Map<String, Value>) -> Result<Value
     let (route, query) = query(args)?;
     let segments = ["v1", "artifacts", route];
     let path = format!("/{}", segments.join("/"));
-    let reply =
-        http.send(Method::GET, http.url(&segments, &query), None, None, TIMEOUT, &path).await?;
     let limit = if route == "file" { FILE_BODY_LIMIT } else { BODY_LIMIT };
+    let (reply, size) =
+        http.send_counted(http.url(&segments, &query), TIMEOUT, &path, limit).await?;
     let mut answer = json!({
         "status": reply.status,
         "content_type": reply.content_type,
         "commit": reply.commit,
-        "size": reply.body.len(),
+        "size": size,
     });
-    if reply.body.len() <= limit {
+    if size <= limit {
         answer["body_base64"] = json!(BASE64.encode(&reply.body));
     }
     Ok(answer)

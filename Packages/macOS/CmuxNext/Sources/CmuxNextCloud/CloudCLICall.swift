@@ -273,6 +273,11 @@ public struct CloudCLICall: Sendable {
 public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
     public var code: String
     public var message: String
+
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
+    }
 }
 
 /// The platform's answer to ``CloudCLICall/artifactsRead(path:query:signedIn:socket:)``: `body` is empty when the

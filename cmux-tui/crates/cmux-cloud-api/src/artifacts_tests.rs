@@ -151,6 +151,39 @@ fn a_file_too_large_to_preview_comes_back_without_its_body() {
 }
 
 #[test]
+fn a_tree_or_history_body_is_kept_to_8_mib_and_counted_past_it() {
+    for route in ["tree", "history"] {
+        let at = "x".repeat(super::BODY_LIMIT);
+        let (origin, _seen) = fake(answer(200, "content-type: application/json\r\n", &at));
+        let answer = go(&request(&origin, Auth::Worker, json!({"route": route}))).unwrap();
+        assert_eq!(answer["size"], super::BODY_LIMIT);
+        assert_eq!(body(&answer).len(), super::BODY_LIMIT);
+
+        // Chunked, so the length is counted from the stream rather than a declared length.
+        let past = "x".repeat(super::BODY_LIMIT + 1);
+        let chunked = format!(
+            "HTTP/1.1 200 X\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n{:x}\r\n{past}\r\n0\r\n\r\n",
+            past.len()
+        );
+        let (origin, _seen) = fake(chunked);
+        let answer = go(&request(&origin, Auth::Worker, json!({"route": route}))).unwrap();
+        assert_eq!(answer["size"], super::BODY_LIMIT + 1);
+        assert!(answer.get("body_base64").is_none());
+    }
+}
+
+#[test]
+fn a_body_past_the_answer_cap_is_its_size_not_a_failure() {
+    let huge = "x".repeat(crate::MAX_ANSWER_BYTES + 1);
+    let (origin, _seen) = fake(answer(200, "content-type: application/octet-stream\r\n", &huge));
+    let answer =
+        go(&request(&origin, Auth::Worker, json!({"route": "file", "path": "huge"}))).unwrap();
+    assert_eq!(answer["status"], 200);
+    assert_eq!(answer["size"], crate::MAX_ANSWER_BYTES + 1);
+    assert!(answer.get("body_base64").is_none());
+}
+
+#[test]
 fn bad_params_and_origins_are_refused_before_any_request() {
     let (origin, seen) = fake(answer(200, "", "{}"));
     let refused = [
@@ -168,7 +201,10 @@ fn bad_params_and_origins_are_refused_before_any_request() {
     ];
     for args in refused {
         let failure = go(&request(&origin, Auth::Worker, args.clone())).unwrap_err();
-        assert!(matches!(failure, Failure::Transport(_)), "{args}: {failure:?}");
+        assert!(
+            matches!(&failure, Failure::Http { status: 400, code: Some(code), .. } if code == "artifacts.invalid_params"),
+            "{args}: {failure:?}"
+        );
     }
     let stack = go(&request(&origin, Auth::Stack, json!({"route": "tree"}))).unwrap_err();
     assert!(matches!(stack, Failure::Http { status: 501, .. }), "{stack:?}");

@@ -237,6 +237,44 @@ impl Http {
         timeout: Duration,
         path: &str,
     ) -> Result<Reply, Failure> {
+        let (reply, _) =
+            self.send_with(method, url, body, named, timeout, path, BodyMode::Refuse).await?;
+        Ok(reply)
+    }
+
+    /// A GET whose body past `limit` bytes is counted, not kept: the reply's body is empty then,
+    /// and the second value is the body's whole length either way (a declared length over `limit`
+    /// is read no further).
+    pub(crate) async fn send_counted(
+        &self,
+        url: reqwest::Url,
+        timeout: Duration,
+        path: &str,
+        limit: usize,
+    ) -> Result<(Reply, usize), Failure> {
+        self.send_with(
+            reqwest::Method::GET,
+            url,
+            None,
+            (None, &[]),
+            timeout,
+            path,
+            BodyMode::Count(limit),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_with(
+        &self,
+        method: reqwest::Method,
+        url: reqwest::Url,
+        body: Option<Body>,
+        named: (Option<&str>, &[(&'static str, String)]),
+        timeout: Duration,
+        path: &str,
+        mode: BodyMode,
+    ) -> Result<(Reply, usize), Failure> {
         let (idempotency_key, headers) = named;
         let mut builder =
             self.clients.fast.request(method, url).bearer_auth(&self.credential).timeout(timeout);
@@ -291,24 +329,66 @@ impl Http {
         let retry_after = header(reqwest::header::RETRY_AFTER.as_str());
         let content_type = header(reqwest::header::CONTENT_TYPE.as_str());
         let commit = header("x-artifacts-commit");
-        let body =
-            match tokio::time::timeout(timeout, bounded_body(response, crate::MAX_ANSWER_BYTES))
-                .await
-            {
-                Err(_) => return Err(Failure::TimedOut(path.to_owned())),
-                Ok(Err(BodyError::Read(e))) if e.is_timeout() => {
-                    return Err(Failure::TimedOut(path.to_owned()));
+        let read = async {
+            match mode {
+                BodyMode::Refuse => {
+                    bounded_body(response, crate::MAX_ANSWER_BYTES).await.map(|b| {
+                        let size = b.len();
+                        (b, size)
+                    })
                 }
-                Ok(Err(BodyError::Read(e))) => return Err(Failure::Transport(transport_text(e))),
-                Ok(Err(BodyError::TooLarge(limit))) => {
-                    return Err(Failure::Transport(format!(
-                        "{path}: the answer is larger than {limit} bytes"
-                    )));
+                BodyMode::Count(limit) => {
+                    counted_body(response, limit).await.map_err(BodyError::Read)
                 }
-                Ok(Ok(bytes)) => bytes,
-            };
-        Ok(Reply { status, header_code, retry_after, content_type, commit, body })
+            }
+        };
+        let (body, size) = match tokio::time::timeout(timeout, read).await {
+            Err(_) => return Err(Failure::TimedOut(path.to_owned())),
+            Ok(Err(BodyError::Read(e))) if e.is_timeout() => {
+                return Err(Failure::TimedOut(path.to_owned()));
+            }
+            Ok(Err(BodyError::Read(e))) => return Err(Failure::Transport(transport_text(e))),
+            Ok(Err(BodyError::TooLarge(limit))) => {
+                return Err(Failure::Transport(format!(
+                    "{path}: the answer is larger than {limit} bytes"
+                )));
+            }
+            Ok(Ok(read)) => read,
+        };
+        Ok((Reply { status, header_code, retry_after, content_type, commit, body }, size))
     }
+}
+
+/// How [`Http`] reads a body: refused past [`crate::MAX_ANSWER_BYTES`], or kept to a limit and
+/// counted past it ([`counted_body`]).
+#[derive(Clone, Copy)]
+enum BodyMode {
+    Refuse,
+    Count(usize),
+}
+
+/// `response`'s body and its length: kept while it is at most `limit` bytes; past that, the bytes
+/// are dropped and only counted (memory stays at `limit`). A declared length over `limit` is
+/// answered at once, with no read.
+pub(crate) async fn counted_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<(Vec<u8>, usize), reqwest::Error> {
+    let declared = response.content_length().and_then(|n| usize::try_from(n).ok());
+    if let Some(declared) = declared.filter(|&n| n > limit) {
+        return Ok((Vec::new(), declared));
+    }
+    let mut body = Vec::new();
+    let mut size = 0_usize;
+    while let Some(chunk) = response.chunk().await? {
+        size = size.saturating_add(chunk.len());
+        if size > limit {
+            body = Vec::new();
+        } else {
+            body.extend_from_slice(&chunk);
+        }
+    }
+    Ok((body, size))
 }
 
 /// Why [`bounded_body`] read no body.
