@@ -2939,7 +2939,7 @@ button.menu-disclosure {
   background: var(--accent-soft);
 }
 
-.computer-use-mode:focus-within {
+.computer-use-mode:has(:focus-visible) {
   outline: 2px solid var(--border-strong);
   outline-offset: -2px;
 }

@@ -356,7 +356,7 @@
 }
 
 .acpmux-inspector-perf-label {
-  max-width: 240px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-mono);

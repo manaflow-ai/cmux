@@ -31,11 +31,11 @@
    not the key one draws no light (its field can hold focus in the background). */
 @media not (prefers-contrast: more) {
   /* hairline: one 1 px accent ring inside the edge. */
-  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="hairline"]:focus-within {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="hairline"][data-focused] {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-v2-accent);
   }
   /* halo: the accent edge and a soft band of it all round, two rings stepping out (spread, no blur). */
-  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="halo"]:focus-within {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="halo"][data-focused] {
     --acpmux-card-ring:
       inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-v2-accent) 70%, transparent),
       0 0 0 2px color-mix(in srgb, var(--acpmux-v2-accent) 22%, transparent),
@@ -72,11 +72,11 @@
   pointer-events: none;
 }
 @media not (prefers-contrast: more) {
-  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"][data-focused]::after {
     opacity: 1;
   }
   /* The light's glint over the top edge: the same ring token, a spread-only band above the line. */
-  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"][data-focused] {
     --acpmux-card-ring:
       inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge-focus, transparent),
       0 -1px 0 0 color-mix(in srgb, var(--acpmux-v2-accent) 24%, transparent);

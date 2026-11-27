@@ -45,6 +45,7 @@ import { MachineLinkStatus, useLinkRedial } from "./MachineLinkStatus";
 import { peekPin, peekPinOpen, type PeekPinEvent, type PeekPinState } from "./peekPin";
 import type { PeerLink } from "./peerLink";
 import { useNow } from "./subagents/subagentGroupModel";
+import { focusRingShown } from "../../ui/focusModality";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
 import "./composerStatusDot.css";
@@ -453,7 +454,7 @@ export function ComposerStatusDot({
         onPointerLeave={leaveDot}
         onClick={press}
         onFocus={(event) => {
-          if (event.currentTarget.matches(":focus-visible")) driver.dispatch("focusVisible");
+          if (focusRingShown(event.currentTarget)) driver.dispatch("focusVisible");
         }}
         onBlur={(event) => {
           const next = event.relatedTarget instanceof Node ? event.relatedTarget : null;
