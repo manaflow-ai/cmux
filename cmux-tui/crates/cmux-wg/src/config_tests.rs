@@ -8,7 +8,7 @@ const KEY_B: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
 /// the kernel refused (EMSGSIZE) inside a UDP GSO message.
 #[test]
 fn the_default_mtu_fits_a_gcp_path_after_wireguard_overhead() {
-    assert!(DEFAULT_MTU <= 1380, "default MTU {DEFAULT_MTU} is over 1380");
+    const { assert!(DEFAULT_MTU <= 1380, "the default MTU is over 1380") };
     for overhead in [OVERHEAD_V4, OVERHEAD_V6] {
         assert!(DEFAULT_MTU + overhead <= SMALLEST_CLOUD_PATH_MTU);
     }
