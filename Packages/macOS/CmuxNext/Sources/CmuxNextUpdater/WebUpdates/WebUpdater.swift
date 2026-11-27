@@ -1,4 +1,5 @@
 public import CmuxEgress
+import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 import Observation
@@ -311,10 +312,11 @@ public final class WebUpdater {
                 } catch {
                     throw WebUpdateRefusal.transfer(error.localizedDescription)
                 }
-                defer { try? FileManager.default.removeItem(at: file) }
                 do {
                     tree = try await store.install(archive: file, pointer: pointer)
+                    await Self.removeStaging([file])
                 } catch {
+                    await Self.removeStaging([file])
                     // An archive that does not match its signed pointer stays wrong: not again until
                     // the pointer changes.
                     if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
@@ -513,21 +515,18 @@ public final class WebUpdater {
     func treeByCas(_ pointer: WebUpdatePointer) async -> URL? {
         guard let casFetch, let cas = pointer.cas, let casBase = pointer.casBase(base: base) else { return nil }
         let held = [state.active, state.previous].compactMap { $0 }.filter { $0.key != pointer.key }
-        let have = held.map { store.tree(for: $0.key).root }.filter { FileManager.default.fileExists(atPath: $0.path) }
+        let have = await Self.existingTrees(held.map { store.tree(for: $0.key).root })
         let (out, chunks) = store.casStaging()
         let request = CasRequest(manifest: cas.manifest, pack: cas.pack, base: casBase, have: have, chunks: chunks, out: out,
                                  allowsConstrained: allowsConstrained, allowsExpensive: allowsExpensive)
         let store = store
-        let miss = { [self] (reason: String) -> URL? in
-            lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: reason, archiveBytes: pointer.size)
-            return nil
-        }
         let report: CasReport
         switch await casFetch(request) {
         case .success(let got): report = got
         case .failure(let failure):
             await Self.removeStaging([out, chunks])
-            return miss(failure.reason)
+            lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: failure.reason, archiveBytes: pointer.size)
+            return nil
         }
         await Self.removeStaging([chunks])
         do {
@@ -535,12 +534,17 @@ public final class WebUpdater {
             lastFetch = FetchOutcome(key: pointer.key, by: .cas, cas: report, archiveBytes: pointer.size)
             return tree
         } catch {
-            return miss("tree: \(error)")
+            lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: "tree: \(error)", archiveBytes: pointer.size)
+            return nil
         }
     }
 
     @concurrent nonisolated static func removeStaging(_ folders: [URL]) async {
-        for folder in folders { try? FileManager.default.removeItem(at: folder) }
+        for folder in folders { try? FileManager.checked.removeItem(at: folder) }
+    }
+
+    @concurrent nonisolated static func existingTrees(_ trees: [URL]) async -> [URL] {
+        trees.filter { FileManager.checked.fileExists(atPath: $0.path) }
     }
 
     /// Whether an install refusal is about the published archive itself (so trying again cannot

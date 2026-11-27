@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -99,7 +100,7 @@ nonisolated public struct WebUpdateStore: Sendable {
         do {
             return try keep(staged, pointer: pointer)
         } catch {
-            try? FileManager.default.removeItem(at: staged)
+            try? FileManager.checked.removeItem(at: staged)
             throw error
         }
     }
