@@ -73,7 +73,7 @@ mod runtime_io;
 #[path = "peer_runtime_requests.rs"]
 mod runtime_requests;
 pub(crate) use runtime_io::{
-    ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
+    ATTACH_RETRY_AFTER, attach_failure_class, lends_over, page_max_seq, refuses_attach, replayable,
 };
 
 #[cfg(test)]
@@ -97,6 +97,9 @@ mod handshake_tests;
 #[cfg(test)]
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
+#[cfg(test)]
+#[path = "peer_link_quality_tests.rs"]
+mod link_quality_tests;
 #[path = "peer_liveness.rs"]
 pub mod liveness;
 #[cfg(test)]
@@ -510,6 +513,10 @@ pub struct Peer {
     /// (a key or password it does not take, a host key that does not match): the next attempts
     /// wait minutes (`Backoff::login_refused`), and no ask or open chat cuts the wait.
     login_refused: AtomicBool,
+    /// The last connect attempt ran past a `LinkTimings` deadline: every path's dial past
+    /// `connect` (`DIAL_TIMED_OUT`), or the handshake past `handshake`. Typed, so the link's
+    /// end is classified by what it means, not by its error text (`Peer::link_end_class`).
+    link_timed_out: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -565,6 +572,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// How good the link is, from its pings' round trips and late ticks (`peer_link_quality.rs`):
+    /// `quality` in `_acpmux/peers`. Kept across links, like `silence`.
+    quality: StdMutex<crate::peer_link_quality::LinkQuality>,
     /// A link dialed while the last one sat silent past its budget, and opened first
     /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
     replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,
@@ -960,7 +970,14 @@ pub(crate) fn waits_on_turn(m: &str) -> bool {
     matches!(m, method::SESSION_PROMPT | method::MUX_WAIT)
 }
 
+tokio::task_local! {
+    /// Set when a dial of the link's connect (`Peer::open_first`) runs past its deadline
+    /// ([`connect_timed_out`]). A probe's dial runs outside its scope and is never counted.
+    static DIAL_TIMED_OUT: Arc<AtomicBool>;
+}
+
 fn connect_timed_out(after: Duration) -> String {
+    let _ = DIAL_TIMED_OUT.try_with(|timed_out| timed_out.store(true, Ordering::SeqCst));
     format!("connect timed out after {}s", after.as_secs())
 }
 

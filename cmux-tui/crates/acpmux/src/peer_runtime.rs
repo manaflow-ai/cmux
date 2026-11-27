@@ -117,6 +117,7 @@ impl Peer {
             whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
+            link_timed_out: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -137,6 +138,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            quality: StdMutex::default(),
             replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
@@ -188,6 +190,40 @@ impl Peer {
     pub(super) fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
         let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
         f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
+    }
+
+    pub(super) fn with_quality<T>(
+        &self,
+        f: impl FnOnce(&mut crate::peer_link_quality::LinkQuality) -> T,
+    ) -> T {
+        f(&mut self.quality.lock_or_recover())
+    }
+
+    /// How long a ping sent to check a silent link waits for an answer: what the silence budget's
+    /// measured round trip asks for (`SilenceBudget::probe_wait`), and not under `NETWORK_PROBE`
+    /// scaled to the link quality's round trip (`peer_link_quality::probe_wait`).
+    pub(super) fn probe_wait(&self) -> Duration {
+        let wait = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
+        if !self.timings.rtt_adaptive {
+            return wait;
+        }
+        wait.max(self.with_quality(|q| {
+            crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE)
+        }))
+    }
+
+    /// The silence budget for this link: the learned budget (`SilenceBudget`), not under the floor
+    /// its round trip asks for (`peer_link_quality::silence_floor`). A fixed
+    /// `ACPMUX_PEER_PING_SECS` keeps it as set.
+    pub(super) fn silence_for(&self, learned: Duration) -> Duration {
+        let t = &self.timings;
+        if !t.rtt_adaptive || t.fixed_silence {
+            return learned;
+        }
+        let floor = self.with_quality(|q| {
+            crate::peer_link_quality::silence_floor(q.rtt(), t.ping_every, t.silence_budget())
+        });
+        learned.max(floor)
     }
 
     /// Every change of the link's state goes through here, so each one sends its note
@@ -836,6 +872,8 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // The ping bar: null while the link is down or before its first pong.
+            "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
             "received": self.received.split(),
         })
     }
@@ -900,7 +938,8 @@ impl Peer {
                         marks.remove(id);
                     }
                 }
-                tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+                let class = attach_failure_class(e);
+                tracing::warn!(peer = %self.name, session = %id, refused, class = %class, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
             }
         }
         attached
@@ -934,11 +973,22 @@ impl Peer {
                         }
                         break;
                     }
-                    Err(e) if refuses_attach(&e) => break,
-                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
-                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    // A refusal is not tried again (its class is `gap_too_old`: the chat is
+                    // gone there, or `unknown`: the peer takes no such attach). Every other
+                    // class is, after each of `ATTACH_RETRY_AFTER`: that schedule is its bound.
+                    Err(e) if refuses_attach(&e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::info!(peer = %me.name, session = %id, class = %class, "the peer refused the chat's attach; it is not tried again");
+                        break;
                     }
-                    Err(_) => {}
+                    Err(e) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        let class = attach_failure_class(&e);
+                        tracing::warn!(peer = %me.name, session = %id, class = %class, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(e) => {
+                        let class = attach_failure_class(&e);
+                        tracing::debug!(peer = %me.name, session = %id, class = %class, attempt = n + 1, "the peer's chat was not attached; trying again");
+                    }
                 }
             }
             me.attach_retries.lock_or_recover().remove(&id);
