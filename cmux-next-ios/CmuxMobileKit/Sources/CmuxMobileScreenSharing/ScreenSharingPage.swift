@@ -332,7 +332,7 @@ struct ScreenSharingViewerScreen: View {
     @ViewBuilder private var card: some View {
         switch viewer.phase {
         case .idle, .requesting, .approved:
-            EmptyState(symbol: "desktopcomputer", title: "Connecting to \(viewer.hostName)…",
+            EmptyState(symbol: "desktopcomputer", title: "Opening \(viewer.hostName)'s screen…",
                        secondaryTitle: "Cancel", secondary: close)
                 .placeholderBound("screenSharing.connecting", .milliseconds(2000))
         case .waitingForApproval:
@@ -341,8 +341,7 @@ struct ScreenSharingViewerScreen: View {
         case .streaming:
             EmptyState(symbol: "desktopcomputer", title: "Starting the screen…", secondaryTitle: "Close", secondary: close)
         case .reconnecting:
-            EmptyState(symbol: "arrow.triangle.2.circlepath", title: "Reconnecting to \(viewer.hostName)…",
-                       message: "The Mac is still reachable. Reconnecting this screen…", secondaryTitle: "Close", secondary: close)
+            EmptyState(symbol: "desktopcomputer", title: "Starting the screen…", secondaryTitle: "Close", secondary: close)
         case .declined:
             EmptyState(symbol: "hand.raised.slash", title: "\(viewer.hostName) declined",
                        // retry-prompt-ok: asking again puts Allow / Deny in front of the person at the Mac again.
