@@ -59,6 +59,7 @@ pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod ci_log_cache;
+pub mod class;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -149,6 +150,7 @@ pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
+pub mod model_router;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -340,6 +342,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rearm;
 pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
