@@ -274,10 +274,15 @@ fn a_request_waits_no_disk_while_deliveries_change_on_a_slow_disk() {
         outbox.update(id, |d| d.attempts = n);
     });
     eprintln!("outbox change p99 with each sync 100 ms slow: before {before:?}, after {after:?}");
-    let ms = std::time::Duration::from_millis;
-    assert!(before >= ms(100), "the old path no longer waits on the disk: {before:?}");
-    assert!(after < ms(20), "a change waited on the disk: {after:?}");
+    // A change that waited on the disk took a whole sync at least: that is the line between
+    // the two paths. A tighter bound (20 ms) measured the machine instead: the full lib suite
+    // on an 8-CPU runner put a non-waiting change's p99 at 68 ms (run 45867489273).
+    assert!(before >= SLOW_SYNC, "the old path no longer waits on the disk: {before:?}");
+    assert!(after < SLOW_SYNC, "a change waited on the disk: {after:?}");
 }
+
+/// How slow each sync is in [`change_p99_on_slow_disk`].
+const SLOW_SYNC: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The p99 of a `change` call while 24 deliveries change through it on a 2-worker runtime,
 /// each sync 100 ms slow, for 1.5 s.
@@ -292,7 +297,7 @@ fn change_p99_on_slow_disk(change: fn(&Outbox, &str, u32)) -> std::time::Duratio
     for i in 0..24 {
         outbox.add(delivery(&format!("c-{i}"), State::Delivering, now)).unwrap();
     }
-    let _slow = crate::config::startup_seams::slow_syncs(dir.path(), Duration::from_millis(100));
+    let _slow = crate::config::startup_seams::slow_syncs(dir.path(), SLOW_SYNC);
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     let mut waits = runtime.block_on(async {

@@ -111,9 +111,17 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def step_key(step: dict, head: str, pr: int) -> str:
+    """The controller's idempotency key for STEP. It names the head and the shard: a key is bound to the first
+    step it named, so a key without the head answers a re-verify after a push (or a base merge) with HTTP 409
+    "step_key already names a different step", and two shards of one mode on one worker would share one."""
+    shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}"
+
+
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
