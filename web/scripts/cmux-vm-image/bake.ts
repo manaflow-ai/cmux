@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large] [--labs-npm-host-cache]
  *
  * - --large: a second snapshot of the same builder, grown to the default Cloud chat start size (large-image.ts),
  *   named <name>-large and recorded as `large` in the result. The image's own snapshot, id and fields do not change.
@@ -29,7 +29,8 @@
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
- *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode. cmux-dns-scope.path
+ *   keeps public resolvers behind the provider's TLS-edge resolver on a machine created with an edge rule.
  * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
  *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
  *   memory and task limits, and the user's systemd manager outlives a runaway session.
@@ -44,6 +45,8 @@
  * - --dev-tree (dev snapshots only): the public cmux checkout at this commit, bindgen's libclang,
  *   the checkout's Rust and Zig toolchains and the caches its first build leaves (dev-tree.ts), so
  *   a developer's first build is a fetch and an incremental build (first-build.ts measures both).
+ *
+ * - --labs-npm-host-cache: install the login profile that opts npm into a mounted host package cache.
  *
  * - --team-vm (TEAM_VM_SNAPSHOT images, bead cx-cemg): the team files root /srv/team
  *   (root:cmux-ssh 2750, teamVmDirsCommand).
@@ -66,6 +69,7 @@ import {
   vmGuestModelPlaneEnv,
 } from "../../services/coderouter/vmGuestEnv";
 import {
+  ACPMUX_UNIT_PATH,
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
   cmuxTuiLayoutSelector,
@@ -73,8 +77,8 @@ import {
   cmuxTuiServiceInstallCommand,
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
-import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
+import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -88,7 +92,7 @@ import {
   devboxSnapshotClockCommand,
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
-} from "../devbox-image-common";
+} from "./machine-commands";
 import {
   devTreeCredentialCheckCommand,
   devTreeLock,
@@ -117,7 +121,7 @@ import {
   rdSetupCommand,
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
-import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
@@ -156,7 +160,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "../../services/vms/images/metadataGuard";
+} from "./metadata-guard";
 import {
   cronAtAllowCommand,
   cronAtAllowProblems,
@@ -197,6 +201,7 @@ import {
   storeEntry,
   ROLES_MANIFEST_PATH,
   rolesManifest,
+  pinnedFetchCommand,
   sq,
   STORE_DIR,
   ubuntuSourcesFile,
@@ -266,6 +271,8 @@ export type BakeOptions = {
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
   devTree?: boolean;
+  /** Labs image with the npm host-cache login profile. */
+  labsNpmHostCache?: boolean;
   /**
    * The production copy of a recorded dev image (cloud-vm-image-bake.yml mode prod-copy): the same
    * inputs and flags, baked on the production Freestyle account and named cmuxnp-prod-vmimg-<tag>,
@@ -560,6 +567,19 @@ export function storeProfileScript(): string {
   return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
+/**
+ * acpmux.service's PATH on the image: the store first, as a login shell has it (00-cmux-store.sh,
+ * storeUserProfilePathCommand), then the unit's own. Without it the daemon finds claude, codex and
+ * the other store CLIs only through its 3 s login shell read; image roll 45862819601 (same cmux-tui
+ * 99de33e5 as the live image) lost that read on its probe clone and every picker harness was
+ * refused "unknown harness ... the login shell did not answer in time" (hq#12175's class).
+ */
+export const ACPMUX_STORE_PATH_DROPIN = "/etc/systemd/user/acpmux.service.d/10-cmux-store-path.conf";
+
+export function acpmuxStorePathDropIn(): string {
+  return `# cmux store on acpmux's own PATH (images/cmux-vm). Managed, do not edit.\n[Service]\nEnvironment=PATH=${GITHUB_SHIM_DIR}:${CURRENT_BIN}:${ACPMUX_UNIT_PATH}\n`;
+}
+
 /** Where the Antigravity CLI's updater is turned off: login shells, and the systemd user manager (acpmux.service). */
 export const AGY_PROFILE_PATH = "/etc/profile.d/cmux-agy.sh";
 export const AGY_USER_ENV_PATH = "/etc/environment.d/60-cmux-agy.conf";
@@ -830,9 +850,15 @@ async function installStore(ctx: Ctx): Promise<void> {
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
+  if (ctx.options.labsNpmHostCache) {
+    await writeGuestFile(vm, NPM_HOST_CACHE_PROFILE, readFileSync(path.join(GUEST_DIR, "npm-host-cache.sh")), 0o644);
+  }
   await writeGuestFile(vm, AGY_PROFILE_PATH, agyProfileScript(), 0o644);
   await L.step(vm, "agy-user-env-dir", "mkdir -p /etc/environment.d");
   await writeGuestFile(vm, AGY_USER_ENV_PATH, agyUserEnvironment(), 0o644);
+  // Before wireCmuxTui's acpmux-service step, whose daemon-reload and start read it.
+  await L.step(vm, "acpmux-store-path-dir", `mkdir -p ${path.posix.dirname(ACPMUX_STORE_PATH_DROPIN)}`);
+  await writeGuestFile(vm, ACPMUX_STORE_PATH_DROPIN, acpmuxStorePathDropIn(), 0o644);
   await L.step(vm, "store-user-profile", storeUserProfilePathCommand());
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
@@ -898,6 +924,8 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "echo shell-env-ok",
   ].join(" && "));
   await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
+  for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
@@ -1044,6 +1072,15 @@ async function installGraduated(ctx: Ctx): Promise<void> {
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
   await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+  if (ctx.options.labsNpmHostCache) {
+    // Keep only the image's contents available to seed the tenant store, even after local npm installs.
+    const seed = "/usr/local/share/cmux/npm-seed";
+    await ctx.L.step(ctx.vm, "npm-host-cache-seed", [
+      `install -d -m 0755 ${seed}`,
+      `cp -R --reflink=auto ${NPM_CACHE_DIR} ${seed}/_cacache`,
+      `chmod -R u+rwX,go+rX,go-w ${seed}/_cacache`,
+    ].join(" && "));
+  }
 }
 
 /**
@@ -1163,7 +1200,10 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
  * which writes under /tmp (/tmp/opencode, /tmp/claude-<uid>, /tmp/cursor-agent-logs-<uid>), for up to 60 s before
  * acpmux kills it. A probe still running at clean writes again after tmp-empty and fails tmp-no-writer. Every probe
  * runs in `<acpmux home>/unattended` (protected_folders.rs unattended_cwd), so wait until no process of the daemon
- * user has its cwd there. On timeout, name the probes still running. `unattended` is for tests.
+ * user has its cwd there. At the bound, name the probes still running and stop them (TERM, then KILL): a probe CLI
+ * that hangs past acpmux's own kill (2026-11-26 roll 45732114266: two `cursor-agent acp` probes alive after 120 s)
+ * is the bake's own process and must not fail the roll; only a probe that survives KILL does. `unattended` is for
+ * tests.
  */
 export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
   const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
@@ -1178,8 +1218,14 @@ export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string
     `dir=${dir}`,
     `probes() {\n${probes}\n}`,
     `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
-    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes still run after ${limitSeconds}s:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
-    'echo "acpmux-probes-quiet after ${i}s"',
+    `left="$(probes)"`,
+    'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
+    `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,
+    `stop() { for p in $(probes | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p'); do kill "-$1" "$p" 2>/dev/null || true; done; }`,
+    'stop TERM; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
+    'if [ -n "$(probes)" ]; then stop KILL; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done; fi',
+    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes survived KILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
+    'echo "acpmux-probes-quiet after ${i}s (stopped the rest)"',
   ].join(" && ");
 }
 
@@ -1242,13 +1288,22 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
   const tgz = `${dir}/syft.tgz`;
   return [
     `mkdir -p ${dir}`,
-    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    pinnedFetchCommand(tgz, syft.sha256, syft.size, syft.url),
     `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
     `test "$(stat -c %s ${tgz})" = ${syft.size}`,
     `tar -xzf ${tgz} -C ${dir} syft`,
     `test -x ${dir}/syft`,
   ].join(" && ");
 }
+
+/**
+ * Each inventory step's budget (StepLog.detachedStep). The image is the same size from roll to roll (33179 SBOM
+ * components in every roll of 2026-11-25/26) but the builder is not: the syft scan took 65 to 275 s and the file
+ * manifest 32 to 232 s, both on the same builder at once, beside the smoke. Rolls 45862819601 and 45890407908 finished
+ * the scan at 268 and 278 s under its old 280 s `timeout`; roll 45779971043 hit both old bounds (scan 281 s, manifest
+ * 301 s at the 300 s exec cap). 600 s is about twice the slowest finish; SLOW_STEP marks a step past half of it.
+ */
+export const INVENTORY_STEP_BUDGET_MS = 600_000;
 
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
@@ -1262,16 +1317,18 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // syft comes from GitHub releases, which ran at about 100 KB/s into the builder on 2026-11-23: its 29 MB took about
   // 230 s of the sbom step's 285 s in roll 45119294989 and pushed it past the guest's 5-minute exec cap in roll
   // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
+  // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.step(vm, "sbom", [
+    return L.detachedStep(vm, "sbom", [
     "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "));
+  ].join(" && "), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
   };
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
+  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+  const settled = await Promise.allSettled([fileManifest(), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
@@ -1364,7 +1421,7 @@ const REPO_ROOT = path.resolve(HERE, "../../..");
 
 /** The flags that change what the base layer holds. */
 export function layerFlags(options: BakeOptions): string[] {
-  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
+  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.labsNpmHostCache && "labs-npm-host-cache"].filter((f): f is string => Boolean(f));
 }
 
 /**
@@ -1559,7 +1616,7 @@ function largeFlag(argv: string[]): boolean {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large] [--labs-npm-host-cache]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
@@ -1583,6 +1640,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     agentTools: !promotion,
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
+    labsNpmHostCache: hasFlag("--labs-npm-host-cache", argv),
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
     deferInventory: hasFlag("--defer-inventory", argv),
