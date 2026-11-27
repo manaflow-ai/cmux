@@ -15,8 +15,12 @@ struct PaletteFamilyRowsTests {
         let registry = ActionRegistry.standard()
         let items = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
         let actionRows = Set(items.compactMap(\.actionID))
+        // A row with a subject picker (a Cloud machine's Pause, Exec, Snapshot…) has the context its picker
+        // implies (`ActionContext.implied(byTargetKind:)`): the palette lists it with no Cloud workspace focused.
         let expected = Set(registry.entries.map(\.descriptor)
-            .filter { $0.isPaletteVisible && $0.id != "commandPalette" && registry.isAvailable($0.id) }.map(\.id))
+            .filter { $0.isPaletteVisible && $0.id != "commandPalette"
+                && registry.isAvailable($0.id, in: registry.context.union(.implied(byTargetKind: $0.paletteTarget))) }
+            .map(\.id))
         #expect(actionRows == expected)
 
         let move = try #require(items.first { $0.id == "family:workspace.move" })
