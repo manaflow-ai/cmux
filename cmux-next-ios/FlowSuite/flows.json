@@ -110,6 +110,20 @@
       ]
     },
     {
+      "id": "composer-grow-and-controls",
+      "title": "Both composers grow upward, scroll past six lines, and keep the approved control layout",
+      "source": ["regression:21"],
+      "kit": ["CmuxMobileAgentChatTests/ComposerFieldHeightTests"],
+      "ui": ["ComposerGrowUpUITests", "ComposerControlsGalleryUITests"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatComposer.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatComposerField.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/ComposerFieldHeight.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/ComposerReturnTextView.swift"
+      ]
+    },
+    {
       "id": "pairing-mac-identity",
       "title": "Pairing keeps the Mac's identity across relaunch; no false 'Mac's identity changed'",
       "source": ["regression:9"],
