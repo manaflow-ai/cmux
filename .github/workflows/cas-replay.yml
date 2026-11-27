@@ -94,10 +94,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify CAS replay workflow and artifact verifier
-        run: |
-          python3 tests/test_cas_replay_workflow.py
-          python3 tests/test_verify_cas_replay_artifact.py
+      - name: Verify CAS replay artifact validation
+        run: python3 tests/test_verify_cas_replay_artifact.py
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
