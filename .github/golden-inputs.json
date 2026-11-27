@@ -72,7 +72,7 @@
       ]
     },
     "desktop-gallery": {
-      "doc": "Mac CEF and WKWebView references for the webview gallery. Key the gallery, its native host, assets, pinned dependencies and capture driver.",
+      "doc": "B7's webview gallery parity renders. The gallery source, fixtures, renderer, Mac reference driver, parity policy, and workflow are keyed once per browser engine so Chromium and WebKit stores never share a golden.",
       "variants": [
         "chromium",
         "webkit"
@@ -119,9 +119,37 @@
         "examples/gallery/**",
         "scripts/gallery-matrix/**",
         "scripts/measure/gallery-mac-reference.sh",
+        "scripts/gallery-matrix/parity-tolerances.json",
+        "scripts/cmux-next/media/whats-new-gallery.py",
+        ".github/workflows/whats-new-gallery.yml",
+        "cmux-tui/crates/cmux-shotdiff/**",
         "!**/*.md",
         "!Packages/**/Tests/**",
-        "!**/node_modules/**"
+        "!**/node_modules/**",
+        "!webviews/**/node_modules/**",
+        "!scripts/gallery-matrix/**/node_modules/**",
+        "!webviews/**/dist/**"
+      ]
+    },
+    "desktop-frame-pacing": {
+      "doc": "B10's desktop frame-pacing and golden interaction bench. The 120 Hz Mac runtime is recorded separately from its 120hz variant, so a future runtime can never reuse this store accidentally.",
+      "variants": [
+        "120hz"
+      ],
+      "paths": [
+        "Packages/macOS/CmuxNext/**",
+        "webviews/**",
+        "scripts/ci/frame-pacing/**",
+        "scripts/cmux-next/**",
+        ".github/workflows/cmux-next-frame-pacing.yml",
+        ".github/workflows/cmux-next-motion-golden.yml",
+        "cmux-tui/crates/cmux-shotdiff/**",
+        "cmux-tui/Cargo.toml",
+        "cmux-tui/Cargo.lock",
+        "cmux-tui/rust-toolchain.toml",
+        "!**/*.md",
+        "!Packages/macOS/CmuxNext/Tests/**",
+        "!webviews/**/node_modules/**"
       ]
     },
     "desktop-chrome": {

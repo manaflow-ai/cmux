@@ -59,10 +59,22 @@ if [[ -z "${CMUX_SHOTDIFF:-}" ]]; then
   export CMUX_SHOTDIFF="$out/target/release/cmux-shotdiff"
 fi
 mkdir -p "$cache_root"
+revision="$(git rev-parse HEAD)"
+chromium_key="$("$CMUX_SHOTDIFF" key --inputs .github/golden-inputs.json --family desktop-gallery \
+  --variant chromium --rev "$revision" --repo "$PWD")"
+webkit_key="$("$CMUX_SHOTDIFF" key --inputs .github/golden-inputs.json --family desktop-gallery \
+  --variant webkit --rev "$revision" --repo "$PWD")"
+python3 - "$out/render/input-keys.json" "$revision" "$chromium_key" "$webkit_key" <<'PY'
+import json, sys
+dest, revision, chromium, webkit = sys.argv[1:]
+json.dump({"schema": "cmux.desktop-input-key/v1", "family": "desktop-gallery", "runtime": "mac-gallery",
+           "revision": revision, "variants": {"chromium": json.loads(chromium), "webkit": json.loads(webkit)}},
+          open(dest, "w"), indent=2)
+PY
 status=0
 python3 scripts/cmux-next/gallery-mac-reference.py --tag "$tag" --app "$app" --gallery "$out/gallery" \
   --manifest "$out/manifest.json" --out "$out/render" --golden-root "$cache_root" \
-  --runtime "$runtime" --rev "$(git rev-parse HEAD)" || status=$?
+  --runtime "$runtime" --rev "$revision" --input-keys "$out/render/input-keys.json" || status=$?
 members=(render)
 [[ -d "$out/goldens" ]] && members+=(goldens)
 tar -czf artifacts/gallery-mac-reference.tgz -C "$out" "${members[@]}"

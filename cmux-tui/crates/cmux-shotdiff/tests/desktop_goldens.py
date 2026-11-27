@@ -1,4 +1,5 @@
 """Integration tests run by cargo test --test inputkey with its freshly built shotdiff."""
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -78,6 +79,41 @@ class DesktopGoldens(unittest.TestCase):
         current = self.store()
         self.change("webviews/src/gallery/hello.ts", "changed pixels")
         self.assertNotEqual(current, self.store())
+
+    def test_gallery_driver_restores_with_b7_metadata(self):
+        manifest = self.repo / "manifest.json"
+        manifest.write_text(json.dumps(self.cases))
+        metadata = {"family": "desktop-gallery", "runtime": "mac-gallery", "variants": {}}
+        for engine in ("chromium", "webkit"):
+            key = {"key": engine + "-key", "revision": "HEAD"}
+            metadata["variants"][engine] = key
+            filename = f"hello-{engine}.png"
+            png(self.repo / filename, (4, 4))
+            rows = [{"id": "hello", "engine": engine, "ready": True,
+                     "screenshot": filename, "input_key": key}]
+            goldens.file_gallery(self.store(engine), self.cases, rows, engine, self.repo)
+        keys = self.repo / "input-keys.json"
+        keys.write_text(json.dumps(metadata))
+        out = self.repo / "render"
+        argv = ["gallery-mac-reference", "--tag", "test", "--app", str(self.repo / "Test.app"),
+                "--gallery", str(self.repo), "--manifest", str(manifest), "--out", str(out),
+                "--golden-root", str(self.root), "--runtime", self.runtime, "--rev", "HEAD",
+                "--input-keys", str(keys)]
+        spec = importlib.util.spec_from_file_location(
+            "gallery_reference_test", ROOT / "scripts/cmux-next/gallery-mac-reference.py")
+        driver = importlib.util.module_from_spec(spec)
+        with patch.object(sys, "argv", argv), patch("socketserver.ThreadingTCPServer"), patch("threading.Thread"):
+            spec.loader.exec_module(driver)
+        with patch.object(driver, "run_engine", side_effect=AssertionError("cache hit must not capture")):
+            self.assertEqual(driver.main(), 0)
+        run = json.loads((out / "run.json").read_text())
+        self.assertEqual(run["input_keys"], metadata)
+        self.assertEqual(run["reference_runtime"], self.runtime)
+        self.assertEqual(run["revision"], "HEAD")
+        rows = json.loads((out / "results.json").read_text())
+        for row in rows:
+            self.assertEqual(row["input_key"], metadata["variants"][row["engine"]])
+            self.assertTrue((out / row["screenshot"]).is_file())
 
     def test_gallery_restore_preserves_first_complete_render(self):
         for engine in ("chromium", "webkit"):

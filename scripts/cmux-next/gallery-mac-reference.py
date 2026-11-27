@@ -14,7 +14,7 @@ params, plus the page's devicePixelRatio, viewport and fonts in `env`), so
 scripts/gallery-matrix/parity.py pairs it with a Linux run.
 
   gallery-mac-reference.py --tag T --app "<...>/cmux DEV T.app" --gallery DIR --manifest FILE --out DIR
-                           [--engines chromium,webkit] [--limit N]
+                           [--engines chromium,webkit] [--limit N] [--input-keys FILE]
 Fleet: scripts/measure/gallery-mac-reference.sh builds the app and the gallery and runs this.
 Exits 0 once the app came up for every engine (read results.json); 1 when it did not.
 """
@@ -37,11 +37,16 @@ parser.add_argument("--ready-timeout-ms", type=int, default=20000)
 parser.add_argument("--golden-root", type=Path)
 parser.add_argument("--runtime", help="versioned reference Mac display, font and OS profile")
 parser.add_argument("--rev", help="source revision of the tagged app")
+parser.add_argument("--input-keys", help="cmux-shotdiff desktop-gallery key metadata")
 opts = parser.parse_args()
 if opts.golden_root and not (opts.runtime and opts.rev):
     parser.error("--golden-root requires --runtime and --rev")
 TAG, APP, OUT = opts.tag, os.path.abspath(opts.app.rstrip("/")), os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
+INPUT_KEYS = {}
+if opts.input_keys:
+    with open(opts.input_keys, encoding="utf-8") as handle:
+        INPUT_KEYS = json.load(handle)
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next(p for p in sorted(os.listdir(os.path.join(APP, "Contents/MacOS"))) if not p.endswith(".dylib"))
@@ -135,6 +140,15 @@ def safe(name):
 
 def render(item, engine):
     row = {"id": item["id"], "engine": engine, "params": item.get("params") or {}, "source": "mac-app"}
+    variants = INPUT_KEYS.get("variants", {}) if isinstance(INPUT_KEYS, dict) else {}
+    if isinstance(variants.get(engine), dict):
+        key = variants[engine].get("key")
+        family = INPUT_KEYS.get("family", "desktop-gallery")
+        row["input_key"] = {"schema": "cmux.desktop-input-key/v1", "family": family,
+                             "runtime": "mac-gallery", "variant": engine,
+                             "key": key, "files": variants[engine].get("files"),
+                             "revision": variants[engine].get("revision", variants[engine].get("rev", INPUT_KEYS.get("revision"))),
+                             "store": f"{family}-mac-gallery-{engine}-{key}"}
     url = case_url(item)
     code, out = cli("browser", "page", "navigate", url)
     if code != 0:
@@ -227,7 +241,8 @@ def main():
     with open(os.path.join(OUT, "run.json"), "w") as handle:
         json.dump({"tag": TAG, "host": os.uname().nodename, "cases": len(cases), "seconds": round(time.time() - started, 1),
                    "engines": opts.engines, "selector": CAPTURE_SELECTOR,
-                   "reference_runtime": opts.runtime, "revision": opts.rev}, handle, indent=1)
+                   "reference_runtime": opts.runtime, "revision": opts.rev,
+                   "input_keys": INPUT_KEYS or None}, handle, indent=1)
     server.shutdown()
     return 0 if came_up else 1
 
