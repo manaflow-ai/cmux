@@ -1794,17 +1794,36 @@ export function preclaimLoginMode(spare: string | null, machine: string | null =
   return spare !== null && machine === spare ? "preclaim" : "post-bind";
 }
 
-async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string): Promise<void> {
+/** The guest check that the claude login the preclaim installed is the machine's own (agent-auth.sh); prints own-login. */
+export const OWN_LOGIN_CHECK = ". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login";
+
+/**
+ * One exec that runs the installer on a staged credential, removes the staged file whatever the installer answered,
+ * and on success runs `after` (its stdout is the exec's). Run 46010555997 spent 4552 + 761 ms on four execs in a row
+ * (preflight, installer, rm, own-login check), each a full exec round trip; the installer, rm and check need only one.
+ * The installer's own exit is the exec's when it fails, so a refusal still names itself.
+ */
+export function preclaimInstallCommand(install: string, file: string, after = ""): string {
+  const rm = `rm -f -- ${shq(file)}`;
+  return `(\n${install}\n)\nrc=$?\n${rm}\n[ "$rc" = 0 ] || exit "$rc"\n${after ? `${after}\n` : ""}`;
+}
+
+async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string, after = ""): Promise<string> {
+  // Its own exec, before the credential is written: the login never lands on a machine not yet the owner's.
   await waitPreflight(exec, programs.preflight, ownerScope, 300_000);
   const folder = "/home/cmux/.cmux/credential-transfer";
   const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+  let removed = false;
   try {
     const wrote = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
     if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
-    const installed = await exec(programs.install(file));
+    const installed = await exec(preclaimInstallCommand(programs.install(file), file, after));
+    removed = true;
     if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+    return installed.stdout;
   } finally {
-    await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+    // The install exec removes the file itself; only a stage refusal or an exec that never answered leaves it here.
+    if (!removed) await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
   }
 }
 
@@ -1938,11 +1957,10 @@ export async function prepareSpareLogin(a: {
     // The ready wait's own answer when it has one; a frame names no row, so read it (exec-checked, as the wait is).
     spareRow = ready0.row ?? (await waitForSpareReady(a.api, spare, 300_000, { frame: () => new Promise<never>(() => {}) })).row;
     lap("row");
-    await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
+    // The own-login check rides the install's exec (preclaimInstallCommand): install covers both now.
+    const own = await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope, OWN_LOGIN_CHECK);
     lap("install");
-    const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
-    lap("own_login");
-    if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
+    if (!own.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
     if (copy.generation) {
       await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
       lap("installed_warm");
