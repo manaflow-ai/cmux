@@ -52,6 +52,7 @@ plan_bound_s="${MIGRATE_JOURNEY_PLAN_BOUND_S:-180}"
 clone_bound_s="${MIGRATE_JOURNEY_CLONE_BOUND_S:-180}"
 backoff_s="${MIGRATE_JOURNEY_RETRY_BACKOFF_S:-15}"
 min_attempt_s="${MIGRATE_JOURNEY_MIN_ATTEMPT_S:-60}"
+staging_settle_s="${MIGRATE_JOURNEY_STAGING_SETTLE_S:-$(( stagger_s * 3 ))}"
 left() { echo $(( end_by - $(date +%s) )); }
 # Small public repos, one per reader. Override with MIGRATE_REPOS="url url".
 repos=(${MIGRATE_REPOS:-https://github.com/microsoft/vscode-remote-try-node https://github.com/docker/getting-started-app https://github.com/microsoft/vscode-remote-try-python})
@@ -105,7 +106,7 @@ apply_once() {
 # $out/$name.result.json. $1 names the row, $2 is the word `cmux migrate` reads (a folder, ssh:HOST), $3 the file
 # stem; HOME is the case's own. It runs in its own subshell, so it reports through that file, not variables.
 run_case() {
-  local label="$1" source="$2" name="$3" result attempts=0 first="" started
+  local label="$1" source="$2" name="$3" result attempts=0 first="" started retry_min_s_case=""
   started="$(date +%s)"
   if ! timeout -k 10 "$plan_bound_s" "$CMUX_PATH" migrate plan "$source" --json > "$out/$name.plan.json" 2> "$out/$name.plan.log"; then
     echo "::error title=Migrate journey plan failed::$label: cmux migrate plan $source failed (see $name.plan.log)"
@@ -116,7 +117,18 @@ run_case() {
   else
     attempts=1
     result="$(apply_once "$source" "$name")"
-    if [ "$result" != pass ] && [ "$(left)" -ge "$retry_min_s" ]; then
+    # Staging down: when this case and a sibling both failed their first attempt on staging's capacity or
+    # outage signature, a second attempt waits out the same 300 s create and fails the same way (run 46058069597:
+    # 27 min, three cases staging). Skip it; MIGRATE_JOURNEY_RETRY_ON_STAGING_DOWN=1 keeps the old retry.
+    if [ "$result" = staging ] && [ "${MIGRATE_JOURNEY_RETRY_ON_STAGING_DOWN:-0}" != 1 ]; then
+      : > "$out/$name.staging-first"
+      sleep "$staging_settle_s"  # sleep-ok: let the staggered siblings finish their first attempt
+      if [ "$(find "$out" -maxdepth 1 -name '*.staging-first' | wc -l)" -ge 2 ]; then
+        echo "::warning title=Migrate journey not retried::$name: staging failed this case and another; a retry would wait out the same create"
+        retry_min_s_case=999999
+      fi
+    fi
+    if [ "$result" != pass ] && [ "$(left)" -ge "${retry_min_s_case:-$retry_min_s}" ]; then
       echo "::warning title=Migrate journey retried::$name: $result once; applying again (the ledger resumes it)"
       cp "$out/$name.apply.log" "$out/$name.apply.first.log"
       first="$result"

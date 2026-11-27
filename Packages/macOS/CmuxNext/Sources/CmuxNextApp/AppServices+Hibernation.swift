@@ -1,6 +1,7 @@
 public import CmuxNextWakeups
 public import CmuxNextHibernation
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextResources
 import CmuxNextSettings
@@ -24,6 +25,10 @@ extension AppServices {
         }
         hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
+        // Off by default: the bench turns it on to compare (CEFChatRendererRecycle).
+        if CEFChatRendererRecycle.isEnabledHere {
+            hibernation.agentPages?.startRendererRecycle(services: self)
+        }
         hibernation.follow(settings)
         hibernation.start()
     }
