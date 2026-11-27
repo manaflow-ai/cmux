@@ -67,11 +67,8 @@ export function receivePushedDrop(detail: unknown): void {
   fresh();
   const at = performance.now();
   // The fallback may have answered before Chromium delivers its native push. Keep that push from
-  // becoming a stale record, but only while no newer DOM drop has taken ownership of the names.
-  if (
-    drop.local === true &&
-    ignored.some((entry) => at >= entry.at && lastDrop?.at === entry.dropAt && namesMatch(items, entry.names))
-  ) {
+  // becoming a stale record that a later same-basename drop could accidentally take.
+  if (drop.local === true && ignored.some((entry) => at >= entry.at && namesMatch(items, entry.names))) {
     return;
   }
   lastPushAt = at;

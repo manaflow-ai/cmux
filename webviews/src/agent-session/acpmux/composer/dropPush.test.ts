@@ -14,6 +14,7 @@ test("a fallback-winning drop discards its delayed native push", async () => {
 
   // Chromium can deliver the native push after the older host's fallback reply. It belongs to the
   // completed drop and must not be reused by a later drop with the same basename.
+  noteDomDrop([file]);
   receivePushedDrop({ local: true, items: [{ path: "/native/same-name.txt" }] });
   await expect(pushedDropPaths([file], async () => undefined)).resolves.toBeUndefined();
 });
