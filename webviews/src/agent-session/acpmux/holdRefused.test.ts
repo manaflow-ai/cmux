@@ -11,6 +11,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
+import { unknownParamRefused } from "./relaySkew";
 import { holdAttachRefused } from "./rows/holdKinds";
 import { resetChatRowsReceiver } from "./rows/receiver";
 
@@ -19,6 +20,17 @@ test("a refused hold is told apart from any other failure", () => {
   expect(holdAttachRefused({ code: "transport.session_not_in_pane" })).toBe(false);
   expect(holdAttachRefused(new Error("socket closed"))).toBe(false);
   expect(holdAttachRefused(null)).toBe(false);
+});
+
+// An older relay names the key it refused (relaySkew.ts). The generic retry drops such a key, but not
+// `hold`: the attach without it answers a plain page, which the page would take as the hold's (#44792 F1).
+test("an unknown-param refusal of `hold` is never retried without it", () => {
+  const refusal = { code: "transport.intent_invalid", detail: 'unknown param "hold"' };
+  expect(unknownParamRefused(refusal, { sessionId: "a", hold: true })).toBeUndefined();
+  expect(holdAttachRefused(refusal)).toBe(true);
+  expect(
+    unknownParamRefused({ ...refusal, detail: 'unknown param "attending"' }, { sessionId: "a", attending: true }),
+  ).toBe("attending");
 });
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -50,56 +62,71 @@ const settle = async (done: () => boolean) => {
 
 type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
 
-test("a host that refuses the hold: the chat leaves the store and opens on the plain attach", async () => {
-  const { AcpmuxDirectClient } = await import("./direct");
-  const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const { mockSessions } = await import("./mockFixture");
-  const { setNativeHost } = await import("./native");
-  const { resetChatRowsState } = await import("./rows/chatSource");
-  resetChatRowsState();
-  const a = mockSessions[0]!.sessionId;
-  const asked: { to: string; method: string; params: any }[] = [];
-  setNativeHost(async (method, params) => {
-    asked.push({ to: "host", method, params });
-    return method === "chat.rows.open" ? { sid: params.sid } : null;
-  });
-  // The host's refusal of a frame its params rule does not take (AcpmuxPaneMethods.refusal).
-  class OldHost extends MockAcpmuxSocket {
-    constructor() {
-      super(() => Promise.resolve());
-      const hooks = this as unknown as Hooks;
-      const answer = hooks.answer.bind(this);
-      hooks.answer = async (method, params) => {
-        asked.push({ to: "daemon", method, params });
-        if (method === "_acpmux/attach" && "hold" in params)
-          throw Object.assign(new Error("Refused by the cmux host"), { code: "transport.intent_invalid" });
-        return answer(method, params);
-      };
+// The refusal two ways: the cmux host's bare one (AcpmuxPaneMethods.refusal), and an older relay's that
+// names the key (relaySkew.ts), which the generic retry must not answer with a plain page (#44792 F1).
+const refusals: [string, Record<string, unknown>][] = [
+  ["bare", { code: "transport.intent_invalid" }],
+  ["naming the key", { code: "transport.intent_invalid", detail: 'unknown param "hold"' }],
+];
+
+test.each(refusals)(
+  "a host that refuses the hold (%s): the chat leaves the store and opens on the plain attach",
+  async (_name, refusal) => {
+    const { AcpmuxDirectClient } = await import("./direct");
+    const { MockAcpmuxSocket, mockHost } = await import("./mock");
+    const { mockSessions } = await import("./mockFixture");
+    const { setNativeHost } = await import("./native");
+    const { resetChatRowsState } = await import("./rows/chatSource");
+    resetChatRowsState();
+    const a = mockSessions[0]!.sessionId;
+    const asked: { to: string; method: string; params: any }[] = [];
+    setNativeHost(async (method, params) => {
+      asked.push({ to: "host", method, params });
+      return method === "chat.rows.open" ? { sid: params.sid } : null;
+    });
+    // The host's refusal of a frame its params rule does not take (AcpmuxPaneMethods.refusal).
+    class OldHost extends MockAcpmuxSocket {
+      constructor() {
+        super(() => Promise.resolve());
+        const hooks = this as unknown as Hooks;
+        const answer = hooks.answer.bind(this);
+        hooks.answer = async (method, params) => {
+          asked.push({ to: "daemon", method, params });
+          if (method === "_acpmux/attach" && "hold" in params)
+            throw Object.assign(new Error("Refused by the cmux host"), {
+              ...refusal,
+              data: { origin: "native", ...refusal },
+            });
+          return answer(method, params);
+        };
+      }
     }
-  }
-  let rows = 0;
-  const client = await AcpmuxDirectClient.connect(
-    { ...mockHost, sessionId: a },
-    (snapshot) => {
-      rows = snapshot.rows.length;
-    },
-    undefined,
-    () => new OldHost() as unknown as WebSocket,
-  );
-  try {
-    const attaches = () => asked.filter((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a);
-    await settle(() => attaches().length >= 2 && rows > 0);
-    const [hold, plain] = attaches();
-    expect(hold!.params.hold).toBe(true);
-    // The plain attach follows at once: a page, not the hold.
-    expect("hold" in plain!.params).toBe(false);
-    expect(plain!.params.kinds).toContain("transcript");
-    // The chat left the store: its open is closed, and it is v1 until another chat is chosen.
-    const sid = asked.find((ask) => ask.method === "chat.rows.open" && ask.params.chat === a)?.params.sid;
-    expect(asked.some((ask) => ask.method === "chat.rows.close" && ask.params.sid === sid)).toBe(true);
-    expect((client as any).chatRows.holds(a)).toBe(false);
-  } finally {
-    client.close?.();
-    resetChatRowsReceiver();
-  }
-});
+    let rows = 0;
+    const client = await AcpmuxDirectClient.connect(
+      { ...mockHost, sessionId: a },
+      (snapshot) => {
+        rows = snapshot.rows.length;
+      },
+      undefined,
+      () => new OldHost() as unknown as WebSocket,
+    );
+    try {
+      const attaches = () => asked.filter((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a);
+      await settle(() => attaches().length >= 2 && rows > 0);
+      const [hold, plain] = attaches();
+      expect(hold!.params.hold).toBe(true);
+      // The plain attach follows at once: a page, not the hold.
+      expect("hold" in plain!.params).toBe(false);
+      expect(plain!.params.kinds).toContain("transcript");
+      // The chat left the store: its open is closed, and it is v1 until another chat is chosen.
+      const sid = asked.find((ask) => ask.method === "chat.rows.open" && ask.params.chat === a)?.params.sid;
+      expect(asked.some((ask) => ask.method === "chat.rows.close" && ask.params.sid === sid)).toBe(true);
+      expect((client as any).chatRows.holds(a)).toBe(false);
+      // Exactly the hold and its plain fall: no stripped-`hold` retry answered as the hold.
+      expect(attaches().filter((ask) => !("hold" in ask.params)).length).toBe(attaches().length - 1);
+    } finally {
+      client.close?.();
+      resetChatRowsReceiver();
+    }
+  },
+);
