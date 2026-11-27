@@ -148,7 +148,7 @@ class GuardTests(unittest.TestCase):
         query.assert_not_called()
 
     def test_only_the_listed_workers_are_read(self):
-        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
+        for service in ("", "cmux-api", "cmux-platform-preview", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
             with self.subTest(service=service):
                 code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", service, "--id", TEAM,
                                               "--needles", LISTED])
@@ -371,6 +371,32 @@ class ProjectionTests(unittest.TestCase):
                 self.assertNotIn("merger", json.dumps(row))
                 self.assertNotIn("hunter2", json.dumps(row))
 
+    def test_an_edge_dns_check_keeps_why_outcome_exit_and_ms(self):
+        # cmux-platform#2242 CloudCore.checkEdgeDns: the 2026-11-26 21:46Z signed-out read dropped it as unlisted.
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
+                               "outcome": "kicked", "exit": 0, "dns_upstream": "10.0.0.2,fd00::1", "ms": 812}))
+        self.assertEqual(row["log"], {"msg": "cloud.machine.edge_dns", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "why": "bind", "outcome": "kicked", "exit": 0,
+                                      "ms": 812})
+        self.assertNotIn("10.0.0.2", json.dumps(row))
+
+    def test_a_dropped_token_msg_is_named_and_free_text_is_not(self):
+        counts = {}
+        for msg in ("cloud.someday.new_line", "cloud.someday.new_line", "the merger closes friday",
+                    "cloud.x." + VM, LISTED + ": hunter2"):
+            logs.line(event({"msg": msg, "team": TEAM}), counts)
+        self.assertEqual(counts["logs_dropped_unlisted"], 5)
+        self.assertEqual(counts["unlisted_msgs"], {"cloud.someday.new_line": 2})
+        text = json.dumps(counts)
+        for leak in ("merger", "hunter2", VM):
+            self.assertNotIn(leak, text)
+
+    def test_named_unlisted_msgs_are_bounded(self):
+        counts = {}
+        for i in range(logs.UNLISTED_NAMED_MAX + 5):
+            logs.line(event({"msg": f"cloud.someday.line_{chr(97 + i % 26)}{chr(97 + i // 26)}"}), counts)
+        self.assertEqual(len(counts["unlisted_msgs"]), logs.UNLISTED_NAMED_MAX)
+
     def test_a_listed_line_keeps_typed_fields_with_ids_hashed(self):
         row = logs.line(event({"msg": LISTED, "team": TEAM, "machine": VM, "outcome": "refused", "status": 409,
                                "error": "upstream said hunter2", "why": "free text with spaces", "body": {"k": "v"}}))
@@ -389,6 +415,19 @@ class ProjectionTests(unittest.TestCase):
                 self.assertEqual(row["log"], {"msg": "cloud.spare.gateway_read", "team": logs.base.tag(TEAM),
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
+
+    def test_the_edge_dns_check_keeps_outcome_exit_and_why_but_no_upstream(self):
+        # Production 2026-11-26 21:46Z: a fresh create's agents had no edge route and this line was dropped unlisted (hq#30520).
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
+                               "outcome": "kicked", "exit": 0, "dns_upstream": "10.0.0.2,", "ms": 4210}))
+        self.assertEqual(row["log"], {"msg": "cloud.machine.edge_dns", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "outcome": "kicked", "ms": 4210,
+                                      "exit": 0, "why": "bind"})
+        odd = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "why": "free text", "exit": True,
+                               "outcome": "unresolved"}))
+        self.assertNotIn("why", odd["log"])
+        self.assertNotIn("exit", odd["log"])
+        self.assertNotIn("10.0.0.2", json.dumps(row))
 
     def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
         # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
