@@ -79,18 +79,13 @@ path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_guard_steps.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_nightly_git_token_env.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_git_token_env.py"
 
 [[test]]
-path = "tests/test_nightly_release_downloads.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_release_downloads.py"
+path = "tests/test_nightly_guard_steps.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_helpers_beside_release_build.py"
@@ -295,6 +290,11 @@ path = "tests/test_nightly_next_train_drive_pin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_web_bundles_gate.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_next_web_bundles_gate.py"
+
+[[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
 lane = "linux-guard"
 
@@ -330,6 +330,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_publish_guard.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_downloads.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_release_downloads.py"
 
 [[test]]
 path = "tests/test_nightly_release_notes.py"
@@ -430,14 +435,14 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_warm_checkout_bounded.py"
 
 [[test]]
-path = "tests/test_nightly_warm_checkout_submodules_from_mirror.py"
-lane = "manual"
-reason = "Runs the warm nightly-next builder's checkout step from nightly.yml beside temp fleet git mirrors of cmux and its submodules, behind a proxy that refuses github.com, and needs every submodule a verified mirror holds read from it (run 45782377330 timed out reading them from github.com); run python3 tests/test_nightly_warm_checkout_submodules_from_mirror.py yourself after changing that step (about 3 s, git only, no Mac)."
-
-[[test]]
 path = "tests/test_nightly_warm_checkout_sparse.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Runs the warm nightly-next builder's checkout step from nightly.yml in a temp workspace that the signer, the deltas jobs or a full actions/checkout left sparse, and needs the whole build tree after it; run python3 tests/test_nightly_warm_checkout_sparse.py yourself after changing that step or a sparse checkout of a job that can share its runner (about 5 s, git only, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_warm_checkout_submodules_from_mirror.py"
+lane = "manual"
+reason = "Runs the warm nightly-next builder's checkout step from nightly.yml beside temp fleet git mirrors of cmux and its submodules, behind a proxy that refuses github.com, and needs every submodule a verified mirror holds read from it (run 45782377330 timed out reading them from github.com); run python3 tests/test_nightly_warm_checkout_submodules_from_mirror.py yourself after changing that step (about 3 s, git only, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_workflow_size.py"

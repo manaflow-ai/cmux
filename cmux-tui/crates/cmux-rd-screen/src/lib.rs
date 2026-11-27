@@ -12,6 +12,8 @@
 //! - [`demand`]: the capture size a viewer's demand asks for (ViewerDemand.swift).
 //! - [`cursor_shape`]: the host's cursor shape id, drawability, the viewer's
 //!   `caps` and which shape messages still go (ScreenCursorShape.swift).
+//! - [`quality`]: a quality preset's frame rate and sender encoding
+//!   (ScreenQuality in ScreenStream.swift).
 //! - [`json`]: the `screen_*` op dispatcher both app libraries share.
 
 pub mod cursor_shape;
@@ -19,4 +21,5 @@ pub mod demand;
 pub mod focus;
 pub mod geometry;
 pub mod json;
+pub mod quality;
 pub mod ticket;

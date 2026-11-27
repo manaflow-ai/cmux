@@ -45,10 +45,13 @@ public struct HomeTeamInviteRun {
     /// - Returns: `.refused` for a malformed `email`, else the shown dialog whose result is
     ///   `sent` and `team`, or (for a CLI or agent run) a refusal when the person cancels.
     public func effect(_ invocation: ActionInvocation, over window: NSWindow) -> ActionEffect {
-        let text = invocation["email"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !text.isEmpty, ContactAddress.parse(text)?.isEmail != true {
-            return .refused(HomeComposeOutcome.invalidAddress(text).message ?? text)
+        let raw = invocation["email"]?.stringValue ?? ""
+        let check: EmailCheck = HomeComposeRules().call("team.inviteEmail", EmailCheck.Request(text: raw),
+                                                      fallback: EmailCheck(prefill: raw.trimmingCharacters(in: .whitespacesAndNewlines)))
+        if let refused = check.refused {
+            return .refused(HomeComposeOutcome.invalidAddress(refused.text).message ?? refused.text)
         }
+        let text = check.prefill ?? ""
         let byPerson = invocation.origin == .user
         let sheet = HomeTeamInviteSheet(team: teamName, prefill: text, requestedByAgent: !byPerson)
         let auth = auth, teamID = teamID
@@ -87,12 +90,50 @@ public struct HomeTeamInviteRun {
     /// Sends one invite and says how it went, in the dialog's outcome words.
     static func invite(_ address: ContactAddress, to teamID: String, auth: CloudAuth) async -> HomeComposeOutcome {
         let email = address.description
-        switch await auth.inviteOne(email, toTeam: teamID) {
-        case .sent: return .invited(nil)
-        case .alreadyMember: return .refused(HomeTeamInviteFailure.alreadyMember(email).message)
-        case .sendFailed: return .refused(HomeTeamInviteFailure.sendFailed(email).message)
-        case .notAllowed: return .refused(HomeTeamInviteFailure.notAllowed.message)
-        case .unreachable: return .cloudUnreachable
+        let result: InviteResult = switch await auth.inviteOne(email, toTeam: teamID) {
+        case .sent: InviteResult(kind: "sent")
+        case .alreadyMember: InviteResult(kind: "alreadyMember", email: email)
+        case .sendFailed: InviteResult(kind: "sendFailed", email: email)
+        case .notAllowed: InviteResult(kind: "notAllowed")
+        case .unreachable: InviteResult(kind: "unreachable")
         }
+        let outcome: InviteOutcome = HomeComposeRules().call("team.inviteOutcome", ["result": result],
+                                                           fallback: InviteOutcome(kind: "cloudUnreachable"))
+        switch outcome.kind {
+        case "invited": return .invited(nil)
+        case "refused":
+            let failure: HomeTeamInviteFailure = switch outcome.reason?.kind {
+            case "alreadyMember": .alreadyMember(outcome.reason?.email ?? email)
+            case "sendFailed": .sendFailed(outcome.reason?.email ?? email)
+            default: .notAllowed
+            }
+            return .refused(failure.message)
+        default: return .cloudUnreachable
+        }
+    }
+
+    /// `compose.team.inviteEmail`'s reply: the trimmed prefill, or the address it refuses.
+    private struct EmailCheck: Decodable {
+        struct Request: Encodable { var text: String }
+        struct Refused: Decodable { var text: String }
+
+        var refused: Refused?
+        var prefill: String?
+    }
+
+    /// `compose.team.inviteOutcome`'s request (`InviteResult`) and reply.
+    private struct InviteResult: Encodable {
+        var kind: String
+        var email: String?
+    }
+
+    private struct InviteOutcome: Decodable {
+        struct Reason: Decodable {
+            var kind: String
+            var email: String?
+        }
+
+        var kind: String
+        var reason: Reason?
     }
 }

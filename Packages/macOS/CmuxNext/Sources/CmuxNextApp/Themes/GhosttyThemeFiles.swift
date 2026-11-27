@@ -20,10 +20,6 @@ nonisolated enum GhosttyThemeFiles {
         case notATheme
     }
 
-    /// The keys a theme file may set: colors only.
-    static let colorKeys: Set<String> = ["palette", "background", "foreground", "cursor-color", "cursor-text",
-                                          "selection-background", "selection-foreground", "bold-color"]
-
     /// `$XDG_CONFIG_HOME/ghostty/themes`, else `~/.config/ghostty/themes` (where Ghostty looks).
     static func userFolder(home: URL, environment: [String: String]) -> URL {
         let configHome = environment["XDG_CONFIG_HOME"].map { URL(fileURLWithPath: $0) } ?? home.appending(path: ".config")
@@ -53,8 +49,8 @@ nonisolated enum GhosttyThemeFiles {
             let text = try? String(contentsOf: file, encoding: .utf8) else { throw Refusal.unknownBase }
         let themeEdits = ThemeEdits([base: edits])
         // The accent is no Ghostty color: a comment line Ghostty skips and cmux reads back.
-        let edited = themeEdits.configLines(for: base) + (themeEdits.accent(for: base).map { [accentLine($0)] } ?? [])
-        let lines = merge(colorLines(text), edited)
+        let edited = themeEdits.configLines(for: base) + (themeEdits.accent(for: base).map { [ThemeFileColors.accentLine($0)] } ?? [])
+        let lines = merge(ThemeFileColors.colorLines(text), edited)
         try write(["# \(name): \(base) with edits, saved by cmux"] + lines, to: target)
         return target
     }
@@ -63,12 +59,13 @@ nonisolated enum GhosttyThemeFiles {
     /// (without a `.conf` or `.theme` extension). Returns the name.
     static func importTheme(at url: URL, resources: String?, home: URL, environment: [String: String],
                             replace: Bool) throws -> String {
-        let name = ["conf", "theme"].contains(url.pathExtension.lowercased())
-            ? url.deletingPathExtension().lastPathComponent : url.lastPathComponent
+        let name = ThemeFileColors.importedName(url)
         guard let data = try? Data(contentsOf: url), data.count <= ThemeCatalog.maximumThemeFileBytes else {
             throw Refusal.notATheme
         }
-        let lines = colorLines(String(decoding: data, as: UTF8.self))
+        let text = String(decoding: data, as: UTF8.self)
+        var lines = ThemeFileColors.colorLines(text)
+        if !lines.contains(where: { !$0.hasPrefix("#") }) { lines = ThemeFileColors.base16ThemeLines(text) }
         guard lines.contains(where: { !$0.hasPrefix("#") }) else { throw Refusal.notATheme }
         let target = try destination(name, resources: resources, home: home, environment: environment, replace: replace)
         try write(["# \(name): imported by cmux from \(url.lastPathComponent)"] + lines, to: target)
@@ -86,23 +83,6 @@ nonisolated enum GhosttyThemeFiles {
         if !replace, FileManager.default.fileExists(atPath: target.path) { throw Refusal.exists }
         return target
     }
-
-    /// The color lines of a theme file as `key = value`, and its `# cmux-accent` line, in order;
-    /// everything else is dropped.
-    static func colorLines(_ text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).compactMap { raw in
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if let accent = ThemeFileColors.accent(line) { return accentLine(AppTheme.hex(accent)) }
-            guard !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") else { return nil }
-            let key = line[..<equals].trimmingCharacters(in: .whitespaces)
-            let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
-            guard colorKeys.contains(key), !value.isEmpty, !value.contains(where: \.isNewline) else { return nil }
-            return "\(key) = \(value)"
-        }
-    }
-
-    /// `# cmux-accent = #rrggbb`.
-    private static func accentLine(_ color: String) -> String { "# \(ThemeFileColors.accentKey) = \(color)" }
 
     /// `base` with each of `edits` replacing the line it sets (a palette edit, that index's line);
     /// an edit the base does not set is added at the end.

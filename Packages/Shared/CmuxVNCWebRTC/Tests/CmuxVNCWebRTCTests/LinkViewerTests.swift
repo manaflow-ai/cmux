@@ -12,7 +12,7 @@ struct LinkViewerTests {
         let pairing = try #require(URL(string: env["CMUX_VNC_LINK"]!).flatMap(VNCPairing.init(link:)))
         let started = ContinuousClock.now
         let client = VNCClient(endpoint: VNCEndpoint(host: "webrtc", port: 1),
-                               options: VNCSessionOptions(credentials: VNCCredentials(username: env["CMUX_VNC_USER"], password: env["CMUX_VNC_PASSWORD"])),
+                               options: VNCSessionOptions(credentials: VNCCredentials(username: env["CMUX_VNC_USER"], password: env["CMUX_VNC_PASSWORD"]), rules: .bundled),
                                transport: WebRTCRFBTransport(pairing: pairing))
         await client.connect()
         var events = client.events.makeAsyncIterator()
