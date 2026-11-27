@@ -26,6 +26,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS question_delivery_pending_message
 /// Exact non-secret identity that an ACP receipt must match. Digests refer to
 /// the immutable request and encoded answers, not a fresh read after restart.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict local delivery record: an ignored field would let a receipt match a different request
 #[serde(deny_unknown_fields)]
 pub(crate) struct DeliveryBinding {
     pub session_id: String,
@@ -42,6 +43,7 @@ pub(crate) struct DeliveryBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// skew: strict local delivery record written and read by the same daemon's store
 #[serde(deny_unknown_fields)]
 pub(crate) struct DeliveryIntent {
     pub id: String,

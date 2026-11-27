@@ -103,6 +103,7 @@ fn local_session(session: &str) -> anyhow::Result<String> {
 }
 
 #[derive(Deserialize)]
+// skew: strict person-proof receipt: an ignored field could pass an answer the person did not sign
 #[serde(deny_unknown_fields)]
 struct NativeRecord {
     question: Question,
