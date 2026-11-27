@@ -183,7 +183,7 @@ fn many_groups_and_rows_keep_the_mixed_order() {
     let groups: Vec<PhoneWorkspaceGroup> =
         (0..n).filter(|i| i % 2 == 1).map(|i| group(&format!("g{i}"), i, Some(i - 1))).collect();
     let ws: Vec<String> = (0..n).map(|i| format!("w{i}")).collect();
-    let slots = workspace_group_slots(rows, groups, ws.clone(), "me".into());
+    let slots = workspace_group_slots(rows, groups, ws, "me".into());
     // Group g(2k+1) sits before row 2k, so w(2k+1) comes right before w(2k).
     assert_eq!(slots[1].sidebar_index, 0);
     assert_eq!(slots[0].sidebar_index, 1);
