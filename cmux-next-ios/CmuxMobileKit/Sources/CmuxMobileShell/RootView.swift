@@ -110,6 +110,7 @@ public struct RootView: View {
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
+        LaunchMarks.shared.mark("root_init")
         _auth = State(initialValue: auth)
         // Live auth: teams, Macs and workspaces come only from Stack and the
         // Mac (the sample data stays only for mock mode).
@@ -142,6 +143,7 @@ public struct RootView: View {
     }
 
     public var body: some View {
+        let _ = LaunchMarks.shared.mark("root_body")
         ZStack {
             theme.colors.bg.color.ignoresSafeArea()
             if launchFinished {
@@ -660,8 +662,11 @@ struct ShellView: View {
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?,
          options: ShellLaunchOptions, kept: KeptModel<ShellModel>) {
         let shell = kept.model(key: auth.isReviewDemo) {
+            LaunchMarks.shared.mark("shell_model_start")
             let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
+            LaunchMarks.shared.mark("shell_model_built")
             shell.attach(live: live)
+            LaunchMarks.shared.mark("shell_model_attached")
             #if DEBUG
             // Synthetic connection metadata for captures; never reads a real machine.
             if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
@@ -686,6 +691,7 @@ struct ShellView: View {
     }
 
     var body: some View {
+        let _ = LaunchMarks.shared.mark("shell_body")
         SidebarContainer(
             model: shell.sidebar,
             sidebar: TeamSidebar(store: shell.store, shell: shell, sidebar: shell.sidebar),

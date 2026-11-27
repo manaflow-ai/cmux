@@ -19,6 +19,11 @@ import SwiftUI
 /// - `init_hang_watch`, `init_classic_leftovers`, `init_legacy_storage`, `init_read_first`,
 ///   `init_auth`, `app_init_done`: each of the App's `init` steps ended
 /// - `did_finish_launching`, `did_finish_launching_done`: the app delegate's launch began and ended
+/// - `first_runloop`: the main thread's first free turn after the app delegate's launch
+/// - `root_init`, `root_body`: the root view was first created, and first drew its body
+/// - `shell_model_start`, `shell_model_built`, `shell_model_attached`: the signed-in shell's one model
+///   began, was built, and was wired to the live coordinator
+/// - `shell_body`, `list_body`: the shell and the Workspaces list first drew their bodies
 /// - `first_frame`: the first SwiftUI frame (the launch mark) was presented
 /// - `shell_frame`: the signed-in shell's first frame was presented
 /// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)
