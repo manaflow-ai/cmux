@@ -7,6 +7,7 @@
     {"title": "A workspace of its own (launch focuses the agent chat, which no script splits)", "cmux": ["workspace", "new", "--name", "Panes"]},
     {"title": "Show it (a new workspace takes no focus)", "cmux": ["workspace", "name:Panes", "focus"], "wait": 1.5},
     {"title": "A second pane on the right", "cmux": ["action", "run", "splitRight"], "wait": 2},
+    {"title": "Start on the right pane (a split may leave focus on either; already there reads unavailable)", "cmux": ["action", "run", "focusRight"], "wait": 1.2, "optional": "focus was already on the right pane"},
     {"title": "Focus the left pane: the right one fades", "cmux": ["action", "run", "focusLeft"], "wait": 1.2, "clip": true},
     {"title": "Focus the right pane: it fades back, the left one fades", "cmux": ["action", "run", "focusRight"], "wait": 1.2, "clip": true},
     {"title": "Left again", "cmux": ["action", "run", "focusLeft"], "wait": 1.2, "clip": true},

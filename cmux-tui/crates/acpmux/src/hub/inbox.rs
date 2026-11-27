@@ -122,6 +122,8 @@
 //!
 //! Deadlines: no held message waits forever ([`Item::due`], `prompt_class::due_at`). A block or a
 //! question is due at once; a result (an action) within 15 minutes of coming; an FYI within 60.
+//! In a cold chat, a result the inbox reader rated background or noise may wait up to the FYI
+//! deadline unless it is a page, FIRE, a waited message or from the parent or delegator.
 //! The sender may tighten it (`acpmux send --within 5m`, `_meta.acpmux.within`, kept on the
 //! inbox record's provenance), never loosen it. When the oldest new message's deadline comes, an
 //! idle chat is woken (and a running turn that takes notices is steered) with ONE notice that
@@ -149,6 +151,8 @@ use super::*;
 mod admit;
 #[path = "inbox_deadline.rs"]
 pub(super) mod deadline;
+#[path = "inbox_point.rs"]
+pub(super) mod inbox_point;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -1101,21 +1105,51 @@ fn earliest_due(new: &[&Item]) -> u64 {
 /// A session's held-message deadlines for its `ls` row: how many new messages are past their
 /// deadline, and the soonest one's (module docs, "Deadlines"). NOW reads `inboxOverdue` from
 /// `acpmux ls --live --fields` in one call and counts each such session red.
-pub(super) fn deadline_row(session: &Session) -> (usize, Option<u64>) {
-    deadline_counts(&session.inbox().items, now_ms())
+pub(super) fn deadline_row(session: &Session, meta: &SessionMeta) -> (usize, Option<u64>) {
+    let now = now_ms();
+    let lapsed = super::cold_wake::coldness(meta, now).is_some();
+    deadline_counts(&session.inbox().items, now, |i| quiet(&session.id, meta, lapsed, i))
 }
 
-fn deadline_counts(items: &[Item], now: u64) -> (usize, Option<u64>) {
+fn deadline_counts<'a>(
+    items: impl IntoIterator<Item = &'a Item>,
+    now: u64,
+    is_quiet: impl Fn(&Item) -> bool,
+) -> (usize, Option<u64>) {
     let mut overdue = 0;
     let mut due_at: Option<u64> = None;
-    for item in items.iter().filter(|i| !i.noticed && !folded(i)) {
-        let due = item.due();
+    for item in items.into_iter().filter(|i| !i.noticed && !folded(i)) {
+        let due = due_for(item, is_quiet(item));
         if due < now {
             overdue += 1;
         }
         due_at = Some(due_at.map_or(due, |d| d.min(due)));
     }
     (overdue, due_at)
+}
+
+/// Whether `item`, new in the inbox of chat `session_id` (`meta`), waits for the chat's next turn
+/// instead of waking it: the chat's prompt cache lapsed (`lapsed`, `cold_wake.rs` coldness), and
+/// the inbox reader rated it background or noise ([`reader::quiet`]). A blocker, a FIRE, a page
+/// or fold, a message from the chat's parent or delegator, and one that waited for this machine
+/// wake as their class says. Its deadline is then an FYI's ([`due_for`]).
+fn quiet(session_id: &str, meta: &SessionMeta, lapsed: bool, item: &Item) -> bool {
+    lapsed
+        && !item.fire
+        && !item.waited
+        && !item.class.urgent()
+        && item.verdict.is_none()
+        && !controls(meta, item.from_session.as_deref())
+        && reader::quiet(session_id, &item.prompt_id)
+}
+
+/// `item`'s deadline ([`Item::due`]), or an FYI's when it is [`quiet`] (`is_quiet`).
+fn due_for(item: &Item, is_quiet: bool) -> u64 {
+    if is_quiet {
+        crate::prompt_class::due_at(PromptClass::Fyi, item.at, item.within)
+    } else {
+        item.due()
+    }
 }
 
 fn folded(item: &Item) -> bool {

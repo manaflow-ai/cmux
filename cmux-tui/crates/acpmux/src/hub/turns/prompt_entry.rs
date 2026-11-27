@@ -39,6 +39,13 @@ impl Hub {
                 json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
             );
         }
+        // A budget notice that asked nothing now rides the next prompt, hidden
+        // (`session_budget_watch.rs`).
+        if let Some(text) = super::session_budget_watch::take_held(&session.id) {
+            blocks.push(
+                json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
         // of a turn adoption recovers.
