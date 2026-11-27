@@ -25,9 +25,10 @@ function Toolbar() {
 
 function Popover({ popover, outcome }: { popover: PublishPopover; outcome?: PublishOutcome }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/aria-role -- the Surface role, not an ARIA role
     <Surface role="popover" as="section" className="apps-publish-popover" aria-label="Publish">
       <div className="apps-publish-title">Publish preview</div>
-      <label className="apps-publish-field">
+      <div className="apps-publish-field">
         <span className="apps-publish-label">Name</span>
         <Input
           size="sm"
@@ -37,7 +38,7 @@ function Popover({ popover, outcome }: { popover: PublishPopover; outcome?: Publ
           aria-label="Name"
           aria-invalid={popover.problem ? true : undefined}
         />
-      </label>
+      </div>
       <div className="apps-publish-hint">
         {popover.problem ? (
           <span className="apps-publish-problem">{PROBLEM_TEXT[popover.problem]}</span>
