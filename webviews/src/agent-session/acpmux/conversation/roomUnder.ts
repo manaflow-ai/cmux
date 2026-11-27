@@ -207,7 +207,11 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
         ? dockTray - Math.min(0, dockTray - bases.tray + input.rowsGrew)
         : bases.tray;
   // Never over the running turn's live line: at most half its rest gap.
-  const trayBase = input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase;
+  // A tray that folded gives its room back at once there: the running line ticks without its row
+  // growing, so "until the rows move" never came and the line floated over the folded strip with the
+  // opened tray's height under it (Leo, 2026-11-27, the "Waiting on the model's next step" line over
+  // an empty gap above the folded strip: "this isn't great").
+  const trayBase = input.lineLast ? Math.min(dockTray, Math.max(heldBase, dockTray - input.restExtra / 2)) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // The overlay card's growth where the view follows but cannot lift, until the rows move.
   const cardHolds =
