@@ -1,525 +1,431 @@
-//! Mirrors `EndedValuesTests`, `DividerInsertPlanTests` and the `LayoutModel` focus, apply and
-//! reject rules; the app's intent handler is the caller between [`EndedValues::send`] and
-//! [`end_sending`].
-
 use super::*;
-use crate::screen_layout::{Edge, Row};
+use crate::screen_layout::{AGENT_CHAT, Dock, Edge, Row};
 
-fn column(id: &str, width: f64, pane: &str) -> Column {
-    Column { id: id.into(), width, root: Node::leaf(pane), dock: None, rows: Vec::new() }
+fn leaf(pane: &str) -> Node {
+    Node::leaf(pane)
 }
 
-fn screen(id: &str, layout: Layout) -> Screen {
-    Screen {
-        id: id.into(),
-        name: id.into(),
+fn h(split: &str, ratio: f64, a: Node, b: Node) -> Node {
+    Node::split(split, Axis::Horizontal, ratio, a, b)
+}
+
+fn v(split: &str, ratio: f64, a: Node, b: Node) -> Node {
+    Node::split(split, Axis::Vertical, ratio, a, b)
+}
+
+fn column(id: &str, width: f64, root: Node) -> Column {
+    Column { id: id.into(), width, root, dock: None, rows: Vec::new() }
+}
+
+fn docked(id: &str, width: f64, root: Node, mode: &str) -> Column {
+    Column {
+        dock: Some(Dock {
+            edge: Edge::Left,
+            mode: mode.into(),
+            role: Some(AGENT_CHAT.into()),
+            is_pinned: true,
+            allows_tabs: true,
+        }),
+        ..column(id, width, root)
+    }
+}
+
+/// `EqualizeColumnsTests.homeDock`.
+fn home(width: f64) -> Column {
+    docked("home", width, leaf("chat"), "docked")
+}
+
+fn ids(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+fn screen(layout: Layout, viewport: f64) -> EqualizeScreen {
+    let visible_panes = layout.panes().into_iter().collect();
+    EqualizeScreen {
         layout,
         zoomed: false,
-        presented: false,
-        hidden_dividers: BTreeSet::new(),
-        floating: Vec::new(),
+        visible_panes,
+        viewport_width: Some(viewport),
+        gap: 8.0,
+        minimum_widths: BTreeMap::new(),
     }
 }
 
-fn strip(widths: [f64; 3]) -> Vec<Screen> {
-    let columns = vec![
-        column("c0", widths[0], "p0"),
-        column("c1", widths[1], "p1"),
-        column("c2", widths[2], "p2"),
-    ];
-    vec![screen("s", Layout::Columns(columns))]
+fn width_of(values: &[EqualizeValue], id: &str) -> Option<f64> {
+    values.iter().find_map(|value| match value {
+        EqualizeValue::Width { column, width } if column == id => Some(*width),
+        _ => None,
+    })
 }
 
-fn model() -> Model {
-    Model::new(strip([0.5, 0.5, 0.5]), Some("s".into()), Some("p0".into()))
+fn ratio_in(values: &[EqualizeValue], id: &str) -> Option<f64> {
+    values.iter().find_map(|value| match value {
+        EqualizeValue::Ratio { split, ratio } if split == id => Some(*ratio),
+        _ => None,
+    })
 }
 
-fn widths(model: &Model) -> Vec<f64> {
-    model.screens[0].layout.columns().iter().map(|column| column.width).collect()
-}
-
-fn ended(values: &[(&str, f64)], transaction: &str) -> EndedValues {
-    EndedValues {
-        values: values
-            .iter()
-            .map(|(column, width)| DragValue::Width { column: (*column).into(), width: *width })
-            .collect(),
-        transaction: transaction.into(),
+fn equalized(outcome: EqualizeOutcome) -> Vec<EqualizeValue> {
+    match outcome {
+        EqualizeOutcome::Equalize(values) => values,
+        EqualizeOutcome::NothingToEqualize => panic!("nothing to equalize"),
     }
 }
 
-fn columns_of(intent: &Intent) -> Vec<String> {
-    match intent {
-        Intent::SetColumnWidth { column, phase: Phase::Ended, .. } => vec![column.clone()],
-        Intent::SetLayoutSizes { values, .. } => values
-            .iter()
-            .filter_map(|value| match value {
-                SizeValue::Width { column, .. } => Some(column.clone()),
-                SizeValue::Ratio { .. } => None,
-            })
-            .collect(),
-        _ => Vec::new(),
-    }
+// MARK: SplitNode
+
+#[test]
+fn split_helpers_walk_the_tree() {
+    let tree = h("s1", 0.3, leaf("a"), v("s2", 0.5, leaf("b"), h("s3", 0.5, leaf("c"), leaf("d"))));
+    assert_eq!(tree.splits(), ids(&["s1", "s2", "s3"]));
+    assert!(tree.has_same_shape(&tree.setting_ratio(0.9, "s2")));
+    assert!(!tree.has_same_shape(&h("s1", 0.3, leaf("a"), leaf("b"))));
+    let (axis, a, b) = tree.node_for("s3").unwrap();
+    assert_eq!((axis, a, b), (Axis::Horizontal, &leaf("c"), &leaf("d")));
+    assert!(tree.node_for("nope").is_none());
+    // s1's chain: a | (s2 counts as one cell) = 1/2.
+    assert_eq!(tree.equalized_ratio("s1"), Some(0.5));
+    let chain = h("x", 0.5, leaf("a"), h("y", 0.5, leaf("b"), leaf("c")));
+    assert_eq!(chain.equalized_ratio("x"), Some(1.0 / 3.0));
+    let replaced =
+        chain.replacing_leaf("c", &|leaf_node| v("n", 0.5, leaf_node.clone(), leaf("new")));
+    assert_eq!(
+        replaced,
+        h("x", 0.5, leaf("a"), h("y", 0.5, leaf("b"), v("n", 0.5, leaf("c"), leaf("new"))))
+    );
 }
 
-/// `send(in:)` with an app that hears each intent through `handler`.
-fn send(
-    values: &EndedValues,
-    model: &mut Model,
-    handler: &mut dyn FnMut(&Intent, &mut Model),
-) -> bool {
-    match values.send(model, None) {
-        SendStart::Done(sent) => sent,
-        SendStart::Sending(intent) => {
-            if let Some(intent) = intent
-                && model.has_handler
-            {
-                handler(&intent, model);
-            }
-            end_sending(model)
-        }
-    }
+// MARK: Split sizing
+
+#[test]
+fn splitting_a_chain_pane_evens_the_whole_chain() {
+    let root = h("x", 0.5, leaf("a"), leaf("b"));
+    assert_eq!(
+        even_split_changes("b", Axis::Horizontal, &root),
+        vec![RatioChange { split: "x".into(), ratio: 1.0 / 3.0 }]
+    );
+    assert!(
+        even_split_changes("b", Axis::Vertical, &root).is_empty(),
+        "across the chain: no change"
+    );
+    assert!(
+        even_split_changes("a", Axis::Horizontal, &leaf("a")).is_empty(),
+        "a lone pane has no chain"
+    );
 }
 
 #[test]
-fn a_change_sent_from_inside_another_keeps_the_outer_refusal() {
-    let mut model = model();
-    let outer = ended(&[("c0", 0.55), ("c1", 0.45)], "outer");
-    let inner = ended(&[("c2", 0.6)], "inner");
-    let mut sent = Vec::new();
-    let went = send(&outer, &mut model, &mut |intent, model| {
-        sent.push(columns_of(intent));
-        if let Intent::SetLayoutSizes { transaction, .. } = intent {
-            let mut inner_sent = Vec::new();
-            assert!(send(&inner, model, &mut |intent, _| inner_sent.push(columns_of(intent))));
-            sent.extend(inner_sent);
-            model.reject(transaction);
-        }
-    });
-    assert!(!went, "the outer change said it went after the app refused it");
-    assert_eq!(sent, vec![vec!["c0".to_owned(), "c1".into()], vec!["c2".into()]]);
-    assert_eq!(widths(&model), vec![0.5, 0.5, 0.6]);
-}
-
-#[test]
-fn a_refused_change_says_it_did_not_go_and_shows_nothing() {
-    let mut model = model();
-    let went =
-        send(&ended(&[("c0", 0.55), ("c1", 0.45)], "t"), &mut model, &mut |intent, model| {
-            if let Intent::SetLayoutSizes { transaction, .. } = intent {
-                model.reject(transaction);
-            }
-        });
-    assert!(!went);
-    assert_eq!(widths(&model), vec![0.5, 0.5, 0.5]);
-}
-
-#[test]
-fn a_refusal_of_another_change_leaves_this_one_sent() {
-    let mut model = model();
-    let went = send(&ended(&[("c0", 0.55), ("c1", 0.45)], "t"), &mut model, &mut |_, model| {
-        model.reject("other");
-    });
-    assert!(went);
-    assert_eq!(widths(&model), vec![0.55, 0.45, 0.5]);
-}
-
-#[test]
-fn with_no_app_the_change_shows_and_counts_as_sent() {
-    let mut model = model();
-    model.has_handler = false;
-    assert!(send(&ended(&[("c0", 0.55), ("c1", 0.45)], "t"), &mut model, &mut |_, _| panic!(
-        "no app"
-    )));
-    assert_eq!(widths(&model), vec![0.55, 0.45, 0.5]);
-    assert!(model.replies.unanswered.is_empty());
-}
-
-#[test]
-fn the_one_intent_carries_the_shown_values_in_order() {
-    let mut model = model();
-    let mut intents = Vec::new();
-    assert!(send(&ended(&[("c1", 0.45), ("c0", 0.55)], "t"), &mut model, &mut |intent, _| intents
-        .push(intent.clone())));
-    let want = Intent::SetLayoutSizes {
-        values: vec![
-            SizeValue::Width { column: "c1".into(), any_pane: "p1".into(), width: 0.45 },
-            SizeValue::Width { column: "c0".into(), any_pane: "p0".into(), width: 0.55 },
+fn split_sizing_reads_the_setting_and_the_pane_the_move_closes() {
+    let layout = Layout::Splits(h("x", 0.3, leaf("a"), h("y", 0.5, leaf("b"), leaf("c"))));
+    assert!(split_sizing_changes(&layout, "a", Axis::Horizontal, None, false).is_empty());
+    let changes = split_sizing_changes(&layout, "a", Axis::Horizontal, None, true);
+    // Four cells after the split: x becomes 2/4, y is already even.
+    assert_eq!(changes, vec![RatioChange { split: "x".into(), ratio: 0.5 }]);
+    // Without c, the tree is x(a, b): a splits into two of three.
+    let pruned = split_sizing_changes(&layout, "a", Axis::Horizontal, Some("c"), true);
+    assert_eq!(pruned, vec![RatioChange { split: "x".into(), ratio: 2.0 / 3.0 }]);
+    let rows = Column {
+        rows: vec![
+            Row { id: "r1".into(), height: 500, root: h("t", 0.5, leaf("a"), leaf("b")) },
+            Row { id: "r2".into(), height: 500, root: leaf("c") },
         ],
-        transaction: "t".into(),
+        ..column("c1", 1.0, v("rs", 0.5, h("t", 0.5, leaf("a"), leaf("b")), leaf("c")))
     };
-    assert_eq!(intents, vec![want]);
-    assert_eq!(widths(&model), vec![0.55, 0.45, 0.5]);
-}
-
-#[test]
-fn a_change_of_one_value_goes_as_its_own_command() {
-    let mut model = model();
-    let mut intents = Vec::new();
-    assert!(send(&ended(&[("c0", 0.55)], "t"), &mut model, &mut |intent, _| intents
-        .push(intent.clone())));
-    let want = Intent::SetColumnWidth {
-        column: "c0".into(),
-        any_pane: "p0".into(),
-        width: 0.55,
-        transaction: "t".into(),
-        phase: Phase::Ended,
-    };
-    assert_eq!(intents, vec![want]);
-}
-
-#[test]
-fn one_reply_settles_a_change_of_two_values() {
-    let mut model = model();
-    assert!(send(&ended(&[("c0", 0.55), ("c1", 0.45)], "t"), &mut model, &mut |_, _| {}));
-    model.apply(strip([0.5, 0.5, 0.5]));
+    let columns = Layout::Columns(vec![rows]);
     assert_eq!(
-        widths(&model),
-        vec![0.55, 0.45, 0.5],
-        "a snapshot before the reply took the change back"
+        split_sizing_changes(&columns, "a", Axis::Horizontal, None, true),
+        vec![RatioChange { split: "t".into(), ratio: 2.0 / 3.0 }],
+        "a row's own tree, not the compat chain"
     );
-    model.settle("t");
-    model.apply(strip([0.6, 0.4, 0.5]));
-    assert_eq!(widths(&model), vec![0.6, 0.4, 0.5]);
-    assert!(model.width_overrides.is_empty());
 }
+
+// MARK: Equalize (EqualizeColumnsTests)
 
 #[test]
-fn a_change_sent_inside_one_of_its_own_transaction_keeps_the_refusal() {
-    let mut model = model();
-    let outer = ended(&[("c0", 0.55), ("c1", 0.45)], "t");
-    let inner = ended(&[("c2", 0.6)], "t");
-    let mut sent = Vec::new();
-    let went = send(&outer, &mut model, &mut |intent, model| {
-        sent.push(columns_of(intent));
-        if let Intent::SetLayoutSizes { transaction, .. } = intent {
-            let mut inner_sent = Vec::new();
-            send(&inner, model, &mut |intent, _| inner_sent.push(columns_of(intent)));
-            sent.extend(inner_sent);
-            model.reject(transaction);
-        }
-    });
-    assert!(!went);
-    assert_eq!(sent.len(), 2);
-    assert_eq!(widths(&model), vec![0.5, 0.5, 0.5]);
-}
-
-#[test]
-fn a_value_with_no_target_or_no_handle_sends_nothing() {
-    let mut model = model();
-    assert_eq!(
-        ended(&[("c0", 0.55), ("gone", 0.4)], "t").send(&mut model, None),
-        SendStart::Done(false)
-    );
-    let unsendable = Unsendable { splits: BTreeSet::new(), panes: ["p1".to_owned()].into() };
-    assert_eq!(
-        ended(&[("c0", 0.55), ("c1", 0.4)], "t").send(&mut model, Some(&unsendable)),
-        SendStart::Done(false)
-    );
-    assert_eq!(widths(&model), vec![0.5, 0.5, 0.5]);
-    assert_eq!(ended(&[], "t").send(&mut model, None), SendStart::Done(true));
-}
-
-// DividerInsertPlanTests
-
-fn split(id: &str, axis: Axis, a: Node, b: Node, ratio: f64) -> Node {
-    Node::split(id, axis, ratio, a, b)
-}
-
-#[test]
-fn two_panes_split_the_first_and_move_the_divider_to_two_thirds() {
-    for axis in [Axis::Horizontal, Axis::Vertical] {
-        let tree = split("s", axis, Node::leaf("a"), Node::leaf("b"), 0.5);
-        let plan = divider_insert_plan(&tree, "s").unwrap();
-        assert_eq!(plan.target, "a");
-        assert_eq!(plan.around, None);
-        assert_eq!(plan.axis, axis);
-        assert_eq!(plan.sizing, vec![RatioChange { split: "s".into(), ratio: 2.0 / 3.0 }]);
+fn home_chat_and_one_column_get_the_same_width() {
+    for viewport in [1440.0, 1920.0, 2560.0] {
+        let values = equalized(equalize(&screen(
+            Layout::Columns(vec![home(0.3), column("c1", 1.0, leaf("p1"))]),
+            viewport,
+        )));
+        let each = (viewport - 3.0 * 8.0) / 2.0;
+        let fraction = (each + 8.0) / (viewport - 8.0);
+        assert_eq!(width_of(&values, "home"), Some(fraction), "{viewport}");
+        assert_eq!(width_of(&values, "c1"), None, "the one strip column keeps the whole strip");
     }
 }
 
 #[test]
-fn a_nested_first_side_is_wrapped_whole() {
-    let inner = split("inner", Axis::Vertical, Node::leaf("x"), Node::leaf("y"), 0.5);
-    let tree = split("s", Axis::Horizontal, inner, Node::leaf("b"), 0.5);
-    let plan = divider_insert_plan(&tree, "s").unwrap();
-    assert_eq!(plan.target, "y");
-    assert_eq!(plan.around.as_deref(), Some("inner"));
+fn home_chat_and_two_columns_even_their_splits_too() {
+    let layout = Layout::Columns(vec![
+        home(0.5),
+        column("c1", 0.7, v("v", 0.8, leaf("p1"), leaf("p2"))),
+        column("c2", 0.3, leaf("p3")),
+    ]);
+    let values = equalized(equalize(&screen(layout, 1920.0)));
+    assert_eq!(ratio_in(&values, "v"), Some(0.5), "the split inside a column is even too");
+    assert_eq!(width_of(&values, "c1"), Some(0.5));
+    assert_eq!(width_of(&values, "c2"), Some(0.5));
 }
 
 #[test]
-fn a_divider_in_a_chain_of_three_is_found() {
-    let bc = split("bc", Axis::Horizontal, Node::leaf("b"), Node::leaf("c"), 0.5);
-    let tree = split("outer", Axis::Horizontal, Node::leaf("a"), bc, 1.0 / 3.0);
-    let plan = divider_insert_plan(&tree, "bc").unwrap();
-    assert_eq!(plan.target, "b");
-    assert_eq!(plan.around, None);
-    assert_eq!(divider_insert_plan(&tree, "gone"), None);
+fn narrow_window_keeps_the_chat_at_its_minimum() {
+    let mut s = screen(
+        Layout::Columns(vec![
+            home(0.2),
+            column("c1", 0.8, leaf("p1")),
+            column("c2", 0.2, leaf("p2")),
+        ]),
+        900.0,
+    );
+    s.minimum_widths.insert("home".into(), 400.0);
+    let values = equalized(equalize(&s));
+    let home_width = width_of(&values, "home").unwrap();
+    assert!(home_width >= (400.0 + 8.0) / (900.0 - 8.0) - 1e-9, "{home_width}");
 }
 
 #[test]
-fn the_divider_beside_a_pane_is_the_one_after_it_else_before_it() {
-    let bc = split("bc", Axis::Vertical, Node::leaf("b"), Node::leaf("c"), 0.5);
-    let tree = split("outer", Axis::Horizontal, Node::leaf("a"), bc, 0.5);
-    assert_eq!(divider_beside(&tree, "a").as_deref(), Some("outer"));
-    assert_eq!(divider_beside(&tree, "b").as_deref(), Some("bc"));
-    assert_eq!(divider_beside(&tree, "c").as_deref(), Some("bc"));
-    assert_eq!(divider_beside(&Node::leaf("a"), "a"), None);
+fn plain_columns_get_the_same_width() {
+    let layout = Layout::Columns(vec![
+        column("c1", 0.33, leaf("p1")),
+        column("c2", 0.5, leaf("p2")),
+        column("c3", 0.17, leaf("p3")),
+    ]);
+    let values = equalized(equalize(&screen(layout, 1500.0)));
+    for id in ["c1", "c2", "c3"] {
+        assert_eq!(width_of(&values, id), Some(1.0 / 3.0), "{id}");
+    }
 }
 
 #[test]
-fn the_model_finds_a_plan_on_any_screen_and_a_hidden_divider() {
-    let tree = split("s", Axis::Horizontal, Node::leaf("a"), Node::leaf("b"), 0.5);
-    let mut other = screen("two", Layout::Splits(tree));
-    other.hidden_dividers.insert("s".into());
-    let screens = vec![screen("one", Layout::Splits(Node::leaf("z"))), other];
-    assert_eq!(screens_divider_insert_plan(&screens, "s").unwrap().target, "a");
-    assert_eq!(screens_divider_beside(&screens, "b").as_deref(), Some("s"));
-    assert!(divider_hidden(&screens, "s"));
-    assert!(!divider_hidden(&screens, "t"));
-}
-
-// LayoutModel focus, apply, reject
-
-#[test]
-fn a_closed_focused_pane_hands_focus_to_the_pane_before_it() {
-    let mut model = model();
-    model.focus("p1", false, FocusSource::Keyboard);
-    assert!(model.focus_ring_earned);
-    let columns = vec![column("c0", 0.5, "p0"), column("c2", 0.5, "p2")];
-    model.apply(vec![screen("s", Layout::Columns(columns))]);
-    assert_eq!(model.focused_pane.as_deref(), Some("p0"));
-    assert!(!model.focus_ring_earned);
-    model.apply(vec![screen("s", Layout::Columns(vec![column("c2", 0.5, "p2")]))]);
-    assert_eq!(model.focused_pane.as_deref(), Some("p2"), "no pane before it: the one after");
+fn too_many_columns_share_by_the_ones_in_view() {
+    let columns: Vec<Column> =
+        (1..=8).map(|n| column(&format!("c{n}"), 0.5, leaf(&format!("p{n}")))).collect();
+    let mut s = screen(Layout::Columns(columns), 1200.0);
+    s.visible_panes = ["p1", "p2"].into_iter().map(str::to_owned).collect();
+    s.minimum_widths = (1..=8).map(|n| (format!("c{n}"), 200.0)).collect();
+    assert_eq!(equalize(&s), EqualizeOutcome::Equalize(Vec::new()), "two in view: each keeps half");
 }
 
 #[test]
-fn a_gone_active_screen_falls_back_to_the_first() {
-    let mut model = model();
-    model.apply(vec![screen("t", Layout::Splits(Node::leaf("q")))]);
-    assert_eq!(model.active_screen.as_deref(), Some("t"));
-    assert_eq!(model.focused_pane.as_deref(), Some("q"));
+fn split_screen_equalizes_its_splits() {
+    let s = screen(Layout::Splits(h("h", 0.8, leaf("a"), leaf("b"))), 1200.0);
+    assert_eq!(
+        equalize(&s),
+        EqualizeOutcome::Equalize(vec![EqualizeValue::Ratio { split: "h".into(), ratio: 0.5 }])
+    );
 }
 
 #[test]
-fn focus_moves_the_ring_reveals_and_raises() {
-    let mut model = model();
-    model.screens[0].floating = vec![
-        FloatingPane { pane: "f0".into(), frame: Rect::UNIT },
-        FloatingPane { pane: "f1".into(), frame: Rect::UNIT },
+fn lone_chat_has_nothing_to_equalize() {
+    let s = screen(Layout::Columns(vec![home(0.4)]), 1400.0);
+    assert_eq!(equalize(&s), EqualizeOutcome::NothingToEqualize);
+}
+
+#[test]
+fn floating_dock_keeps_its_width() {
+    let layout = Layout::Columns(vec![
+        docked("home", 0.3, leaf("chat"), "overlay"),
+        column("c1", 0.7, leaf("p1")),
+        column("c2", 0.3, leaf("p2")),
+    ]);
+    let values = equalized(equalize(&screen(layout, 1600.0)));
+    assert_eq!(width_of(&values, "home"), None);
+    assert_eq!(width_of(&values, "c1"), Some(0.5));
+    assert_eq!(width_of(&values, "c2"), Some(0.5));
+}
+
+#[test]
+fn equalize_split_reads_the_first_screen_holding_it() {
+    let first = Layout::Columns(vec![column(
+        "c1",
+        1.0,
+        h("x", 0.9, leaf("a"), h("y", 0.5, leaf("b"), leaf("c"))),
+    )]);
+    let second = Layout::Splits(h("x", 0.5, leaf("d"), leaf("e")));
+    assert_eq!(equalize_split(&[first.clone(), second.clone()], "x"), Some(1.0 / 3.0));
+    assert_eq!(equalize_split(&[second, first], "x"), Some(0.5));
+    assert_eq!(equalize_split(&[], "x"), None);
+}
+
+#[test]
+fn fraction_for_pixel_width_clamps_and_survives_a_tiny_viewport() {
+    assert_eq!(fraction_for_pixel_width(100.0, 8.0, 8.0), DEFAULT_COLUMN_WIDTH);
+    assert_eq!(fraction_for_pixel_width(10_000.0, 1000.0, 0.0), 1.0);
+    assert_eq!(fraction_for_pixel_width(1.0, 1000.0, 0.0), 0.1);
+}
+
+// MARK: New column (NewColumnKeepsWidthTests, ColumnAddFocusTests, HomeLoneDockTests)
+
+#[test]
+fn a_new_column_takes_the_modes_width() {
+    let uneven = vec![
+        column("c0", 0.45, leaf("p0")),
+        column("c1", 0.8, leaf("p1")),
+        column("c2", 0.3, leaf("p2")),
     ];
-    let effects = model.focus("f0", true, FocusSource::Keyboard);
+    let visible = ids(&["c0", "c1"]);
+    let plan = |mode| new_column_plan(mode, &uneven, Some("c1"), &visible, 2.0 / 3.0, None);
+    assert_eq!(plan(NewColumnWidthMode::Fixed), 2.0 / 3.0);
+    assert_eq!(plan(NewColumnWidthMode::MatchCurrent), 0.8);
+    assert_eq!(plan(NewColumnWidthMode::FitScreen), 1.0 / 3.0);
+    let lone = vec![column("c0", 1.0, leaf("p0"))];
     assert_eq!(
-        effects.intents,
-        vec![Intent::RaiseFloatingPane { pane: "f0".into() }, Intent::Focus { pane: "f0".into() }]
+        new_column_plan(NewColumnWidthMode::FitScreen, &lone, Some("c0"), &[], 0.5, None),
+        0.5,
+        "an anchor out of view still shares"
     );
-    assert_eq!(effects.entered.as_deref(), Some("f0"));
-    assert_eq!(effects.reveal_on_canvas.as_deref(), Some("s"));
-    let pointer = model.focus("f1", false, FocusSource::Pointer);
-    assert_eq!(pointer.intents, Vec::new(), "the front pane is not raised");
-    assert_eq!(pointer.reveal_on_canvas, None);
-    assert!(!model.focus_ring_earned);
-    model.focus_ring_earned = true;
-    let again = model.focus("f1", true, FocusSource::Scroll);
-    assert_eq!(again, FocusEffects::default());
-    assert!(!model.focus_ring_earned);
-    assert_eq!(model.focus("gone", true, FocusSource::Keyboard), FocusEffects::default());
-}
-
-#[test]
-fn select_screen_moves_a_focus_not_on_it() {
-    let mut screens = strip([0.5, 0.5, 0.5]);
-    screens.push(screen("t", Layout::Splits(Node::leaf("q"))));
-    let mut model = Model::new(screens, None, None);
-    assert_eq!(model.active_screen.as_deref(), Some("s"));
-    assert_eq!(model.focused_pane.as_deref(), Some("p0"));
-    assert_eq!(model.select_screen("s"), Vec::new());
-    assert_eq!(model.select_screen("gone"), Vec::new());
-    assert_eq!(model.select_screen("t"), vec![Intent::SelectScreen { screen: "t".into() }]);
-    assert_eq!(model.focused_pane.as_deref(), Some("q"));
-}
-
-#[test]
-fn a_split_ratio_shows_while_dragging_and_sends_at_the_end() {
-    let tree = split("s", Axis::Horizontal, Node::leaf("a"), Node::leaf("b"), 0.5);
-    let mut model = Model::new(vec![screen("one", Layout::Splits(tree))], None, None);
-    assert_eq!(model.set_split_ratio("s", 0.99, "t", Phase::Changed), Vec::new());
-    assert_eq!(model.screens[0].layout.ratio_of("s"), Some(0.95));
-    let sent = model.set_split_ratio("s", 0.7, "t", Phase::Ended);
+    assert_eq!(new_column_plan(NewColumnWidthMode::MatchCurrent, &lone, None, &[], 0.5, None), 1.0);
     assert_eq!(
-        sent,
-        vec![Intent::SetSplitRatio {
-            split: "s".into(),
-            ratio: 0.7,
-            transaction: "t".into(),
-            phase: Phase::Ended
-        }]
+        new_column_plan(NewColumnWidthMode::Fixed, &lone, None, &[], 5.0, None),
+        1.0,
+        "clamped"
     );
-    assert_eq!(model.replies.unanswered.get("t"), Some(&1));
-    assert!(model.reject("t"));
-    assert_eq!(model.screens[0].layout.ratio_of("s"), Some(0.5));
-    assert!(!model.reject("t"), "nothing left to drop");
 }
 
 #[test]
-fn a_confirmed_ended_override_is_dropped_on_the_snapshot() {
-    let mut model = model();
-    model.set_column_width("c0", 0.6, "t", Phase::Ended);
-    model.apply(strip([0.601, 0.5, 0.5]));
-    assert!(model.width_overrides.is_empty());
-    assert_eq!(widths(&model), vec![0.601, 0.5, 0.5]);
-    assert_eq!(model.set_column_width("gone", 0.6, "t", Phase::Ended), Vec::new());
-}
-
-#[test]
-fn supersede_drops_only_ended_overrides_of_the_set() {
-    let mut model = model();
-    model.set_column_width("c0", 0.6, "t", Phase::Ended);
-    model.set_column_width("c1", 0.6, "u", Phase::Changed);
-    model.supersede_sent_widths(&["c0".to_owned(), "c1".into()].into());
-    assert_eq!(model.width_overrides.keys().collect::<Vec<_>>(), vec!["c1"]);
-    let (shown, intents) = model.cancel_gesture("u");
-    assert!(shown);
-    assert_eq!(intents, vec![Intent::CancelGesture { transaction: "u".into() }]);
-}
-
-#[test]
-fn replies_count_down_and_forget_marks_the_sending_refused() {
-    let mut replies = TransactionReplies::default();
-    replies.await_reply("t");
-    replies.await_reply("t");
-    assert!(!replies.answered("t"));
-    assert!(replies.answered("t"));
-    assert!(replies.answered("never"));
-    replies.begin_sending("t");
-    replies.begin_sending("u");
-    replies.forget("t");
-    assert!(!replies.end_sending());
-    assert!(replies.end_sending());
-    assert!(!replies.end_sending());
-}
-
-// ScreenLayout and LayoutScreen
-
-#[test]
-fn structure_ignores_sizes_but_not_docks_or_rows() {
-    let a = Layout::Columns(vec![column("c0", 0.5, "p0")]);
-    let b = Layout::Columns(vec![column("c0", 0.9, "p0")]);
-    assert!(has_same_structure(&a, &b));
-    let dock = Dock {
-        edge: Edge::Left,
-        mode: Default::default(),
-        role: None,
-        is_pinned: false,
-        allows_tabs: false,
-    };
-    let docked = setting_dock(&b, Some(&dock), "c0");
-    assert!(!has_same_structure(&a, &docked));
-    assert!(!has_same_structure(&a, &Layout::Splits(Node::leaf("p0"))));
-    let row = |id: &str, pane: &str| Row { id: id.into(), height: 500, root: Node::leaf(pane) };
-    let mut rows = column("c0", 0.5, "p0");
-    rows.rows = vec![row("r0", "p0"), row("r1", "p1")];
-    let rowed = Layout::Columns(vec![rows]);
-    let taller = setting_row_heights(
-        &rowed,
-        &[RowHeight { row: "r1".into(), height: 300 }, RowHeight { row: "r1".into(), height: 700 }],
-        "c0",
+fn a_fixed_column_beside_full_width_ones_is_its_width() {
+    let columns = vec![column("c0", 1.0, leaf("p0")), column("c1", 1.0, leaf("p1"))];
+    let width = new_column_plan(
+        NewColumnWidthMode::Fixed,
+        &columns,
+        Some("c1"),
+        &ids(&["c1"]),
+        2.0 / 3.0,
+        None,
     );
-    assert_eq!(taller.columns()[0].rows[1].height, 700);
-    assert_eq!(taller.columns()[0].rows[0].height, 500);
-    assert!(has_same_structure(&rowed, &taller));
-    assert!(!has_same_structure(&a, &rowed));
+    assert_eq!(width, 2.0 / 3.0);
 }
 
 #[test]
-fn docking_a_column_undocks_the_other_on_that_edge() {
-    let dock = Dock {
-        edge: Edge::Left,
-        mode: Default::default(),
-        role: None,
-        is_pinned: false,
-        allows_tabs: false,
-    };
-    let layout = Layout::Columns(vec![column("c0", 0.5, "p0"), column("c1", 0.5, "p1")]);
-    let first = setting_dock(&layout, Some(&dock), "c0");
-    let second = setting_dock(&first, Some(&dock), "c1");
-    assert_eq!(second.columns()[0].dock, None);
-    assert_eq!(second.columns()[1].dock, Some(dock));
-    assert_eq!(setting_dock(&second, None, "c1").columns()[1].dock, None);
-}
-
-#[test]
-fn a_split_screen_has_one_implicit_column() {
-    let one = screen("one", Layout::Splits(Node::leaf("a")));
-    let implicit = one.column_containing("a").unwrap();
-    assert_eq!(implicit.id, "implicit:one");
-    assert_eq!(implicit.width, 1.0);
-    assert_eq!(one.column_by_id("implicit:one"), Some(implicit));
-    assert_eq!(one.column_containing("b"), None);
-    assert!(!one.in_agent_chat_dock("a"));
-}
-
-#[test]
-fn tree_with_split_finds_the_row_tree() {
-    let mut rows = column("c0", 0.5, "p0");
-    let tree = split("s", Axis::Vertical, Node::leaf("p1"), Node::leaf("p2"), 0.5);
-    rows.rows = vec![
-        Row { id: "r0".into(), height: 500, root: Node::leaf("p0") },
-        Row { id: "r1".into(), height: 500, root: tree.clone() },
-    ];
-    let layout = Layout::Columns(vec![rows]);
-    assert_eq!(tree_with_split(&layout, "s"), Some(&tree));
-    assert_eq!(tree_with_split(&layout, "gone"), None);
-}
-
-// Floating panes
-
-#[test]
-fn a_floating_frame_clamps_its_size_then_its_corner() {
-    assert_eq!(floating_clamped(Rect::new(0.95, -0.2, 0.05, 2.0)), Rect::new(0.85, 0.0, 0.15, 1.0));
-    assert_eq!(floating_clamped(Rect::new(0.5, 0.5, -0.3, 0.2)), Rect::new(0.2, 0.5, 0.3, 0.2));
-}
-
-#[test]
-fn a_floating_rect_snaps_to_the_pixel_grid() {
-    let rect = floating_rect(Rect::new(0.1, 0.1, 0.5, 0.5), 101.0, 51.0, 2.0);
-    assert_eq!(rect, Rect::new(10.0, 5.0, 50.5, 25.5));
-    let card = Rect::new(10.0, 20.0, 100.0, 80.0);
-    assert_eq!(floating_pane_rect(card), Rect::new(15.0, 34.0, 90.0, 61.0));
-    assert_eq!(floating_card_rect(floating_pane_rect(card)), card);
-    assert_eq!(floating_pane_rect(Rect::new(0.0, 0.0, 4.0, 4.0)), Rect::new(5.0, 14.0, 0.0, 0.0));
-    assert_eq!(floating_fractions(card, 200.0, 160.0), Rect::new(0.05, 0.125, 0.5, 0.5));
-    assert_eq!(floating_fractions(card, 0.0, 160.0), Rect::UNIT);
-}
-
-// Layout cache
-
-#[test]
-fn the_cache_tree_is_the_strip_as_one_horizontal_split() {
-    let model = Model::new(strip([0.5, 0.25, 0.25]), None, None);
-    let node = cache_node(&model, &BTreeMap::new()).unwrap();
-    assert_eq!(node["axis"], "h");
-    assert_eq!(node["fractions"], json!([0.5, 0.25, 0.25]));
+fn a_column_beside_the_lone_dock_fills_the_strip() {
+    let lone = vec![home(0.5)];
+    for mode in
+        [NewColumnWidthMode::MatchCurrent, NewColumnWidthMode::FitScreen, NewColumnWidthMode::Fixed]
+    {
+        assert_eq!(new_column_plan(mode, &lone, Some("home"), &[], 0.5, None), 1.0, "{mode:?}");
+    }
+    let beside = vec![home(0.5), column("c1", 0.5, leaf("p1"))];
+    let visible = ids(&["c1"]);
     assert_eq!(
-        node["children"][0]["frame"],
-        json!({"x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0})
+        new_column_plan(
+            NewColumnWidthMode::MatchCurrent,
+            &beside,
+            Some("c1"),
+            &visible,
+            0.5,
+            Some("p1")
+        ),
+        1.0,
+        "dragging out the only strip pane leaves the dock alone"
     );
-    let live = cache_live(&model, None, 1.0).unwrap();
-    assert_eq!(live["panes"], json!(["p0", "p1", "p2"]));
-    assert_eq!(live["root"]["children"].as_array().unwrap().len(), 3);
-    let none = Model::new(strip([0.0, -1.0, 0.0]), None, None);
-    assert_eq!(cache_node(&none, &BTreeMap::new()), None);
+    assert_eq!(
+        new_column_plan(NewColumnWidthMode::MatchCurrent, &beside, Some("c1"), &visible, 0.5, None),
+        0.5
+    );
 }
 
 #[test]
-fn the_drift_mark_names_the_moves() {
-    let cached = json!({"type": "leaf", "pane_id": "p0", "kind": "other"});
-    assert_eq!(cache_drift(&cached, Some((0, 0))).as_deref(), Some("layout_cache.exact"));
+fn a_split_screen_counts_as_one_full_width_column() {
+    let layout = Layout::Splits(h("x", 0.5, leaf("a"), leaf("b")));
+    let visible: BTreeSet<String> = ["a".to_owned()].into();
     assert_eq!(
-        cache_drift(&cached, Some((2, 1))).as_deref(),
-        Some("layout_cache.drift.moved_2.transitions_1")
+        new_column_width(Some(&layout), "a", &visible, NewColumnWidthMode::MatchCurrent, 0.5, None),
+        1.0
     );
-    assert_eq!(cache_drift(&cached, None), None);
-    assert_eq!(cache_drift(&json!({"type": "leaf", "pane_id": ""}), Some((0, 0))), None);
+    assert_eq!(
+        new_column_width(Some(&layout), "a", &visible, NewColumnWidthMode::FitScreen, 0.5, None),
+        0.5
+    );
+    assert_eq!(
+        new_column_width(None, "a", &visible, NewColumnWidthMode::MatchCurrent, 0.5, None),
+        1.0
+    );
+}
+
+// MARK: Pane placement
+
+fn frame(width: f64, height: f64) -> Frame {
+    Frame { x: 0.0, y: 0.0, width, height }
+}
+
+#[test]
+fn auto_layout_splits_the_largest_pane_along_its_longer_side() {
+    let layout = Layout::Splits(h("x", 0.5, leaf("a"), v("y", 0.5, leaf("b"), leaf("c"))));
+    let frames: BTreeMap<String, Frame> = [
+        ("a".to_owned(), frame(400.0, 800.0)),
+        ("b".to_owned(), frame(400.0, 400.0)),
+        ("c".to_owned(), frame(400.0, 400.0)),
+    ]
+    .into();
+    assert_eq!(
+        auto_split(&layout, &frames, &[]),
+        Some(AutoSplit { pane: "a".into(), axis: Axis::Vertical })
+    );
+    let tie: BTreeMap<String, Frame> =
+        [("b".to_owned(), frame(400.0, 400.0)), ("c".to_owned(), frame(400.0, 400.0))].into();
+    assert_eq!(
+        auto_split(&layout, &tie, &ids(&["c"])),
+        Some(AutoSplit { pane: "c".into(), axis: Axis::Horizontal }),
+        "a tie goes to the recent pane"
+    );
+    assert_eq!(
+        auto_split(&layout, &BTreeMap::new(), &ids(&["b"])),
+        Some(AutoSplit { pane: "b".into(), axis: Axis::Horizontal }),
+        "nothing shown: the most recent pane"
+    );
+    let docks_only = Layout::Columns(vec![home(0.5)]);
+    assert_eq!(auto_split(&docks_only, &BTreeMap::new(), &[]), None);
+}
+
+#[test]
+fn a_new_pane_is_a_tab_unless_auto_layout_splits() {
+    let layout = Layout::Splits(h("x", 0.5, leaf("a"), leaf("b")));
+    let frames: BTreeMap<String, Frame> = [("b".to_owned(), frame(800.0, 400.0))].into();
+    assert_eq!(
+        pane_plan(&layout, "a", &[], &frames, NewPanePlacement::Tab, true),
+        PanePlan::Tab("a".into())
+    );
+    assert_eq!(
+        pane_plan(&layout, "a", &[], &frames, NewPanePlacement::Split, false),
+        PanePlan::Tab("a".into())
+    );
+    assert_eq!(
+        pane_plan(&layout, "a", &[], &frames, NewPanePlacement::Split, true),
+        PanePlan::Split(AutoSplit { pane: "b".into(), axis: Axis::Horizontal })
+    );
+}
+
+// MARK: Main pane, chat placement (MainPaneLayoutTests, ChatLinkReusesRightPaneTests)
+
+#[test]
+fn main_pane_follows_the_override_then_the_setting() {
+    for setting in [false, true] {
+        assert_eq!(main_pane_is_on(setting, MainPaneOverride::Setting), setting);
+        assert!(main_pane_is_on(setting, MainPaneOverride::On));
+        assert!(!main_pane_is_on(setting, MainPaneOverride::Off));
+    }
+    assert_eq!(main_pane_side(&ChatColumnPlacement::Here), None);
+    assert_eq!(main_pane_side(&ChatColumnPlacement::BesideDock), None);
+    assert_eq!(main_pane_side(&ChatColumnPlacement::DockChat), Some(ChatColumnPlacement::DockChat));
+    let tab = ChatColumnPlacement::Tab("p".into());
+    assert_eq!(main_pane_side(&tab), Some(tab));
+}
+
+#[test]
+fn a_dock_pick_opens_beside_the_dock_only_with_a_strip() {
+    assert_eq!(dock_pick(false, false), DockPick::Usual);
+    assert_eq!(dock_pick(false, true), DockPick::Usual);
+    assert_eq!(dock_pick(true, false), DockPick::Beside { closes_page: true });
+    assert_eq!(dock_pick(true, true), DockPick::Beside { closes_page: false });
+}
+
+#[test]
+fn a_split_screen_is_one_implicit_column() {
+    let root = h("x", 0.5, leaf("a"), leaf("b"));
+    let splits = Layout::Splits(root.clone());
+    assert_eq!(chat_columns("s1", &splits, "a"), vec![column("implicit:s1", 1.0, root)]);
+    assert!(chat_columns("s1", &splits, "z").is_empty());
+    let columns = vec![home(0.3), column("c1", 0.7, leaf("p1"))];
+    assert_eq!(chat_columns("s1", &Layout::Columns(columns.clone()), "z"), columns);
 }

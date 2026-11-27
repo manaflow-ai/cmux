@@ -1,4 +1,4 @@
-//! The LayoutModel ops (`layout_model_*`) through the C ABI: every vector in
+//! The layout model ops (`layout_model_*`) through the C ABI: every vector in
 //! `schemas/layout-model/vectors.json` (the Swift rules' answers before the move) answers the same,
 //! and an unknown op or a bad request is `ERR_INVALID`.
 
@@ -51,6 +51,10 @@ fn every_vector_answers_as_the_swift_rules_did() {
 #[test]
 fn an_unknown_op_or_bad_request_is_invalid() {
     assert_eq!(call("layout_model_nope", b"{}").0, ERR_INVALID);
-    assert_eq!(call("layout_model_focus", b"{\"pane\":1}").0, ERR_INVALID);
-    assert_eq!(call("layout_model_focus", b"not json").0, ERR_INVALID);
+    assert_eq!(call("layout_model_even_split", b"{\"pane\":1}").0, ERR_INVALID);
+    assert_eq!(call("layout_model_dock_pick", b"not json").0, ERR_INVALID);
+    assert_eq!(
+        call("layout_model_main_pane", b"{\"setting\":true,\"override\":\"maybe\"}").0,
+        ERR_INVALID
+    );
 }

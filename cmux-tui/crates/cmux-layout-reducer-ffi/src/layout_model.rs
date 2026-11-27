@@ -1,52 +1,42 @@
-//! `cmux_layout_reducer::layout_model` over the JSON channel (ops `layout_model_*`): the Mac app's
-//! `LayoutModel` rules. A transition takes the model and answers it changed, with the intents the
-//! class emits; `schemas/layout-model/vectors.json` has the answers the app's Swift rules gave.
+//! `cmux_layout_reducer::layout_model` over the JSON channel (ops `layout_model_*`): the layout
+//! model's split tree helpers, even split sizing, Equalize Splits, new column widths, where a new
+//! pane goes, main pane layout and the agent chat's placement picks. Each request is one JSON
+//! object; `schemas/layout-model/vectors.json` has cases of each with the answer the app's Swift
+//! rules gave.
 //!
-//! - `layout_model_new` `{screens, activeScreen?, focusedPane?}` -> `{model}`
-//! - `layout_model_apply` `{model, screens}` -> `{model}` (`apply(screens:)`)
-//! - `layout_model_settle` `{model, transaction}` -> `{model}`
-//! - `layout_model_reject` `{model, transaction}` -> `{model, shown}`
-//! - `layout_model_set_split_ratio` `{model, split, ratio, transaction, phase}` -> `{model, intents}`
-//! - `layout_model_set_column_width` `{model, column, width, transaction, phase}` -> `{model, intents}`
-//! - `layout_model_supersede` `{model, splits, columns}` -> `{model}` (the ended overrides they replace)
-//! - `layout_model_cancel_gesture` `{model, transaction}` -> `{model, shown, intents}`
-//! - `layout_model_focus` `{model, pane, notify, source}` -> `{model, intents, entered, revealOnCanvas}`
-//! - `layout_model_dismiss_focus_ring` `{model}` -> `{model}`
-//! - `layout_model_select_screen` `{model, screen}` -> `{model, intents}`
-//! - `layout_model_send_ended` `{model, values, transaction, unsendable?}` -> `{model, done, intent}`:
-//!   `done` is true or false when the change finished (nothing to send, or refused before it
-//!   showed), null when `intent` goes to the app now; then `layout_model_end_sending` `{model}` ->
-//!   `{model, sent}`. A change the app sends while it hears `intent` nests between the two.
-//! - `layout_model_sizes` `{intent}` -> `{values, transaction}` (both null for another intent)
-//! - `layout_model_floating_clamped` `{frame}` -> `{frame}`; `layout_model_floating_rect`
-//!   `{frame, width, height, scale}` -> `{rect}`; `layout_model_floating_pane_rect` `{card}` ->
-//!   `{rect}`; `layout_model_floating_card_rect` `{pane}` -> `{rect}`;
-//!   `layout_model_floating_fractions` `{rect, width, height}` -> `{frame}`;
-//!   `layout_model_floating_raise` `{pane, floating, source}` -> `{intent}`
-//! - `layout_model_divider_tree` `{tree, split, pane}` -> `{plan, beside}`
-//! - `layout_model_dividers` `{screens, split, pane}` -> `{plan, beside, hidden}`
-//! - `layout_model_cache` `{model, frames, bounds?, divider}` -> `{node, live}` (cmux-layout-cache
-//!   `PaneNode` and `LiveTree` JSON); `layout_model_cache_drift` `{cached, reconciled?}` -> `{mark}`
-//! - `layout_model_screen` `{screen, pane, column}` -> `{panes, visualPanes, contains, floats,
-//!   implicitColumn, columnContaining, inAgentChatDock, columnById}`
-//! - `layout_model_layout` `{layout, other, split, heights, column, dock?}` -> `{visualPanes,
-//!   sameStructure, treeWithSplit, settingRowHeights, settingDock}`
+//! - `layout_model_tree` `{node, other, split, pane, axis, newSplit, newPane}` -> `{splits,
+//!   sameShape, node: {axis, a, b}?, equalizedRatio?, replaced}` (`SplitNode.splits`,
+//!   `hasSameShape(as: other)`, `node(for: split)`, `equalizedRatio(for: split)`, and
+//!   `replacingLeaf(pane)` with a split `newSplit` of `pane` and a new leaf `newPane` at 0.5)
+//! - `layout_model_even_split` `{root, pane, axis}` -> `{changes}` (`EvenSplitRatios.changes(splitting:)`)
+//! - `layout_model_split_sizing` `{layout, pane, axis, removing?, even}` -> `{changes}`
+//! - `layout_model_equalize` `{layout, zoomed, visiblePanes, viewportWidth?, gap, minimumWidths}`
+//!   -> `{outcome: "nothingToEqualize" | "equalized", values: [{split, ratio} | {column, width}]}`
+//! - `layout_model_equalize_split` `{layouts, split}` -> `{ratio}`
+//! - `layout_model_equalize_columns` `{columns, visible, viewportWidth, gap, minimumWidths}` ->
+//!   `{resizes}` (`ColumnEqualizer.resizes`)
+//! - `layout_model_new_column_plan` `{mode, columns, anchor?, visible, fixedWidth, removing?}` -> `{width}`
+//! - `layout_model_new_column_width` `{layout?, pane, visiblePanes, mode, fixedWidth, removing?}` -> `{width}`
+//! - `layout_model_auto_split` `{layout, frames, recent}` -> `{split: {pane, axis}?}`
+//! - `layout_model_pane_placement` `{layout, focused, recent, frames, placement, tiles}` ->
+//!   `{plan: {tab: pane} | {split: {pane, axis}}}`
+//! - `layout_model_main_pane` `{setting, override}` -> `{on}`
+//! - `layout_model_main_pane_side` `{placement}` -> `{side}` (a placement is `"here"`,
+//!   `{tab: pane}`, `"dockChat"` or `"besideDock"`)
+//! - `layout_model_dock_pick` `{hasStrip, keep}` -> `{pick: "usual" | {beside: {closesPage}}}`
+//! - `layout_model_chat_columns` `{screenId, layout, pane}` -> `{columns}`
 //!
-//! A model is `layout_model::Model`'s JSON (a request's `paneCloses` is read, never answered); a
-//! screen and a layout are `layout_model::Screen`'s and `screen_layout`'s; a rect is
-//! `{x, y, width, height}`; a value to send is `{kind: "ratio", split, ratio}` or
-//! `{kind: "width", column, width}`.
+//! A layout, node or column is `cmux_layout_reducer::screen_layout`'s JSON; `frames` maps a pane
+//! to `{x, y, width, height}`; `minimumWidths` maps a column to its minimum width in points.
 
 use crate::ERR_INVALID;
 use cmux_layout_reducer::layout_model::{
-    DragValue, EndedValues, FloatingPane, FocusSource, Intent, Model, Phase, Rect, RowHeight,
-    Screen, SendStart, Unsendable, cache_drift, cache_live, cache_node, divider_beside,
-    divider_hidden, divider_insert_plan, end_sending, floating_card_rect, floating_clamped,
-    floating_fractions, floating_pane_rect, floating_raise, floating_rect, has_same_structure,
-    screens_divider_beside, screens_divider_insert_plan, setting_dock, setting_row_heights,
-    tree_with_split, visual_panes,
+    ChatColumnPlacement, ColumnEqualizer, EqualizeOutcome, EqualizeScreen, Frame, MainPaneOverride,
+    NewColumnWidthMode, NewPanePlacement, auto_split, chat_columns, dock_pick, equalize,
+    equalize_split, even_split_changes, main_pane_is_on, main_pane_side, new_column_plan,
+    new_column_width, pane_plan, split_sizing_changes,
 };
-use cmux_layout_reducer::screen_layout::{Dock, Layout, Node};
+use cmux_layout_reducer::screen_layout::{Axis, Column, Layout, Node};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -56,331 +46,234 @@ pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"layout_model_")
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NewRequest {
-    screens: Vec<Screen>,
-    #[serde(default)]
-    active_screen: Option<String>,
-    #[serde(default)]
-    focused_pane: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ModelRequest {
-    model: Model,
-    #[serde(default)]
-    screens: Vec<Screen>,
-    #[serde(default)]
-    transaction: String,
-}
-
-#[derive(Deserialize)]
-struct GestureRequest {
-    model: Model,
-    #[serde(default)]
-    split: String,
-    #[serde(default)]
-    column: String,
-    #[serde(default)]
-    ratio: f64,
-    #[serde(default)]
-    width: f64,
-    transaction: String,
-    phase: Phase,
-}
-
-#[derive(Deserialize)]
-struct SupersedeRequest {
-    model: Model,
-    #[serde(default)]
-    splits: BTreeSet<String>,
-    #[serde(default)]
-    columns: BTreeSet<String>,
-}
-
-#[derive(Deserialize)]
-struct FocusRequest {
-    model: Model,
-    pane: String,
-    #[serde(default)]
-    notify: bool,
-    #[serde(default)]
-    source: FocusSource,
-}
-
-#[derive(Deserialize)]
-struct ScreenRequest {
-    model: Model,
-    screen: String,
-}
-
-#[derive(Deserialize)]
-struct SendRequest {
-    model: Model,
-    values: Vec<DragValue>,
-    transaction: String,
-    #[serde(default)]
-    unsendable: Option<Unsendable>,
-}
-
-#[derive(Deserialize)]
-struct SizesRequest {
-    intent: Intent,
-}
-
-#[derive(Deserialize)]
-struct FloatingRequest {
-    #[serde(default)]
-    frame: Rect,
-    #[serde(default)]
-    rect: Rect,
-    #[serde(default)]
-    card: Rect,
-    #[serde(default)]
-    pane: Value,
-    #[serde(default)]
-    width: f64,
-    #[serde(default)]
-    height: f64,
-    #[serde(default)]
-    scale: f64,
-}
-
-#[derive(Deserialize)]
-struct RaiseRequest {
-    pane: String,
-    #[serde(default)]
-    floating: Vec<FloatingPane>,
-    #[serde(default)]
-    source: FocusSource,
-}
-
-#[derive(Deserialize)]
-struct DividerTreeRequest {
-    tree: Node,
-    #[serde(default)]
-    split: String,
-    #[serde(default)]
-    pane: String,
-}
-
-#[derive(Deserialize)]
-struct DividersRequest {
-    screens: Vec<Screen>,
-    #[serde(default)]
-    split: String,
-    #[serde(default)]
-    pane: String,
-}
-
-#[derive(Deserialize)]
-struct CacheRequest {
-    model: Model,
-    #[serde(default)]
-    frames: BTreeMap<String, Rect>,
-    #[serde(default)]
-    bounds: Option<Rect>,
-    #[serde(default)]
-    divider: f64,
-}
-
-#[derive(Deserialize)]
-struct DriftRequest {
-    cached: Value,
-    #[serde(default)]
-    reconciled: Option<(usize, usize)>,
-}
-
-#[derive(Deserialize)]
-struct ScreenQueryRequest {
-    screen: Screen,
-    #[serde(default)]
-    pane: String,
-    #[serde(default)]
-    column: String,
-}
-
-#[derive(Deserialize)]
-struct LayoutRequest {
-    layout: Layout,
-    other: Layout,
-    #[serde(default)]
-    split: String,
-    #[serde(default)]
-    heights: Vec<RowHeight>,
-    #[serde(default)]
-    column: String,
-    #[serde(default)]
-    dock: Option<Dock>,
-}
-
 fn parse<T: DeserializeOwned>(request: &[u8]) -> Result<T, i32> {
     serde_json::from_slice(request).map_err(|_| ERR_INVALID)
 }
 
-fn rect(value: &Value) -> Result<Rect, i32> {
-    serde_json::from_value(value.clone()).map_err(|_| ERR_INVALID)
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TreeRequest {
+    node: Node,
+    other: Node,
+    split: String,
+    pane: String,
+    axis: Axis,
+    new_split: String,
+    new_pane: String,
+}
+
+#[derive(Deserialize)]
+struct EvenSplitRequest {
+    root: Node,
+    pane: String,
+    axis: Axis,
+}
+
+#[derive(Deserialize)]
+struct SplitSizingRequest {
+    layout: Layout,
+    pane: String,
+    axis: Axis,
+    #[serde(default)]
+    removing: Option<String>,
+    #[serde(default)]
+    even: bool,
+}
+
+#[derive(Deserialize)]
+struct EqualizeSplitRequest {
+    layouts: Vec<Layout>,
+    split: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EqualizeColumnsRequest {
+    columns: Vec<Column>,
+    #[serde(default)]
+    visible: BTreeSet<String>,
+    #[serde(default)]
+    viewport_width: f64,
+    #[serde(default)]
+    gap: f64,
+    #[serde(default)]
+    minimum_widths: BTreeMap<String, f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewColumnPlanRequest {
+    mode: NewColumnWidthMode,
+    columns: Vec<Column>,
+    #[serde(default)]
+    anchor: Option<String>,
+    #[serde(default)]
+    visible: Vec<String>,
+    fixed_width: f64,
+    #[serde(default)]
+    removing: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewColumnWidthRequest {
+    #[serde(default)]
+    layout: Option<Layout>,
+    pane: String,
+    #[serde(default)]
+    visible_panes: BTreeSet<String>,
+    mode: NewColumnWidthMode,
+    fixed_width: f64,
+    #[serde(default)]
+    removing: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AutoSplitRequest {
+    layout: Layout,
+    #[serde(default)]
+    frames: BTreeMap<String, Frame>,
+    #[serde(default)]
+    recent: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct PanePlacementRequest {
+    layout: Layout,
+    focused: String,
+    #[serde(default)]
+    recent: Vec<String>,
+    #[serde(default)]
+    frames: BTreeMap<String, Frame>,
+    placement: NewPanePlacement,
+    #[serde(default)]
+    tiles: bool,
+}
+
+#[derive(Deserialize)]
+struct MainPaneRequest {
+    setting: bool,
+    #[serde(rename = "override")]
+    override_: MainPaneOverride,
+}
+
+#[derive(Deserialize)]
+struct MainPaneSideRequest {
+    placement: ChatColumnPlacement,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DockPickRequest {
+    has_strip: bool,
+    keep: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatColumnsRequest {
+    screen_id: String,
+    layout: Layout,
+    pane: String,
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let reply: Value = match operation {
-        b"layout_model_new" => {
-            let r: NewRequest = parse(request)?;
-            json!({ "model": Model::new(r.screens, r.active_screen, r.focused_pane) })
-        }
-        b"layout_model_apply" => {
-            let mut r: ModelRequest = parse(request)?;
-            r.model.apply(r.screens);
-            json!({ "model": r.model })
-        }
-        b"layout_model_settle" => {
-            let mut r: ModelRequest = parse(request)?;
-            r.model.settle(&r.transaction);
-            json!({ "model": r.model })
-        }
-        b"layout_model_reject" => {
-            let mut r: ModelRequest = parse(request)?;
-            let shown = r.model.reject(&r.transaction);
-            json!({ "model": r.model, "shown": shown })
-        }
-        b"layout_model_set_split_ratio" => {
-            let mut r: GestureRequest = parse(request)?;
-            let intents = r.model.set_split_ratio(&r.split, r.ratio, &r.transaction, r.phase);
-            json!({ "model": r.model, "intents": intents })
-        }
-        b"layout_model_set_column_width" => {
-            let mut r: GestureRequest = parse(request)?;
-            let intents = r.model.set_column_width(&r.column, r.width, &r.transaction, r.phase);
-            json!({ "model": r.model, "intents": intents })
-        }
-        b"layout_model_supersede" => {
-            let mut r: SupersedeRequest = parse(request)?;
-            r.model.supersede_sent_ratios(&r.splits);
-            r.model.supersede_sent_widths(&r.columns);
-            json!({ "model": r.model })
-        }
-        b"layout_model_cancel_gesture" => {
-            let mut r: ModelRequest = parse(request)?;
-            let (shown, intents) = r.model.cancel_gesture(&r.transaction);
-            json!({ "model": r.model, "shown": shown, "intents": intents })
-        }
-        b"layout_model_focus" => {
-            let mut r: FocusRequest = parse(request)?;
-            let effects = r.model.focus(&r.pane, r.notify, r.source);
+        b"layout_model_tree" => {
+            let r: TreeRequest = parse(request)?;
+            let node =
+                r.node.node_for(&r.split).map(|(axis, a, b)| json!({"axis": axis, "a": a, "b": b}));
+            let new_leaf = Node::leaf(&r.new_pane);
+            let replaced = r.node.replacing_leaf(&r.pane, &|leaf| {
+                Node::split(&r.new_split, r.axis, 0.5, leaf.clone(), new_leaf.clone())
+            });
             json!({
-                "model": r.model,
-                "intents": effects.intents,
-                "entered": effects.entered,
-                "revealOnCanvas": effects.reveal_on_canvas,
+                "splits": r.node.splits(),
+                "sameShape": r.node.has_same_shape(&r.other),
+                "node": node,
+                "equalizedRatio": r.node.equalized_ratio(&r.split),
+                "replaced": replaced,
             })
         }
-        b"layout_model_dismiss_focus_ring" => {
-            let mut r: ModelRequest = parse(request)?;
-            r.model.dismiss_focus_ring();
-            json!({ "model": r.model })
+        b"layout_model_even_split" => {
+            let r: EvenSplitRequest = parse(request)?;
+            json!({"changes": even_split_changes(&r.pane, r.axis, &r.root)})
         }
-        b"layout_model_select_screen" => {
-            let mut r: ScreenRequest = parse(request)?;
-            let intents = r.model.select_screen(&r.screen);
-            json!({ "model": r.model, "intents": intents })
+        b"layout_model_split_sizing" => {
+            let r: SplitSizingRequest = parse(request)?;
+            json!({"changes": split_sizing_changes(&r.layout, &r.pane, r.axis, r.removing.as_deref(), r.even)})
         }
-        b"layout_model_send_ended" => {
-            let mut r: SendRequest = parse(request)?;
-            let change = EndedValues { values: r.values, transaction: r.transaction };
-            let (done, intent) = match change.send(&mut r.model, r.unsendable.as_ref()) {
-                SendStart::Done(sent) => (Some(sent), None),
-                SendStart::Sending(intent) => (None, intent),
-            };
-            json!({ "model": r.model, "done": done, "intent": intent })
-        }
-        b"layout_model_end_sending" => {
-            let mut r: ModelRequest = parse(request)?;
-            let sent = end_sending(&mut r.model);
-            json!({ "model": r.model, "sent": sent })
-        }
-        b"layout_model_sizes" => {
-            let r: SizesRequest = parse(request)?;
-            match r.intent.sizes() {
-                Some((values, transaction)) => {
-                    json!({ "values": values, "transaction": transaction })
+        b"layout_model_equalize" => {
+            let r: EqualizeScreen = parse(request)?;
+            match equalize(&r) {
+                EqualizeOutcome::NothingToEqualize => {
+                    json!({"outcome": "nothingToEqualize", "values": []})
                 }
-                None => json!({ "values": null, "transaction": null }),
+                EqualizeOutcome::Equalize(values) => {
+                    json!({"outcome": "equalized", "values": values})
+                }
             }
         }
-        b"layout_model_floating_clamped" => {
-            let r: FloatingRequest = parse(request)?;
-            json!({ "frame": floating_clamped(r.frame) })
+        b"layout_model_equalize_split" => {
+            let r: EqualizeSplitRequest = parse(request)?;
+            json!({"ratio": equalize_split(&r.layouts, &r.split)})
         }
-        b"layout_model_floating_rect" => {
-            let r: FloatingRequest = parse(request)?;
-            json!({ "rect": floating_rect(r.frame, r.width, r.height, r.scale) })
+        b"layout_model_equalize_columns" => {
+            let r: EqualizeColumnsRequest = parse(request)?;
+            let equalizer = ColumnEqualizer {
+                columns: &r.columns,
+                visible: &r.visible,
+                viewport_width: r.viewport_width,
+                gap: r.gap,
+                minimum_widths: &r.minimum_widths,
+            };
+            json!({"resizes": equalizer.resizes()})
         }
-        b"layout_model_floating_pane_rect" => {
-            let r: FloatingRequest = parse(request)?;
-            json!({ "rect": floating_pane_rect(r.card) })
+        b"layout_model_new_column_plan" => {
+            let r: NewColumnPlanRequest = parse(request)?;
+            json!({"width": new_column_plan(
+                r.mode,
+                &r.columns,
+                r.anchor.as_deref(),
+                &r.visible,
+                r.fixed_width,
+                r.removing.as_deref(),
+            )})
         }
-        b"layout_model_floating_card_rect" => {
-            let r: FloatingRequest = parse(request)?;
-            json!({ "rect": floating_card_rect(rect(&r.pane)?) })
+        b"layout_model_new_column_width" => {
+            let r: NewColumnWidthRequest = parse(request)?;
+            json!({"width": new_column_width(
+                r.layout.as_ref(),
+                &r.pane,
+                &r.visible_panes,
+                r.mode,
+                r.fixed_width,
+                r.removing.as_deref(),
+            )})
         }
-        b"layout_model_floating_fractions" => {
-            let r: FloatingRequest = parse(request)?;
-            json!({ "frame": floating_fractions(r.rect, r.width, r.height) })
+        b"layout_model_auto_split" => {
+            let r: AutoSplitRequest = parse(request)?;
+            json!({"split": auto_split(&r.layout, &r.frames, &r.recent)})
         }
-        b"layout_model_floating_raise" => {
-            let r: RaiseRequest = parse(request)?;
-            json!({ "intent": floating_raise(&r.pane, &r.floating, r.source) })
+        b"layout_model_pane_placement" => {
+            let r: PanePlacementRequest = parse(request)?;
+            json!({"plan": pane_plan(&r.layout, &r.focused, &r.recent, &r.frames, r.placement, r.tiles)})
         }
-        b"layout_model_divider_tree" => {
-            let r: DividerTreeRequest = parse(request)?;
-            json!({
-                "plan": divider_insert_plan(&r.tree, &r.split),
-                "beside": divider_beside(&r.tree, &r.pane),
-            })
+        b"layout_model_main_pane" => {
+            let r: MainPaneRequest = parse(request)?;
+            json!({"on": main_pane_is_on(r.setting, r.override_)})
         }
-        b"layout_model_dividers" => {
-            let r: DividersRequest = parse(request)?;
-            json!({
-                "plan": screens_divider_insert_plan(&r.screens, &r.split),
-                "beside": screens_divider_beside(&r.screens, &r.pane),
-                "hidden": divider_hidden(&r.screens, &r.split),
-            })
+        b"layout_model_main_pane_side" => {
+            let r: MainPaneSideRequest = parse(request)?;
+            json!({"side": main_pane_side(&r.placement)})
         }
-        b"layout_model_cache" => {
-            let r: CacheRequest = parse(request)?;
-            json!({
-                "node": cache_node(&r.model, &r.frames),
-                "live": cache_live(&r.model, r.bounds, r.divider),
-            })
+        b"layout_model_dock_pick" => {
+            let r: DockPickRequest = parse(request)?;
+            json!({"pick": dock_pick(r.has_strip, r.keep)})
         }
-        b"layout_model_cache_drift" => {
-            let r: DriftRequest = parse(request)?;
-            json!({ "mark": cache_drift(&r.cached, r.reconciled) })
-        }
-        b"layout_model_screen" => {
-            let r: ScreenQueryRequest = parse(request)?;
-            let screen = &r.screen;
-            json!({
-                "panes": screen.panes(),
-                "visualPanes": screen.visual_panes(),
-                "contains": screen.contains(&r.pane),
-                "floats": screen.floats(&r.pane),
-                "implicitColumn": screen.implicit_column_id(),
-                "columnContaining": screen.column_containing(&r.pane),
-                "inAgentChatDock": screen.in_agent_chat_dock(&r.pane),
-                "columnById": screen.column_by_id(&r.column),
-            })
-        }
-        b"layout_model_layout" => {
-            let r: LayoutRequest = parse(request)?;
-            json!({
-                "visualPanes": visual_panes(&r.layout),
-                "sameStructure": has_same_structure(&r.layout, &r.other),
-                "treeWithSplit": tree_with_split(&r.layout, &r.split),
-                "settingRowHeights": setting_row_heights(&r.layout, &r.heights, &r.column),
-                "settingDock": setting_dock(&r.layout, r.dock.as_ref(), &r.column),
-            })
+        b"layout_model_chat_columns" => {
+            let r: ChatColumnsRequest = parse(request)?;
+            json!({"columns": chat_columns(&r.screen_id, &r.layout, &r.pane)})
         }
         _ => return Err(ERR_INVALID),
     };

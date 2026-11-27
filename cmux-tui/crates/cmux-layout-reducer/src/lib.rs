@@ -54,6 +54,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod layout_model;
 pub mod pane_close;
 mod rows;
 pub mod screen_layout;
@@ -972,7 +973,7 @@ pub mod floating_panes;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
-pub mod layout_model;
+pub mod layout_state;
 pub mod new_placement;
 pub mod optimistic;
 pub mod pane_drop_zones;
