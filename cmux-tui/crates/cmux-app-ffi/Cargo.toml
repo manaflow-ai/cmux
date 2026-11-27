@@ -69,6 +69,8 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
+# The idle pass over leftover Chromium code-sign clones (src/sign_clone_sweep.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # Live wallpapers (src/wallpaper.rs, include/cmux_wallpaper_ffi.h): the program check
 # and its Metal translation (naga), the scheduler, the Frame packer.
 cmux-wallpaper = { path = "../cmux-wallpaper" }
@@ -81,6 +83,9 @@ cmux-process = { path = "../cmux-process" }
 # The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A staged update's Info.plist and its frameworks' pages (src/updater/staged_prewarm.rs).
+plist = "1"
+libc = "0.2"
 # Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
 unicode-segmentation = "1"
 # The background ready copy's decisions (app.backgroundReady): the quit, the hidden plan, the login item, the
@@ -102,3 +107,12 @@ debug = false
 strip = "debuginfo"
 # Machine code from rustc's own LTO: scripts/cmux-next/build-app-ffi.sh.
 lto = "fat"
+
+# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
+# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
+# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
+# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
+# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
+# is unchanged.
+[profile.release.build-override]
+strip = false

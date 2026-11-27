@@ -59,7 +59,7 @@ extension BrowserPageService {
     /// The app control plane does not know the browser host's vault, TOTP or per-tab typed-secret
     /// values, so a raw pixel capture cannot reproduce its fail-closed mask.
     static func unguardedCaptureRefusal() -> ControlError {
-        ControlError(code: "unavailable", message: ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
+        .personOnly()
     }
 
     static func waitCondition(_ call: ControlCall) throws -> BrowserPageScripts.WaitCondition {

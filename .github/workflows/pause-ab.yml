@@ -66,9 +66,11 @@ jobs:
     # Pairs come up one after another for up to 25 minutes, the last pair drives about 20, then four-at-a-time deletes.
     timeout-minutes: 80
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # Two commits, so a PR's merge commit has its base (HEAD^1) for the reach check below.
+          fetch-depth: 2
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/cmux-next/
@@ -80,7 +82,29 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Unit tests
         run: bun test scripts/cmux-next/pause-ab.test.ts
+      # The 20-machine staging A/B (40-70 min a run) measures the harness and its arguments, so a PR runs it when it
+      # changes what the A/B executes: the sparse paths above, or the A/B step's own block in this file. A PR that only
+      # edits this file elsewhere (an action pin, runner labels, retention days) runs the unit tests and skips it: in
+      # the 4 h to 04:46Z on 11-27, 8 of 10 A/B runs came from such sweeps (checkout repin, retention-days, ci labels,
+      # base-red caches) and failed on staging bring-up, ~40-70 runner minutes each.
+      - name: Does this change reach the A/B
+        id: reach
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ] || ! git rev-parse -q --verify HEAD^1 >/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ab_step() { git show "$1:.github/workflows/pause-ab.yml" 2>/dev/null | awk '/- name: A\/B on staging/{p=1} /- name: Summary/{p=0} p && !/if: steps\.reach\./'; }
+          if ! git diff --quiet HEAD^1 HEAD -- scripts/cmux-next/ tests/fixtures/model-stub/ Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/ \
+            || [ "$(ab_step HEAD^1)" != "$(ab_step HEAD)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "A/B skipped: this PR changes neither the harness paths nor the A/B step (unit tests ran)." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - name: A/B on staging
+        if: steps.reach.outputs.run == 'true'
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -93,7 +117,7 @@ jobs:
           bun scripts/cmux-next/pause-ab.ts --backend staging --out "$RUNNER_TEMP/pause-ab"
           --arms "$ARMS" --per-arm "$PER_ARM" --turns "$TURNS" --seed "$SEED" --gaps "$GAPS"
       - name: Summary
-        if: always()
+        if: always() && steps.reach.outputs.run != 'false'
         run: cat "$RUNNER_TEMP/pause-ab/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no summary written" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

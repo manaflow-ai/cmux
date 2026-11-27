@@ -261,14 +261,31 @@ impl Paths {
         self.entries.iter().find(|entry| entry.id == id).map(|entry| entry.route)
     }
 
+    // Keep a proven direct path first. Among relays a live hop leg repairs
+    // losses locally. Use the same choice for traffic and its silence watch.
+    fn current_id(&self) -> Option<PathId> {
+        let current = self.selector.current();
+        if current.and_then(|id| self.selector.path(id)).is_some_and(|p| p.kind.class().is_direct()) {
+            return current;
+        }
+        self.entries
+            .iter()
+            .find(|entry| {
+                entry.route.carrier == Carrier::Hop
+                    && self.selector.path(entry.id).is_some_and(|p| p.state == PathState::Alive)
+            })
+            .map(|entry| entry.id)
+            .or(current)
+    }
+
     /// The route the selector sends on: an alive path.
     pub fn current(&self) -> Option<Route> {
-        self.route_of_id(self.selector.current())
+        self.route_of_id(self.current_id())
     }
 
     /// The chosen path went quiet: datagrams go on every route.
     pub fn suspect(&self) -> bool {
-        self.selector.chosen().is_some() && self.selector.current().is_none()
+        self.selector.chosen().is_some() && self.current_id().is_none()
     }
 
     /// The selector holds a path, alive or suspect: it decides the route,
@@ -351,11 +368,22 @@ impl Paths {
     /// An authenticated datagram arrived on `route`. On a dead path that
     /// is a sign it works again (the peer's upgrade spray, a network that
     /// came back): probe it now rather than at the dead path's 30 s turn.
+    /// So on a path that never answered (relay-first: the session rode the
+    /// relay before the direct race settled). The probe that went out while
+    /// the path was black-holed is given up rather than waited out (its 1 s
+    /// timeout), at most once per [`ProbeConfig::dial_interval`]: the peer's
+    /// datagram is the call-me-maybe, and the next probe's answer moves the
+    /// session one round trip later (RFD 0142 R1).
     pub fn heard(&mut self, route: Route, now: Instant) {
+        let relayed = self.relayed();
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.route == route) else { return };
         entry.watch.heard();
-        if self.selector.path(entry.id).is_some_and(|view| view.state == PathState::Dead) {
-            entry.watch.probe_now(now);
+        // Dead, or (riding a relay) never answered yet: the peer reaching
+        // us on it is the call-me-maybe, so the probe goes now.
+        if self.selector.path(entry.id).is_some_and(|view| {
+            view.state == PathState::Dead || (relayed && view.state == PathState::Probing)
+        }) {
+            entry.watch.probe_now_fresh(now, self.probes.dial_interval);
         }
     }
 
@@ -392,8 +420,8 @@ impl Paths {
 
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
-        let current = self.selector.current();
-        let chosen = self.selector.chosen();
+        let current = self.current_id();
+        let chosen = current.or(self.selector.chosen());
         let mut due = DueProbes::default();
         let mut lost = Vec::new();
         let mut silent = Vec::new();
@@ -448,7 +476,7 @@ impl Paths {
         // comes before the silence deadline (four round trips and an
         // unanswered probe), so a lost probe is how such a path turns
         // suspect, and the fallback needs the same fresh answers.
-        let left_current = current.is_some() && self.selector.current() != current;
+        let left_current = current.is_some() && self.current_id() != current;
         if chosen_quiet || left_current {
             self.chosen_quiet = self.route_of_id(chosen.or(current));
             // The other paths were last heard up to a 30 s probe ago, and the
@@ -653,6 +681,29 @@ mod tests {
     }
 
     #[test]
+    fn answered_hop_precedes_turn_and_yields_to_direct() {
+        let mut paths = paths_on(lan_table());
+        let relay = Wanted { route: turn("203.0.113.9:4100"), relayed: true };
+        let hop = Wanted {
+            route: Route { carrier: Carrier::Hop, addr: "203.0.113.10:4100".parse().unwrap() },
+            relayed: true,
+        };
+        let lan = Wanted { route: udp("192.168.1.30:4100"), relayed: false };
+        paths.sync(&[relay, hop]);
+        let now = Instant::now();
+        for (id, probe) in paths.poll(now).pings {
+            let delay = if paths.route_of(id) == Some(hop.route) { 30 } else { 2 };
+            paths.on_pong(id, probe, now + std::time::Duration::from_millis(delay));
+        }
+        assert_eq!(paths.current(), Some(hop.route));
+        paths.sync(&[relay, hop, lan]);
+        answer_all(&mut paths, now + std::time::Duration::from_secs(1), std::time::Duration::from_millis(5));
+        assert_eq!(paths.current(), Some(lan.route));
+        paths.sync(&[relay]);
+        assert_eq!(paths.current(), Some(relay.route));
+    }
+
+    #[test]
     fn the_lan_address_wins_over_the_tailnet_and_the_relay() {
         let mut paths = paths_on(lan_table());
         let lan = udp("192.168.1.30:4100");
@@ -699,6 +750,67 @@ mod tests {
         // then the probe it triggers gets the same window.
         assert!(at <= ms(250), "reported at {at:?}");
         assert_eq!(reported.len(), 1, "once per quiet spell: {reported:?}");
+    }
+
+    /// RFD 0142 R1: the session rides a relay and its direct path is dead,
+    /// one probe sent into the black hole and outstanding. The peer's direct
+    /// datagram arrives (its spray, the call-me-maybe): a new probe goes at
+    /// once, not after the old one's 1 s timeout, and its answer takes the
+    /// session direct one round trip later. A flood of such datagrams sends
+    /// at most one probe per dial interval.
+    #[test]
+    fn a_dead_direct_path_the_peer_reaches_is_probed_at_once_despite_an_outstanding_probe() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+        // Only the relay answers until the LAN is dead.
+        let mut now = Instant::now();
+        let mut lan_probe_at = None;
+        for _ in 0..1000 {
+            now += ms(10);
+            paths.sent_data(now);
+            let due = paths.poll(now);
+            for (id, probe) in due.pings {
+                if paths.route_of(id) == Some(relay) {
+                    paths.on_pong(id, probe, now);
+                } else if paths.route_of(id) == Some(lan) {
+                    lan_probe_at = Some(now);
+                }
+            }
+            let dead = paths.entries.iter().any(|entry| {
+                entry.route == lan
+                    && paths.selector.path(entry.id).is_some_and(|view| view.state == PathState::Dead)
+            });
+            if dead && paths.current() == Some(relay) && lan_probe_at.is_some_and(|at| now - at >= ms(200)) {
+                // An upgrade probe toward the LAN is outstanding (sent 200 ms+ ago).
+                break;
+            }
+        }
+        assert_eq!(paths.current(), Some(relay), "rides the relay");
+        let heard_at = now + ms(10);
+        let mut pings = 0;
+        let mut direct_at = None;
+        let mut t = heard_at;
+        while t < heard_at + ms(300) {
+            // The peer's spray: a datagram on the LAN every 10 ms.
+            paths.heard(lan, t);
+            let due = paths.poll(t);
+            for (id, probe) in due.pings {
+                if paths.route_of(id) == Some(lan) {
+                    pings += 1;
+                    paths.on_pong(id, probe, t + ms(2));
+                }
+            }
+            if direct_at.is_none() && paths.current() == Some(lan) {
+                direct_at = Some(t);
+            }
+            t += ms(10);
+        }
+        let direct = direct_at.expect("the LAN takes the session back").duration_since(heard_at);
+        assert!(direct <= ms(30), "direct {direct:?} after the peer's first direct datagram");
+        assert!(pings <= 4, "{pings} LAN probes in 300 ms of spray");
     }
 
     #[test]

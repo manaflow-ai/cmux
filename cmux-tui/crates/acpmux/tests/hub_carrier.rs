@@ -3075,6 +3075,22 @@ async fn kept_fixture_with(
     b_keeps_circuits: bool,
     granted: bool,
 ) -> KeptFixture {
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    kept_fixture_timed(delay, rate, b_keeps_circuits, granted, fast).await
+}
+
+/// [`kept_fixture_with`] on both carriers' `fast` timings.
+async fn kept_fixture_timed(
+    delay: Duration,
+    rate: Option<u64>,
+    b_keeps_circuits: bool,
+    granted: bool,
+    fast: Timings,
+) -> KeptFixture {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -3093,11 +3109,6 @@ async fn kept_fixture_with(
     let direct = format!("relay+ws://{relay_address}");
     let sshd = standin_sshd().await;
     let (key_a, key_b) = (random_key(), random_key());
-    let fast = Timings {
-        control: Duration::from_secs(5),
-        handshake: Duration::from_secs(5),
-        ..Timings::default()
-    };
     let b = HubCarrier::new(
         Arc::new(FixedTickets {
             relay: direct,
@@ -3277,6 +3288,88 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
     assert_eq!(fixture.plain_dials(), 0);
     assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// RFD 0056 part 4, RFD 0061 G5 ("0 for a held circuit"): a held circuit is open before the
+/// first dial to the machine and outlives `kept_idle` with no stream, so the first acpmux dial,
+/// long after the last one, is a stream on it: no new circuit, no plain dial. A kept circuit that
+/// is not held idles out beside it, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_held_circuit_is_open_before_the_first_dial_and_never_idles_out() {
+    let _ = HERMETIC;
+    let idle = Duration::from_millis(600);
+    let timings = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        keepalive: Duration::from_millis(150),
+        kept_idle: idle,
+        ..Timings::default()
+    };
+    // The fixture's own cmux-tui dials (until B served) opened the bulk circuit, not held.
+    let fixture = kept_fixture_timed(Duration::ZERO, None, true, true, timings).await;
+    assert!(!fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    let opened = fixture.kept_circuits();
+
+    let stages = within("the hold", fixture.a.hold_circuit(&fixture.b_key, CircuitLane::Cheap))
+        .await
+        .unwrap()
+        .expect("the hold opened the cheap circuit");
+    assert!(stages.total() > Duration::ZERO);
+    assert!(fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    assert_eq!(fixture.kept_circuits(), opened + 1);
+    // A second hold finds it open.
+    let again = within("a second hold", fixture.a.hold_circuit(&fixture.b_key, CircuitLane::Cheap))
+        .await
+        .unwrap();
+    assert!(again.is_none(), "{again:?}");
+    assert_eq!(fixture.kept_circuits(), opened + 1);
+
+    // Three idle periods with no stream: the bulk circuit idles out, the held one stays.
+    tokio::time::sleep(idle * 3).await;
+    assert!(fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1, "only the held circuit is open");
+
+    let opens = fixture.kept_opens();
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"held\n").await;
+    assert_eq!(fixture.kept_circuits(), opened + 1, "the dial rode the held circuit");
+    assert_eq!(fixture.kept_opens(), opens + 1);
+    assert_eq!(fixture.plain_dials(), 0);
+}
+
+/// `ACPMUX_HUB_HOLD_CIRCUITS` names machines once each; unset or empty holds none.
+#[test]
+fn hub_carrier_held_machines_reads_a_list_once_each_and_nothing_by_default() {
+    use acpmux::hub_carrier::held_machines;
+    assert_eq!(acpmux::hub_carrier::HOLD_CIRCUITS_ENV, "ACPMUX_HUB_HOLD_CIRCUITS");
+    assert!(held_machines(None).is_empty());
+    assert!(held_machines(Some("  , ")).is_empty());
+    assert_eq!(held_machines(Some("a, b c,a\nd")), vec!["a", "b", "c", "d"]);
+}
+
+/// A held machine is named by its `daemonId` or its host: a host resolves through the address
+/// book to every key it lists for that host, each key once, and a name the book lacks is left out.
+#[test]
+fn hub_carrier_held_machines_resolve_host_names_through_the_address_book() {
+    use acpmux::hub_carrier::{is_daemon_id, resolve_held};
+    let key_a = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=".to_owned();
+    let key_b = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned();
+    let key_c = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=".to_owned();
+    assert!(is_daemon_id(&key_a));
+    assert!(!is_daemon_id("build-box"));
+    let book = vec![
+        (key_a.clone(), "build-box".to_owned()),
+        (key_b.clone(), "work-mac".to_owned()),
+        (key_c.clone(), "work-mac".to_owned()),
+    ];
+    let entries: Vec<String> =
+        ["build-box", "work-mac", "gone-host", &key_a].iter().map(|s| s.to_string()).collect();
+    let (keys, unlisted) = resolve_held(&entries, &book);
+    assert_eq!(keys, vec![key_a.clone(), key_b, key_c]);
+    assert_eq!(unlisted, vec!["gone-host".to_owned()]);
+    // A key the book does not list is still held: the book can lag a machine that just joined.
+    let (keys, unlisted) = resolve_held(&[key_a.clone()], &[]);
+    assert_eq!((keys, unlisted), (vec![key_a], Vec::<String>::new()));
 }
 
 /// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's

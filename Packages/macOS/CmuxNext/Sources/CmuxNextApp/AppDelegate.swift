@@ -121,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
-            guard let services = self?.services else { return NSApp.terminate(nil) }
+            guard let services = self?.services else { return NSApplication.terminateFromRunLoop() }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
@@ -186,12 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services, laps: binderLaps)
+        AppActions.bind(services, laps: binderLaps, deferring: true)
         DebugTimings.markLaunch("dfl.app_actions") // AppActions.bind alone; dfl.bind adds the palette, Ghostty keybinds and terminal hooks
+        firstFrame.whenOpen { [weak services] in guard let services else { return }; binderLaps.restart(); AppActions.bindDeferred(services, laps: binderLaps); DebugTimings.markLaunch("dfl.app_actions_deferred") } // before HandlerCoverage.verify below
         services.palette.bindRegistryActions()
-        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
-        self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter); self.ghosttyKeybinds = ghosttyKeybinds; ghosttyKeybinds.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
@@ -199,9 +198,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
-            openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
-        DebugTimings.markLaunch("dfl.menu")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon); launchHold.install(settled: launchSettle.whenSettled, firstFrame: firstFrame)
         daemonPrompts = DaemonPrompts.start(services, afterFrame: firstFrame.whenOpen)
@@ -221,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.registry.logBindingProblems()
             logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         }
-        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
+        LaunchTypeProbe.armChat(environment: ProcessInfo.processInfo.environment, listen: AgentPaneLaunchTimings.shared.listen) { DebugTimings.markLaunch($0) }; firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1; launch_tti_check.py's chat rounds
         // Before the first window opens (restoreWhenLoaded opens one at once).
         launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
@@ -323,6 +319,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the glass look too). Cloud and Home at once (the front may be Home's Chief); the rest after the front chat drew.
         let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
         firstFrame.afterOpen(stop: stop, mark: mark, ["cloud": { [weak self, weak services] in self?.cloudContext = services?.startCloud() }, "home": { [weak services] in services?.home.start() }])
+        // The menu bar is built after the first frame (next-launch-instant); its readers are nil-safe (TerminalKeyEquivalent, DebugKey).
+        firstFrame.afterOpen(stop: stop, mark: mark, ["menu": { [weak services] in if let services { NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry,
+            settings: { [weak services] in services?.settings }, openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) })) } }])
         FrontChatPaintGate.make(after: firstFrame).afterOpen(stop: stop, mark: mark, [
             "harness_icons": { [weak services] in services?.harnessIcons.start() },
             "bookmarks": { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
@@ -445,10 +444,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
+            Task { [daemon = services.daemon] in await settings.waitForLoad(atLeast: 1); await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
-                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                try await control.start(registry: registry, settings: settings, launch: environment.launch, services: services, afterFirstFrame: { [firstFrame] in await firstFrame.opened() })
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)

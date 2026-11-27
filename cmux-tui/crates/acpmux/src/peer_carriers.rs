@@ -14,7 +14,9 @@
 //!   the remembered path at once, and the link moves to a direct path after its probes.
 
 use super::carrier::{DialError, connect_fail, fail_of_chain};
-use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
+use super::{
+    DIAL_TIMED_OUT, EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens,
+};
 use crate::no_panic::LockExt;
 use crate::peer_link::{Heard, HeardStream};
 use crate::peer_paths::{PROBE_EVERY, Paths, Via};
@@ -351,7 +353,7 @@ impl Peer {
     /// The paths this peer has, before any is dialed.
     pub(super) fn path_vias(&self) -> Vec<Via> {
         let mut vias: Vec<Via> =
-            direct_via(self.wireguard.get().is_some(), self.link_host.get().is_some())
+            direct_via(self.wireguard_route().is_some(), self.link_host.get().is_some())
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
@@ -489,11 +491,15 @@ impl Peer {
             (paths.dial_order(now), paths.dial_together(now))
         });
         let read = Box::pin(self.direct_tokens(&order)).shared();
+        // Whether a dial ran past its connect deadline: the link's end class (`link_timed_out`).
+        let timed_out = Arc::new(AtomicBool::new(false));
         let dials: Vec<_> = order
             .iter()
             .map(|via| {
                 let read = read.clone();
-                (*via, async move { self.open_via(*via, self.dial_tokens(*via, read).await).await })
+                let dial =
+                    async move { self.open_via(*via, self.dial_tokens(*via, read).await).await };
+                (*via, DIAL_TIMED_OUT.scope(timed_out.clone(), dial))
             })
             .collect();
         let mut stopped = self.stop_changed.subscribe();
@@ -507,6 +513,9 @@ impl Peer {
             Err(failed) => {
                 for (via, _) in &failed {
                     self.path_failed(*via);
+                }
+                if timed_out.load(Ordering::SeqCst) {
+                    self.link_timed_out.store(true, Ordering::SeqCst);
                 }
                 // Every path failed: the route is down, for the most telling of their kinds.
                 self.went_down(connect_fail(failed.iter().map(|(_, error)| error)));
@@ -583,9 +592,9 @@ impl Peer {
         match via {
             Via::Wireguard => {
                 let (transport, address) =
-                    self.wireguard.get().ok_or_else(|| "no WireGuard route".to_owned())?;
+                    self.wireguard_route().ok_or_else(|| "no WireGuard route".to_owned())?;
                 let stream = transport
-                    .connect(*address)
+                    .connect(address)
                     .await
                     .map_err(|e| DialError::new(fail_of_chain(&e), e.to_string()))?;
                 Ok((Box::new(stream), format!("ws://localhost:{}", address.port())))
@@ -706,6 +715,8 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
+            // A peer the person configured: a host they name.
+            cmux_egress::allow_named(&host);
             let tcp =
                 crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| DialError::io(&e))?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
