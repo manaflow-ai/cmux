@@ -5,10 +5,130 @@
       "comment" : "Settings > Chat > Compact Summary for Short Turns: help",
       "extractionState" : "manual",
       "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض الدور القصير ملخصًا من سطر واحد لما فعله، بدلًا من طيّه تحت «عمل لمدة»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kratak potez prikazuje sažetak u jednom redu umjesto da se sklopi pod „Radio“."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En kort tur viser en opsummering på én linje af, hvad den gjorde, i stedet for at blive foldet under Arbejdede i."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein kurzer Durchgang zeigt eine einzeilige Zusammenfassung dessen, was er getan hat, statt unter „Gearbeitet für“ eingeklappt zu werden."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un turno corto muestra un resumen de una línea de lo que hizo, en lugar de plegarse bajo Trabajó durante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un tour court affiche un résumé d’une ligne de ce qu’il a fait, au lieu d’être replié sous A travaillé pendant."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un turno breve mostra un riepilogo di una riga di ciò che ha fatto, invece di essere compresso sotto Ha lavorato per."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "短いターンは「作業時間」の下に折りたたまず、実行内容を1行で要約して表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វេនខ្លីបង្ហាញសេចក្តីសង្ខេបមួយបន្ទាត់នៃអ្វីដែលវាបានធ្វើ ជំនួសឱ្យការបត់នៅក្រោម «បានធ្វើការរយៈពេល»។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "짧은 턴은 '작업 시간' 아래로 접히는 대신 한 줄 요약을 보여 줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En kort runde viser et sammendrag på én linje av hva den gjorde, i stedet for å foldes under Arbeidet i."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Krótka tura pokazuje jednowierszowe podsumowanie tego, co zrobiła, zamiast zwijać się pod „Pracował przez”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um turno curto mostra um resumo de uma linha do que fez, em vez de ficar recolhido em Trabalhou por."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Короткий ход показывает однострочную сводку сделанного вместо сворачивания под «Работал»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รอบสั้นจะแสดงสรุปหนึ่งบรรทัดของสิ่งที่ทำ แทนการพับไว้ใต้ ทำงานเป็นเวลา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kısa bir tur, Çalıştı altında katlanmak yerine ne yaptığını tek satırlık bir özetle gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Короткий хід показує однорядкове зведення зробленого замість згортання під «Працював»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lượt ngắn hiển thị tóm tắt một dòng về việc đã làm, thay vì gập dưới Đã làm việc trong."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "短回合会显示一行摘要说明它做了什么，而不是折叠在“工作时长”下。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "短回合會顯示一行摘要說明它做了什麼，而不是收合在「工作時間」下。"
           }
         }
       }

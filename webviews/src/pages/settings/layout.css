@@ -1273,6 +1273,33 @@
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
+/* Six pages (one settings area, findings G6): the pages sit at the list's own rhythm, and the shown
+   page's other categories open under its link, indented past its icon. */
+.sidebar-section.sidebar-page + .sidebar-section.sidebar-page {
+  margin-top: 0;
+}
+
+.sidebar-page-children .section-link {
+  padding-inline-start: var(--ds-space-5);
+}
+
+.sidebar-page-link[data-open] .section-name {
+  font-weight: var(--weight-emphasis);
+}
+
+@media (max-width: 600px) {
+  /* In the narrow pane's strip the shown page's categories follow its chip in the row. */
+  .sidebar-page-children .section-link {
+    padding-inline-start: 0;
+  }
+}
+
+/* A result's crumb: its page, muted, then its category (findings G6). */
+.result-section-page,
+.result-section-crumb {
+  color: var(--muted-text);
+}
+
 /* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted
    chip beside an experimental row's title and the Experimental sidebar entry. Off, none is drawn. */
 .beta-chip {

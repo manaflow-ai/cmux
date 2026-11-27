@@ -24,6 +24,7 @@ mod record;
 mod record_ffi;
 mod session;
 mod session_ffi;
+pub mod ui;
 mod upstream_ffi;
 pub mod view;
 mod view_ffi;
@@ -529,3 +530,5 @@ mod upstream_tests;
 mod view_session_tests;
 #[cfg(test)]
 mod view_tests;
+#[cfg(test)]
+mod view_transport_tests;
