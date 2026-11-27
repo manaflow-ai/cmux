@@ -69,8 +69,9 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockListSize?: number;
   /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
   cmuxAcpmuxMockListShape?: "fleet";
-  /** bench/sim-ladder.bench.ts: page the list by the client's `limit` (`_acpmux/watch`, then `_acpmux/sessions`
-   *  from `nextCursor`), as acpmux does (list_reply.rs), so each page holds the first page, as the app's do. */
+  /** The benches that list many sessions (sim-ladder, update-one, render-counts, session-scale-*, chat-fast-scroll):
+   *  page the list by the client's `limit` (`_acpmux/watch`, then `_acpmux/sessions` from `nextCursor`), as acpmux
+   *  does (list_reply.rs), so each page holds the first page, as the app's do. */
   cmuxAcpmuxMockPaged?: boolean;
 };
 
