@@ -47,7 +47,7 @@ export function cloudAgentPick(): CloudAgentPick | undefined {
   return held;
 }
 
-/** Tests only: drops the pick. */
+/** Drops the pick: a page another tab adopts (App.tsx adoption), a pick of an agent on This Mac. */
 export function clearCloudAgentPick(): void {
   held = undefined;
   emit();

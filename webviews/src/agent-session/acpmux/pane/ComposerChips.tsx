@@ -3,7 +3,7 @@ import { type AcpmuxSnapshot } from "../model";
 import { newTabChipSnapshot } from "../newtab/chipDefaults";
 import { useHarnessesPage } from "../harnesses/harnessesPage";
 import { holdCloudModePick } from "../cloudModePick";
-import { holdCloudAgentEffort, holdCloudAgentPick, useCloudAgentPick } from "../cloudAgentPick";
+import { clearCloudAgentPick, holdCloudAgentEffort, holdCloudAgentPick, useCloudAgentPick } from "../cloudAgentPick";
 import { HELD_EFFORT_ID, HELD_FAST_ID, isEffortOption, isFastModeOption } from "../heldOptions";
 import { isDefaultChoice } from "../defaultChoice";
 import { useDraftActionsVersion } from "../composerDraft";
@@ -179,6 +179,9 @@ function PickerChips({
           holdCloudAgentPick({ harness: cloudHarness, model: modelId });
           return;
         }
+        // A pick here is the latest: a Cloud pick made before it no longer stands for the chips, so Cloud
+        // picked again shows (and starts) this agent, never the earlier one (cmux#59716, Codex to Claude).
+        clearCloudAgentPick();
         start();
         void callNative("chat.model", { modelId });
       }}
@@ -216,6 +219,7 @@ function PickerChips({
           holdCloudAgentPick({ harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
           return;
         }
+        clearCloudAgentPick();
         if (startsChat) pickedHarness.current = harness;
         void (
           !startsChat && snapshot.sessionId && snapshot.canHandoff && !switchForks(snapshot)

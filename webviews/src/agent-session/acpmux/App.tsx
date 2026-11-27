@@ -97,7 +97,8 @@ import {
   withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
-import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
+import { clearCloudModePick, cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
+import { clearCloudAgentPick } from "./cloudAgentPick";
 import { askAppCloudPick, cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
@@ -4220,7 +4221,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabNow = useRef(newTab);
   newTabNow.current = newTab;
   const currentNewTab = useCallback(() => newTabNow.current, []);
-  const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
+  // A Cmd-T adoption is another tab taking this page: the Cloud picks (agent, level, mode) a tab before it
+  // held were that tab's and never start this one's chat (cmux#59716: a page that held Claude for Cloud
+  // started Claude for a tab showing Codex). The page's own Empty project keeps them (adoptNewTab).
+  const adoptForTab = useCallback(
+    (host: NewTabHost) => {
+      clearCloudAgentPick();
+      clearCloudModePick();
+      adoptNewTab(host);
+    },
+    [adoptNewTab],
+  );
+  const newTabGeneration = useNewTabAdoption(adoptForTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
   // `tabs.newTabApp` (newtab/NewTabAppSlot.tsx): the visit (adoption) whose extension slot could not show
@@ -7197,6 +7209,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setPastTurns(undefined);
       setProjectDraft(undefined);
       pickedProject.current = undefined;
+      clearCloudAgentPick();
+      clearCloudModePick();
       void runAdoption(adoption);
     },
     [runAdoption],
