@@ -42,6 +42,7 @@ const { SubagentsSection } = await import("../src/agent-session/acpmux/session-i
 const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
 const { SubagentClockContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { IDLE_AFTER_MS } = await import("../src/agent-session/acpmux/subagents/idle");
+const { Thinking } = await import("../src/agent-session/acpmux/conversation/Thinking");
 const { WorkingFor } = await import("../src/agent-session/acpmux/conversation/WorkingFor");
 const { WorkingCountsContext } = await import("../src/agent-session/acpmux/conversation/workingForModel");
 const host = window.document.getElementById("root")!;
@@ -220,6 +221,40 @@ test("working clocks leave named commands, disclosures and preview reads unchang
     expect(previewReads).toBe(initialReads);
     expect(host.querySelector("[data-named] .cv-worked__time")?.textContent).toBe("6s");
     expect(host.querySelector("[data-generic] .cv-worked__hug")?.textContent).toContain("Working for 6s");
+  } finally {
+    act(() => root.render(null));
+    jest.useRealTimers();
+  }
+});
+
+test("thinking elapsed ticks leave static preview controls untouched", () => {
+  jest.useFakeTimers();
+  try {
+    let previewReads = 0;
+    const preview = { url: "http://localhost:5173", open: noop };
+    const counts = {
+      get preview() {
+        previewReads++;
+        return preview;
+      },
+    };
+    act(() =>
+      root.render(
+        <WorkingCountsContext value={counts}>
+          <Thinking since={Date.now() - 5_000} doing="Reading files" />
+        </WorkingCountsContext>,
+      ),
+    );
+    expect(host.querySelector(".cv-worked__time")?.textContent).toBe("5s");
+    const before = previewReads;
+    const counter = rowRenders();
+    counter.begin(host, ".cv-worked__open");
+    act(() => {
+      jest.advanceTimersByTime(1_000);
+    });
+    expect(counter.end()).toEqual({ rerendered: 0, wasted: 0, added: 0, maxRenders: 0 });
+    expect(previewReads).toBe(before);
+    expect(host.querySelector(".cv-worked__time")?.textContent).toBe("6s");
   } finally {
     act(() => root.render(null));
     jest.useRealTimers();

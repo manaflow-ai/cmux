@@ -15,6 +15,7 @@
 // mostly just meant the yellow circle thing. I thought that was cute").
 import {
   type RefObject,
+  type ReactNode,
   useContext,
   useCallback,
   useLayoutEffect,
@@ -202,7 +203,10 @@ const SAYS = [
   "retry",
 ] as const satisfies readonly (keyof ThinkingProps)[];
 type Says = Pick<ThinkingProps, (typeof SAYS)[number]>;
-type ThinkingProps = NonNullable<Parameters<typeof ThinkingLine>[0]>;
+type ThinkingProps = Omit<
+  NonNullable<Parameters<typeof ThinkingStatus>[0]>,
+  "staticParts" | "staticControls" | "staticGlyph" | "staticSignature"
+>;
 
 /// The least time one set of words stays on the line before the next replaces it, in full motion.
 /// A turn that sends messages in quick succession flips the line from "Thinking" to "Sending message
@@ -618,7 +622,44 @@ function LiveWords({
 /// on the person alike.
 export const SHIMMER_CLASS = "is-shimmer";
 
-function ThinkingLine({
+// Static transcript controls are owned above the clock-driven status. Their elements retain
+// identity through elapsed/retry ticks, including the preview getter and signature artwork.
+function ThinkingLine(props: ThinkingProps = {}) {
+  const counts = useWorkingCounts();
+  const waiting = useContext(WaitingOnContext);
+  const signature = useAgentSignature();
+  const glyph = useThinkingLook().glyph;
+  const parts = counts && !waiting ? workingParts(counts) : [];
+  const controls = parts.map((part) => (
+    <span key={part.key} className="cv-worked__count">
+      <span className="cv-worked__sep" aria-hidden="true">
+        ·
+      </span>
+      <button type="button" className="cv-worked__open" onClick={part.open}>
+        {part.label}
+      </button>
+    </span>
+  ));
+  return (
+    <ThinkingStatus
+      {...props}
+      staticParts={parts}
+      staticControls={controls}
+      staticSignature={signature && <AgentSignature glyph={signature} />}
+      staticGlyph={
+        glyph && (
+          <ThinkingGlyph
+            className="cv-thinking-glyph"
+            doc={glyph}
+            trigger={props.glyphTrigger ?? (props.starting ? "turnStart" : "thinking")}
+          />
+        )
+      }
+    />
+  );
+}
+
+function ThinkingStatus({
   starting = false,
   since,
   now = Date.now,
@@ -651,7 +692,10 @@ function ThinkingLine({
   retry,
   retryAt,
   pulse,
-  glyphTrigger = starting ? "turnStart" : "thinking",
+  staticParts: parts = [],
+  staticControls,
+  staticGlyph,
+  staticSignature,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -722,9 +766,12 @@ function ThinkingLine({
   pulse?: LiveLinePulse;
   /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
   glyphTrigger?: string;
+  staticParts?: ReturnType<typeof workingParts>;
+  staticControls?: ReactNode;
+  staticGlyph?: ReactNode;
+  staticSignature?: ReactNode;
 } = {}) {
   const t = useT();
-  const thinkingGlyph = useThinkingLook().glyph;
   const waiting = useContext(WaitingOnContext);
   const { jumpButton } = useThinkingLook();
   const [answered, settled] = useAnswered(waiting);
@@ -902,11 +949,6 @@ function ThinkingLine({
           // turn's, which read 7m 39s for a two-minute wait (Leo, 2026-11-20).
           formatDuration(ownMs)
         : (own ?? turnTime);
-  // What follows the time (the page a background command serves); the tray counts the running work.
-  const counts = useWorkingCounts();
-  // The chat's dot signature (appearance.agentSignature): undefined, and never asked for, while off.
-  const signature = useAgentSignature();
-  const parts = counts && !waiting ? workingParts(counts) : [];
   // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
   // to roll out with them (`useRoll`).
   const tail = [
@@ -1027,7 +1069,7 @@ function ThinkingLine({
       ) : (
         <span className="cv-shimmer__row">
           {/* A look's thinking dots before the words (thinkingLook.ts `glyph`, unset by default). */}
-          {thinkingGlyph && <ThinkingGlyph className="cv-thinking-glyph" doc={thinkingGlyph} trigger={glyphTrigger} />}
+          {staticGlyph}
           {activityDots && jumpButton === "dots" && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
@@ -1056,7 +1098,7 @@ function ThinkingLine({
               data-tail={`\u2002${roll.out.tail}`}
             />
           )}
-          {signature && <AgentSignature glyph={signature} />}
+          {staticSignature}
           <output
             className={`cv-thinking ${SHIMMER_CLASS}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
@@ -1091,16 +1133,7 @@ function ThinkingLine({
           <span className="cv-worked__time">{turnClock}</span>
         </span>
       )}
-      {parts.map((part) => (
-        <span key={part.key} className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <button type="button" className="cv-worked__open" onClick={part.open}>
-            {part.label}
-          </button>
-        </span>
-      ))}
+      {staticControls}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
       {command && !done && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
     </div>

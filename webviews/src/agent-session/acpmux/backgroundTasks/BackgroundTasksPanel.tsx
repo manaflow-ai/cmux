@@ -65,6 +65,7 @@ import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
 import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
 import { Clock } from "../../../ui/Typography";
+import { LiveUpdatesContext, useLiveUpdates } from "../../../ui/liveUpdates";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -151,6 +152,7 @@ export function BackgroundTasksPanel({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const t = useT();
+  const active = useLiveUpdates();
   // Docked in the chat's right column (it can be closed), opening narrows the chat and its composer,
   // and closing widens them again: a split's resize (schemas/layout-motion/contract.json `resize`), one
   // move of each box, as the side panel's (ArtifactPanel.tsx). Its own tab narrows nothing.
@@ -218,45 +220,47 @@ export function BackgroundTasksPanel({
             onExpand={onExpand}
             onClose={onClose}
           >
-            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
-              {groups.length === 0 ? (
-                <p className="acpmux-bg__empty">
-                  {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
-                </p>
-              ) : (
-                sections.map((section) => (
-                  <Section
-                    key={section.id}
-                    id={section.id}
-                    count={section.groups.length + section.commands.length}
-                    openAt={focusedIn(section.commands, target)}
-                  >
-                    {section.commands.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        openAt={focusedIn([task], target)}
-                        onDrill={open}
-                        onStop={onStop}
-                        onOpenCommand={onOpenCommand}
-                      />
-                    ))}
-                    {section.groups.map((group, index) => (
-                      <GroupBlock
-                        key={group.id}
-                        group={group}
-                        look={look}
-                        startsOpen={section.id === "running" && index === 0}
-                        onDrill={open}
-                        onStop={onStop}
-                        onOpenSession={onOpenSession}
-                        onOpenCommand={onOpenCommand}
-                      />
-                    ))}
-                  </Section>
-                ))
-              )}
-            </div>
+            <LiveUpdatesContext value={active && !drill}>
+              <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+                {groups.length === 0 ? (
+                  <p className="acpmux-bg__empty">
+                    {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
+                  </p>
+                ) : (
+                  sections.map((section) => (
+                    <Section
+                      key={section.id}
+                      id={section.id}
+                      count={section.groups.length + section.commands.length}
+                      openAt={focusedIn(section.commands, target)}
+                    >
+                      {section.commands.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          openAt={focusedIn([task], target)}
+                          onDrill={open}
+                          onStop={onStop}
+                          onOpenCommand={onOpenCommand}
+                        />
+                      ))}
+                      {section.groups.map((group, index) => (
+                        <GroupBlock
+                          key={group.id}
+                          group={group}
+                          look={look}
+                          startsOpen={section.id === "running" && index === 0}
+                          onDrill={open}
+                          onStop={onStop}
+                          onOpenSession={onOpenSession}
+                          onOpenCommand={onOpenCommand}
+                        />
+                      ))}
+                    </Section>
+                  ))
+                )}
+              </div>
+            </LiveUpdatesContext>
             {drill?.workflow && workflow && (
               // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
               // them with no subagents); should one, it opens and stops as anywhere else in the panel.

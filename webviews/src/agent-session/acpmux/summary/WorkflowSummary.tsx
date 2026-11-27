@@ -1,14 +1,18 @@
 // Workflow data comes from the fold; names/actions are supplied by the harness.
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useLiveUpdates } from "../../../ui/liveUpdates";
+import { subscribePageDeadline } from "../../../ui/pageClock";
 import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { StateMark } from "./StateMark";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
+import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
   workflowSignals,
+  workflowSignalBoundaries,
   type WorkflowDetailRequest,
   type WorkflowCapacitySignal,
 } from "./foldWorkflows";
@@ -34,12 +38,13 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
   daemonCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
-  const ticking = workflows.some((workflow) => workflow.state === "running");
-  const now = useNow(ticking);
-  const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
+  const capacity = workflows.some((workflow) => workflow.state === "running") ? daemonCapacity : undefined;
+  const boundaries = useMemo(() => workflowSignalBoundaries(workflows, capacity), [workflows, capacity]);
+  const now = useWorkflowSignalTime(boundaries);
+  const signals = useMemo(() => workflowSignals(workflows, now, capacity), [workflows, now, capacity]);
   return (
     <>
-      {ticking && signals.capacity && (
+      {signals.capacity && (
         <p className="acpmux-workflow__warning">
           <output>{t("workflow.capacity")}</output>
         </p>
@@ -50,12 +55,39 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
           workflow={workflow}
           actions={actionsFor?.(workflow)}
           idle={signals.idle}
-          now={now}
+          liveElapsed
         />
       ))}
     </>
   );
 });
+
+// Signal values are constant between boundaries. A boundary is on the session clock;
+// the page scheduler takes wall time.
+function useWorkflowSignalTime(boundaries: readonly number[]): number {
+  const offset = useContext(SubagentClockContext);
+  const active = useLiveUpdates();
+  const position = useCallback(() => {
+    const now = Date.now() - offset;
+    let lo = 0;
+    let hi = boundaries.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (boundaries[mid]! <= now) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }, [boundaries, offset]);
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const next = () => (boundaries[position()] ?? Infinity) + offset;
+      return active && Number.isFinite(next()) ? subscribePageDeadline(notify, next) : () => {};
+    },
+    [active, boundaries, offset, position],
+  );
+  const index = useSyncExternalStore(subscribe, position, position);
+  return boundaries[index - 1] ?? -Infinity;
+}
 
 const localizedState = (
   t: ReturnType<typeof useT>,
@@ -87,11 +119,13 @@ export function WorkflowSummaryRow({
   actions = {},
   idle,
   now,
+  liveElapsed = false,
 }: {
   workflow?: WorkflowSummary;
   actions?: WorkflowActions;
   idle?: ReadonlySet<string>;
   now?: number;
+  liveElapsed?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -159,7 +193,14 @@ export function WorkflowSummaryRow({
         )}
         <span className="acpmux-summary-meta">
           {total > 0 && `${completed}/${total}`}
-          {elapsedMs !== undefined && ` · ${formatDuration(elapsedMs)}`}
+          {elapsedMs !== undefined ? (
+            ` · ${formatDuration(elapsedMs)}`
+          ) : liveElapsed && workflow.state === "running" && workflow.startedAt !== undefined ? (
+            <>
+              {" · "}
+              <Elapsed since={workflow.startedAt} />
+            </>
+          ) : null}
           {workflow.tokens !== undefined &&
             ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>
