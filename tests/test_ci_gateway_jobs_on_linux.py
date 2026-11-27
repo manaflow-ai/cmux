@@ -72,11 +72,20 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                 job = found[key]
                 self.assertEqual(job["runs-on"], LINUX)
                 steps = job["steps"]
-                checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout"))
-                self.assertIn(".github/actions/fleet-client", checkout["with"]["sparse-checkout"])
+                checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")]
+                action_checkout = next((s for s in checkouts
+                                        if ".github/actions/fleet-client" in s["with"].get("sparse-checkout", "")),
+                                       None)
+                self.assertIsNotNone(action_checkout, "a checkout puts .github/actions/fleet-client in place")
+                # A job that tests another commit (a post-merge probe's inputs.sha) takes the action from the
+                # workflow's own commit: a commit older than the action has none (hosted#807).
+                if any("inputs.sha" in str(s["with"].get("ref", "")) for s in checkouts):
+                    self.assertEqual(action_checkout["with"].get("ref"), "${{ github.sha }}")
+                prefix = f"./{action_checkout['with']['path']}/" if action_checkout["with"].get("path") else "./"
+                action = prefix + ".github/actions/fleet-client"
                 uses = [s.get("uses") for s in steps]
-                self.assertIn("./.github/actions/fleet-client", uses)
-                client = uses.index("./.github/actions/fleet-client")
+                self.assertIn(action, uses)
+                client = uses.index(action)
                 self.assertEqual(steps[client]["with"]["controller"], "${{ vars.CMUX_FLEET_CONTROLLER }}")
                 later = yaml.safe_dump(steps[client + 1:])
                 self.assertIn(marker, later, "the fleet step runs after the client is in place")
