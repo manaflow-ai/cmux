@@ -147,6 +147,8 @@ public nonisolated struct ImportCardDeck: Sendable {
             case .sourceGone: ImportSuggestionStrings.sourceGone
             case .importFailed, nil: ImportSuggestionStrings.failed
             }
+            // retry-prompt-ok: running it again reads another app's data (and may ask for Full Disk Access or a
+            // keychain password), and a declined or gone source needs the person first (ImportCardAction.startsWork).
             card.primary = .init(.retry, ImportSuggestionStrings.retry)
             card.secondary = [.init(.hide, ImportSuggestionStrings.notNow)]
         case .done:

@@ -11,6 +11,7 @@ import { artifactRuntimePlugin } from "../agent-pane/artifactRuntimePlugin.mjs";
 import { tailwindPlugin } from "../agent-pane/tailwindCompile.mjs";
 import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
+import { packedShikiPlugin } from "../agent-pane/packedShikiPlugin.mjs";
 import { factorSharedCss } from "./factor-shared-css.mjs";
 import focusRingGate from "../postcss/focusRingGate.mjs";
 
@@ -50,6 +51,8 @@ const result = await build({
     jsonParseSettingsPagePlugin,
     // Preserve the existing pages' math styling; splitting must not add new styling defaults.
     katexStylePlugin({ split: false }),
+    // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
+    packedShikiPlugin,
   ],
 });
 // The split JS pass also writes a stylesheet per CSS-importing chunk (`__shared/RunSheet-<hash>.css`

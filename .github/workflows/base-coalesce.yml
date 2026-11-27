@@ -37,6 +37,9 @@ name: base coalesce
 # The failed run is found without the REST API first: a caller's last job calls this workflow again with
 # `mark_failed: true` when a job of a run that claimed the window failed, and it saves the tiny marker
 # `base-coalesce-KEY-f-WINDOW-ROUND-RUNID` (ROUND: 0 for the window's run, 1.. for its retries; none past RETRIES).
+# A caller passes `held: true` for a run that failed after it delivered its window's output (cmux-tui-artifacts: its
+# tree published, then only the daemon tests failed): the marker `base-coalesce-KEY-f-WINDOW-held-RUNID` holds the
+# window. On 2026-11-26 four 01:00Z runs each published and rebuilt the whole tree for one daemon-test red.
 # The REST lookup is the fallback for a caller with no marker job, and is skipped when the installation's REST budget
 # is spent (2026-11-25 02:37Z: the first push after the fix got HTTP 403 and held the window).
 on:
@@ -72,6 +75,13 @@ on:
         description: with mark_failed, this run's round in its window (needs.coalesce.outputs.round)
         type: string
         default: ''
+      held:
+        description: >-
+          with mark_failed, the run failed after it delivered what its window exists for (cmux-tui-artifacts: its
+          tree published): save a held marker, so the window's next push does not run it all again for a red that a
+          rebuild does not fix, and does not fall back to the REST lookup that would find this run
+        type: boolean
+        default: false
     outputs:
       run:
         description: "'true' when this run's checks run, 'false' when a newer window's run covers this push"
@@ -101,7 +111,7 @@ jobs:
     # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one), a dispatch and any
     # other ref skip this job, so its outputs are empty and the caller's jobs run as before.
     if: ${{ !inputs.mark_failed && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || inputs.runner || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || inputs.runner || 'cmux-linux' }}
     timeout-minutes: 5
     # actions: read lists this workflow's runs in the window (the failed-run retry); the caller's coalesce job grants it.
     permissions:
@@ -182,9 +192,11 @@ jobs:
           MARKER: ${{ steps.marker.outputs.cache-matched-key }}
         run: |
           set -euo pipefail
-          if [ -n "$MARKER" ]; then  # the newest marker: ROUND-RUNID
+          if [ -n "$MARKER" ]; then  # the newest marker: ROUND-RUNID, or held-RUNID (mark_failed's held)
             rest=${MARKER##*-f-"$WINDOW"-}; round=${rest%%-*}; id=${rest#*-}
-            if [[ "$round" =~ ^[0-9]+$ && "$id" =~ ^[0-9]+$ ]] && [ "$round" -lt "$RETRIES" ]; then
+            if [ "$round" = held ]; then
+              echo "run $id of this window failed after it delivered its window's output (a held marker): the window holds"
+            elif [[ "$round" =~ ^[0-9]+$ && "$id" =~ ^[0-9]+$ ]] && [ "$round" -lt "$RETRIES" ]; then
               echo "run $id of this window failed (its marker, round $round): this push runs again unless another push already did"
               printf 'retry=%s\nround=%s\n' "$id" "$((round + 1))" >> "$GITHUB_OUTPUT"
             else
@@ -275,7 +287,9 @@ jobs:
           [ "$base" != "$GITHUB_SHA" ] || base=unknown  # a re-run whose own record was lost: its range is unknown
           echo "the first push of this window: the checks run on ${GITHUB_SHA:0:12}, covering every push since ${base:0:12}"
           echo "### $KEY: runs on ${GITHUB_SHA:0:12}, covering since ${base}" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "$base" > .base-coalesce/record
+          # mkdir again: a pool runner's disk-floor prune can empty the workspace between steps (2026-11-25 20:11Z, job
+          # 139480437957 on w2a-0015: "No such file or directory", and the window's retry built nothing).
+          mkdir -p .base-coalesce && printf '%s\n' "$base" > .base-coalesce/record
           printf 'run=true\nbase=%s\nsave=true\nround=%s\n' "$base" "$round" >> "$GITHUB_OUTPUT"
 
       - name: Claim this window
@@ -311,6 +325,7 @@ jobs:
     env:
       WINDOW: ${{ inputs.window }}
       ROUND: ${{ inputs.round }}
+      HELD: ${{ inputs.held }}
       RETRIES: 3
     steps:
       - name: Name the marker
@@ -318,10 +333,15 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$WINDOW" =~ ^[0-9]+$ && "$ROUND" =~ ^[0-9]+$ ]] || { echo "no window or round: nothing to mark"; exit 0; }
+          mkdir -p .base-coalesce && printf '%s\n' "$GITHUB_RUN_ID" > .base-coalesce/record
+          if [ "$HELD" = true ]; then
+            echo "key=$WINDOW-held-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+            echo "run $GITHUB_RUN_ID (round $ROUND of window $WINDOW) failed after it delivered its output: the window holds"
+            exit 0
+          fi
           if [ "$ROUND" -ge "$RETRIES" ]; then
             echo "round $ROUND of window $WINDOW failed: past $RETRIES retries, the window holds"; exit 0
           fi
-          mkdir -p .base-coalesce && printf '%s\n' "$GITHUB_RUN_ID" > .base-coalesce/record
           echo "key=$WINDOW-$ROUND-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
           echo "run $GITHUB_RUN_ID (round $ROUND of window $WINDOW) failed: the next push of the window runs again"
 
