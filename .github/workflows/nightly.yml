@@ -2148,8 +2148,7 @@ jobs:
           submodules: recursive
 
       # Why: docs/ci/nightly-workflow-notes.md#note-20, note-54
-      - &x9
-        name: Checkout build ref (warm nightly-next builder)
+      - name: Checkout build ref (warm nightly-next builder)
         if: &warm-checkout-if inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         # Why: docs/ci/nightly-workflow-notes/2026-11-27-build-nightly-app-5.md
         timeout-minutes: 15
