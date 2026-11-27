@@ -66,6 +66,7 @@
 #   deploy-staging        deploy the dispatched ref to staging, then smoke it
 #   tail-production       stream the production Worker's live events (wrangler tail) for
 #                         tail_minutes; repository Cloudflare secrets, feat-cmux-next only
+#   tail-staging          the same for the staging Worker (cmux-platform staging and development's VM API)
 #   migrate-staging       apply the pending cmux_vm migrations to cmux-prod staging (job
 #                         migrate-staging, feat-cmux-next only; every feat-cmux-next push runs it
 #                         before deploy-staging). Uses the PlanetScale service token, which only
@@ -139,7 +140,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-fault-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, tail-staging, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-fault-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -167,7 +168,7 @@ on:
         type: string
         default: "off"
       tail_minutes:
-        description: tail-production only, minutes to stream the production Worker's events (at most 25)
+        description: tail-production and tail-staging only, minutes to stream the Worker's events (at most 25)
         type: string
         default: "10"
       # image-roll-settle dispatches these: a rollback whose production deploy was not verified is deployed
@@ -216,7 +217,7 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # An image roll or rollback commit (cloud-vm-image-roll.yml, image-roll-settle; the subject migrate-production
@@ -440,7 +441,7 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -480,7 +481,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
@@ -544,7 +545,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
@@ -719,7 +720,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Staging smoke skipped: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_STAGING_URL and CMUX_VM_SMOKE_API_KEY in cmux-vm-staging."
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
@@ -798,7 +799,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
@@ -958,7 +959,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -996,7 +997,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -1018,7 +1019,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -1074,7 +1075,7 @@ jobs:
             echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1 and CMUX_VM_PRODUCTION_URL in cmux-vm-production."
             exit 1
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.gate.outputs.enabled == 'true'
         with:
           persist-credentials: false
@@ -1179,7 +1180,7 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Image roll settle skipped: cmux-platform owns deploy and settle while CMUX_VM_DEPLOY_ENABLED is not 1."
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           persist-credentials: false
@@ -1257,7 +1258,7 @@ jobs:
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: read
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         with:
           repository: manaflow-ai/cmux-platform
@@ -1292,6 +1293,83 @@ jobs:
           images/cmux-vm/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" \
             --platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc" | tee "$RUNNER_TEMP/rollback.out"
           tail -1 "$RUNNER_TEMP/rollback.out" | sed 's/^/Rollback: /' >> "$GITHUB_STEP_SUMMARY"
+      # The roll's last write: a green roll moves cmux-platform's fallback pin (its root wrangler.jsonc
+      # CLOUD_VM_API_IMAGE and _REVISION, every environment) to the image this run just proved in production, so the
+      # pin no longer waits for platform-pin-follow.yml's hourly tick and its 60-minute stand (the pin trailed the roll
+      # by 327 min on 2026-11-27; cmuxterm-hq goal fix-running-platform-pin, handbook fallback-pin-trails-the-roll.md).
+      # cmux-platform's own scripts/platform-pin-follow.ts decides, from the deployed commit's lists, so there is one
+      # writer's logic; the App token's push to cmux-platform main starts its ci.yml, which deploys. A miss only warns:
+      # platform-pin-follow.yml (every 15 min, after a 60-minute stand) still moves the pin. The cmux bot App, not
+      # pr-autofix: pr-autofix is not installed on cmux-platform (run 45992429531's mint answered 404, as 44852142963's
+      # did for the read token above).
+      - name: Mint the cmux-platform pin token
+        id: pin-token
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.kind == 'roll' && steps.roll.outputs.outcome == 'green'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cmux-platform
+          permission-contents: write
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        id: pin-checkout
+        if: steps.pin-token.outcome == 'success'
+        continue-on-error: true
+        with:
+          repository: manaflow-ai/cmux-platform
+          ref: refs/heads/main
+          path: cmux-platform-pin
+          token: ${{ steps.pin-token.outputs.token }}
+          persist-credentials: false
+          fetch-depth: 20
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            wrangler.jsonc
+            scripts/platform-pin-follow.ts
+            .gitmodules
+      - name: Move cmux-platform's fallback pin to the proven image
+        id: pin
+        if: steps.pin-checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: cmux-platform-pin
+        env:
+          TOKEN: ${{ steps.pin-token.outputs.token }}
+          IMAGE: ${{ steps.roll.outputs.image }}
+          ROLL: ${{ steps.roll.outputs.run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          push() {
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" git "$@"
+          }
+          # The deployed commit's lists (the settle's proof), not the tip's: a newer roll at the tip is not proven yet.
+          out="$(bun scripts/platform-pin-follow.ts --wrangler wrangler.jsonc --cmux-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" \
+            --changed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --stand-min 0)"
+          echo "$out"
+          action="$(jq -r .action <<< "$out")"
+          case "$action" in
+            current) echo "Platform pin: already ${IMAGE}" >> "$GITHUB_STEP_SUMMARY"; exit 0 ;;
+            moved) ;;
+            *) echo "::warning title=Platform pin::not moved (${out}); platform-pin-follow.yml's hourly run retries"; exit 0 ;;
+          esac
+          [ "$(jq -r .to <<< "$out")" = "$IMAGE" ] || { echo "::warning title=Platform pin::the deployed first is not ${IMAGE}: ${out}"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -am "cloud: the fallback pin is the image roll's proven image, ${IMAGE}" \
+            -m "From $(jq -r .from <<< "$out"). Image roll ${ROLL} put ${IMAGE} first and its production deploy and product create were green in ${RUN_URL}; that run's image-roll-settle moved the pin (cmuxterm-hq goal fix-running-platform-pin)."
+          # main moved under the run: replay on it once (the pin lines rarely conflict); a second miss leaves it to the hourly follower.
+          push push -q origin HEAD:refs/heads/main || { push fetch -q --depth 20 origin refs/heads/main && git rebase -q FETCH_HEAD && push push -q origin HEAD:refs/heads/main; }
+          echo "Platform pin: ${IMAGE}, cmux-platform main $(git rev-parse --short HEAD); its ci.yml deploys it" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Warn when the pin was not written
+        if: always() && steps.pin-token.outcome != '' && steps.pin-token.outcome != 'skipped' && steps.pin.outcome != 'success'
+        env:
+          MINT: ${{ steps.pin-token.outcome }}
+          CHECKOUT: ${{ steps.pin-checkout.outcome }}
+          MOVE: ${{ steps.pin.outcome }}
+        run: echo "::warning title=Platform pin::the settle did not move cmux-platform's pin (token ${MINT}, checkout ${CHECKOUT:-skipped}, move ${MOVE:-skipped}); platform-pin-follow.yml's hourly run moves it"
       # A rollback not yet verified: deploy production again (the tip, which no longer has the image first) and
       # settle that deploy the same way, with the next attempt number.
       - name: Deploy the rollback again
@@ -1384,7 +1462,7 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -1436,7 +1514,7 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -1460,6 +1538,59 @@ jobs:
           set -euo pipefail
           if [ "$DRY_RUN" = false ]; then bun scripts/sweep-orphans.ts --delete; else bun scripts/sweep-orphans.ts; fi
 
+  tail-staging:
+    # Action tail-staging: tail-production for cmux-vm-staging, the VM API that cmux-platform staging and
+    # development call (vm-staging.cmux.dev). It shows how a create the platform gave up on ended upstream,
+    # for example a restore whose create never settles. The Cloudflare secrets are read in cmux-vm-staging,
+    # like deploy-staging. The output is the same filtered summary (scripts/tail-filter.mjs).
+    name: tail staging
+    # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'tail-staging' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    environment: cmux-vm-staging
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Tail cmux-vm-staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.tail_minutes }}
+        run: |
+          set -euo pipefail
+          minutes="${MINUTES:-10}"
+          case "$minutes" in ''|*[!0-9]*) minutes=10 ;; esac
+          [ "$minutes" -ge 1 ] || minutes=1
+          [ "$minutes" -le 25 ] || minutes=25
+          echo "tailing cmux-vm-staging for ${minutes}m"
+          # wrangler prints pretty JSON events on stdout and its banner on stderr; the filter keeps only the
+          # summary of each event (no headers or bodies: this log is public).
+          # timeout's exit 124 is the normal end of the window; any other failure (auth, wrangler, the filter) fails the job.
+          status=0
+          timeout "${minutes}m" node_modules/.bin/wrangler tail cmux-vm-staging --format json 2> "$RUNNER_TEMP/wrangler-tail.err" \
+            | node scripts/tail-filter.mjs || status=$?
+          tail -n 5 "$RUNNER_TEMP/wrangler-tail.err" | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
+          echo "tail ended"
+          [ "$status" = 0 ] || [ "$status" = 124 ] || exit "$status"
+
   journey-machines-staging:
     # A staging Cloud journey whose cleanup delete got mutation.indeterminate leaves its `cloud journey jr-*` machine
     # behind; five of them fill the agent test account's quota and every later journey fails at create with
@@ -1478,7 +1609,7 @@ jobs:
       # Each id's proof: its journey job's log (cloud-journey.ts provenLeak).
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -1545,7 +1676,7 @@ jobs:
           echo "mode: $([ "$DRY_RUN" = true ] && echo 'dry run (inspect, plan, rehearse)' || echo 'APPLY to cmux-prod main, schema cmux_vm')"
       # Full history without blobs: the apply checks HEAD is on origin/feat-cmux-next and the compat gate
       # compares release tags and web revisions by ancestry.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -1626,7 +1757,7 @@ jobs:
     timeout-minutes: 10
     environment: cmux-vm-staging
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -1681,7 +1812,7 @@ jobs:
       run:
         working-directory: workers/cmux-vm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -1733,7 +1864,7 @@ jobs:
             echo "::error title=migrate-staging::cmux-vm-production lacks PLANETSCALE_SERVICE_TOKEN_ID or PLANETSCALE_SERVICE_TOKEN; nothing ran"
             exit 1
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket

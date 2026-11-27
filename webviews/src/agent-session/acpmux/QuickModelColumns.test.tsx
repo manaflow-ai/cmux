@@ -874,10 +874,11 @@ test("another model, then a level, then Fast each land at once, the level kept w
     ["codex-Sol", "high", false],
     ["codex-Sol", "high", true],
   ]);
-  // Return on the picked model lands nothing again, and the menu stays open.
+  // Return on the picked model lands nothing again; it is the keyboard's commit, so it closes the
+  // menu (a click keeps it open, #50998; Return then only closes it).
   await press("Enter");
   expect(calls.picks).toHaveLength(3);
-  expect(calls.open).toBe(true);
+  expect(calls.open).toBe(false);
 });
 
 test("a tab without the running model shows its first model's catalog levels", async () => {
