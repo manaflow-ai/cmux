@@ -88,6 +88,7 @@ async fn a_watch_to_the_chat_is_a_background_wait() {
                 active: true,
                 cursors: Default::default(),
                 offline: Default::default(),
+                ..Default::default()
             },
         )
         .unwrap();
