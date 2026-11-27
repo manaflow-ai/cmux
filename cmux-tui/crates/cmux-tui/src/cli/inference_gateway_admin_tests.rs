@@ -176,6 +176,19 @@ fn status_with_no_api_asks_the_api_that_issued_the_apps_token() {
     assert!(api_origin(None, None).unwrap_err().contains("named none"));
 }
 
+/// The app's Cloud start gate hands the install token it holds on stdin (hq#19758): like the app's own token, it names
+/// the API that issued it, so no `--api` is needed, and `--token-stdin` takes no value.
+#[test]
+fn a_held_token_on_stdin_needs_no_api() {
+    let none = |_: &str| None;
+    let (c, v) = parse(&words(&["status", "--team", "team_x", "--token-stdin"]), &none).unwrap();
+    assert_eq!(
+        (c.api, c.team.as_deref(), c.token, v),
+        (None, Some("team_x"), TokenSource::Stdin, Verb::Status { personal: false })
+    );
+    assert!(parse(&words(&["status", "--token-stdin=tok"]), &none).is_err());
+}
+
 #[test]
 fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
     use super::super::inference_gateway::credential_answer;

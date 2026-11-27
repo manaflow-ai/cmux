@@ -104,11 +104,12 @@ pub fn need_for(service: &str) -> Option<Need> {
         "file" | "file-preview" | "needs-you" | "appearance" | "appearance-wallpaper" | "tabs" => {
             Need::Grant(Grant::View)
         }
+        // `bundle` (`bundle.rs`) needs what `upload` needs; its `get` reads only what `file` reads
+        // (the same shared roots, the same open checks).
         // Answering a pairing request waiting here (`pair_requests.rs`) is answering for the
         // person, as `acpmux` answers agents.
-        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" | "pair-requests" => {
-            Need::Grant(Grant::Control)
-        }
+        "daemon" | "acpmux" | "chief" | "upload" | "bundle" | "browser" | "surface" | "localhost"
+        | "pair-requests" => Need::Grant(Grant::Control),
         // Cloud chats ride the Mac's own Cloud session: a phone's lane only.
         _ => return None,
     })
@@ -159,6 +160,9 @@ mod tests {
         assert_eq!(allows(&[Grant::View, Grant::Control], "cloud-acpmux"), Err("not_offered"));
         assert_eq!(allows(&[Grant::View, Grant::Control], "cloud-directory"), Err("not_offered"));
         assert_eq!(allows(&[Grant::View, Grant::Control], "auth2"), Err("not_offered"));
+        // A person's site data goes to their own phone only, never a machine or a Cloud VM
+        // (hq RFD 0125 D7.6), whatever it was granted.
+        assert_eq!(allows(&[Grant::View, Grant::Control, Grant::Run], "site-data"), Err("not_offered"));
     }
 
     #[test]

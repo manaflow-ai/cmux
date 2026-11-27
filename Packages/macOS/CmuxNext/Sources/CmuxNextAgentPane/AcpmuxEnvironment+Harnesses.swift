@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import Network
 
@@ -54,6 +55,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{prompt, harness?, model?, maxTokens?, timeoutMs?}` answers `{text, harness, model}`. The
     /// unix socket only; the harness CLI runs headless with no tools, MCP, hooks or session.
     case complete = "_acpmux/complete"
+    case terminalTranscriptPage = "_acpmux/chat_transcript_page"
+    case terminalTranscriptFind = "_acpmux/chat_transcript_find"
     /// One plain sentence for one diff hunk, kept by its content hash (acpmux `hunk_summary.rs`):
     /// `{path, patch, sessionId?}` answers `{text, key, cached}`; `{check: true, sessionId?}`
     /// answers `{ready, harness}` and runs nothing. The unix socket only.
@@ -115,8 +118,20 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case connectionsRemove = "_acpmux/connections/remove"
     /// `{provider, secret: "keychain:ITEM", label?}`: an API-key connection; never the key itself.
     case connectionsKeyAdd = "_acpmux/connections/key.add"
+    /// `{provider, secret: "keychain:ITEM"}`: the key's shape, then one read of the provider (8 s), answering
+    /// `{result: ok|bad_shape|bad_key|unreachable, save, message}`; never the key itself.
+    case connectionsKeyCheck = "_acpmux/connections/key.check"
     /// A Claude setup token's `keychain:ITEM` reference (`{secret, label?}`) as a `claude-token` connection.
     case claudeTokenAdd = "_acpmux/connections/claude_token.add"
+    /// `{label?}` answers `{attempt, url}`: acpmux runs `claude setup-token` in its own PTY (never a
+    /// visible terminal) and answers its sign-in page; the token it prints is captured, not shown.
+    case claudeTokenBegin = "_acpmux/connections/claude_token.begin"
+    /// `{attempt}`: a long poll (up to 25 s) answering `{status, connection, error}`, as chatgpt.wait.
+    case claudeTokenWait = "_acpmux/connections/claude_token.wait"
+    /// `{attempt, code}`: types a code the sign-in page showed into the setup-token run.
+    case claudeTokenCode = "_acpmux/connections/claude_token.code"
+    /// `{attempt}`: ends a setup-token run.
+    case claudeTokenCancel = "_acpmux/connections/claude_token.cancel"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -130,13 +145,16 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .registry, .health, .models: .seconds(40)
         // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
         case .add: .seconds(90)
-        case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
-             .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
-        case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
+        case .terminalTranscriptPage, .terminalTranscriptFind, .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
+             .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel,
+             .claudeTokenCode, .claudeTokenCancel: .seconds(10)
+        case .routeAdd, .connectionsKeyAdd, .connectionsKeyCheck, .claudeTokenAdd: .seconds(20)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
         case .chatgptBegin, .connectionsRemove: .seconds(30)
+        // The daemon waits up to 30 s for `claude setup-token` to print its sign-in page.
+        case .claudeTokenBegin: .seconds(35)
         // The daemon holds a wait up to 25 s.
-        case .chatgptWait: .seconds(35)
+        case .chatgptWait, .claudeTokenWait: .seconds(35)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)
         // A start waits for the CLI's link (acpmux `agent_login::URL_WAIT`, 20 s); a logout runs the CLI.
@@ -210,7 +228,7 @@ extension AcpmuxEnvironment {
         let socketPath = socketPath
         return Task.detached {
             guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
-            let connection = NWConnection(to: endpoint, using: .tcp)
+            let connection = CmuxEgress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.AcpmuxEnvironment+Harnesses")
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, method: method, onChange: onChange)

@@ -8,6 +8,7 @@ export const CloudProgressOps = {
   /** Stream: one empty event whenever the stage, the machine's name or the opened workspace changed. */
   changes: "cmux.cloudProgress.changes",
   /** `{}` → `{}`: Retry (or Resume on a paused machine). Only after the person's own click or key. */
+  // retry-prompt-ok: Retry starts a Cloud machine again, a paid start.
   retry: "cmux.cloudProgress.retry",
   /** `{}` → `{}`: Dismiss. Only after the person's own click or key. */
   dismiss: "cmux.cloudProgress.dismiss",

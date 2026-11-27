@@ -19,19 +19,22 @@ public final class MacScreenStore {
         var deviceNames: [String: String] = [:]
         var hasSharedBefore = false
         var hasViewedBefore = false
+        /// The person turned sharing off on this Mac; sharing does not turn itself back on.
+        var sharingTurnedOff = false
         /// The link-pairing Keychain items were deleted (the one-time cleanup ran).
         var linkPairingsRemoved = false
 
         init(hubDeviceName: String?, deviceNames: [String: String], hasSharedBefore: Bool, hasViewedBefore: Bool,
-             linkPairingsRemoved: Bool) {
+             sharingTurnedOff: Bool, linkPairingsRemoved: Bool) {
             self.hubDeviceName = hubDeviceName
             self.deviceNames = deviceNames
             self.hasSharedBefore = hasSharedBefore
             self.hasViewedBefore = hasViewedBefore
+            self.sharingTurnedOff = sharingTurnedOff
             self.linkPairingsRemoved = linkPairingsRemoved
         }
 
-        enum CodingKeys: String, CodingKey { case hubDeviceName, deviceNames, hasSharedBefore, hasViewedBefore, linkPairingsRemoved }
+        enum CodingKeys: String, CodingKey { case hubDeviceName, deviceNames, hasSharedBefore, hasViewedBefore, sharingTurnedOff, linkPairingsRemoved }
 
         init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -39,6 +42,9 @@ public final class MacScreenStore {
             deviceNames = (try? c.decodeIfPresent([String: String].self, forKey: .deviceNames)) ?? [:]
             hasSharedBefore = (try? c.decodeIfPresent(Bool.self, forKey: .hasSharedBefore)) ?? false
             hasViewedBefore = (try? c.decodeIfPresent(Bool.self, forKey: .hasViewedBefore)) ?? false
+            // A file from before this field: a Mac that shared once was turned off by its person if it is off
+            // now (the first time the hub shows it on, MacScreenPages clears this).
+            sharingTurnedOff = (try? c.decodeIfPresent(Bool.self, forKey: .sharingTurnedOff)) ?? hasSharedBefore
             linkPairingsRemoved = (try? c.decodeIfPresent(Bool.self, forKey: .linkPairingsRemoved)) ?? false
         }
 
@@ -48,6 +54,7 @@ public final class MacScreenStore {
             try c.encode(deviceNames, forKey: .deviceNames)
             try c.encode(hasSharedBefore, forKey: .hasSharedBefore)
             try c.encode(hasViewedBefore, forKey: .hasViewedBefore)
+            try c.encode(sharingTurnedOff, forKey: .sharingTurnedOff)
             try c.encode(linkPairingsRemoved, forKey: .linkPairingsRemoved)
         }
     }
@@ -62,6 +69,9 @@ public final class MacScreenStore {
     public private(set) var hasSharedBefore = false
     /// True after this Mac has viewed or controlled another Mac once.
     public private(set) var hasViewedBefore = false
+    /// The person turned sharing off on this Mac (Settings, Stop Sharing This Mac): it stays off until
+    /// they turn it on again, rather than turning on by itself once Screen Recording is granted.
+    public private(set) var sharingTurnedOff = false
     /// The first-use guide is done: this Mac has shared its screen or seen another's.
     public var hasUsedBefore: Bool { hasSharedBefore || hasViewedBefore }
     @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -69,6 +79,8 @@ public final class MacScreenStore {
     /// Deletes every link-pairing Keychain item of this build (tests replace it).
     @ObservationIgnored let removeLinkPairings: @Sendable () -> Void
     @ObservationIgnored private var linkPairingsRemoved = false
+    /// Sharing was turned on or off in this run, so the file's older answer does not replace it.
+    @ObservationIgnored private var sharingChosen = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     /// The file was read, so a save cannot overwrite it with the empty state from before.
     @ObservationIgnored private var fileRead = false
@@ -113,6 +125,8 @@ public final class MacScreenStore {
                     // A share marked while the file was read stays marked.
                     hasSharedBefore = hasSharedBefore || stored.hasSharedBefore
                     hasViewedBefore = hasViewedBefore || stored.hasViewedBefore
+                    // A choice made while the file was read wins.
+                    if !sharingChosen { sharingTurnedOff = stored.sharingTurnedOff }
                 }
                 fileRead = true
                 if stored?.linkPairingsRemoved != true {
@@ -148,6 +162,14 @@ public final class MacScreenStore {
         save()
     }
 
+    /// Keeps whether sharing is off by the person's choice (true) or may turn on by itself (false).
+    public func setSharingTurnedOff(_ off: Bool) {
+        sharingChosen = true
+        guard sharingTurnedOff != off else { return }
+        sharingTurnedOff = off
+        save()
+    }
+
     /// Records the first time this Mac viewed or controlled another Mac (a local hint for the home-page guide).
     public func markViewedBefore() {
         guard !hasViewedBefore else { return }
@@ -170,7 +192,8 @@ public final class MacScreenStore {
         guard fileRead else { savePending = true; return }
         savePending = false
         let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, hasSharedBefore: hasSharedBefore,
-                            hasViewedBefore: hasViewedBefore, linkPairingsRemoved: linkPairingsRemoved)
+                            hasViewedBefore: hasViewedBefore, sharingTurnedOff: sharingTurnedOff,
+                            linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
         let file = file, previous = saveTask
         saveTask = Task.detached {

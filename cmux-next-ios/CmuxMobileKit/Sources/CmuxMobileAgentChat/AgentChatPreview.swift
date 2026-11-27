@@ -1,5 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -14,13 +16,22 @@ public struct AgentChatPreview: View {
     var turns: [AgentTurn]?
     var topInset: CGFloat
     var bottomInset: CGFloat
+    /// The height of this page a tab card shows, from its top (the card's slice); nil draws the
+    /// whole page as it rests. The page sits a chat shorter than its space on the composer
+    /// (`ChatTranscriptController.updateInsets`), which is below a card's slice: such a card was
+    /// one flat colour, and was never kept as the tab's picture (Leo, 2026-11-24: "there are too
+    /// many empty previews in the safari grid thing"). With a slice, rows that would rest below
+    /// it sit on the slice's bottom edge instead (`AgentChatPreviewPlacement`).
+    var cardSlice: CGFloat?
     @State private var model = AgentChatPreviewModel()
 
-    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat) {
+    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat,
+                cardSlice: CGFloat? = nil) {
         self.store = store
         self.turns = turns
         self.topInset = topInset
         self.bottomInset = bottomInset
+        self.cardSlice = cardSlice
     }
 
     /// Whether a still of these turns (a tab card's picture, drawn with no `.task`) can show
@@ -72,12 +83,13 @@ public struct AgentChatPreview: View {
                         .padding(.top, topInset)
                         .padding(.bottom, max(0, bottomInset - ChatTranscriptController.contentGap))
                 } else {
-                    rows
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 20)
-                        // The column's cap (Text and Width's standard width), as the transcript's.
-                        .frame(maxWidth: display.fullWidth ? .infinity : ChatDisplaySettings.standardColumn + 40)
-                        .padding(.bottom, bottomInset)
+                    AgentChatPreviewPlacement(topInset: topInset, bottomInset: bottomInset, cardSlice: cardSlice) {
+                        rows
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 20)
+                            // The column's cap (Text and Width's standard width), as the transcript's.
+                            .frame(maxWidth: display.fullWidth ? .infinity : ChatDisplaySettings.standardColumn + 40)
+                    }
                 }
             }
             .modifier(ChatTextSize(display: display))
@@ -85,7 +97,7 @@ public struct AgentChatPreview: View {
             .allowsHitTesting(false)
             // Its rows draw their UIKit controls' stand-ins (`chatStill`): a tab card's picture
             // is an `ImageRenderer` still of this view.
-            .environment(\.chatStill, true)
+            .drawnAsStillPicture()
     }
 
     private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
@@ -94,6 +106,39 @@ public struct AgentChatPreview: View {
         let rows = model.tail(of: store, turns: turns)
         return PreviewRows(rows: rows, context: model.context(store))
             .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
+    }
+}
+
+/// Where the preview's rows rest in its page. As the live page at rest: bottom aligned on the
+/// composer's gap (`bottomInset`), the overflow past the top. For a tab card, which shows the
+/// page's top `cardSlice` points, rows that would rest lower sit on the slice's bottom edge, and
+/// rows taller than the slice start under the header (`topInset`).
+struct AgentChatPreviewPlacement: Layout {
+    var topInset: CGFloat
+    var bottomInset: CGFloat
+    var cardSlice: CGFloat?
+
+    /// The rows' top in a page `pageHeight` tall, for rows `rowsHeight` tall.
+    static func rowsTop(pageHeight: CGFloat, rowsHeight: CGFloat, topInset: CGFloat, bottomInset: CGFloat,
+                        cardSlice: CGFloat?) -> CGFloat {
+        let resting = pageHeight - bottomInset - rowsHeight
+        guard let cardSlice, cardSlice < pageHeight else { return resting }
+        let inSlice = max(topInset, cardSlice - ChatTranscriptController.contentGap - rowsHeight)
+        return min(resting, inSlice)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            let top = Self.rowsTop(pageHeight: bounds.height, rowsHeight: size.height, topInset: topInset,
+                                   bottomInset: bottomInset, cardSlice: cardSlice)
+            subview.place(at: CGPoint(x: bounds.midX, y: bounds.minY + top), anchor: .top,
+                          proposal: ProposedViewSize(width: bounds.width, height: size.height))
+        }
     }
 }
 
@@ -201,15 +246,6 @@ struct PreviewRowProbe: ViewModifier {
     }
 }
 
-extension EnvironmentValues {
-    /// The rows are drawn as a still (a tab card's picture, `AgentCardRasterizer`, or the live
-    /// preview that stands in until it is drawn). `ImageRenderer` draws only SwiftUI's own views:
-    /// a control UIKit draws (`Menu`, `ShareLink`, a text field) comes out as its yellow "can't
-    /// render" placeholder (Leo, 2026-11-17: "Weird placeholder for retries esp in preview", the
-    /// error card's Retry with another model). A row reads this and draws that control's label
-    /// as plain SwiftUI instead, at the same size, so the still looks like the live chat.
-    @Entry var chatStill = false
-}
 
 /// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its
 /// tail), cut to what a bottom-aligned card can show. The card stays alive beside the
@@ -257,6 +293,15 @@ final class AgentChatPreviewModel {
             if filled || count >= turns.count { return out.reversed() }
             count = min(turns.count, count * 2)
         }
+    }
+}
+extension View {
+    /// Marks this view as drawn once into a still picture (`ImageRenderer`): every row that
+    /// would use a UIKit-backed view draws in SwiftUI instead (`chatStill`, and `drawsStillPicture`
+    /// for markdown's math, `cmuxSpinnerDrawsStill` for a running tool's spinner), so the
+    /// picture never holds the system's yellow "cannot draw" mark.
+    public func drawnAsStillPicture() -> some View {
+        environment(\.chatStill, true).environment(\.drawsStillPicture, true).environment(\.cmuxSpinnerDrawsStill, true)
     }
 }
 #endif

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "switch.askOwner.request" : {
+      "comment" : "Agent pane: the request Ask the Owner copies; {machine} is the machine's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could you share {machine} with me in cmux?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "هل يمكنك مشاركة {machine} معي في cmux؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Možeš li podijeliti {machine} sa mnom u cmux?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kan du dele {machine} med mig i cmux?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kannst du {machine} in cmux mit mir teilen?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "¿Puedes compartir {machine} conmigo en cmux?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Peux-tu partager {machine} avec moi dans cmux ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Puoi condividere {machine} con me in cmux?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux で {machine} を共有してもらえますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តើអ្នកអាចចែករំលែក {machine} ជាមួយខ្ញុំក្នុង cmux បានទេ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux에서 {machine}을(를) 저와 공유해 줄 수 있나요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kan du dele {machine} med meg i cmux?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czy możesz udostępnić mi {machine} w cmux?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Você pode compartilhar {machine} comigo no cmux?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Можешь поделиться со мной {machine} в cmux?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ช่วยแชร์ {machine} ให้ฉันใน cmux ได้ไหม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{machine} makinesini cmux'ta benimle paylaşabilir misin?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Можеш поділитися зі мною {machine} у cmux?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bạn chia sẻ {machine} với tôi trong cmux được không?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你能在 cmux 里把 {machine} 共享给我吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你能在 cmux 裡把 {machine} 共享給我嗎？"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

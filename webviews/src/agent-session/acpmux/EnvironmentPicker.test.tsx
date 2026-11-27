@@ -226,8 +226,8 @@ test("Other devices follows Cloud with the count of the person's machines a chat
     translate("composer.otherDevices"),
   ]);
   const row = document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')!;
-  // studio and gpu-box are ready; laptop is still connecting and vm-1 is a Cloud machine.
-  expect(row.querySelector(".acpmux-env-count")?.textContent).toBe("2");
+  // studio and gpu-box are ready and laptop is still dialing (a pick too); vm-1 is a Cloud machine.
+  expect(row.querySelector(".acpmux-env-count")?.textContent).toBe("3");
   expect(row.querySelector(".acpmux-env-more-chevron")).not.toBeNull();
 });
 
@@ -253,16 +253,15 @@ test("Other devices opens the person's own machines, ready first, with how each 
   const ready = optionRows()[0]!;
   expect(ready.querySelector(".acpmux-menu-description")?.textContent).toBe(translate("composer.envSSH"));
   expect(ready.querySelector('.acpmux-env-status[data-connected="true"]')).not.toBeNull();
-  // A machine still connecting is listed greyed with its state, and is no pick: the list stays open.
+  // A machine still connecting is never greyed and says no state (Leo, 2026-11-24: "all the
+  // connecting... indicators and the graying out of workspaces, nah let's not do that"): it is a pick,
+  // and the chat starts once its link is up.
   const laptop = optionRows()[2]!;
-  expect(laptop.querySelector('[data-ready="false"]')).not.toBeNull();
+  expect(laptop.querySelector('[data-ready="false"]')).toBeNull();
+  expect(laptop.textContent).not.toContain(translate("machineLink.connecting"));
   await act(async () => laptop.click());
   await settle();
-  expect(picks).toEqual([]);
-  expect(document.querySelector(".acpmux-env-popover.acpmux-env-devices")).not.toBeNull();
-  // A ready one is the pick, and the list closes.
-  await choose('[data-kind="ssh"]');
-  expect(picks).toEqual(["gpu-box"]);
+  expect(picks).toEqual(["laptop"]);
   expect(document.querySelector(".acpmux-env-popover")).toBeNull();
 });
 
@@ -304,6 +303,231 @@ test("with no run mode and the chat not on Cloud, the list offers no Cloud row t
     document.querySelector('.acpmux-env-popover [data-action="cloud"], .acpmux-env-popover [data-kind="cloud"]'),
   ).toBeNull();
   expect(connects).toEqual([]);
+});
+
+// Auto (autoWhereModel.ts; Leo, 2026-11-22: "the selection for auto as an environment choice between
+// cloud/local/whatever is the whole point"): a new chat's first row when the page offers it.
+function autoChat(picked: boolean, log: string[], mode: RunMode = "persistent") {
+  return {
+    runMode: {
+      mode,
+      onMode: (next: RunMode) => void log.push(`mode:${next}`),
+      auto: { picked, onPick: (on: boolean) => void log.push(`auto:${on}`), look: "orbit" as const },
+    },
+  };
+}
+
+// cmux#51731: This Mac, Auto, Cloud, Other devices, so Auto reads as the step between the two.
+test("Auto sits between This Mac and Cloud in a new chat's list only when the page offers it", async () => {
+  const offered = await renderDevices(DEVICES, autoChat(false, []));
+  await open(offered.container);
+  expect(optionRows().map(rowLabel)).toEqual([
+    translate("composer.thisMac"),
+    translate("composer.auto"),
+    translate("composer.cloud"),
+    translate("composer.otherDevices"),
+  ]);
+  const row = document.querySelector('.acpmux-env-popover [data-kind="auto"]')!;
+  expect(row.getAttribute("data-auto-look")).toBe("orbit");
+  expect(row.querySelector('.acpmux-auto-icon[data-look="orbit"]')).not.toBeNull();
+  expect(row.querySelector("[data-current]")).toBeNull();
+});
+
+test("the list has no Auto row without the page's offer", async () => {
+  const { container } = await renderDevices(DEVICES, NEW_CHAT);
+  await open(container);
+  expect(optionRows().map(rowLabel)).not.toContain(translate("composer.auto"));
+});
+
+test("picking Auto turns it on, closes the list and focuses the prompt", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoChat(false, log));
+  await open(container);
+  await choose('[data-kind="auto"]');
+  expect(log).toEqual(["auto:true"]);
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("textarea"));
+});
+
+test("Auto picked is the one checked row, and the chip carries its look", async () => {
+  const { container } = await renderDevices(DEVICES, autoChat(true, []));
+  expect(container.querySelector(".acpmux-location-picker")?.getAttribute("data-auto-look")).toBe("orbit");
+  await open(container);
+  const checked = [...document.querySelectorAll(".acpmux-env-popover .acpmux-env-row[data-current]")];
+  expect(checked.map((row) => row.getAttribute("data-kind"))).toEqual(["auto"]);
+});
+
+test("with Auto picked, This Mac turns Auto off and the chat stays here", async () => {
+  const local: string[] = [];
+  const here = await renderDevices(DEVICES, autoChat(true, local));
+  await open(here.container);
+  await choose('[data-kind="local"]');
+  expect(local).toEqual(["auto:false"]);
+  // This Mac was already the machine: no machine pick, the prompt takes focus.
+  expect(here.picks).toEqual([]);
+  expect(document.activeElement).toBe(here.container.querySelector("textarea"));
+});
+
+test("with Auto picked, Cloud turns Auto off and makes Cloud the mode", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoChat(true, log));
+  await open(container);
+  await choose('[data-mode="cloud"]');
+  expect(log).toEqual(["auto:false", "mode:cloud"]);
+});
+
+// AutoCloud (Leo, 2026-11-24: "let's just use our existing dropdown and have it be able to have a
+// chevron that opens into more options"): with the hidden cloud.autoCloud key and an active plan, the
+// page marks Auto `cloud`, and Auto's row is a chevron that opens Auto ⌥⌘1, Cloud only ⌥⌘2, Machine… ⌥⌘3.
+function autoCloudChat(picked: boolean, log: string[], mode: RunMode = "persistent") {
+  const chat = autoChat(picked, log, mode);
+  return { runMode: { ...chat.runMode, auto: { ...chat.runMode.auto, cloud: true } } };
+}
+
+const autoKey = async (digit: number) => {
+  await act(async () =>
+    window.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { code: `Digit${digit}`, altKey: true, metaKey: true, bubbles: true }),
+    ),
+  );
+  await settle();
+};
+
+test("AutoCloud: Auto's row is a chevron that opens Auto, Cloud only and Machine… with their keys", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  const row = document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')!;
+  expect(row.querySelector(".acpmux-env-more-chevron")).not.toBeNull();
+  expect(optionRows().map(rowLabel)[1]).toBe(translate("composer.auto"));
+  await choose('[data-action="autoPlaces"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
+  expect(optionRows().map(rowLabel)).toEqual([
+    translate("composer.auto"),
+    translate("composer.autoCloudOnly"),
+    translate("composer.autoMachine"),
+  ]);
+  expect([...document.querySelectorAll(".acpmux-env-popover .acpmux-env-key")].map((key) => key.textContent)).toEqual([
+    "⌥⌘1",
+    "⌥⌘2",
+    "⌥⌘3",
+  ]);
+});
+
+test("AutoCloud: picking Auto in its list turns Auto on and focuses the prompt", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, log));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="autoPlace"]');
+  expect(log).toEqual(["auto:true"]);
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("textarea"));
+});
+
+test("AutoCloud: ⌥⌘1 in the open Auto list picks Auto, not This Mac", async () => {
+  const log: string[] = [];
+  const { container, picks } = await renderDevices(DEVICES, autoCloudChat(false, log));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await autoKey(1);
+  expect(log).toEqual(["auto:true"]);
+  expect(picks).toEqual([]);
+});
+
+test("AutoCloud: Cloud only (⌥⌘2) turns Auto off and makes Cloud the mode", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoCloudChat(true, log));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlace"][data-current]')).not.toBeNull();
+  await autoKey(2);
+  expect(log).toEqual(["auto:false", "mode:cloud"]);
+});
+
+test("AutoCloud: Machine… opens the person's other devices in place", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="machine"]');
+  expect(document.querySelector(".acpmux-env-devices")).not.toBeNull();
+  expect(optionRows().map(rowLabel)).toContain("studio");
+});
+
+// Leo, 2026-11-24: "i cant click back". Every list opened in place heads with a row back to the list
+// it opened from; ← with no search typed does the same.
+test("AutoCloud: the Auto list's heading goes back to the main list, and Machine…'s back to Auto", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="machine"]');
+  expect(document.querySelector(".acpmux-env-devices")).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
+  expect(optionRows().map(rowLabel)[1]).toBe(translate("composer.autoCloudOnly"));
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="back"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+});
+
+test("← in a list opened in place goes back to the one it opened from", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  const field = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-location-search")!;
+  await act(async () =>
+    field.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
+    ),
+  );
+  await settle();
+  expect(document.querySelector(".acpmux-env-auto-places")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+});
+
+test("Other devices heads with a way back to the main list", async () => {
+  const { container } = await renderDevices(DEVICES);
+  await open(container);
+  await choose('[data-action="otherDevices"]');
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-devices")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')).not.toBeNull();
+});
+
+test("Machines… heads with a way back to the main list", async () => {
+  const { container } = await render("persistent");
+  await openMachines(container);
+  expect(document.querySelector('.acpmux-env-popover [data-kind="ssh"]')).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector('.acpmux-env-popover [data-action="back"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-kind="ssh"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-mode="cloud"]')).not.toBeNull();
+});
+
+test("Move to… heads with a way back to the main list", async () => {
+  const { container } = await renderDevices(DEVICES.slice(0, 1), {
+    otherDevices: false,
+    onOffload: () => undefined,
+    offload: "move",
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: () => undefined,
+  });
+  await open(container);
+  await choose('[data-action="moveTo"]');
+  expect(document.querySelector(".acpmux-env-moves")).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-moves")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="moveTo"]')).not.toBeNull();
+});
+
+test("AutoCloud gated off: Auto stays the one plain row, with no chevron", async () => {
+  const { container } = await renderDevices(DEVICES, autoChat(false, []));
+  await open(container);
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-kind="auto"] .acpmux-env-more-chevron')).toBeNull();
 });
 
 // A started chat's Move to… list opens on where the chat runs now, checked: the person sees what
@@ -370,4 +594,44 @@ test("the Environment dropdown has resize grips on its edges away from the chip 
   } finally {
     setPopupSize("composer.environment", { width: undefined, height: undefined });
   }
+});
+
+// Leo, 2026-11-27: "just bring it back to this mac / autocloud / cloud / remote or whatever it was
+// before". With agent machines listed, the main list stays This Mac, AutoCloud, Cloud, Other devices;
+// Other devices holds the person's own machines, then Agent machines, whose list opens to the side.
+const WITH_AGENTS = [
+  ...DEVICES,
+  { id: "lane-1", label: "lane-1", kind: "ssh" as const, connected: true, group: "agent" as const },
+  { id: "lane-2", label: "lane-2", kind: "ssh" as const, connected: true, group: "agent" as const },
+];
+
+test("AutoCloud keeps its own row and agent machines sit behind Other devices, not inline", async () => {
+  const { container } = await renderDevices(WITH_AGENTS, autoCloudChat(false, []));
+  await open(container);
+  expect(optionRows().map(rowLabel)).toEqual([
+    translate("composer.thisMac"),
+    translate("composer.auto"),
+    translate("composer.cloud"),
+    translate("composer.otherDevices"),
+  ]);
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+  expect(document.querySelector(".acpmux-env-popover [data-indent]")).toBeNull();
+  await choose('[data-action="otherDevices"]');
+  expect(optionRows().map(rowLabel)).toEqual([
+    "gpu-box",
+    "studio",
+    "laptop",
+    translate("composer.agentMachines"),
+    translate("composer.addMachine"),
+  ]);
+  await choose('[data-action="agentMachines"]');
+  await settle();
+  // The main list stays open under it.
+  expect(document.querySelector('.acpmux-env-popover [data-action="agentMachines"][data-expanded]')).not.toBeNull();
+  const side = document.querySelector(".acpmux-env-agents")!;
+  expect(side).not.toBeNull();
+  expect([...side.querySelectorAll(".acpmux-menu-label")].map((label) => label.textContent)).toEqual([
+    "lane-1",
+    "lane-2",
+  ]);
 });

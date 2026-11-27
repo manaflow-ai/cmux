@@ -113,3 +113,89 @@ export function besideMask(surfaces: readonly StackSurface[], width: number, ban
   if (!images.length) return undefined;
   return { images: images.join(", "), sizes: sizes.join(", "), positions: positions.join(", ") };
 }
+
+/// A box drawn in a band of the stack (the "Needs your input" line's label and Dismiss, a waiting
+/// question's card), in the scroller's own coordinates, with its corner radius.
+export type BandHole = { left: number; top: number; right: number; bottom: number; radius: number };
+
+type RectEdges = Pick<DOMRect, "left" | "top" | "right" | "bottom">;
+
+/// The portion of `rect` that remains visible inside `clip`, or nothing when the clip removes it.
+/// Pending asks use this while their section folds and clips a card whose layout rect still has its
+/// old height (useBesideStack.ts).
+export function clippedRect(rect: RectEdges, clip: RectEdges): RectEdges | undefined {
+  const left = Math.max(rect.left, clip.left);
+  const top = Math.max(rect.top, clip.top);
+  const right = Math.min(rect.right, clip.right);
+  const bottom = Math.min(rect.bottom, clip.bottom);
+  return right > left && bottom > top ? { left, top, right, bottom } : undefined;
+}
+
+/// A part of the stack with no surface of its own (the asks stack: a quiet label line over a card),
+/// from `top` to `bottom` across the pane, and the boxes it draws.
+export type StackBand = { top: number; bottom: number; holes: readonly BandHole[] };
+
+/// The mask layers that keep the rows in sight across `band`, everywhere but under its holes and
+/// inside their rounded corners (Leo, 2026-11-17: "why do you have the entire row blanked out? don't
+/// ever do that. this needs your input dismiss row erases things behind it"). The band is cut into
+/// slices at each hole's top and bottom; each slice keeps the room between the holes it crosses.
+export function bandMask(band: StackBand, width: number): BesideMask | undefined {
+  if (band.bottom - band.top <= 0.25 || width <= 0.25) return undefined;
+  const holes = band.holes
+    .map((hole) => ({
+      left: Math.max(0, hole.left),
+      right: Math.min(width, hole.right),
+      top: Math.max(band.top, hole.top),
+      bottom: Math.min(band.bottom, hole.bottom),
+      radius: hole.radius,
+    }))
+    .filter((hole) => hole.right - hole.left > 0.25 && hole.bottom - hole.top > 0.25);
+  const images: string[] = [];
+  const sizes: string[] = [];
+  const positions: string[] = [];
+  const add = (image: string, x: number, y: number, w: number, h: number) => {
+    if (w <= 0.25 || h <= 0.25) return;
+    images.push(image);
+    sizes.push(`${px(w)} ${px(h)}`);
+    positions.push(`${px(x)} ${px(y)}`);
+  };
+  const solid = "linear-gradient(#000, #000)"; // colour-allow: a mask layer's alpha only, never painted
+  const edges = [...new Set([band.top, band.bottom, ...holes.flatMap((hole) => [hole.top, hole.bottom])])].sort(
+    (a, b) => a - b,
+  );
+  for (let at = 0; at + 1 < edges.length; at++) {
+    const top = edges[at]!;
+    const bottom = edges[at + 1]!;
+    const crossing = holes.filter((hole) => hole.top < bottom && hole.bottom > top).sort((a, b) => a.left - b.left);
+    let x = 0;
+    for (const hole of crossing) {
+      add(solid, x, top, hole.left - x, bottom - top);
+      x = Math.max(x, hole.right);
+    }
+    add(solid, x, top, width - x, bottom - top);
+  }
+  // The room outside each hole's four rounded corners.
+  for (const hole of holes) {
+    const r = Math.min(hole.radius, (hole.right - hole.left) / 2, (hole.bottom - hole.top) / 2);
+    if (r <= 0.5) continue;
+    const corner = (cx: number, cy: number) =>
+      `radial-gradient(circle ${px(r)} at ${px(cx)} ${px(cy)}, transparent ${px(r - 0.5)}, #000 ${px(r + 0.5)})`; // colour-allow: mask alpha only
+    add(corner(r, r), hole.left, hole.top, r, r);
+    add(corner(0, r), hole.right - r, hole.top, r, r);
+    add(corner(r, 0), hole.left, hole.bottom - r, r, r);
+    add(corner(0, 0), hole.right - r, hole.bottom - r, r, r);
+  }
+  if (!images.length) return undefined;
+  return { images: images.join(", "), sizes: sizes.join(", "), positions: positions.join(", ") };
+}
+
+/// Two sets of mask layers as one (either may be absent).
+export function joinMasks(a: BesideMask | undefined, b: BesideMask | undefined): BesideMask | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    images: `${a.images}, ${b.images}`,
+    sizes: `${a.sizes}, ${b.sizes}`,
+    positions: `${a.positions}, ${b.positions}`,
+  };
+}

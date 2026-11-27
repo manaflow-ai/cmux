@@ -18,11 +18,18 @@ folder into the running cmux and reloads it on every save. This skill extends
 2. Edit `src/main.ts` or `cmux-app.json`.
 3. `cmux ext dev --once --json`: validate, build, load, render once. Read `exitCode`, `errors`
    (file, line, field) and `scene` (an outline of what rendered). Exit 0 is done; 4 is the
-   manifest, 5 the build, 1 the load, 3 no cmux running.
+   manifest, 5 the build, 1 the load, 3 no cmux running. With no cmux to load into (CI, a cloud
+   VM), `cmux ext dev --once --headless --json` loads and renders it in-process instead.
 4. Fix what `errors` names; repeat. Before saying it works, `cmux ext shot --json` and look at
    `shot.path`.
 
 The whole loop, exit codes and sharing: `docs/cmux-next/extensions/dev-loop.md`.
+
+Each surface's reference with a working example, generated from this build:
+`cmux customize docs [SURFACE]`. Tested copy-paste prompts for common goals (sidebar, cloning an
+app's flow, an animation, a New Tab page, a command, a `/` command): `cmux customize prompts
+[NAME]`, pages in [prompts/](prompts/), each run nightly by a cold agent
+(`.github/workflows/customize-prompts-cold-model.yml`).
 
 ## Recipes
 
@@ -40,6 +47,7 @@ real app host (`cmux-tui/crates/cmux-tui/src/cli/ext/recipes_tests.rs`).
 | A whole New Tab page | [newtab.md](recipes/newtab.md) | `cmux.newtab/1` |
 | A widget (New Tab grid, sidebar) | [widget.md](recipes/widget.md) | `cmux.widget/1` |
 | A command: palette, `cmux NAME ...`, agent tool | [command.md](recipes/command.md) | `catalog.json` |
+| A key binding (an op or a cmux action) | [command.md](recipes/command.md) | `contributes.keybindings` |
 | A `/` command in the agent composer | [composer-command.md](recipes/composer-command.md) | `cmux.composer.command/1` |
 | An `@` mention provider | [composer-mention.md](recipes/composer-mention.md) | `cmux.composer.mention/1` |
 

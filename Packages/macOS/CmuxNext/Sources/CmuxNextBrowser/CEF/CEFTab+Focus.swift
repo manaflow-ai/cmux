@@ -77,20 +77,23 @@ extension CEFTab {
         // after the next commit, so the grant waits for that commit. Every grant path comes here.
         // A page shown in a recent turn waits for its first frame out of the window (`CEFLayerHosting.firstFrameHold`):
         // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
+        // A window still being restored (Restart to Update shows its windows one per frame) cannot hold the keys: a grant
+        // now made the page window key before its cmux window showed, and the app lost its key window. The ask is kept
+        // and re-asked after each frame commit (at most 120) until the window is on screen.
+        if let owner = container.window, !owner.isVisible || !owner.occlusionState.contains(.visible) {
+            guard offscreenGrantRetries < 120 else { return }
+            offscreenGrantRetries += 1
+            host.lifecycleTrace.record(id, "grant kept: window not on screen")
+            traceGrant("kept: window not on screen")
+            pendingFocus = true
+            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+            return
+        }
+        offscreenGrantRetries = 0
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
             host.lifecycleTrace.record(id, "grant kept: first-frame hold")
             traceGrant("kept: first-frame hold")
-            pendingFocus = true
-            return
-        }
-        if container.commitAheadSize != nil {
-            // The page lays out ahead for its pane's next commit (fork API 33, no resize fence): a grant now (SetFocus,
-            // the page window made key) stalled the page's frames for about 100 ms just after it laid out at the new
-            // size, so the close showed its old frame beside its backdrop. The commit's end grants the kept ask
-            // (``CEFTabContentView/endCommitAhead()``).
-            host.lifecycleTrace.record(id, "grant kept: commit ahead")
-            traceGrant("kept: commit ahead")
             pendingFocus = true
             return
         }
@@ -124,6 +127,8 @@ extension CEFTab {
                 "granted: page window out of the window"
             } else if keyWindows.keyWindow() === pageWindow {
                 "granted"
+            } else if keyWindows.keyWindow() == nil {
+                "granted: no key window"
             } else {
                 "granted: another window is key"
             }

@@ -1060,7 +1060,6 @@ def seed_agent():
     if not ws.get("workspace_id"):
         return
     cli("workspace", ws["workspace_id"], "focus")
-    action("palette.newAgentChat", focus=True)
     client = acpmux_client()
     if not client:
         say("  no acpmux home for this tag; the agent chat is not seeded")
@@ -1075,9 +1074,12 @@ def seed_agent():
         client.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": f"{text} {RUN}"}],
                                           "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{i}"}}}, timeout=60)
     client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj unsent draft {RUN}"})
+    bound = open_session_tab("rj-agent", sid, "rj-agent") is not None
     pane = next((p.get("id") for s_ in (workspace_named("rj-agent") or {}).get("screens", []) for p in s_.get("panes", [])
                  if any(t.get("kind") == "conversation" for t in p.get("tabs", []))), None)
     for attempt in range(4):
+        if bound:
+            break
         # The pane, then the focused agent pane (the new chat tab may not be the shown one yet).
         target = pane if attempt % 2 == 0 else None
         params = {"action": "select_session", "session": sid, **({"pane": target} if target else {})}
@@ -1129,6 +1131,7 @@ CLI_AGENTS = {
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
+CHAT_AT_QUIT = {}  # --record-launch: the shown chat page's size and copy writes just before each quit, by variant
 LONG_CHAT = {}  # --record-launch: the chat shown at each quit, with a long transcript (show_long_chat)
 TAGENTS = []  # {"label", "provider", "terminal", "tab", "session", "flags", "account"}
 ACPMUX = {}  # {"home", "client"}: the tag's acpmux, configured once for the run
@@ -1211,32 +1214,34 @@ def seed_long_chat():
                                                   else "make_chat failed (see the seed log)"), "seed"))
 
 
+def open_session_tab(ws_name, sid, label):
+    """Opens acpmux session `sid`'s chat as a tab of workspace `ws_name`'s first pane
+    (`agent.openSessionTab`, `cmux agent open-tab`) and shows it: the tab is bound to the session
+    from the start. The palette's New Agent Chat opens no conversation tab in a scripted run any
+    more (2026-11-14: every seeded chat said "no new chat tab", so the relaunch measured no chat).
+    Returns the tab, or None."""
+    ws = workspace_named(ws_name) or {}
+    pane = next((p.get("id") for s_ in ws.get("screens", []) for p in s_.get("panes", [])), None)
+    answer = action("agent.openSessionTab", args={"session": sid}, **({"target": f"pane:{pane}"} if pane else {}),
+                    focus=True)
+    tab = wait(lambda: next((t for t in tabs_of(workspace_named(ws_name)) if t.get("agent_session") == sid), None), 30, 0.5)
+    if not tab:
+        say(f"  {label}: agent.openSessionTab made no tab bound to {sid}: {json.dumps(answer)[:200]}")
+    return tab
+
+
 def make_chat(client, label, harness):
     """A new agent chat tab in rj-chats bound to a new acpmux session, with the harness's picks:
     {"label", "harness", "session", "tab"}, or None when a step failed."""
-    known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
-    action("palette.newAgentChat", focus=True)
-    fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
-                               if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
-    if not fresh:
-        say(f"  {label}: no new chat tab")
-        return None
     created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
     sid = (created.get("result") or {}).get("sessionId")
     if not sid:
         say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
         return None
+    fresh = open_session_tab("rj-chats", sid, label)
+    if not fresh:
+        return None
     _, pane = place_of(fresh["id"])
-    # The page learns of a new acpmux session a moment after it is made: select it until the
-    # tab's record names it.
-    for attempt in range(4):
-        # The new tab may not be the pane's shown tab yet; then the focused agent pane.
-        target = pane if attempt % 2 == 0 else None
-        say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
-        if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
-            break
-    else:
-        say(f"  {label}: the tab never recorded session {sid}")
     pick = CHAT_PICKS[harness]
     if pick:
         # The pick a person makes in the composer's menus; through acpmux when the page refuses.
@@ -2625,6 +2630,13 @@ def journey(base):
         if opts.record_launch:
             at_quit = long_chat_shown()
             RESULTS.append((f"{variant}: the long chat is the tab shown at the quit", at_quit is True, str(at_quit), "launch frames"))
+            # The shown chat page's size and its copy writes so far, just before the quit: a copy refused on size at
+            # the relaunch ("size A, drawn at B") is told apart as written by the quit itself (its write on hide, at a
+            # size the page had only then) or left by an earlier write (`snapshot.served_cause` names that one).
+            watched = page(None, "layout_watch", ms=100) or {}
+            CHAT_AT_QUIT[variant] = {"view": (watched.get("snapshot") or {}).get("view"),
+                                     "writes": (watched.get("snapshot") or {}).get("writes")}
+            say(f"  {variant}: chat at the quit {json.dumps(CHAT_AT_QUIT[variant])}")
         started = SINCE = time.time()
         if sampler:
             sampler.start(started)
@@ -2721,6 +2733,18 @@ def show_long_chat(turns=24):
     return shown
 
 
+def long_chat_tab(topo=None):
+    """The long chat's tab id now, found by its session: a chat tab opened by session starts as a provisional tab that
+    the daemon's own tab replaces (TabContent `confirm`), so the id make_chat saw may be gone by the quit."""
+    if not LONG_CHAT:
+        return None
+    for ws in (topo or topology() or {}).get("workspaces", []):
+        for tab in tabs_of(ws):
+            if tab.get("agent_session") == LONG_CHAT.get("session"):
+                return tab.get("id")
+    return LONG_CHAT.get("tab")
+
+
 def focus_long_chat():
     """The long chat's tab selected in the front window, its page drawn (chat_items puts back each pane's shown tab, so
     it stays selected through every round's snapshots)."""
@@ -2730,7 +2754,7 @@ def focus_long_chat():
     ws = workspace_named("rj-chats")
     if ws:
         cli("workspace", ws["id"], "focus")
-    cli("tab", chat["tab"], "focus")
+    cli("tab", long_chat_tab(), "focus")
     return bool(wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5))
 
 
@@ -2739,14 +2763,15 @@ def long_chat_shown():
     if not LONG_CHAT:
         return "no long chat"
     topo = topology() or {}
+    tab_id = long_chat_tab(topo)
     for window in topo.get("windows", []):
         for ws in topo.get("workspaces", []):
             if ws.get("id") not in window.get("workspaces", []):
                 continue
             for screen in ws.get("screens", []):
                 for pane in screen.get("panes", []):
-                    if any(t.get("id") == LONG_CHAT["tab"] for t in pane.get("tabs", [])):
-                        if pane.get("selected_tab") != LONG_CHAT["tab"]:
+                    if any(t.get("id") == tab_id for t in pane.get("tabs", [])):
+                        if pane.get("selected_tab") != tab_id:
                             return f"its pane shows tab {pane.get('selected_tab')}"
                         if window.get("workspace") != ws.get("id"):
                             return f"its window shows workspace {ws_name(topo, window.get('workspace'))}"
@@ -2788,7 +2813,9 @@ def launch_shift_rows(variant, record, launched, chat_watch):
     if chat_watch:
         chat_watch.pop("thread").join(20)
         summary["chat"] = {k: chat_watch.get(k) for k in ("first_content_ms", "first_rows", "elements", "shifts", "appeared",
-                                                          "scroll_jumps", "asked_s", "error") if k in chat_watch}
+                                                          "scroll_jumps", "asked_s", "error", "snapshot", "first_from_copy", "swap_ms", "first_parts", "swap_parts",
+                                                          "grew") if k in chat_watch}
+        summary["chat"]["at_quit"] = CHAT_AT_QUIT.get(variant.split("-", 1)[-1])
     dump(f"launch-shift-{variant}.json", summary)
     say(f"  LAUNCH-SHIFT {variant} {json.dumps(total)}")
     say(launch_shift.table(summary))

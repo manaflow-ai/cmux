@@ -44,11 +44,19 @@ pub(super) const REPO: &str = "manaflow-ai/cmux";
 const FORK_TAG: &str = "cmux-web-layer-";
 /// The largest web bundle archive a layer fetches (they are about 30 MB).
 const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
-/// Where each overlay surface sits in a published archive.
-pub(super) const SURFACES: [(&str, &str); 3] = [
+/// Where each overlay surface sits in a published archive, and the layer
+/// folder the app serves it from (`WebDevOverride.overlayRoot(for:bundledRoot:)`:
+/// `pages/<page>` for a page of the Pages bundle, else the bundled folder's
+/// own name). Every web folder the app bundles is one: a folder left out is
+/// served from the bundle with the layer on (`surfaces_tests.rs`).
+pub(super) const SURFACES: [(&str, &str); 4] = [
     ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/", "agent-pane"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/", "pages"),
     ("Resources/markdown-viewer/webviews-app/", "webviews-app"),
+    (
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
+        "agent-activity",
+    ),
 ];
 pub(super) const APP_ABI: &str =
     "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json";
@@ -170,8 +178,8 @@ pub(super) fn failure(why: String) -> Failure {
     Failure::from(Error::Library(why))
 }
 
-/// GETs, one current-thread runtime per verb.
-pub(super) struct Http {
+/// GETs, one current-thread runtime per verb (`cmux setup preview` too).
+pub(in crate::cli) struct Http {
     runtime: tokio::runtime::Runtime,
     client: reqwest::Client,
 }
@@ -181,6 +189,11 @@ impl Http {
         Http::with_timeout(Duration::from_secs(300))
     }
 
+    /// A client whose every request ends by `deadline`.
+    pub(in crate::cli) fn with_deadline(deadline: Duration) -> Result<Http, Failure> {
+        Http::with_timeout(deadline)
+    }
+
     /// One whose every request gives up after `timeout`.
     pub(super) fn with_timeout(timeout: Duration) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -188,7 +201,7 @@ impl Http {
             .enable_all()
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui::cli::customize::pr")
             .timeout(timeout)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -197,7 +210,7 @@ impl Http {
     }
 
     /// The body of `url`, `None` on a 404.
-    fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, Failure> {
+    pub(in crate::cli) fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, Failure> {
         self.runtime.block_on(async {
             let mut response = self
                 .client
@@ -1095,3 +1108,7 @@ pub(super) fn refresh_with(
 #[cfg(test)]
 #[path = "pr_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "surfaces_tests.rs"]
+mod surfaces_tests;

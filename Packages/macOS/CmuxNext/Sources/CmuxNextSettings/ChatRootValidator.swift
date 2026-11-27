@@ -16,37 +16,40 @@ public nonisolated struct ChatRootValidator: Sendable {
     }) {
         self.home = home
         self.readLink = readLink
-        homes = [home, Self.resolveHome(home, readLink: readLink)]
+        let resolved = Self.walk("chat_roots.resolve_home", ["home": .string(home)], readLink: readLink)["home"]?.stringValue
+        homes = [home, resolved ?? home]
     }
 
-    /// A localized refusal, or nil for an absolute, unprotected path.
+    /// A localized refusal, or nil for an absolute, unprotected path. Rust walks the path (cmux-config
+    /// app_ops/effective.rs, `chat_roots.refusal`): the spelling first, since resolving a protected
+    /// descendant would read it, then each folder on the way, asking this validator's `readLink` for
+    /// each folder it reaches.
     public func refusal(_ path: String) -> String? {
-        guard path.hasPrefix("/"), !path.contains("\0") else {
-            return SettingsText.keyed("settings.chats.root.relative", "Use an absolute folder path.").text
+        let reply = Self.walk("chat_roots.refusal", ["path": .string(path), "homes": .array(homes.map(JSONValue.string))], readLink: readLink)
+        switch reply["refusal"]?.stringValue {
+        case "relative": return SettingsText.keyed("settings.chats.root.relative", "Use an absolute folder path.").text
+        case "symlink": return SettingsText.keyed("settings.chats.root.symlink", "This folder has too many symbolic links.").text
+        case "system": return SettingsText.keyed("settings.chats.root.system", "The root folder cannot be a chat folder.").text
+        case "home": return SettingsText.keyed("settings.chats.root.home", "Choose a harness data folder, not your home folder.").text
+        case "volume": return SettingsText.keyed("settings.chats.root.volume", "Folders on other or network volumes are not allowed.").text
+        case "protected": return SettingsText.keyed("settings.chats.root.protected", "This folder is protected by macOS privacy controls.").text
+        default: return nil
         }
-        // Check the spelling before even readlink: resolving a protected descendant would read it.
-        if let reason = guarded(path, final: true) { return reason }
-        var parts = path.split(separator: "/").map(String.init)
-        var resolved: [String] = []
-        var links = 0
-        while !parts.isEmpty {
-            let part = parts.removeFirst()
-            if part == "." { continue }
-            if part == ".." { if !resolved.isEmpty { resolved.removeLast() }; continue }
-            let candidate = "/" + (resolved + [part]).joined(separator: "/")
-            if let reason = guarded(candidate, final: parts.isEmpty) { return reason }
-            if let target = readLink(candidate) {
-                links += 1
-                guard links <= 40 else {
-                    return SettingsText.keyed("settings.chats.root.symlink", "This folder has too many symbolic links.").text
-                }
-                if target.hasPrefix("/") { resolved = [] }
-                parts = target.split(separator: "/").map(String.init) + parts
-            } else {
-                resolved.append(part)
-            }
+    }
+
+    /// Runs a `chat_roots` op, answering each folder it asks about (`need`) with `readLink`, once.
+    private static func walk(_ op: String, _ request: [String: JSONValue], readLink: (String) -> String?) -> JSONValue {
+        var request = request
+        var links: [String: JSONValue] = [:]
+        request["links"] = .object(links)
+        var reply = SettingsRust.answer(op, .object(request))
+        // Each turn answers a folder not yet asked about, so the walk ends.
+        while let need = reply["need"]?.stringValue, links[need] == nil {
+            links[need] = readLink(need).map(JSONValue.string) ?? .null
+            request["links"] = .object(links)
+            reply = SettingsRust.answer(op, .object(request))
         }
-        return guarded("/" + resolved.joined(separator: "/"), final: true)
+        return reply
     }
 
     /// A copy for one batch of checks over paths that share their folders (one picker answer): each
@@ -122,47 +125,4 @@ public nonisolated struct ChatRootValidator: Sendable {
         guard lstat(path, &info) == 0 else { return nil }
         return Identity(device: Int64(info.st_dev), inode: UInt64(info.st_ino))
     }
-
-    private func guarded(_ path: String, final: Bool) -> String? {
-        let folded = path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let homes = homes.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
-        if final && folded.isEmpty {
-            return SettingsText.keyed("settings.chats.root.system", "The root folder cannot be a chat folder.").text
-        }
-        if final && homes.contains(folded) {
-            return SettingsText.keyed("settings.chats.root.home", "Choose a harness data folder, not your home folder.").text
-        }
-        func under(_ root: String) -> Bool { folded == root || folded.hasPrefix(root + "/") }
-        // The one protected-folder list: cmux-tui/crates/acpmux/data/protected-folders.json.
-        let volumes = ProtectedFolderEntry.roots.map { $0.path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
-        if volumes.contains(where: under) {
-            return SettingsText.keyed("settings.chats.root.volume", "Folders on other or network volumes are not allowed.").text
-        }
-        let guarded = ProtectedFolderEntry.inHome.map(\.path)
-        if homes.contains(where: { home in guarded.contains { under(home + "/" + $0.lowercased()) } }) {
-            return SettingsText.keyed("settings.chats.root.protected", "This folder is protected by macOS privacy controls.").text
-        }
-        return nil
-    }
-
-    /// Only resolves the home path itself, never a child of a protected folder.
-    private static func resolveHome(_ home: String, readLink: (String) -> String?) -> String {
-        var parts = home.split(separator: "/").map(String.init)
-        var resolved: [String] = []
-        var links = 0
-        while !parts.isEmpty {
-            let part = parts.removeFirst()
-            if part == "." { continue }
-            if part == ".." { if !resolved.isEmpty { resolved.removeLast() }; continue }
-            let candidate = "/" + (resolved + [part]).joined(separator: "/")
-            if let target = readLink(candidate) {
-                links += 1
-                guard links <= 40 else { return home }
-                if target.hasPrefix("/") { resolved = [] }
-                parts = target.split(separator: "/").map(String.init) + parts
-            } else { resolved.append(part) }
-        }
-        return "/" + resolved.joined(separator: "/")
-    }
-
 }

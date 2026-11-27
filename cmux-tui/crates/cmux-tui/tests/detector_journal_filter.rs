@@ -14,10 +14,9 @@
 
 #![cfg(unix)]
 
-mod fault_support;
+use crate::fault_support;
 
-#[path = "../../../bindings/examples/rust-agent-screen-detection/src/wake_kinds.rs"]
-mod detector_wake_kinds;
+use crate::detector_wake_kinds;
 
 use std::path::Path;
 use std::time::Duration;

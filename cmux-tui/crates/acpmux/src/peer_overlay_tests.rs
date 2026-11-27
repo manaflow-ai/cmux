@@ -177,6 +177,7 @@ async fn ssh_down_with_a_found_overlay_connects_over_the_cmux_link() {
     let dir = paired_link_dir();
     // The tokens the earlier ssh read kept (configured here: ssh is down).
     let peer = ssh_peer("ssh-down-overlay", Some("token"), Some("peer-token"));
+    peer.refuse_early(); // its fake listener is a plain tungstenite accept, as before the early request
     // The machine was reached over ssh before: its paths exist, with ssh alone.
     assert_eq!(peer.dial_order(), [Via::Ssh]);
     assert!(peer.learn_overlay_in(dir.path(), &json!({"link": {"install": "inst_b"}})));
@@ -196,16 +197,17 @@ async fn ssh_down_with_a_found_overlay_connects_over_the_cmux_link() {
 fn the_backup_line_says_which_path_carries_the_link_and_why_ssh_does_not() {
     use crate::peer::carriers::backup_line;
     let refused = [(Via::Ssh, "SSH connection refused".to_owned())];
+    let none: [(Via, String); 0] = [];
     assert_eq!(
         backup_line(Via::Link, true, &refused).as_deref(),
         Some("ssh did not connect (SSH connection refused); the link runs on the link path")
     );
     assert_eq!(
-        backup_line(Via::Link, true, &[]).as_deref(),
+        backup_line(Via::Link, true, &none).as_deref(),
         Some("ssh had not connected first; the link runs on the link path")
     );
-    assert_eq!(backup_line(Via::Ssh, true, &[]), None, "ssh carries it: nothing to say");
-    assert_eq!(backup_line(Via::Link, false, &[]), None, "a peer with no ssh path");
+    assert_eq!(backup_line(Via::Ssh, true, &none), None, "ssh carries it: nothing to say");
+    assert_eq!(backup_line(Via::Link, false, &none), None, "a peer with no ssh path");
 }
 
 /// Review BLOCK (P1): the reply a peer daemon gets (`Origin::Peer`, web-class for rights) carries
@@ -253,6 +255,7 @@ async fn a_configured_wireguard_peer_gets_no_overlay_found_or_recalled() {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     };
     assert!(configured.names_route());
     assert!(!crate::config::PeerConfig { wireguard: None, ..configured.clone() }.names_route());
