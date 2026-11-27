@@ -146,6 +146,11 @@ struct TrackedNode {
     children: BTreeSet<String>,
 }
 
+// Match webviews/src/apps/scene/store.ts. Tracking a rejected op would make a later removal
+// erase validation for nodes the renderer still owns under their previous parent.
+const MAX_SCENE_NODES: usize = 4096;
+const MAX_SCENE_DEPTH: usize = 64;
+
 fn remove_subtree(nodes: &mut BTreeMap<String, TrackedNode>, id: &str) {
     let parent = nodes.get(id).and_then(|node| node.parent.clone());
     if let Some(parent) = parent.and_then(|parent| nodes.get_mut(&parent)) {
@@ -178,6 +183,24 @@ fn replace_children(nodes: &mut BTreeMap<String, TrackedNode>, id: &str, childre
         .filter(|child| nodes.contains_key(*child) && !ancestors.contains(*child))
         .map(str::to_string)
         .collect();
+    // Check depth(parent) + height(child) before detaching anything. Walk only the candidate
+    // subtrees, bounded by the scene's node/depth limits; shared candidates need no revisit at
+    // an equal or shallower depth. The scene root counts as depth one, not zero.
+    let mut pending: Vec<_> =
+        children.iter().map(|child| (child.as_str(), ancestors.len() + 1)).collect();
+    let mut visited = BTreeMap::new();
+    while let Some((child, depth)) = pending.pop() {
+        if depth > MAX_SCENE_DEPTH {
+            return;
+        }
+        if visited.get(child).is_some_and(|previous| *previous >= depth) {
+            continue;
+        }
+        visited.insert(child, depth);
+        if let Some(node) = nodes.get(child) {
+            pending.extend(node.children.iter().map(|child| (child.as_str(), depth + 1)));
+        }
+    }
     let previous = std::mem::take(&mut nodes.get_mut(id).unwrap().children);
     for child in previous {
         if let Some(node) = nodes.get_mut(&child) {
@@ -209,6 +232,9 @@ impl TypedNodes {
             let id = id.to_string();
             match object.get("op").and_then(Value::as_str) {
                 Some("create") => {
+                    if nodes.contains_key(&id) || nodes.len() >= MAX_SCENE_NODES {
+                        continue;
+                    }
                     let kind = object.get("type").and_then(Value::as_str);
                     nodes.entry(id.clone()).or_insert_with(|| TrackedNode {
                         kind: kind.and_then(|k| KIT_NODES.iter().copied().find(|n| *n == k)),
@@ -434,6 +460,95 @@ mod tests {
             ]),
         );
         assert_eq!(nodes.mounts["b"].len(), 1, "forget must not retain the old edge");
+    }
+
+    #[test]
+    fn refused_depth_move_preserves_the_previous_parent_and_the_limit_is_inclusive() {
+        let mut nodes = TypedNodes::default();
+        nodes.sanitize(
+            "m",
+            &mut json!([
+                {"op": "create", "id": "old", "type": "Row"},
+                {"op": "create", "id": "pill", "type": "Pill"},
+                {"op": "children", "id": "old", "children": ["pill"]}
+            ]),
+        );
+        // A chain with root depth one: moving the pill to its last node would make depth 65.
+        for index in 0..MAX_SCENE_DEPTH {
+            nodes.sanitize(
+                "m",
+                &mut json!([
+                    {"op": "create", "id": format!("n{index}"), "type": "Row"}
+                ]),
+            );
+            if index > 0 {
+                nodes.sanitize("m", &mut json!([
+                    {"op": "children", "id": format!("n{}", index - 1), "children": [format!("n{index}")]}
+                ]));
+            }
+        }
+        // The subtree root would fit at 64, but its pill would be at 65: reject the whole op.
+        nodes.sanitize(
+            "m",
+            &mut json!([
+                {"op": "children", "id": "n62", "children": ["old"]}
+            ]),
+        );
+        assert!(nodes.mounts["m"]["old"].parent.is_none());
+        assert!(nodes.mounts["m"]["n62"].children.contains("n63"));
+        nodes.sanitize(
+            "m",
+            &mut json!([
+                {"op": "children", "id": "n63", "children": ["pill"]},
+                {"op": "remove", "id": "n63"}
+            ]),
+        );
+        assert_eq!(nodes.mounts["m"]["pill"].parent.as_deref(), Some("old"));
+        let mut update = json!([{"op": "update", "id": "pill", "props": {"tone": "invalid"}}]);
+        assert_eq!(nodes.sanitize("m", &mut update).len(), 1);
+        // Depth 64 is accepted, and removing the former owner must now preserve the pill.
+        nodes.sanitize(
+            "m",
+            &mut json!([
+                {"op": "children", "id": "n62", "children": ["pill"]},
+                {"op": "remove", "id": "old"}
+            ]),
+        );
+        assert_eq!(nodes.mounts["m"]["pill"].parent.as_deref(), Some("n62"));
+        let mut update = json!([{"op": "update", "id": "pill", "props": {"tone": "invalid"}}]);
+        assert_eq!(nodes.sanitize("m", &mut update).len(), 1);
+        nodes.sanitize("m", &mut json!([{"op": "remove", "id": "n0"}]));
+        assert!(nodes.mounts.is_empty());
+    }
+
+    #[test]
+    fn node_limit_accepts_the_boundary_and_never_tracks_a_refused_create() {
+        let mut nodes = TypedNodes::default();
+        let mut creates = Value::Array(
+            (0..=MAX_SCENE_NODES)
+                .map(|index| {
+                    json!({
+                        "op": "create", "id": format!("n{index}"), "type": "Pill"
+                    })
+                })
+                .collect(),
+        );
+        nodes.sanitize("m", &mut creates);
+        assert_eq!(nodes.mounts["m"].len(), MAX_SCENE_NODES);
+        let mut update = json!([
+            {"op": "update", "id": "n4095", "props": {"tone": "warning"}},
+            {"op": "update", "id": "n4096", "props": {"tone": "warning"}}
+        ]);
+        assert!(nodes.sanitize("m", &mut update).is_empty());
+        assert_eq!(update[0]["props"]["tone"], "attention");
+        assert_eq!(update[1]["props"]["tone"], "warning");
+        let mut reuse = json!([
+            {"op": "remove", "id": "n0"},
+            {"op": "create", "id": "n4096", "type": "Pill", "props": {"tone": "warning"}}
+        ]);
+        assert!(nodes.sanitize("m", &mut reuse).is_empty());
+        assert_eq!(reuse[1]["props"]["tone"], "attention");
+        assert_eq!(nodes.mounts["m"].len(), MAX_SCENE_NODES);
     }
 
     #[test]
