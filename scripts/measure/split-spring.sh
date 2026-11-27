@@ -367,4 +367,18 @@ if isinstance(report, dict):
         json.dump(report, f, indent=1)
 PY
 done
+# The table, worst row first, as the last lines of the log: a detached step's check run carries the log tail
+# (cmux-next-split-table.yml, report_check.go), so a pull request reads it there. Nothing without a row table.
+python3 - "$out/report.json" <<'PY' || true
+import json, sys
+sys.path.insert(0, "scripts/cmux-next")
+try:
+    import split_scale_metrics as ssm
+    rows = json.load(open(sys.argv[1])).get("row_table")
+except Exception:
+    rows = None
+if rows:
+    print("\n## Split table (report-only)\n")
+    print(ssm.row_table_markdown(rows))
+PY
 exit "$status"
