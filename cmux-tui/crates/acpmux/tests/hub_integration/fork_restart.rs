@@ -173,12 +173,8 @@ async fn a_fork_whose_agent_a_restart_cut_off_resumes_its_chat_and_a_retry_finds
     let held = conversation(&hub, &mut c, &fid).await;
     assert_eq!(
         held,
-        json!([
-            "Remember this codeword: PERIWINKLE-4471",
-            "say BANANA 2",
-            "This session was just forked. Reply with exactly: ready"
-        ]),
-        "the fork's agent holds the chat's conversation, then its priming turn (`Hub::cold_start`)"
+        json!(["Remember this codeword: PERIWINKLE-4471", "say BANANA 2"]),
+        "the fork's agent holds the chat's conversation after filtering its priming turn"
     );
     // Nothing pending is left in its meta once its agent took the conversation.
     let meta = hub.resolve(&fid).unwrap().meta();
