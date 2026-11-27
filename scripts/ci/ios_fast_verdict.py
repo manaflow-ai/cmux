@@ -180,7 +180,7 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
                                                   "Authorization": f"Bearer {token}",
                                                   "X-GitHub-Api-Version": "2022-11-28"})
             try:
-                status, answer, _ = gh_http.request(req, 20)
+                status, answer, _ = gh_http.request_through_rate_limit(req, 20)
                 if status == 201:
                     return True
                 print(f"{STATUS_CONTEXT}: post refused (HTTP {status}: {answer[:200]!r})", file=sys.stderr)

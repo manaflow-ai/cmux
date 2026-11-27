@@ -56,6 +56,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -366,14 +367,31 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
     body = {"state": state, "context": STATUS_CONTEXT, "description": description[:140],
             **({"target_url": target_url} if target_url else {})}
-    for attempt in range(3):
+    # A rate limit refuses before the call runs, so asking again cannot double the post (the rule of
+    # gh_http.request_through_rate_limit; this file is checked out alone and cannot import it): when every token in a
+    # round was rate limited, wait the limit out (a minute a round, ten minutes in all) instead of leaving the
+    # status pending, which a land then waits on for hours (cmux#60053's cmux/ios-fast).
+    limited_rounds = 0
+    attempt = 0
+    while attempt < 3 + limited_rounds and limited_rounds < 10:
+        limited = 0
         for token in tokens:
             try:
                 api(f"repos/{repo}/statuses/{sha}", token, "POST", body)
                 return True
+            except urllib.error.HTTPError as e:
+                print(f"{STATUS_CONTEXT}: post refused (HTTP {e.code})", file=sys.stderr)
+                if e.code in (403, 429) and (e.headers.get("retry-after") or e.headers.get("x-ratelimit-remaining") == "0"
+                                             or e.code == 429):
+                    limited += 1
             except Exception as e:  # noqa: BLE001 - the next token, then the next round
                 print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
-        time.sleep(5 * (attempt + 1))
+        if limited == len(tokens):
+            limited_rounds += 1
+            time.sleep(60)
+        else:
+            time.sleep(5 * (attempt + 1))
+        attempt += 1
     return False
 
 

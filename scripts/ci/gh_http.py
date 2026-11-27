@@ -138,3 +138,33 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
     if raise_errors and status >= 400:
         raise urllib.error.HTTPError(req.full_url, status, "", headers, io.BytesIO(body))
     return status, body, headers
+
+
+RATE_WAIT_BUDGET_S = 600.0
+
+
+def request_through_rate_limit(req: urllib.request.Request, seconds: float = CALL_S, *,
+                               budget_s: float = RATE_WAIT_BUDGET_S, sleep: Callable[[float], None] = time.sleep,
+                               clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
+                               log: Callable[[str], None] | None = None) -> tuple[int, bytes, deadline_http.Headers]:
+    """request(REQ, SECONDS) for a WRITE that a rate limit refused, asked again until the limit resets.
+
+    request() never repeats a write, since the first may have landed. A 429, or a 403 that names a rate limit or
+    carries x-ratelimit-remaining 0 or a Retry-After, is GitHub refusing before it runs the call, so asking again
+    cannot double it. A status post left pending forever is a land that waits on it: cmux#60053's cmux/ios-fast
+    pending (2026-11-27 07:20Z, 'API rate limit exceeded for installation') was never answered because the post
+    gave up after three short rounds. This waits out the refusal (each wait as refusal_wait says, at most
+    MAX_WAIT_S) within BUDGET_S seconds in all. Every other answer, a 5xx included, is returned as request() gives it."""
+    log = log or (lambda line: print(line, file=sys.stderr))
+    start = clock()
+    attempt = 0
+    while True:
+        status, body, headers = request(req, seconds)
+        if status not in (403, 429):
+            return status, body, headers
+        wait = refusal_wait(status, headers, body, attempt, now())
+        if wait is None or clock() - start + wait > budget_s:
+            return status, body, headers
+        log(f"gh_http: {req.get_method()} {req.full_url}: HTTP {status} (rate limit); asking again in {wait:.0f} s")
+        sleep(wait)
+        attempt += 1

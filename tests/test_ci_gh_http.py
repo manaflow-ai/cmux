@@ -146,5 +146,46 @@ class Request(unittest.TestCase):
         self.assertEqual(calls[1][1], 15.0)  # 20 s budget, 5 s waited
 
 
+class RequestThroughRateLimit(unittest.TestCase):
+    POST = urllib.request.Request("https://api.github.com/repos/o/r/statuses/abc", data=b"{}", method="POST")
+
+    def run_with(self, answers, **kwargs):
+        clock, calls, slept = [0.0], [], []
+
+        def fake(request, seconds, **_):
+            calls.append(request.get_method())
+            return answers[len(calls) - 1]
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(deadline_http, "request", fake):
+            result = gh_http.request_through_rate_limit(self.POST, sleep=sleep, clock=lambda: clock[0],
+                                                        now=lambda: 1000.0, log=lambda _: None, **kwargs)
+        return result, calls, slept
+
+    def test_a_rate_limited_post_is_asked_again_until_it_goes_through(self):
+        limited = answer(403, b'{"message": "API rate limit exceeded for installation"}')
+        (status, _, _), calls, slept = self.run_with([limited, limited, answer(201)])
+        self.assertEqual((status, calls, slept), (201, ["POST"] * 3, [5.0, 15.0]))
+
+    def test_the_wait_follows_the_reset(self):
+        limited = answer(403, b"{}", x_ratelimit_remaining="0", x_ratelimit_reset="1030")
+        (status, _, _), _, slept = self.run_with([limited, answer(201)])
+        self.assertEqual((status, slept), (201, [31.0]))
+
+    def test_it_gives_up_at_the_budget_and_returns_the_refusal(self):
+        limited = answer(429)
+        (status, _, _), calls, _ = self.run_with([limited] * 40, budget_s=30)
+        self.assertEqual(status, 429)
+        self.assertLess(len(calls), 40)
+
+    def test_a_permission_403_and_a_5xx_are_returned_at_once(self):
+        for refusal in (answer(403, b'{"message": "Resource not accessible by integration"}'), answer(502)):
+            (status, _, _), calls, slept = self.run_with([refusal, answer(201)])
+            self.assertEqual((status, len(calls), slept), (refusal[0], 1, []))
+
+
 if __name__ == "__main__":
     unittest.main()
