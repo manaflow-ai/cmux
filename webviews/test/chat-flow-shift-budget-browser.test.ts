@@ -515,7 +515,9 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         // The tracker starts on the new document's DOMContentLoaded; the clock stops once the chat is
         // back and has held still.
         await page.reload();
-        await page.getByText("Answer 10:", { exact: false }).first().waitFor({ timeout: 120_000 });
+        // Attached: by the reload flow the earlier flows' turns push Answer 10 a window up, where the
+        // followed view shelves it (#58987, content-visibility: hidden reads as not visible).
+        await page.getByText("Answer 10:", { exact: false }).first().waitFor({ state: "attached", timeout: 120_000 });
         await settle(page);
         const shift: BoxShift = await page.evaluate(() => window.cmuxBoxTracker!.stop());
         const follow = shift.follow!;

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DNS_SCOPE_PATH, DNS_SMOKE_COMMAND, dnsCheckProblems, dnsScopeUnits, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
@@ -320,6 +320,30 @@ describe("cmux-dns-scope", () => {
     const stale = await scope(g);
     expect(existsSync(path.join(g.run, "62-cmux-dns-scope.conf"))).toBe(false);
     expect(stale.calls).toEqual(["systemctl try-reload-or-restart systemd-resolved.service"]);
+  });
+
+  test("a stub resolved is still rewriting after the restart is waited for, then linked (roll 45939027983)", async () => {
+    const g = scopeGuest();
+    rmSync(g.stub);
+    // The restart rewrites the stub a moment later, as resolved does.
+    stub(g.dir, "systemctl", `echo "systemctl $*" >> ${g.log}; rm -f ${g.dir}/link-dns ${g.dir}/link-domain; ( sleep 1; printf 'nameserver 127.0.0.53\\n' > ${g.stub} ) >/dev/null 2>&1 &`);
+    const r = await scope(g);
+    expect(r.calls).toContain("systemctl restart systemd-resolved.service");
+    expect(lstatSync(g.resolv).isSymbolicLink()).toBe(true);
+    expect(r.stdout).toContain(`linked ${g.resolv} to ${g.stub}`);
+  });
+
+  test("a stub that never names a nameserver leaves the plain file, within the bound", async () => {
+    const g = scopeGuest();
+    writeFileSync(g.stub, "");
+    const started = Date.now();
+    const r = await runChild("bash", [SCOPE], {
+      env: { PATH: `${path.join(g.dir, "bin")}:${systemPath()}`, CMUX_DNS_CONF_DIR: g.conf, CMUX_DNS_RUN_DIR: g.run, CMUX_DNS_RESOLV_CONF: g.resolv, CMUX_DNS_STUB: g.stub, CMUX_DNS_STUB_WAIT_S: "2" },
+      timeout: 30_000,
+    });
+    expect(r.status).toBe(0);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(readFileSync(g.resolv, "utf8")).toBe(FOREIGN_RESOLV);
   });
 
   test("a resolv.conf that names any other server is not replaced", async () => {

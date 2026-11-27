@@ -88,11 +88,13 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
+ "cmux-team-messaging",
  "cmux-transport",
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
@@ -110,6 +112,7 @@ dependencies = [
  "hpke",
  "imbl",
  "inotify",
+ "jpeg-encoder",
  "jsonschema",
  "libc",
  "memchr",
@@ -1638,6 +1641,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bytes"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-cas",
+ "flate2",
+ "libc",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-cas"
 version = "0.1.0"
 dependencies = [
@@ -1932,6 +1947,8 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chrono",
+ "chrono-tz",
  "cmux-app-host",
  "cmux-embed",
  "cmux-json",
@@ -1948,6 +1965,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -2512,6 +2530,7 @@ name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
  "regex-automata",
+ "url",
 ]
 
 [[package]]
@@ -2563,6 +2582,7 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -2594,6 +2614,15 @@ dependencies = [
  "png",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-nat-probe"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2683,6 +2712,13 @@ dependencies = [
  "flate2",
  "libc",
  "rustc-demangle",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -3448,6 +3484,8 @@ dependencies = [
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
+ "cmux-bytes",
+ "cmux-cas",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -3484,6 +3522,7 @@ dependencies = [
  "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-phone-page",
  "cmux-process",
  "cmux-projection",
  "cmux-proxy",
@@ -3517,6 +3556,7 @@ dependencies = [
  "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
+ "cmux-vault-e2e",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
@@ -3571,6 +3611,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -3836,6 +3877,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-url-input"
 version = "0.1.0"
 
@@ -3864,6 +3909,21 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-vault-e2e"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hpke",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -4062,6 +4122,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -6456,6 +6517,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "js-sys"

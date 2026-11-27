@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextRemote
 import Foundation
 import os
 
@@ -153,5 +154,12 @@ final class CloudMachineUpdates {
         guard let session else { return nil }
         if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
         return await session.appLink.currentSocket
+    }
+}
+
+extension CloudLegacyMachineUpdate {
+    /// The guest script, from the app's resources.
+    nonisolated static var script: String? {
+        Bundle.module.url(forResource: "cmux-tui-upgrade", withExtension: "sh").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     }
 }
