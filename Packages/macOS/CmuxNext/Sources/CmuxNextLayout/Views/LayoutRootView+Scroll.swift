@@ -152,11 +152,13 @@ extension LayoutRootView: ScrollGestureOwning {
     /// The pane a press at `locationInWindow` reaches: the one whose host holds the view AppKit
     /// dispatches the press to, by its hit test from the window's frame view. Nil when the press reaches
     /// no pane of `screen` (the frame view, a divider, a view over the layout such as the sidebar's
-    /// resize band).
+    /// resize band). A views window page is no subview of its pane (it is a Views child in the window's
+    /// slot), so the walk starts at the view that stands for the hit in cmux's own tree, the page's
+    /// container (``InTreePages/anchor(of:)``, as the focus model classifies the first responder).
     func paneReceivingPress(at locationInWindow: NSPoint, in screen: ScreenContentView) -> PaneID? {
         guard let frameView = window?.contentView?.superview,
               let hit = frameView.hitTest(frameView.convert(locationInWindow, from: nil)) else { return nil }
-        for view in sequence(first: hit, next: \.superview) {
+        for view in sequence(first: hit.inTreeAnchor, next: \.superview) {
             if view === screen { return nil }
             if let host = view as? PaneHostView, context.hosts[host.pane] === host, host.isDescendant(of: screen) { return host.pane }
         }
