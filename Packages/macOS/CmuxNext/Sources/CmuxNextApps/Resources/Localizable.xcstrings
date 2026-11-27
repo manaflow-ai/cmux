@@ -5,22 +5,34 @@
       "comment" : "Why an app's overlay did not open: only the person's own click or palette pick in cmux opens one.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An app overlay opens only when you open it in cmux"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "لا تُفتح الطبقة العائمة للتطبيق إلا عندما تفتحها بنفسك في cmux"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prekrivač aplikacije otvara se samo kada ga otvoriš u cmuxu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et app-overlay åbner kun, når du åbner det i cmux"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein App-Overlay öffnet sich nur, wenn du es in cmux öffnest"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An app overlay opens only when you open it in cmux"
           }
         },
         "es" : {
@@ -35,16 +47,76 @@
             "value" : "Une superposition d'app ne s'ouvre que lorsque vous l'ouvrez dans cmux"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una sovrapposizione dell’app si apre solo quando la apri in cmux"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "アプリのオーバーレイは cmux で自分で開いたときだけ開きます"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្រទាប់ពីលើរបស់កម្មវិធីបើកតែនៅពេលអ្នកបើកវានៅក្នុង cmux ប៉ុណ្ណោះ"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "앱 오버레이는 cmux에서 직접 열 때만 열립니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et app-overlegg åpnes bare når du åpner det i cmux"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nakładka aplikacji otwiera się tylko wtedy, gdy otworzysz ją w cmux"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma sobreposição de app só abre quando você a abre no cmux"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оверлей приложения открывается, только когда вы открываете его в cmux"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โอเวอร์เลย์ของแอปจะเปิดเมื่อคุณเปิดใน cmux เท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uygulama katmanı yalnızca onu cmux içinde açtığınızda açılır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оверлей застосунку відкривається, лише коли ви відкриваєте його в cmux"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lớp phủ ứng dụng chỉ mở khi bạn mở nó trong cmux"
           }
         },
         "zh-Hans" : {
@@ -65,22 +137,34 @@
       "comment" : "Why an app's overlay did not open: the app declares no overlay.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This app has no overlay"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "لا يحتوي هذا التطبيق على طبقة عائمة"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ova aplikacija nema prekrivač"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne app har intet overlay"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diese App hat kein Overlay"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This app has no overlay"
           }
         },
         "es" : {
@@ -95,16 +179,76 @@
             "value" : "Cette app n'a pas de superposition"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa app non ha una sovrapposizione"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "このアプリにはオーバーレイがありません"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្មវិធីនេះគ្មានស្រទាប់ពីលើទេ"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "이 앱에는 오버레이가 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne appen har ikke noe overlegg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ta aplikacja nie ma nakładki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este app não tem sobreposição"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У этого приложения нет оверлея"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แอปนี้ไม่มีโอเวอร์เลย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu uygulamanın katmanı yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей застосунок не має оверлея"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ứng dụng này không có lớp phủ"
           }
         },
         "zh-Hans" : {
@@ -125,22 +269,34 @@
       "comment" : "Why an app's overlay did not open: no cmux window is open.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No window to show the overlay in"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "لا توجد نافذة لعرض الطبقة العائمة فيها"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nema prozora za prikaz prekrivača"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intet vindue at vise overlayet i"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kein Fenster, in dem das Overlay angezeigt werden kann"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No window to show the overlay in"
           }
         },
         "es" : {
@@ -155,16 +311,76 @@
             "value" : "Aucune fenêtre pour afficher la superposition"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessuna finestra in cui mostrare la sovrapposizione"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "オーバーレイを表示するウインドウがありません"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គ្មានបង្អួចសម្រាប់បង្ហាញស្រទាប់ពីលើទេ"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "오버레이를 표시할 창이 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen vindu å vise overlegget i"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brak okna, w którym można pokazać nakładkę"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhuma janela para mostrar a sobreposição"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет окна для показа оверлея"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่มีหน้าต่างให้แสดงโอเวอร์เลย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Katmanın gösterileceği pencere yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Немає вікна для показу оверлея"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không có cửa sổ để hiện lớp phủ"
           }
         },
         "zh-Hans" : {
@@ -185,22 +401,34 @@
       "comment" : "Command palette row that opens an app's floating overlay. %@ is the app's name.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open %@ Overlay"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "فتح الطبقة العائمة لـ %@"
           }
         },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otvori prekrivač %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åbn %@-overlay"
+          }
+        },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@-Overlay öffnen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open %@ Overlay"
           }
         },
         "es" : {
@@ -215,16 +443,76 @@
             "value" : "Ouvrir la superposition %@"
           }
         },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri sovrapposizione di %@"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ のオーバーレイを開く"
           }
         },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើកស្រទាប់ពីលើ %@"
+          }
+        },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 오버레이 열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne %@-overlegg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwórz nakładkę %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir sobreposição de %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть оверлей %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิดโอเวอร์เลย์ %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Katmanını Aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відкрити оверлей %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mở lớp phủ %@"
           }
         },
         "zh-Hans" : {
