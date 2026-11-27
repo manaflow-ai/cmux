@@ -2258,7 +2258,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: create (the schema gates it on workspace-registry-v1, which the app does not check before sending), rename (a revision sent as a decimal string), put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2347,6 +2347,47 @@
             }
           },
           "response": "WorkspaceMetadataResult"
+        },
+        "close-workspace": {
+          "name": "CloseWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "end_terminals",
+            "reason",
+            "if_empty",
+            "report_closed_ids",
+            "mutation"
+          ],
+          "fields": {
+            "end_terminals": {
+              "encode": "if_true",
+              "doc": [
+                "Also end, in the same commit, each terminal whose tabs all close and",
+                "that is not kept (`batch-close-v1`). Sent only when true."
+              ]
+            },
+            "reason": {
+              "with": "end_terminals",
+              "doc": [
+                "Why it closes (`close-reason-v1`, with `endTerminals`); `.sessionEnd` keeps it out of",
+                "closed history."
+              ]
+            },
+            "if_empty": {
+              "encode": "if_true",
+              "doc": [
+                "Close only when the workspace has no tab when the close commits",
+                "(`close-workspace-if-empty-v1`); else the daemon refuses with",
+                "`workspace_not_empty`. Sent only when true."
+              ]
+            },
+            "report_closed_ids": {
+              "encode": "if_true"
+            }
+          },
+          "response": "WorkspaceMutationResult"
         }
       }
     },

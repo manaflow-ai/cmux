@@ -399,6 +399,42 @@ class IfTrueTests(unittest.TestCase):
             rendered(document, bindings)
 
 
+class SentWithTests(unittest.TestCase):
+    """`with`: a field sent only when another is true or set, as the hand-written types left it off alone."""
+
+    def source(self, **fields: Any) -> str:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["order"] = ["split", "ratio", "confirm_close", "transaction"]
+        request["fields"] = fields
+        return rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_with_an_if_true_flag_sends_the_field_only_when_the_flag_is_true(self) -> None:
+        source = self.source(confirm_close={"encode": "if_true"}, transaction={"with": "confirm_close"})
+        self.assertIn(
+            "if confirmClose { try container.encodeIfPresent(transaction, forKey: .transaction) }", source
+        )
+        self.assertIn("/// Sent only with `confirmClose`.\n    public var transaction:", source)
+
+    def test_with_an_optional_sends_the_field_only_when_it_is_set(self) -> None:
+        source = self.source(confirm_close={"with": "transaction"})
+        self.assertIn(
+            "if transaction != nil { try container.encodeIfPresent(confirmClose, forKey: .confirmClose) }", source
+        )
+
+    def test_with_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "itself": {"transaction": {"with": "transaction"}},
+            "a field the schema lacks": {"transaction": {"with": "nope"}},
+            "on a required field": {"ratio": {"with": "transaction"}},
+            "on an always encoded field": {"transaction": {"with": "confirm_close", "encode": "always"}},
+            "gated by a required field": {"transaction": {"with": "ratio"}},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(**fields)
+
+
 def mutation_document() -> dict[str, Any]:
     """A write command carrying the four mutation identity fields."""
     document = layout_document()
