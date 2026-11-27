@@ -1153,6 +1153,13 @@ jobs:
           python3 tests/test_ci_no_bare_urlopen.py
           python3 tests/test_ci_gh_http.py
 
+      - name: Validate that every workflow git fetch aborts a stalled transfer and retries
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        # A fetch at 1000 B/s for 60 s, or an unbounded pool-mirror fetch, was the second-largest false-red
+        # cluster (78 of 465 in 24 h, 2026-11-27): 1 B/s for 60 s, a timeout and a bounded retry, per
+        # cmuxterm-hq docs/handbook/network-transfer-stalls-the-whole-job.md.
+        run: python3 tests/test_ci_workflow_git_fetch_bounds.py
+
       - name: Validate that no cache is saved under a run- or commit-scoped key
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         # setup-zig's per-run caches filled the 10 GB store and evicted the cargo caches (2026-11-18).
