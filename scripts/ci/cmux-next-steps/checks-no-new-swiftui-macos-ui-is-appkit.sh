@@ -4,10 +4,13 @@
 # the step's env: still sets every input, and the step runs it with `bash -e` as GitHub's default `bash -e {0}`
 # ran the inline block.
 base=()
+# Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
 if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-    || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+    || git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$BEFORE" || true
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null && base=(--base "$BEFORE")
 fi
 python3 -I scripts/cmux-next/check-no-swiftui.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
