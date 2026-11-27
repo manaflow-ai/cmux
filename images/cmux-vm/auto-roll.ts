@@ -489,6 +489,11 @@ function behindTip(pin: string, pinned: string): string {
  * The newest published cmux-tui build (files.cmux.com's latest manifest) when a push roll may pin it: on TIP, newer
  * than PINNED and carrying other binaries. Otherwise pin "" (keep the lock's), with why. Never throws: a push roll
  * whose lookup fails still bakes its image change on the pinned build, as before.
+ *
+ * latest/ tracks main, so when it names a main build that is not on TIP this falls back to TIP's own published builds
+ * (publishedOnTip). 2026-11-27: latest named main's 3bb7a878 (#53905) from 23:33Z on, every push roll logged "latest
+ * build 3bb7a878c526 is not on HEAD" and kept 348e8a8a, the dispatch roll that would have re-pinned (45920175696) was
+ * replaced by a push run in the concurrency group, and NOW's cloud-lock row sat at 167 min (bound 120).
  */
 function newestPublished(pinned: string, tip: string, lock: string): { pin: string; why: string } {
   const keep = (why: string) => ({ pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (${why})` });
@@ -505,9 +510,44 @@ function newestPublished(pinned: string, tip: string, lock: string): { pin: stri
   if (commit === pinned || latest.unchanged === true) return keep(`latest build ${commit.slice(0, 12)} carries the pinned binaries`);
   if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return keep("shallow checkout");
   if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`]) || !gitOk(["cat-file", "-e", `${commit}^{commit}`])) return keep(`latest build ${commit.slice(0, 12)} or the pin is not in this checkout`);
-  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) return keep(`latest build ${commit.slice(0, 12)} is not on ${tip}`);
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) {
+    const onTip = publishedOnTip(pinned, tip, lock);
+    if (onTip.pin) return { pin: onTip.pin, why: `cmux-tui ${onTip.pin.slice(0, 12)}, the newest published build on ${tip} (latest build ${commit.slice(0, 12)} is not on ${tip}; pinned ${pinned.slice(0, 12)})` };
+    return keep(`latest build ${commit.slice(0, 12)} is not on ${tip}; ${onTip.why}`);
+  }
   if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return keep(`latest build ${commit.slice(0, 12)} is not newer`);
   return { pin: commit, why: `cmux-tui ${commit.slice(0, 12)}, the newest published build (pinned ${pinned.slice(0, 12)})` };
+}
+
+/** How many of TIP's newest cmux-tui/ commits publishedOnTip asks files.cmux.com about (one manifest read each). */
+export const ON_TIP_LIMIT = 30;
+
+/**
+ * The newest of TIP's own commits past PINNED that change cmux-tui/ (first parent, newest first, at most ON_TIP_LIMIT)
+ * whose build files.cmux.com published (its manifest answers, as plan() reads a dispatched build), or pin "" with why.
+ * A newer commit whose build carries the pinned binaries stops the walk: the builds before it change nothing newer.
+ */
+function publishedOnTip(pinned: string, tip: string, lock: string): { pin: string; why: string } {
+  const log = git(["log", "--first-parent", `--max-count=${ON_TIP_LIMIT}`, "--format=%H", `${pinned}..${tip}`, "--", "cmux-tui"]);
+  if (log.status !== 0) return { pin: "", why: `${tip}'s cmux-tui/ history unreadable` };
+  const candidates = log.stdout.split("\n").filter((sha) => /^[0-9a-f]{40}$/u.test(sha));
+  if (candidates.length === 0) return { pin: "", why: `no cmux-tui/ commit on ${tip} past the pin` };
+  for (const commit of candidates) {
+    // Never back: only a descendant of the pin is newer than it.
+    if (!gitOk(["merge-base", "--is-ancestor", pinned, commit])) continue;
+    const r = spawnSync("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--commit", commit, "--lock", lock], { encoding: "utf8", timeout: 60_000 });
+    if (r.status !== 0) continue;
+    let answer: { commit?: unknown; unchanged?: unknown };
+    try {
+      answer = JSON.parse(r.stdout) as { commit?: unknown; unchanged?: unknown };
+    } catch {
+      continue;
+    }
+    if (answer.commit !== commit) continue;
+    if (answer.unchanged === true) return { pin: "", why: `${tip}'s newest published build ${commit.slice(0, 12)} carries the pinned binaries` };
+    return { pin: commit, why: "" };
+  }
+  return { pin: "", why: `none of ${tip}'s ${candidates.length} newest cmux-tui/ commits past the pin is published` };
 }
 
 async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
