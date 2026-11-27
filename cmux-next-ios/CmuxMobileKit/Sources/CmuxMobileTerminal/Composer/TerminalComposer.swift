@@ -1,6 +1,8 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileRealtime
 import CmuxMobileTransport
 import CmuxSpinner
@@ -93,7 +95,7 @@ struct TerminalComposer: View {
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             photoItems = []
-            Task { await loadPhotos(items) }
+            loadPhotos(items)
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
@@ -303,15 +305,15 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            if model.isUploading {
-                model.cancelAttachmentSend()
-            } else {
-                send()
-            }
+            if model.isUploading { model.cancelSend() } else { send() }
         } label: {
             ZStack {
                 if model.isUploading {
-                    CmuxSpinner(tint: Color.cmuxMobileOnSend).controlSize(.small)
+                    // Stop, never a dead spinner: the send can always be called off.
+                    CmuxSpinner(tint: Color.cmuxMobileOnSend).controlSize(.regular)
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.cmuxMobileOnSend)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
@@ -329,7 +331,7 @@ struct TerminalComposer: View {
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(!canSend)
+        .disabled(!model.isUploading && !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
@@ -361,9 +363,15 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let stamp = Self.stamp()
+            for (index, item) in board.composerImages().enumerated() {
+                let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                let suffix = index == 0 ? "" : " \(index + 1)"
+                let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                model.addAttachment(ComposerAttachment(
+                    kind: .image, name: "Pasted image \(stamp)\(suffix).\(ext)",
+                    thumbnail: thumbnail, data: item.data))
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):
@@ -375,24 +383,126 @@ struct TerminalComposer: View {
 
     // MARK: Loading attachments
 
+    /// Photos can be backed by iCloud and may leave a provider request open
+    /// indefinitely. Each tile owns a cancellable, bounded request so removing
+    /// one item does not hold up the other picks.
+    private enum PhotoLoadError: LocalizedError {
+        case deadline
+        case unavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .deadline:
+                String(localized: "terminal.photos.deadline", defaultValue: "Photos took too long to provide this item.", bundle: .module)
+            case .unavailable:
+                String(localized: "terminal.photos.unavailable", defaultValue: "Photos could not provide this item.", bundle: .module)
+            }
+        }
+    }
+
+    /// Resolves the caller as soon as either the provider or the inactivity
+    /// deadline wins. A late Photos callback is ignored after the continuation
+    /// has been resumed.
+    private final class PhotoLoadRace<Value: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Value, Error>?
+        private var result: Result<Value, Error>?
+
+        func install(_ continuation: CheckedContinuation<Value, Error>) {
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(with: result)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+
+        @discardableResult
+        func finish(_ result: Result<Value, Error>) -> Bool {
+            lock.lock()
+            guard self.result == nil else {
+                lock.unlock()
+                return false
+            }
+            self.result = result
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(with: result)
+            return true
+        }
+    }
+
+    static func loadWithInactivityDeadline<T: Sendable>(
+        _ operation: (@escaping @Sendable (Result<T?, Error>) -> Void) -> Progress,
+        inactivityDeadline: Duration = .seconds(30),
+        progressPoll: Duration = .milliseconds(250)
+    ) async throws -> T {
+        try Task.checkCancellation()
+        let race = PhotoLoadRace<T?>()
+        let progress = operation { [weak race] result in _ = race?.finish(result) }
+        let monitor = Task {
+            let clock = ContinuousClock()
+            var lastFraction = progress.fractionCompleted
+            var lastAdvance = clock.now
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: progressPoll) }
+                catch { return }
+                let fraction = progress.fractionCompleted
+                if fraction > lastFraction {
+                    lastFraction = fraction
+                    lastAdvance = clock.now
+                } else if clock.now - lastAdvance >= inactivityDeadline {
+                    if race.finish(.failure(PhotoLoadError.deadline)) { progress.cancel() }
+                    return
+                }
+            }
+        }
+        defer { monitor.cancel() }
+        let value = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                race.install(continuation)
+            }
+        } onCancel: {
+            monitor.cancel()
+            if race.finish(.failure(CancellationError())) { progress.cancel() }
+        }
+        guard let value else { throw PhotoLoadError.unavailable }
+        return value
+    }
+
     /// Picked photos and videos keep their bytes (a video its local copy).
     /// Photos has no file name for an item without library access, so the
     /// name says what it is and when it was attached.
-    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+    private func loadPhotos(_ items: [PhotosPickerItem]) {
         let stamp = Self.stamp()
         for (index, item) in items.enumerated() {
             let suffix = items.count > 1 ? " \(index + 1)" : ""
             let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
-            if isVideo, let movie = try? await item.loadTransferable(type: MovieFile.self) {
-                let thumbnail = await Self.videoThumbnail(movie.url)
-                let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-                let ext = movie.url.pathExtension.isEmpty ? "mov" : movie.url.pathExtension
-                model.addAttachment(ComposerAttachment(kind: .video, name: "Video \(stamp)\(suffix).\(ext)", thumbnail: thumbnail,
-                                                       byteCount: size, fileURL: movie.url))
-            } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+            let ext = item.supportedContentTypes.first { type in
+                isVideo ? type.conforms(to: .movie) : type.conforms(to: .image)
+            }?.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")
+            let kind: ComposerAttachment.Kind = isVideo ? .video : .image
+            let placeholder = ComposerAttachment(kind: kind,
+                                                  name: "\(isVideo ? "Video" : "Photo") \(stamp)\(suffix).\(ext)",
+                                                  isLoading: true)
+            model.loadPickedAttachment(placeholder) { [item] in
+                if isVideo {
+                    let movie: MovieFile = try await Self.loadWithInactivityDeadline { completion in
+                        item.loadTransferable(type: MovieFile.self, completionHandler: completion)
+                    }
+                    let thumbnail = await Self.videoThumbnail(movie.url)
+                    let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+                    return .movie(movie.copy, thumbnail: thumbnail, byteCount: size)
+                }
+                let data: Data = try await Self.loadWithInactivityDeadline { completion in
+                    item.loadTransferable(type: Data.self, completionHandler: completion)
+                }
+                guard let image = UIImage(data: data) else { throw PhotoLoadError.unavailable }
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
+                return .image(data, thumbnail: thumbnail)
             }
         }
     }
@@ -490,16 +600,14 @@ extension View {
 
 /// A picked movie, copied out of the Photos sandbox.
 struct MovieFile: Transferable {
-    let url: URL
+    let copy: PickedMovieCopy
+    var url: URL { copy.url }
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(contentType: .movie) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(received.file.lastPathComponent)
-            try? FileManager.default.removeItem(at: copy)
-            try FileManager.default.copyItem(at: received.file, to: copy)
-            return MovieFile(url: copy)
+            MovieFile(copy: try PickedMovieCopy(copying: received.file))
         }
     }
 }
@@ -568,6 +676,7 @@ struct AttachmentStrip: View {
                 }
             }
             .frame(width: 56, height: 56)
+            .overlay { AttachmentUploadBadge(attachment: attachment, progress: model.uploadProgress(attachment)) }
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
             .accessibilityLabel(attachment.name)
         case .file:
@@ -590,8 +699,75 @@ struct AttachmentStrip: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 56)
+            .overlay { AttachmentUploadBadge(attachment: attachment, progress: model.uploadProgress(attachment)) }
+            .clipShape(.rect(cornerRadius: 12, style: .continuous))
             .glassSurface(in: .rect(cornerRadius: 12, style: .continuous))
         }
+    }
+}
+
+/// A tile's upload state over its thumbnail: a spinner while Photos copies it
+/// or it is compressed or waits for the Mac, a ring of the bytes the Mac has,
+/// a check when it is there, a mark when it failed (Send tries again).
+struct AttachmentUploadBadge: View {
+    let attachment: ComposerAttachment
+    let progress: UploadProgress?
+    @State private var waitingGate = QuietStatusGate()
+
+    var body: some View {
+        badge
+            .onChange(of: isWaitingForMac, initial: true) { _, waiting in
+                waitingGate.update(down: waiting)
+            }
+            .onDisappear { waitingGate.update(down: false) }
+    }
+
+    private var isWaitingForMac: Bool {
+        !attachment.isLoading && progress?.stage == .waitingForMac
+    }
+
+    @ViewBuilder private var badge: some View {
+        if attachment.isLoading {
+            scrim { CmuxSpinner(tint: .white).controlSize(.small) }
+                .accessibilityLabel("Loading \(attachment.name)")
+        } else if let progress {
+            switch progress.stage {
+            case .compressing:
+                scrim { CmuxSpinner(tint: .white).controlSize(.small) }
+                    .accessibilityLabel("Compressing")
+            case .waitingForMac:
+                if waitingGate.isShown {
+                    scrim { CmuxSpinner(tint: .white).controlSize(.small) }
+                        .accessibilityLabel("Waiting for the Mac")
+                }
+            case .uploading, .finishing:
+                scrim {
+                    ZStack {
+                        Circle().stroke(Color.white.opacity(0.3), lineWidth: 3)
+                        Circle().trim(from: 0, to: max(0.02, progress.fraction))
+                            .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.2), value: progress.fraction)
+                    }
+                    .frame(width: 26, height: 26)
+                }
+                .accessibilityLabel("Uploading")
+                .accessibilityValue("\(Int((progress.fraction * 100).rounded())) percent")
+            case .failed:
+                scrim { Image(systemName: "exclamationmark.arrow.circlepath").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white) }
+                    .accessibilityLabel(progress.errorMessage ?? "Upload failed")
+            case .done, .cancelled:
+                EmptyView()
+            }
+        }
+    }
+
+    private func scrim(@ViewBuilder _ content: () -> some View) -> some View {
+        ZStack {
+            Color.black.opacity(0.35)
+            content()
+        }
+        .allowsHitTesting(false)
     }
 }
 #endif

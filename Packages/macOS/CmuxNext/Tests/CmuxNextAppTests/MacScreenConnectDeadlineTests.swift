@@ -37,10 +37,10 @@ import Testing
         let detail = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Studio",
                                                      timedOut: session.timedOutStage)
         #expect(detail == text)
-        // This Mac's own hub link being down still says that first.
+        // This Mac's own hub socket being down never hides the stage it stopped at.
         let offline = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Studio",
                                                       hubOnline: false, timedOut: stage)
-        #expect(offline != text)
+        #expect(offline == text)
     }
 
     @Test func aShownPictureNeverTimesOut() {

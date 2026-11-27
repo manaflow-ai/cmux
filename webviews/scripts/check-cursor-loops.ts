@@ -2,7 +2,7 @@
 // 100% CPU and 14 GB, every page in it frozen and unclosable: the span loop in `shedOlderHeld` stepped its cut back to
 // `firstHeldFrom(events, from)`, which found the same cut again when no held record lay between, and spun. Leo,
 // 2026-11-16: "the dream is infinite chats of infinite length with flat or no growth in cpu/memory/even disk".
-// A `while (`, `do {` or `for (;;)` in these files fails unless its own line, or the comment lines just above it,
+// A `while`, `do ... while` or `for` with no condition (`for (;;)`), read from the TypeScript AST, fails unless its own line, or the comment lines just above it,
 // say `ends: <reason>`: the cursor that moves each pass and where it stops (a binary search halving its range, an
 // index falling to 0), the check that returns when a pass moved nothing, or the cap that ends it.
 // Tests (*.test.*) are left out: a test that spins times out, it never holds a person's page.
@@ -10,6 +10,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 const ACPMUX = "agent-session/acpmux";
@@ -22,46 +23,69 @@ export const LOOP_FILES = [
 ];
 export const LOOP_DIRS = [`${ACPMUX}/rows`];
 
-const LOOP = /(?<![\w$.])(?:while\s*\(|do\s*\{|for\s*\(\s*;\s*;\s*\))/;
-/// A do-while's tail (`} while (x);`): its `do {` is the loop, already read.
-const DO_TAIL = /^\s*\}\s*while\s*\(/;
-const MARKER = /\/\/\/?\s*ends:\s*\S/;
-const COMMENT_LINE = /^\s*\/\//;
+/// A `//` or `///` comment that says why its loop ends.
+const MARKER = /^\/\/\/?\s*ends:\s*\S/;
 
 export type LoopFinding = { file: string; line: number; text: string };
 
+/// A loop the rule reads, from the parsed source: a `while`, a `do ... while` (once, at its `do`) and a `for` with no
+/// condition. A `while (` in a string, a template literal or a comment is no node, and a header split over lines is one.
+function isCursorLoop(node: ts.Node): boolean {
+  return ts.isWhileStatement(node) || ts.isDoStatement(node) || (ts.isForStatement(node) && !node.condition);
+}
+
+type LineComment = { start: number; text: string };
+
+/// The `//` comments of a source by the 0-based line each starts on, read from the trivia around every token.
+function lineComments(source: ts.SourceFile): Map<number, LineComment[]> {
+  const text = source.text;
+  const seen = new Set<number>();
+  const byLine = new Map<number, LineComment[]>();
+  const add = (ranges: ts.CommentRange[] | undefined) => {
+    for (const range of ranges ?? []) {
+      if (range.kind !== ts.SyntaxKind.SingleLineCommentTrivia || seen.has(range.pos)) continue;
+      seen.add(range.pos);
+      const line = source.getLineAndCharacterOfPosition(range.pos).line;
+      const list = byLine.get(line) ?? [];
+      list.push({ start: range.pos, text: text.slice(range.pos, range.end) });
+      byLine.set(line, list);
+    }
+  };
+  const visit = (node: ts.Node) => {
+    add(ts.getLeadingCommentRanges(text, node.getFullStart()));
+    add(ts.getTrailingCommentRanges(text, node.getEnd()));
+    // getChildren holds the tokens too, so a comment after a `{` or before the file's end is read.
+    for (const child of node.getChildren(source)) visit(child);
+  };
+  visit(source);
+  return byLine;
+}
+
 /// The loops in one file's text that do not say why they end.
 export function findUnprovedLoops(file: string, text: string): LoopFinding[] {
+  const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
   const lines = text.split("\n");
+  const comments = lineComments(source);
+  const marked = (line: number) => (comments.get(line) ?? []).some((comment) => MARKER.test(comment.text));
+  /// A line that holds only a `//` comment: its first non-blank character starts one.
+  const commentOnly = (line: number) => {
+    const raw = lines[line]!;
+    const first = source.getPositionOfLineAndCharacter(line, 0) + raw.length - raw.trimStart().length;
+    return (comments.get(line) ?? []).some((comment) => comment.start === first);
+  };
   const findings: LoopFinding[] = [];
-  let inBlock = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const raw = lines[index]!;
-    // Block comments and JSDoc lines name loops in prose; only code is read.
-    let code = raw;
-    if (inBlock) {
-      const close = code.indexOf("*/");
-      if (close < 0) continue;
-      inBlock = false;
-      code = code.slice(close + 2);
+  const visit = (node: ts.Node) => {
+    if (isCursorLoop(node)) {
+      const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+      let proved = marked(line);
+      // ends: `above` falls by one each pass, to 0 at most
+      for (let above = line - 1; !proved && above >= 0 && commentOnly(above); above -= 1) proved = marked(above);
+      if (!proved) findings.push({ file, line: line + 1, text: lines[line]!.trim() });
     }
-    const open = code.indexOf("/*");
-    if (open >= 0 && code.indexOf("*/", open + 2) < 0) {
-      inBlock = true;
-      code = code.slice(0, open);
-    }
-    code = code.replace(/\/\*.*?\*\//g, "").replace(/\/\/.*$/, "");
-    if (!LOOP.test(code) || DO_TAIL.test(code)) continue;
-    if (MARKER.test(raw)) continue;
-    let marked = false;
-    for (let above = index - 1; above >= 0 && COMMENT_LINE.test(lines[above]!); above -= 1)
-      if (MARKER.test(lines[above]!)) {
-        marked = true;
-        break;
-      }
-    if (marked) continue;
-    findings.push({ file, line: index + 1, text: raw.trim() });
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
   return findings;
 }
 
