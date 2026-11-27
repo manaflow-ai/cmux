@@ -336,6 +336,25 @@ fn a_drained_lane_host_is_never_a_placement_candidate() {
     }
 }
 
+/// A machine that is never a lane host (`lanes.lane_host` false: big-red, Leo's own box; Leo,
+/// 2026-11-27: "then please don't rely on big-red") is refused even while it accepts new lanes.
+#[test]
+fn a_machine_that_is_never_a_lane_host_is_refused() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["accept_new"] = json!(true);
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(false);
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    assert_eq!(host(&v, "big")["refused"], "never a lane host (lanes.lane_host false)");
+    reg["machines"]["big"]["lanes"]["lane_host_why"] = json!("Leo's personal box");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "big")["refused"], "never a lane host: Leo's personal box");
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(true);
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}
+
 /// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
 /// `attended`), by name or alias. Fleet hosts and unlisted machines are not.
 #[test]
