@@ -343,8 +343,8 @@ fn a_drained_lane_host_is_never_a_placement_candidate() {
     }
 }
 
-/// A machine that is never a lane host (`lanes.lane_host` false: big-red, Leo's own box; Leo,
-/// 2026-11-27: "then please don't rely on big-red") is refused even while it accepts new lanes.
+/// A machine that is never a lane host (`lanes.lane_host` false: Leo's own box; Leo,
+/// 2026-11-27: "then please don't rely on" it) is refused even while it accepts new lanes.
 #[test]
 fn a_machine_that_is_never_a_lane_host_is_refused() {
     let both =
