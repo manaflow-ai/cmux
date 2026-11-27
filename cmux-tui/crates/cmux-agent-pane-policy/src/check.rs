@@ -9,7 +9,7 @@
 //! object: the host sends a fresh serialization of it ([`encode`]), never the
 //! page's bytes.
 //!
-//! What it does not do (host state, see the crate docs): redeem tickets,
+//! What it does not do (host state, see the crate docs): validate tickets,
 //! record or spend gestures, check paths against the roots, spend scope
 //! credit, map request ids.
 
@@ -238,18 +238,12 @@ pub struct Facts {
     pub pick: Option<GesturePick>,
     pub session_id: Option<String>,
     pub needs_gesture: bool,
-    /// The gesture the frame needs is a click (`policy.json` `click_only`):
-    /// the check passed it only because the host holds one
-    /// ([`FrameState::gesture`]). One click answers one time: the host
-    /// spends the click that it named, and its gesture grant, on this frame,
-    /// and holds no click after it until the person clicks again. (The
-    /// Swift transport spends its grant only and keeps the click's time;
-    /// a host on this check must not copy that.) A `ticket` in the facts is
-    /// still the host's to redeem; for such a frame the ticket holds the
-    /// grant, so the host spends only the click. The ticket does not stand
-    /// in for the click: a host that spends the click when it gives the
-    /// ticket gets a refuse for the ticketed frame (see the difference note
-    /// in [`check_frame`]).
+    /// The frame requires native answer input (`policy.json` `click_only`).
+    /// With no `redeemed_answer`, the host must spend the click it named
+    /// in [`FrameState::gesture`] and its grant once, redeeming any ticket
+    /// that holds that grant. With `redeemed_answer`, the verifier already
+    /// consumed the ticket/input credit: do not spend a second click.
+    /// A raw ticket or generic key never satisfies this requirement.
     /// Implies `needs_gesture`.
     pub needs_click: bool,
     pub needs_path_check: bool,
@@ -440,8 +434,11 @@ fn check_frame_inner(
         };
         return Checked::Refuse { refused, spend: carried };
     }
+    // One permission generation supplies answer validation and the gesture
+    // decision. Copy only this permission, not the pane's growing history.
+    let options = state.options.snapshot_for(params.get("permissionId").and_then(Value::as_str));
     // Answers go only to a pending question, keyed by its items and bounded.
-    if let Some(cause) = crate::answers::answers_rule_violation(&object, state.options) {
+    if let Some(cause) = crate::answers::answers_rule_violation(&object, &options) {
         let refused = Refused {
             refusal: Refusal::IntentInvalid,
             method,
@@ -468,7 +465,7 @@ fn check_frame_inner(
             facts.session_id = params.get("sessionId").and_then(Value::as_str).map(str::to_owned);
         }
         facts.ticket = taken.ticket;
-        facts.needs_gesture = needs_gesture(&frame, |p, o| state.options.is_deny(p, o));
+        facts.needs_gesture = needs_gesture(&frame, |p, o| options.is_deny(p, o));
         // The click rule. An answer goes on the person's click only: a
         // gesture that typing left does not answer. A click-only method
         // with no gesture rule (a fault in policy.json) needs a click on
@@ -493,11 +490,11 @@ fn check_frame_inner(
             let question_allow = method.as_deref() == Some("_acpmux/permission_respond")
                 && params.get("answers").is_some_and(Value::is_object)
                 && params.get("permissionId").and_then(Value::as_str).is_some_and(|permission| {
-                    state.options.question_keys(permission).is_some()
+                    options.question_keys(permission).is_some()
                         && params
                             .get("optionId")
                             .and_then(Value::as_str)
-                            .is_some_and(|option| state.options.is_known_allow(permission, option))
+                            .is_some_and(|option| options.is_known_allow(permission, option))
                 });
             facts.redeemed_answer =
                 origin.filter(|origin| *origin == AnswerTicketOrigin::Click || question_allow);

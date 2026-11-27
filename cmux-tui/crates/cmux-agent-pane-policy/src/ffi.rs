@@ -74,6 +74,9 @@ pub struct CheckInput<'a> {
 /// One pane connection's policy state (the safe core of the C handle).
 #[derive(Default)]
 pub struct Pane {
+    /// A daemon observation updates options and sessions as one operation.
+    /// All C ABI reads and mutations take this gate before their inner locks.
+    operation: std::sync::Mutex<()>,
     sessions: PaneSessions,
     options: PermissionOptions,
 }
@@ -83,10 +86,13 @@ impl Pane {
         Self::default()
     }
 
+    /// Direct Rust access bypasses the operation gate. Hosts using these
+    /// handles must serialize combined session/options observations with checks.
     pub fn sessions(&self) -> &PaneSessions {
         &self.sessions
     }
 
+    /// Direct Rust access has the same serialization requirement as `sessions`.
     pub fn options(&self) -> &PermissionOptions {
         &self.options
     }
@@ -94,6 +100,7 @@ impl Pane {
     /// The full check of one page frame ([`check_frame`]) on this pane's
     /// state, as the reply JSON (see the module docs).
     pub fn check(&self, text: &str, input: &CheckInput<'_>) -> Value {
+        let _operation = self.operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let state = FrameState {
             is_first: input.first,
             local_app_token: input.token,
@@ -113,6 +120,7 @@ impl Pane {
     /// (every rule then stays at its deny).
     pub fn observe(&self, text: &str, reply_to: Option<&str>, remote_wire: bool) {
         let Ok(Value::Object(object)) = serde_json::from_str::<Value>(text) else { return };
+        let _operation = self.operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.options.observe(&object, reply_to);
         self.sessions.observe(&object);
         if remote_wire {
@@ -122,6 +130,7 @@ impl Pane {
 
     /// One JSON op on this pane (see [`call`] for the ops that need none).
     pub fn call(&self, op: &str, request: &Value) -> Result<Value, i32> {
+        let _operation = self.operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let text = |key: &str| request.get(key).and_then(Value::as_str);
         match op {
             "add" => {
