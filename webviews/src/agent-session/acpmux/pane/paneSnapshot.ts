@@ -168,7 +168,6 @@ import {
 import {
   acpmuxSendsReady,
   heldStartStop,
-  paneSends,
   sendsHeldForHost,
   untilHostAnswers,
   pageClientLink,
