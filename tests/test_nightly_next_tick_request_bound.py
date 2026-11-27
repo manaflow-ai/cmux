@@ -155,7 +155,7 @@ class RequestStepBoundsTests(unittest.TestCase):
                     self.assertNotIn("sparse-checkout", step["with"], name)
                     self.assertNotIn("filter", step["with"], name)
                     self.assertEqual(step["with"].get("fetch-depth"), 1, name)
-        self.assertEqual(found, 2)
+        self.assertEqual(found, 4)  # a try and its retry in each of request and unstick (#58127)
 
 
 if __name__ == "__main__":

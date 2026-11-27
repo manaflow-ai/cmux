@@ -60,7 +60,7 @@ jobs:
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup != 'kernel-free'
-    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -69,7 +69,7 @@ jobs:
       # Fast-checks placement tooling is reviewed and pinned on feat-cmux-next;
       # main only carries this wiring and reads that exact helper revision:
       # #34270's, which decides on one census read instead of polling 180 s.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: 159a701991677b65aa48d11d54e1579d58f6b1cb
           path: .fast-checks-tools
@@ -86,15 +86,29 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint routing read token
         id: route-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -195,7 +209,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.source_sha }}
           path: .fast-checks-checkout
@@ -400,7 +414,7 @@ jobs:
       # The script comes from this workflow's own commit, never from the source snapshot.
       - name: Check out the SwiftPM artifact prefetch
         if: contains(inputs.command, 'swift')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
@@ -425,7 +439,7 @@ jobs:
       # workflow's own commit, never from the source snapshot.
       - name: Check out the cargo workspace check
         if: contains(inputs.command, 'cargo')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-cargo-tools
@@ -611,7 +625,7 @@ jobs:
           mkdir -p -- .fast-checks-checkout
           rm -rf -- .fast-checks-checkout/.git .fast-checks-tools/.git
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 10
         with:
           ref: ${{ inputs.source_sha }}
@@ -646,7 +660,7 @@ jobs:
       - name: Check out the SwiftPM artifact prefetch on the Mac
         if: contains(inputs.command, 'swift')
         timeout-minutes: 5
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-tools

@@ -89,8 +89,14 @@ may wait at the push slot, and a promotion would get GitHub to cancel its pendin
 read, promotes, with a warning: the promotion ignores a request that does not
 move nightly-next forward.
 
+The fast pass (nightly_fast_pass.py; Leo, 2026-11-25: "when can we get the next nightly. like just the fast
+pass way to go"): when everything between nightly-next's head and the tip is a safe fix (a few small commits,
+none on the release surface, CI, build or dependency files; the diff read from this checkout, the
+surface from main's .github/release-surface.txt), the even cadence is
+FAST_PASS_CADENCE_MINUTES (5) instead of 20. Nothing else changes: a running build still holds the next start.
+
 usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10] [--cadence-minutes 20] [--slots N]
-Writes go=true|false and reason=... to $GITHUB_OUTPUT when it is set.
+Writes go=true|false, fast_pass=true|false and reason=... to $GITHUB_OUTPUT when it is set.
 """
 from __future__ import annotations
 
@@ -109,6 +115,10 @@ _spec = importlib.util.spec_from_file_location("nightly_next_feed_watch", HERE /
 watch = importlib.util.module_from_spec(_spec)
 sys.modules.setdefault("nightly_next_feed_watch", watch)
 _spec.loader.exec_module(watch)
+_fast_spec = importlib.util.spec_from_file_location("nightly_fast_pass", HERE / "nightly_fast_pass.py")
+fast_pass_rule = importlib.util.module_from_spec(_fast_spec)
+sys.modules.setdefault("nightly_fast_pass", fast_pass_rule)
+_fast_spec.loader.exec_module(fast_pass_rule)
 
 WINDOW_MINUTES = 10.0
 # The even cadence: no build starts within this many minutes of the newest start (a push run's creation, or a
@@ -560,7 +570,8 @@ def production_api(path: str):
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
              window_minutes: float = WINDOW_MINUTES, ls_remote=None, local_gap=None,
-             slots: int = SLOTS, cadence_minutes: float = CADENCE_MINUTES) -> tuple[bool, str]:
+             slots: int = SLOTS, cadence_minutes: float = CADENCE_MINUTES,
+             fast_pass=None) -> tuple[bool, str]:
     """Read the head with `ls_remote` (main passes git ls-remote) and then the API, the rest
     through the API (the job's token), and decide. The gap to the tip comes from `local_gap`
     (main passes git_oldest_after, the tick's checkout) when it can answer, else the compare API.
@@ -597,6 +608,30 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
             print(f"{error}; reading the gap to the tip through the compare API")
     if local == (None,):
         return False, f"nightly-next ({head[:12]}) already has the tip {tip[:12]}; nothing waits to be promoted"
+    # The fast pass: a safe fix waits a shorter even cadence; everything else below is unchanged.
+    cadence_minutes, prefix = _fast_cadence(head, tip, local, fast_pass, cadence_minutes)
+    go, reason = _evaluate_runs(now, repo, tip, head, local, api, window_minutes, slots, cadence_minutes)
+    return go, prefix + reason
+
+
+def _fast_cadence(head: str, tip: str, local, fast_pass, cadence_minutes: float) -> tuple[float, str]:
+    """The cadence for this gap, and a reason prefix when the fast pass shortens it. Only a gap this
+    checkout holds is classified (local is not None); anything else keeps the cadence."""
+    if fast_pass is None or local is None:
+        return cadence_minutes, ""
+    try:
+        verdict = fast_pass(head, tip)
+    except Exception as error:  # noqa: BLE001 - the fast pass only ever shortens a wait
+        print(f"fast pass: no: could not classify {head[:12]}..{tip[:12]} ({error!r})")
+        return cadence_minutes, ""
+    print(f"fast pass: {'yes' if verdict.fast else 'no'}: {verdict.reason}")
+    if not verdict.fast:
+        return cadence_minutes, ""
+    return min(cadence_minutes, fast_pass_rule.FAST_PASS_CADENCE_MINUTES), f"fast pass ({verdict.reason}); "
+
+
+def _evaluate_runs(now, repo, tip, head, local, api, window_minutes, slots, cadence_minutes) -> tuple[bool, str]:
+    """evaluate's reads of the running builds and its decision, once nightly-next's head is known."""
     try:
         base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
         # One listing of nightly-next's recent runs, kept to the push group's (pushes and the loop's
@@ -661,12 +696,13 @@ def main(argv: list[str]) -> int:
     go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, api=production_api,
                           window_minutes=args.window_minutes,
                           ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after, slots=slots,
-                          cadence_minutes=args.cadence_minutes)
+                          cadence_minutes=args.cadence_minutes, fast_pass=fast_pass_rule.evaluate)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
+        fast = "true" if reason.startswith("fast pass (") else "false"
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"go={'true' if go else 'false'}\nreason={reason}\n")
+            handle.write(f"go={'true' if go else 'false'}\nfast_pass={fast}\nreason={reason}\n")
     return 0
 
 
