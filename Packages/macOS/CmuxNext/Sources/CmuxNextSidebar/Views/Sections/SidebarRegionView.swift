@@ -440,7 +440,7 @@ final class SidebarRegionView: NSView {
         listWork.laidOut()
         view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
         view.activatesOnPress = item.ref.activatesOnPress
-        view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
+        view.isMovable = item.isMovable(in: section.id) // Home's and a pinned workspace's press never drags
         place(view, row.frame, new: new)
         if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
         edit(view, id)

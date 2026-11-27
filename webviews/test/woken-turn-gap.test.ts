@@ -159,8 +159,8 @@ for (const [look, want] of ARMS) {
     expect(transcriptGap(MARK_FOOTER_ROW, MARK_WORKED)).toBe(want);
     expect(transcriptGap(MARK_FOOTER_ROW, MARK_INDICATOR)).toBe(want);
     expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(want);
-    // A status line under the footer is the ended turn's tail: 8 in every arm.
-    expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
+    // A status line under the footer is the ended turn's tail: flush in every arm.
+    expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(0);
     expect(want).toBeGreaterThan(0);
   });
   test(`a woken turn's Worked for stands ${want} under the ended turn's footer (${arm} arm)`, async () => {
