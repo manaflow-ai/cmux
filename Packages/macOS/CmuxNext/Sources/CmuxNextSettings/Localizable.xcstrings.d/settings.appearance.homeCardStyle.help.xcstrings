@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.homeCardStyle.help" : {
+      "comment" : "Settings row help for Home Cards.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "طريقة رسم البطاقات في الصفحة الرئيسية وصفحة علامة التبويب الجديدة: المظهر الحالي، أو مسطحة، أو بارزة، أو زجاجية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kako se crtaju kartice na početnoj stranici i stranici nove kartice: današnji izgled, ravne, izdignute ili staklene."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sådan tegnes kortene på Start og siden Ny fane: som i dag, flade, hævede eller glas."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie die Karten auf der Startseite und der Seite „Neuer Tab“ aussehen: wie bisher, flach, erhaben oder Glas."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo se dibujan las tarjetas de Inicio y de la página Nueva pestaña: el aspecto actual, planas, elevadas o de vidrio."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'apparence des cartes de l'Accueil et de la page Nouvel onglet : celle d'aujourd'hui, plates, en relief ou en verre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come appaiono le schede della Home e della pagina Nuova scheda: l'aspetto attuale, piatte, in rilievo o in vetro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホームと新規タブページのカードの表示：現在の表示、フラット、浮き上がり、またはガラス。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របៀបគូរកាតនៅទំព័រដើម និងទំព័រផ្ទាំងថ្មី៖ ដូចបច្ចុប្បន្ន រាបស្មើ លើកឡើង ឬកញ្ចក់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "홈과 새 탭 페이지의 카드 표시 방식: 현재 모양, 평면, 돌출 또는 유리."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slik tegnes kortene på Start og siden Ny fane: som i dag, flate, hevede eller glass."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak wyglądają karty na stronie głównej i stronie nowej karty: obecny wygląd, płaskie, uniesione lub szklane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Como os cartões da página inicial e da página Nova aba são desenhados: o visual atual, planos, elevados ou de vidro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как выглядят карточки на главной и на странице новой вкладки: как сейчас, плоские, приподнятые или стеклянные."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รูปแบบการ์ดในหน้าหลักและหน้าแท็บใหม่: แบบปัจจุบัน แบน ยกนูน หรือกระจก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ana sayfadaki ve Yeni Sekme sayfasındaki kartların görünümü: bugünkü, düz, kabarık veya cam."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Як виглядають картки на головній і на сторінці нової вкладки: як зараз, пласкі, підняті або скляні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cách vẽ các thẻ ở trang chủ và trang Thẻ mới: như hiện tại, phẳng, nổi hoặc kính."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主页和新标签页上卡片的样式：当前样式、扁平、凸起或玻璃。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主頁和新分頁頁面上卡片的樣式：目前樣式、扁平、凸起或玻璃。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
