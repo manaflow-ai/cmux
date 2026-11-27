@@ -201,21 +201,38 @@ extension EnvironmentValues {
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
-    /// A finger is scrolling a draft taller than the field (past `maxLines`). Both swipe-down-to-dismiss
-    /// paths (the bottom stack's drag and the dock's pan) read it and leave the keyboard up: a drag that
-    /// scrolls the draft scrolls the draft (Leo, 2026-11-23: "when i try to scroll in the composer in ios
-    /// it [...] swipes the entire thing down instead of scrolling through the composer").
+    /// A finger is on a draft taller than the field (past `maxLines`) and scrolled below its top, so
+    /// the drag is the draft's own scroll. Both swipe-down-to-dismiss paths (the bottom stack's drag and
+    /// the dock's pan) read it and leave the keyboard up (Leo, 2026-11-23: "when i try to scroll in the
+    /// composer in ios it [...] swipes the entire thing down instead of scrolling through the composer").
+    /// A draft at its top, or one that fits, leaves the swipe to lower the keyboard (`ChatDraftDragClaim`).
+    ///
+    /// Set at touch-down, not at the text's pan `.began`: the hosts' pans and the SwiftUI drag see the
+    /// same touch and can act before the text view's own pan begins, which the gesture suite caught
+    /// (`GestureConflictUITests`, 3 of 7 red with a `.began` claim).
     @MainActor static var isScrollingDraft = false
+
+    private lazy var touchDown = ChatDraftTouchObserver(owner: self)
 
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
         panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+        addGestureRecognizer(touchDown)
+    }
+
+    fileprivate func touchLanded() {
+        Self.isScrollingDraft = ChatDraftDragClaim.textOwnsDrag(
+            contentHeight: contentSize.height, visibleHeight: bounds.height,
+            offsetFromTop: contentOffset.y + adjustedContentInset.top)
+    }
+
+    fileprivate func touchLifted() {
+        // The draft's scroll outlives the touch's other recognizers: the claim lasts until it ends.
+        if panGestureRecognizer.state != .began, panGestureRecognizer.state != .changed { Self.isScrollingDraft = false }
     }
 
     @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
-        case .began:
-            Self.isScrollingDraft = contentSize.height > bounds.height + 1
         case .ended, .cancelled, .failed:
             Self.isScrollingDraft = false
         default:
@@ -232,5 +249,38 @@ final class ChatComposerTextView: ComposerReturnTextView {
         focusWhenInWindow = false
         becomeFirstResponder()
     }
+}
+/// Hears every touch on the chat composer's text the moment it lands, before any host's pan moves,
+/// without recognizing, preventing or delaying anything.
+private final class ChatDraftTouchObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private weak var owner: ChatComposerTextView?
+
+    init(owner: ChatComposerTextView) {
+        self.owner = owner
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLanded()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }
 #endif
