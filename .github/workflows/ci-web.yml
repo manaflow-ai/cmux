@@ -133,7 +133,7 @@ jobs:
       # im asking for 99% fewer minutes of ci time, period."
       - name: Look up a green marker for the React inputs
         id: react-green
-        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.react_key != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.react_key != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -143,7 +143,7 @@ jobs:
 
       - name: Look up a green marker for the agent pane inputs
         id: agent-green
-        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.agent_key != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.agent_key != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1402,7 +1402,7 @@ jobs:
             echo "warn-only webviews checks run on the base's pushes, not on a pull request"
             exit "$status"
           fi
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.

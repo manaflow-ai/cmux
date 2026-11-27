@@ -1181,6 +1181,7 @@ jobs:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
       - name: Cache the cmux-tui target dir
+        id: headless-target
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -1193,6 +1194,35 @@ jobs:
           cache-workspace-crates: "true"
           # cmux-tui-headless-debug.yml owns this key; read-only here.
           save-if: false
+      # rust-cache restores only its exact key (with the environment hash off its restore key is the key), and
+      # that key hashes Cargo.lock, which feat-cmux-next changes several times an hour. So the journey often
+      # runs on a lock hash no headless-debug run has saved yet: run 45903917201 (job 140211783694) missed both
+      # caches, compiled cmux-tui cold for 35 min and ran past its deadline. This falls back to the newest
+      # headless-debug target dir under any lock hash; cargo then rebuilds only what changed. The paths are
+      # rust-cache's own, in its order and absolute, so the entry's version matches the one it saved.
+      - name: Paths of the headless target dir
+        id: headless-target-paths
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          {
+            echo "paths<<EOF"
+            echo "$cargo_home/registry"
+            echo "$cargo_home/git"
+            echo "$GITHUB_WORKSPACE/cmux-tui/target"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore the newest headless target dir (any Cargo.lock)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.headless-target-paths.outputs.paths }}
+          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}-${{ runner.os }}-x64
+          restore-keys: |
+            v0-rust-cmux-tui-headless-debug-
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui

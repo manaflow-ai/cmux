@@ -152,6 +152,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    # A guest still unbound two minutes into its create, read and maybe restarted (cmux-platform CloudCore
+    # nudgeLateBinds): kept with its bind_probe projection and `kicked`.
     "cloud.machine.bind_late",
     # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
     # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
@@ -509,6 +511,11 @@ BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
 UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+# The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
+                        r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
+HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
+BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
 
 
 def probe_facts(out):
@@ -544,6 +551,20 @@ def probe_facts(out):
                 https.append("no_answer")
         elif ln == "curl=absent":
             https = ["curl_absent", "curl_absent"]
+        elif ln in ("bound_file=present", "bound_file=missing"):
+            facts["bound_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("host_service="):
+            v = ln.split("=", 1)[1]
+            facts["host_service"] = v if v in HOST_SERVICE else ("none" if not v else "other")
+        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
+            facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind="):
+            v = ln.split("=", 1)[1]
+            facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
+        elif ln == "journal=absent":
+            facts["journal"] = "absent"
     for name, got in (("dns", dns), ("https", https)):
         for target, v in zip(("api", "edge"), got):
             facts[f"{name}_{target}"] = v
@@ -750,12 +771,14 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+    if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
+        out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
         for k in ("skipped", "ms"):
             counts = token_counts(j.get(k))
             if counts is not None:
                 out[k] = counts
-    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and "bind_probe" in j:
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
             out["bind_probe"] = probe
