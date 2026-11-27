@@ -133,16 +133,30 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && (!sub.event_stream || sub.filter.matches_live(rec))
             && conn.leaves_out_hidden(&ev.session_id, rec.seq);
         if repeat || quiet {
-            // Sent by the replay, or left out while hidden.
+            // Sent by the replay, or left out while hidden (the show's `_acpmux/lagged` covers
+            // those). A replayed record is the client's: the next record's `prev` counts it.
+            if repeat && sub.event_stream {
+                conn.stream_prev(&ev.session_id, rec.seq);
+            }
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
+                // A peer daemon's link keeps its own cursors (`peer_forward.rs`); every client
+                // that draws the chat hears what this stream sent before the record.
+                let prev = if conn.origin != Origin::Peer {
+                    conn.stream_prev(&ev.session_id, rec.seq)
+                } else {
+                    0
+                };
                 match shared_event(&ev) {
-                    // A compact chunk reads the shared params in place.
+                    // A compact chunk reads the shared params in place; `prev` rides the frame.
                     Some(params) => {
-                        conn.send(&conn.chunk_deltas.frame_shared(&ev.session_id, params))
+                        conn.send(&conn.chunk_deltas.frame_shared(&ev.session_id, params, prev))
                     }
                     None => {
-                        let params = routed(event_value(&ev.session_id, rec));
+                        let mut params = routed(event_value(&ev.session_id, rec));
+                        if prev > 0 {
+                            params.set("prev", json!(prev));
+                        }
                         conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
                     }
                 }

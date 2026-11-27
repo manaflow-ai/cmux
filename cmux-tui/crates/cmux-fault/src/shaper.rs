@@ -332,6 +332,25 @@ struct Counting {
     up_turns: AtomicU64,
     /// Which way the last chunk went (1 up, 2 down), across every connection.
     last: AtomicU64,
+    /// [`Shaper::trace_wire`]: each connection's open and every read, into the run's trace.
+    wire: Mutex<Option<Trace>>,
+    /// Lines `wire` may still take (a bulk run reads thousands of chunks).
+    wire_left: AtomicU64,
+}
+
+impl Counting {
+    /// One wire line, while the budget lasts; nothing when the wire trace is off.
+    fn wire(&self, line: impl FnOnce() -> String) {
+        let trace = lock(&self.wire);
+        let Some(trace) = trace.as_ref() else { return };
+        if self
+            .wire_left
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            trace.note(line());
+        }
+    }
 }
 
 pub struct Shaper {
@@ -451,6 +470,14 @@ impl Shaper {
         }
     }
 
+    /// Notes every connection's open and every read (`c3 up 517B, lands +35ms`) in the trace
+    /// this shaper was started with, up to `lines` lines: the round trips a dial takes, one by
+    /// one. Off unless called; a read costs one mutex check while it is off.
+    pub fn trace_wire(&self, lines: u64) {
+        self.counting.wire_left.store(lines, Ordering::SeqCst);
+        *lock(&self.counting.wire) = Some(self.trace.clone());
+    }
+
     pub fn reset_counters(&self) {
         for counter in [
             &self.counting.up_bytes,
@@ -546,6 +573,7 @@ async fn connection(
     if lock(&link).silent(index, path) {
         return;
     }
+    counting.wire(|| format!("c{index} open (connect landed)"));
     let Ok(far) = TcpStream::connect(upstream).await else { return };
     let _ = near.set_nodelay(true);
     let _ = far.set_nodelay(true);
@@ -620,6 +648,8 @@ async fn direction(
             if counting.last.swap(way, Ordering::SeqCst) != way && !down {
                 counting.up_turns.fetch_add(1, Ordering::SeqCst);
             }
+            let read_at = Instant::now();
+            let mut lands = None;
             for segment in chunk.chunks(SEGMENT) {
                 let at = {
                     let mut link = lock(&link);
@@ -632,11 +662,23 @@ async fn direction(
                 // An orphaned connection's bytes go to an address that is gone, a dead path's
                 // nowhere.
                 let Some(at) = at else { continue };
+                lands = Some(at);
                 floor = at;
                 if send.send((at, segment.to_vec())).await.is_err() {
                     return;
                 }
             }
+            counting.wire(|| {
+                let way = if down { "down" } else { "up" };
+                match lands {
+                    Some(at) => format!(
+                        "c{index} {way} {}B, lands +{}ms",
+                        chunk.len(),
+                        at.saturating_duration_since(read_at).as_millis()
+                    ),
+                    None => format!("c{index} {way} {}B, dropped (link silent)", chunk.len()),
+                }
+            });
         }
     };
     tokio::select! { () = writer => {}, () = reader => {} }

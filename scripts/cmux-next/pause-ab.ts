@@ -289,6 +289,45 @@ export function markdownTable(rows: ArmRow[]): string {
   return [head, ...rows.map((r) => `| ${r.arm} | ${r.machines} | ${r.turn_end_advertised} | ${r.awake_s} | ${r.paused_s} | ${r.awake_pct} | ${r.resumes} | ${r.mean_resume_ms ?? "n/a"} | ${r.p50_resume_ms ?? "n/a"} | ${r.p95_resume_ms ?? "n/a"} | ${r.resume_failures} | ${r.vm_unavailable} | ${r.turns_ok} |`)].join("\n");
 }
 
+/**
+ * Each run of `starting` samples on one machine: what it started from (`paused`, or `pausing` for a resume that met a
+ * pause still in flight) and its sampled upper bound in seconds, from the sample before the first `starting` to the
+ * first sample after the last (so it is high by up to two poll intervals). hq#21300's resume p95 8.4 s is a host-side
+ * number; this split shows whether a slower arm p50 is a fast mode read through the sampler or a slow mode of its own.
+ */
+export function startingSpans(samples: Sample[]): { from: string; s: number }[] {
+  const sorted = [...samples].sort((a, b) => a.at - b.at);
+  const out: { from: string; s: number }[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].status !== "starting" || sorted[i - 1].status === "starting") continue;
+    let j = i;
+    while (j < sorted.length && sorted[j].status === "starting") j++;
+    const endAt = j < sorted.length ? sorted[j].at : sorted[j - 1].at;
+    out.push({ from: sorted[i - 1].status === "paused" ? "paused" : sorted[i - 1].status, s: Math.round((endAt - sorted[i - 1].at) / 100) / 10 });
+    i = j - 1;
+  }
+  return out;
+}
+
+/** A slow start: at or past the 30 s the platform's old vmApiTimeoutMs cut a resume at (platform#2256, #2263). */
+export const SLOW_START_S = 30;
+
+/** Per arm and start origin: count, p50, and how many starts were slow, from every machine's samples. */
+export function startingTable(results: MachineResult[], arms: string[]): string {
+  const head = `| arm | from | starts | p50 s | fast (<${SLOW_START_S} s) p50 s | slow (>=${SLOW_START_S} s) | slow s |\n|---|---|---|---|---|---|---|`;
+  const rows: string[] = [];
+  for (const arm of arms) {
+    const spans = results.filter((r) => r.arm === arm && !r.skipped).flatMap((r) => startingSpans(r.samples));
+    for (const from of [...new Set(spans.map((x) => x.from))].sort()) {
+      const v = spans.filter((x) => x.from === from).map((x) => x.s);
+      const fast = v.filter((x) => x < SLOW_START_S);
+      const slow = v.filter((x) => x >= SLOW_START_S).sort((a, b) => a - b);
+      rows.push(`| ${arm} | ${from} | ${v.length} | ${percentile(v, 0.5) ?? "n/a"} | ${percentile(fast, 0.5) ?? "n/a"} | ${slow.length} | ${slow.join(", ") || "-"} |`);
+    }
+  }
+  return [head, ...rows].join("\n");
+}
+
 /** The pair numbers in order, each with its machines (one per arm): the drill brings pairs up one after another. */
 /** The guest's `acp wait; acp last; @@werr` output: wait's exit code, the last reply, wait's stderr tail. */
 export function parseWaitOutput(stdout: string): { code: string | undefined; text: string; werr: string } {
@@ -655,7 +694,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     writeFileSync(path.join(outDir, "summary.md"), `# Pause-policy A/B (${backend.name})\n\n` +
       `${perArm} machine(s) per arm, ${turnCount} stub turns, seeds ${seed}..${seed + perArm - 1} (one per pair), pair 1 gaps ${gaps.join(", ")} s, tail ${tailS} s. ` +
       `Awake/paused from \`cloud.machine.get\` status every ${pollMs / 1000} s. Account VM seconds over the run (all machines, cross-check): ${usage ?? "n/a"}.\n\n` +
-      `${markdownTable(rows)}\n\n## Per pair (same seed and gaps in every arm)\n\n${pairTable(results, arms)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
+      `${markdownTable(rows)}\n\n## Starting phase (sampled upper bound per start)\n\n${startingTable(results, arms)}\n\n## Per pair (same seed and gaps in every arm)\n\n${pairTable(results, arms)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
       results.map((r) => `- start ${guestLine(r.name, r.guest_update_start)}\n- end ${guestLine(r.name, r.guest_update_end)}`).join("\n") +
       `\n\n## Idle decision per gap (\`cloud.machine.get\` at the gap's end; guest listeners when awake)\n\n` +
       `| machine | turn | gap s | idle decision | listeners (addr, owner) | guest report at turn end |\n|---|---|---|---|---|---|\n` +
