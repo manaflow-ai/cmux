@@ -32,6 +32,8 @@ LANE_PATTERNS = (
     ".github/workflows/billing.yml",
     "scripts/ci/billing_lane.py",
     "tests/test_ci_billing_lane.py",
+    # billing.yml reads the iOS billing packages from it.
+    "scripts/ci/swift-linux-packages.txt",
     "web/scripts/run-db-behavior-tests.sh",
 )
 

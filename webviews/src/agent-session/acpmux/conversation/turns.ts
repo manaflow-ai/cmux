@@ -9,19 +9,20 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
-  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
+import { RowMemo } from "../../shared/rowMemo";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -35,7 +36,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { scriptNoun, commandLine, commandSaid } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -56,7 +57,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -1253,7 +1254,7 @@ type ShapedTurn = {
   endedByPerson: boolean;
   rows: AcpmuxRow[];
 };
-const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
+const shapedTurns = new RowMemo<AcpmuxRow, ShapedTurn>();
 
 /// A completed turn has one disclosure, keyed by its original prompt. Live rows do not read it,
 /// so a remembered open state never changes the transcript while the next turn is running. A
@@ -2158,20 +2159,24 @@ export const isAgentPrompt = (row: AcpmuxRow) =>
       !row.incoming.message.fromPerson &&
       row.incoming.message.notice?.severity !== "fire"));
 
-/// How many messages between agents `rows` hold: each send among their calls, and each message
-/// received (an inbox notice counts the messages it brought, as messageRuns.ts does).
-function foldedAgentMessages(rows: readonly AcpmuxRow[]): {
-  sent: number;
-  received: number;
-} {
-  let sent = 0;
+/// How many messages from other agents `rows` hold: each message received (an inbox notice counts
+/// the messages it brought, as messageRuns.ts does).
+function receivedAgentMessages(rows: readonly AcpmuxRow[]): number {
   let received = 0;
-  for (const row of rows) {
+  for (const row of rows)
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
-  }
-  return { sent, received };
+  return received;
+}
+
+/// How many messages to other agents `rows` sent: each send among their calls. It groups every
+/// step's calls (toolGroups.ts), most of a finished turn's shaping at a chat's open, so a fold's label
+/// asks for it only when it reads it (`shapeTurn`): the default `calls` arm counts received messages
+/// alone.
+function sentAgentMessages(rows: readonly AcpmuxRow[]): number {
+  let sent = 0;
+  for (const row of rows) if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
+  return sent;
 }
 
 /// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
@@ -2509,12 +2514,15 @@ function shapeTurn(
       : [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
     const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
     // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
-    const messages = foldedAgentMessages(hidden);
+    // Those it received are counted here; those it sent, only where the label reads them (`sent`).
+    const received = receivedAgentMessages(hidden);
+    let sentCount: number | undefined;
+    const sent = () => (sentCount ??= sentAgentMessages(hidden));
     const messagesArm = experimentArm(workedForMessages);
     // A turn split in order counts each fold's own calls; one fold counts the turn's.
     const calls = segments.length > 1 ? callsIn(work) : summary.toolCount;
-    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + messages.received : calls;
-    const named = messagesArm === "messages" && messages.sent + messages.received > 0;
+    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + received : calls;
+    const named = messagesArm === "messages" && sent() + received > 0;
     // Unknown stays unknown (the label counts calls instead): a turn whose prompt is in an older
     // page starts at a row inside it, and the time since that row is too short.
     const durationMs =
@@ -2537,13 +2545,15 @@ function shapeTurn(
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
     // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
     // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
-    // held, never shut inside a "Worked for 1s" that hides what it did.
-    const compactOnly = said === undefined && onlyCompaction(work);
+    // held, never shut inside a "Worked for 1s" that hides what it did. A turn stopped mid-compaction
+    // keeps its "You stopped after" line: the stop is news, and a stopped turn's fold opens, so the
+    // note stays in sight under it (agent-pane-steer.test.ts, a forced Stop reads as a plain stop).
+    const compactOnly = said === undefined && onlyCompaction(work) && !(final && isStopped(summary));
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
-        messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)) &&
+        sent() + received === 0);
     // A turn the person sent that only replied (no calls, no steers) still ends on its "Worked for": its
     // "Working for" stood over the reply from the turn's first frame (shapeLiveTurn), and a header gone at
     // the end would pull the reply up into its place. The closed line holds no rows.
@@ -2587,7 +2597,7 @@ function shapeTurn(
         .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       const labelVersion = mixVersion(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
-        named ? messages.sent * 1_000 + messages.received + 1 : 0,
+        named ? sent() * 1_000 + received + 1 : 0,
       );
       const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
@@ -2600,7 +2610,7 @@ function shapeTurn(
         foldOpen: open,
         status: final ? summary.status : "completed",
         toolCount,
-        ...(named && { workedMessages: messages }),
+        ...(named && { workedMessages: { sent: sent(), received } }),
         // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you
         // think we should distinguish the absolute top level one versus the inner ones").
         ...(style.countsCalls && (calls ?? 0) > 0 ? { workedCalls: calls } : {}),
@@ -3527,7 +3537,18 @@ function shapeLiveTurn(
   // call still owns the question card even when that call belongs to the hidden prefix.
   const wrapUp = liveWrapUp(all);
   const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
-  const shaped = shapeLiveRows(user, drawn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, worked, workOpen);
+  // The clock reads the whole turn: the calls the open read hid still say the agent was at work.
+  const shaped = shapeLiveRows(
+    user,
+    drawn,
+    clockOffset,
+    trayAgents,
+    turnStartedAtMs,
+    foldsPrompt,
+    worked,
+    workOpen,
+    all,
+  );
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
@@ -3620,6 +3641,7 @@ function shapeLiveRows(
   foldsPrompt: boolean,
   worked = drawn.some((row) => row.kind === "activity" && row.inBackground === undefined),
   workOpen = false,
+  clockRows: readonly AcpmuxRow[] = drawn,
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
@@ -3648,7 +3670,7 @@ function shapeLiveRows(
   // A notice that opens the rows drawn here starts its stretch too, when the harness's turn began
   // before it.
   // One start and one formula with the ended turn's "Worked for" (`turnClock`).
-  const clock = turnClock(user, drawn, turnStartedAtMs);
+  const clock = turnClock(user, clockRows, turnStartedAtMs);
   const start = clock.start;
   const at = start + clockOffset;
   const shapeAs = (arm: string): AcpmuxRow[] => {
@@ -3787,15 +3809,33 @@ export function turnClock(
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
-/// not send) that came after the agent had replied since then, which set it going again.
+/// not send) that came after the agent had replied since then, which set it going again. The reply
+/// must be the agent's last step before the notice: a call after it means the agent was still at
+/// work, the reply was commentary, and a notice then (acpmux who-else steers one into the running
+/// turn) set nothing going. A who-else notice 7 s before a 6m 44s turn's answer read "Worked for 7s".
+/// The call must start at or after the reply: a history page can place a call that started before
+/// it later in the rows.
 export function continuationStart(rows: readonly AcpmuxRow[], start: number): number {
   let from = start;
-  let replied = false;
+  let replied: number | undefined;
   for (const row of rows) {
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = true;
-    else if (row.kind === "user" && !sentByPerson(row) && replied && hasTimestamp(row.at) && row.at > from) {
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = row.at;
+    else if (
+      replied !== undefined &&
+      row.kind === "activity" &&
+      row.at >= replied &&
+      row.items?.some((item) => item.tool)
+    )
+      replied = undefined;
+    else if (
+      row.kind === "user" &&
+      !sentByPerson(row) &&
+      replied !== undefined &&
+      hasTimestamp(row.at) &&
+      row.at > from
+    ) {
       from = row.at;
-      replied = false;
+      replied = undefined;
     }
   }
   return from;
