@@ -37,7 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint};
+use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint, RelayRung};
 use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
@@ -644,9 +644,20 @@ fn relay_offer(options: &DialOptions, own_now: bool) -> Option<String> {
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
-/// no plain UDP (off, or no STUN answer) and no TURN allocation.
+/// no TURN allocation, and plain UDP not usable on this network (off, or no
+/// STUN answer), as the braid carrier rules say ([`cmux_braid_carrier::usable`]).
 fn only_the_relay(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCarrier>) -> bool {
-    options.relay.is_some() && turn.is_none() && (no_plain_udp(options) || udp_blocked)
+    let facts = cmux_braid_carrier::NetFacts {
+        udp_blocked: no_plain_udp(options) || udp_blocked,
+        ..cmux_braid_carrier::NetFacts::default()
+    };
+    let direct = cmux_braid_carrier::Endpoint {
+        kind: cmux_braid_carrier::CarrierKind::Udp,
+        address: String::new(),
+        host: String::new(),
+        login: None,
+    };
+    options.relay.is_some() && turn.is_none() && !cmux_braid_carrier::usable(&direct, facts)
 }
 
 /// The answer's gather before `wg-resp` (an older peer, or no plain UDP):
@@ -729,16 +740,16 @@ fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     endpoints
 }
 
-/// The IPv4 addresses of the STUN servers in `options`.
+/// The IPv4 addresses of the STUN servers in `options`, all looked up at once: DNS, or the
+/// literals they last resolved to when DNS is down (`route_literals`).
 async fn resolve_stun(options: &DialOptions) -> Vec<SocketAddr> {
-    let mut addresses = Vec::new();
-    for server in stun_servers(&options.ice_servers) {
-        let Ok(mut found) = tokio::net::lookup_host(server.as_str()).await else { continue };
-        if let Some(address) = found.find(SocketAddr::is_ipv4) {
-            addresses.push(address);
-        }
-    }
-    addresses
+    let servers = stun_servers(&options.ice_servers);
+    let lookups = servers.iter().map(|server| options.routes.resolve(server, 3478));
+    futures_util::future::join_all(lookups)
+        .await
+        .into_iter()
+        .filter_map(|found| found.ok()?.into_iter().find(SocketAddr::is_ipv4))
+        .collect()
 }
 
 /// The endpoints offered to the peer: `endpoints` as text, without CGNAT
@@ -2847,22 +2858,13 @@ fn running(net: &Arc<Mutex<Option<Arc<WgNet>>>>) -> Result<Arc<WgNet>, DialError
 /// dials the relay first (`relay: "first"`), so a relay ticket at dial start
 /// and both sides' joins carry the link while the gather runs, and plain UDP
 /// is on (with it off there is nothing to gather but TURN, which the offer
-/// needs). Measurement baselines turn it off with [`set_init_after_gather`].
+/// needs). Measurement baselines turn it off with
+/// [`DialOptions::init_after_gather`].
 fn init_before_gather(options: &DialOptions) -> bool {
     options.relay_first
         && relay_endpoint(options).is_some()
         && !no_plain_udp(options)
-        && !INIT_AFTER_GATHER.load(Ordering::Relaxed)
-}
-
-/// Measurement only: the phone sends `wg-init` after its gather, as before
-/// relay first's disco half. Off by default; tests turn it on for their
-/// baseline.
-static INIT_AFTER_GATHER: AtomicBool = AtomicBool::new(false);
-
-/// Measurement only (see [`INIT_AFTER_GATHER`]).
-pub fn set_init_after_gather(on: bool) {
-    INIT_AFTER_GATHER.store(on, Ordering::Relaxed);
+        && !options.init_after_gather
 }
 
 /// What the phone's `wg-init` offers.
@@ -2948,7 +2950,11 @@ fn prepare_gathered(
     let (relayed, _) = relayed_of(turn.as_ref());
     endpoints.extend(relayed);
     if let Some(turn) = &turn {
-        options.timeline.mark(if turn.transport.is_stream() { "turn_tls_allocated" } else { "turn_allocated" });
+        options.timeline.mark(if turn.transport.is_stream() {
+            "turn_tls_allocated"
+        } else {
+            "turn_allocated"
+        });
     }
     options.timeline.mark("endpoints_gathered");
     Ok(Prepared { own_endpoints: endpoints, stun, turn, own_relay_now, turn_missed })
@@ -3013,6 +3019,46 @@ pub(super) fn dial_wireguard<'a>(
         // reach) and no relay to try next, say the proxy's reason now instead
         // of a timeout. With a relay, it is the next way out (#53163), and the
         // diagnosis keeps the proxy's reason.
+<<<<<<< HEAD
+=======
+        let unresolved = gathered.stun.is_empty() && !stun_servers(&options.ice_servers).is_empty();
+        let udp_useless = no_plain_udp(options) || gathered.udp_looks_blocked() || unresolved;
+        if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
+            options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(options));
+        }
+        if options.relay.is_none()
+            && let Some(error) = refused_by_proxy(udp_useless, &allocated)
+        {
+            return Err(error);
+        }
+        let turn = allocated.carrier;
+        if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
+            return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
+        }
+        let udp_blocked = gathered.udp_looks_blocked();
+        diagnose_gather(options, udp_blocked, turn.as_ref(), true);
+        let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
+        let relay_offer = relay_offer(options, own_relay_now);
+        // A side with no path but the relay (`now`), or one that dials the
+        // relay first (`first`), asks for its ticket in its `wg-init`, so its
+        // join runs while the Mac gathers and answers instead of after
+        // `wg-resp` (PROTOCOL.md "Early relay ticket"). An older hub ignores it.
+        let ask_ticket_early = own_relay_now || relay_offer.as_deref() == Some(RELAY_FIRST);
+        let turn_missed = missed_turn(true, turn.as_ref(), options);
+        let Gathered { mut endpoints, stun, .. } = gathered;
+        let (relayed, relayed_tls) = relayed_of(turn.as_ref());
+        endpoints.extend(relayed.iter().cloned());
+        if let Some(turn) = &turn {
+            options.timeline.mark(if turn.transport.is_stream() {
+                "turn_tls_allocated"
+            } else {
+                "turn_allocated"
+            });
+        }
+        options.timeline.mark("endpoints_gathered");
+        let (private_key, public_key) = keypair();
+        let own_endpoints = endpoints.clone();
+>>>>>>> origin/feat-cmux-next
         signaling
             .send_signal(
                 mac,
@@ -3105,7 +3151,14 @@ pub(super) fn dial_wireguard<'a>(
                                 (session_id.to_owned(), mac.to_owned(), ticket.clone());
                             early_ticket = Some(ticket);
                             early_join = Some(Arc::new(Mutex::new(Some(tokio::spawn(async move {
-                                RelayCarrier::join(&endpoint, &session, &peer, Some(&used)).await
+                                RelayRung {
+                                    endpoint: &endpoint,
+                                    session_id: &session,
+                                    peer_device: &peer,
+                                    ticket: Some(&used),
+                                }
+                                .join()
+                                .await
                             })))));
                         }
                     }
@@ -3525,6 +3578,32 @@ mod tests {
         assert!(answer_trickles(&DialOptions::default(), 2));
         assert!(answer_trickles(&DialOptions::default(), WG_VERSION));
         assert!(!answer_trickles(&DialOptions::default(), 0));
+    }
+
+    /// "Join the relay now" is the braid carrier rule for plain UDP: a side
+    /// with a relay and no TURN allocation joins at once exactly when UDP
+    /// is off (relay only, UDP blocked, relay via cmux) or got no STUN answer.
+    #[test]
+    fn only_the_relay_is_the_carrier_rule_for_plain_udp() {
+        let with_relay = |edit: fn(&mut DialOptions)| {
+            let mut options = DialOptions {
+                relay: Some(RelayEndpoint::with_token("https://relay.test", None, "dev", "t")),
+                ..DialOptions::default()
+            };
+            edit(&mut options);
+            options
+        };
+        let open = with_relay(|_| {});
+        assert!(!only_the_relay(&open, false, None), "UDP may work: the relay waits its turn");
+        assert!(only_the_relay(&open, true, None), "no STUN answer: relay now");
+        for edit in [
+            (|o: &mut DialOptions| o.block_udp = true) as fn(&mut DialOptions),
+            |o| o.relay_only = true,
+            |o| o.force_relay = true,
+        ] {
+            assert!(only_the_relay(&with_relay(edit), false, None));
+        }
+        assert!(!only_the_relay(&DialOptions { block_udp: true, ..DialOptions::default() }, true, None));
     }
 
     /// Ultra Mode is Auto by default, metered by the cellular flag.

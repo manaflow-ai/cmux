@@ -176,6 +176,10 @@ pub struct DialOptions {
     /// test TURN server's self-signed certificate); wins over `egress.trust`.
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
+    /// Where TURN and STUN names resolve: DNS raced against the literals they last resolved
+    /// to ([`crate::route_literals`]), so a dial with DNS down still reaches them. The
+    /// process's memory by default; a test's own (with its own resolver) otherwise.
+    pub routes: std::sync::Arc<crate::route_literals::RouteLiterals>,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -191,6 +195,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Measurement only: in relay first the phone sends `wg-init` after its
+    /// STUN and TURN gather, as before the offer went out first. Off.
+    #[doc(hidden)]
+    pub init_after_gather: bool,
     /// Test support: called with each plain UDP datagram's length as
     /// WireGuard hands it to the OS (the bytes a radio sends).
     #[doc(hidden)]
@@ -339,9 +347,11 @@ impl Default for DialOptions {
             drop_wireguard_udp: false,
             egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
+            routes: crate::route_literals::RouteLiterals::shared(),
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            init_after_gather: false,
             on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
