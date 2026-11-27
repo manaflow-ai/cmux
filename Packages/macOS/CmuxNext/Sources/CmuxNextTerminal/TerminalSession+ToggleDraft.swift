@@ -14,8 +14,8 @@ extension TerminalSession {
     /// The active rows (the screen's bottom, wherever the viewport is), one line per row. Takes
     /// Ghostty's surface lock: once per swap that has a draft to weigh, never per frame.
     public func toggleDraftScreen() -> String? {
-        surfaceView.rowsText(from: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
-                             to: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0))
+        rowsText(surfaceView, from: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+                 to: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0))
     }
 
     /// Pastes `text` as the person would: Ghostty brackets it when the program asked for that.
