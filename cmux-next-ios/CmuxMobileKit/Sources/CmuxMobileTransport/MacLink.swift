@@ -238,16 +238,18 @@ public struct LinkError: Error, Equatable, Sendable {
 /// What a person reads for a link error: never the code or the type.
 extension LinkError: LocalizedError {
     /// The codes with fixed copy: a fragment for status lines ("WebRTC failed: …")
-    /// and a sentence for alerts and failure states.
+    /// and a sentence for alerts and failure states. None asks the person to repeat the step: the link
+    /// redials on its own (backoff, the Mac's signal, foreground), so allowing the iPhone or
+    /// opening cmux on the Mac is noticed without the person repeating anything.
     private var known: (reason: String, sentence: String)? {
         switch code {
         case _ where isTimeout:
             return (reason: LinkError.timeoutReason, sentence: LinkError.timeoutSentence)
         case "not_admitted":
             return (reason: "the Mac refused this phone",
-                    sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac, then try again.")
+                    sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac.")
         case "offline":
-            return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
+            return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac.")
         case LinkError.unauthorized:
             return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
         case LinkError.networkBlocked:
@@ -262,10 +264,17 @@ extension LinkError: LocalizedError {
     /// Its raw message is a diagnostic; a person reads only the fixed, calm copy below, which
     /// says what to do (Leo 2026-11-21: no "didn't answer in time").
     public var isTimeout: Bool { ["timeout", "reply_timeout", "write_timeout"].contains(code) }
+    /// The link is coming back on its own (a timeout, a dropped or not-yet-open link): nothing
+    /// for a person to do or read. A call that failed this way waits for the link and goes again
+    /// (Leo 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just
+    /// connect").
+    public var isTransient: Bool {
+        isTimeout || ["closed", "offline", "eof", "transport", "signaling"].contains(code)
+    }
     /// A status line's fragment for a timeout: the connection is being re-established.
     public static let timeoutReason = "reconnecting to the Mac"
     /// A failure state's sentence for a timeout that outlasted the quiet retries.
-    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open, then try again."
+    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open."
 
     /// The Mac's or the link's own message, when it reads as a sentence for a person (never
     /// for a timeout: that message is a diagnostic).
@@ -287,7 +296,7 @@ extension LinkError: LocalizedError {
     /// A sentence: the Mac's own message when it is prose, else the code's copy.
     public var errorDescription: String? {
         if code == LinkError.unauthorized { return known?.sentence }
-        return proseMessage ?? known?.sentence ?? "Something went wrong talking to your Mac. Try again."
+        return proseMessage ?? known?.sentence ?? "Something went wrong talking to your Mac."
     }
 }
 

@@ -431,6 +431,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var freezeRows = 0
     /// The held still is committed (on screen), so a present under it shows nothing.
     private var heldCommitted = false
+    /// The attach's steps and first right frame (``TerminalModel/demoFinalGrid`` set).
+    private(set) var attachTrace: TerminalAttachTrace?
+    private var attachProbe: CADisplayLink?
+    /// Ghostty presents the probe has seen (the first few are marked).
+    private var attachProbePresents = 0
+    private var attachProbeLastTick: CFTimeInterval?
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -565,6 +571,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        #if DEBUG
+        if model.demoFinalGrid != nil {
+            attachTrace = TerminalAttachTrace(origin: CACurrentMediaTime())
+            startAttachProbe()
+        }
+        #endif
         view.backgroundColor = terminalBackground
         // Chrome, glass and the keyboard follow the terminal theme (its Mac's look).
         overrideUserInterfaceStyle = terminalInterfaceStyle
@@ -1517,6 +1529,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         InputLatencyTrace.shared?.sample("terminal_resize_sent", ms: 0)
         #endif
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
+        #if DEBUG
+        trace("resize-\(why)-\(size.columns)x\(size.rows)\(model.isTUI ? "-tui" : "")")
+        #endif
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
         #if DEBUG
@@ -1779,9 +1794,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if statusScrim.superview != nil { scrimGround.setFade(alphas: [1, 1, 0], locations: statusScrim.gradient.locations) }
         }
         keyboardDock.refresh()
+        #if DEBUG
+        traceOnce("layout")
+        #endif
         measured("layout-terminal") { layoutTerminal() }
+        #if DEBUG
+        traceOnce("layout-end")
+        if surface.surface != nil { traceOnce("surface") }
+        #endif
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
+            #if DEBUG
+            trace("start")
+            if attachTrace != nil {
+                // When the layout pass that started the session reaches the screen.
+                CATransaction.setCompletionBlock { [weak self] in self?.trace("commit") }
+            }
+            #endif
             // The page as last seen, fed first (the output queue is ordered): the surface is
             // live before the attach, scrolls and takes keys (they wait for it). The Mac's
             // replay, a full reset first, replaces it.
@@ -1797,6 +1826,55 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             #endif
         }
     }
+
+    #if DEBUG
+    private func trace(_ name: String) {
+        attachTrace?.mark(name, at: CACurrentMediaTime())
+    }
+
+    private func traceOnce(_ name: String) {
+        attachTrace?.markOnce(name, at: CACurrentMediaTime())
+    }
+
+    /// Each display frame from the session's start: right when the
+    /// full-screen app is drawn at the Mac's final grid, which is the phone's
+    /// own last claim, with nothing held, replayed, queued, settling or still
+    /// to be answered (``TerminalAttachTrace``).
+    private func startAttachProbe() {
+        guard attachTrace != nil, attachProbe == nil else { return }
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
+            self?.attachProbeTick()
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
+        link.add(to: .main, forMode: .common)
+        attachProbe = link
+    }
+
+    private func attachProbeTick() {
+        guard attachTrace != nil, let final = model.demoFinalGrid?() else { return }
+        // A display frame the main thread missed: how long it was busy.
+        let now = CACurrentMediaTime()
+        if let last = attachProbeLastTick, now - last > 0.03, (attachTrace?.marks.count ?? 0) < TerminalAttachTrace.capacity - 8 {
+            trace("stall\(Int(((now - last) * 1000).rounded()))")
+        }
+        attachProbeLastTick = now
+        guard attachTrace?.startedAt != nil else { return }
+        if surface.presents != attachProbePresents {
+            attachProbePresents = surface.presents
+            if attachProbePresents <= 12 { trace("present\(attachProbePresents)") }
+        }
+        let pending = freezeView != nil || replayGate.isReplaying || !output.isEmpty || feedInFlight
+            || resizeSettle.pending != nil || final.inFlight
+        let right = model.isTUI && !pending && appliedHostColumns == final.columns && appliedHostRows == final.rows
+            && sentGrid == TerminalResizeSettle.Size(columns: final.columns, rows: final.rows)
+        attachTrace?.frame(right: right, at: CACurrentMediaTime())
+        // Five seconds after the start the trace is complete: the probe stops.
+        if let started = attachTrace?.startedAt, CACurrentMediaTime() - started > 5 {
+            attachProbe?.invalidate()
+            attachProbe = nil
+            traceOnce("probe-end")
+        }
+    }
+    #endif
 
     #if DEBUG
     /// DEBUG (termqa round 8): what each Ghostty point tag reads for a few rows.
@@ -1877,6 +1955,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         default:
             break
         }
+        #if DEBUG
+        switch event {
+        case .output(let data):
+            if data == Self.mirrorReset {
+                trace("reset")
+            } else if replayGate.isReplaying {
+                trace("replay-\(data.count)b")
+            } else {
+                traceOnce("output")
+            }
+        case .alternateScreen(let on): trace(on ? "alt-on" : "alt-off")
+        case .hostGrid(let columns, let rows): trace("grid-\(columns)x\(rows)")
+        case .connection(let state): if state.isAttached { traceOnce("attached") }
+        default: break
+        }
+        #endif
         switch event {
         case .output(let data):
             panFrames.output(data.count)
@@ -2636,6 +2730,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if output.isEmpty { stopOutputLink() }
             return
         }
+        #if DEBUG
+        if replayDone { trace("parsed") }
+        #endif
         if model.isTUI {
             // The app drew its screen again: its highlights go where their text went.
             tuiSelection.followRows()
@@ -2865,6 +2962,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func unfreeze() {
         #if DEBUG
         heldCommitted = false
+        if freezeView != nil { trace("unfreeze") }
         #endif
         // The new grid is presented: the area takes its rows in this pass,
         // with the still's removal (one commit).

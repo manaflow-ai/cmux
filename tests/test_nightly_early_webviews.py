@@ -53,11 +53,11 @@ class EarlyNightlyWebviewsTests(unittest.TestCase):
         self.assertNotIn("secrets.", WORKFLOW.read_text(encoding="utf-8").split(f"  {EARLY}:\n", 1)[1]
                          .split("\n  prepare-nightly-variant-primary:", 1)[0])
         self.assertEqual(one_line(job["runs-on"]), one_line(self.jobs["check-nightly-webviews"]["runs-on"]),
-                         "check-nightly-webviews' owned nightly-only route")
+                         "check-nightly-webviews' Linux route")
 
     def test_the_signer_skips_only_the_red_commit(self) -> None:
-        self.assertIn(EARLY, self.needs("nightly-next-one"))
-        self.assertIn(RED_ON_BUILT, one_line(self.jobs["nightly-next-one"]["if"]))
+        # Leo, 2026-11-25: publish blocks on four things; the early webview check no longer holds the signer.
+        self.assertNotIn(EARLY, self.needs("nightly-next-one"))
         self.assertIn("steps.webview-checks.outcome == 'failure'",
                       self.jobs["nightly-next-one"]["outputs"]["webview_red"])
 

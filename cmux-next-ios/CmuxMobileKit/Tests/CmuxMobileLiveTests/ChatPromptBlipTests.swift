@@ -17,6 +17,9 @@ import Testing
     final class Mac: @unchecked Sendable {
         private let lock = NSLock()
         private var _prompts: [(text: String, promptID: String, resend: Bool)] = []
+        private var _cancels = 0
+        var cancels: Int { lock.withLock { _cancels } }
+        func cancelled() { lock.withLock { _cancels += 1 } }
         private var _fullAccess: Bool
         init(fullAccess: Bool = true) { _fullAccess = fullAccess }
         var fullAccess: Bool {
@@ -40,6 +43,9 @@ import Testing
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"lane","harness":"claude","cwd":"/tmp/w","status":"running"}]}"#)]
             case "_acpmux/attach":
                 return [reply(#"{"session":{"sessionId":"s1","status":"running","pending":[]},"hasMore":false,"lastSeq":0,"events":[]}"#)]
+            case "session/cancel":
+                mac.cancelled()
+                return []
             case "session/prompt":
                 let params = object["params"] as? [String: Any]
                 let text = ((params?["prompt"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
@@ -99,7 +105,7 @@ import Testing
         #expect(store.returnedDraft == nil)
     }
 
-    @Test func aMessageHeldPastTheWindowComesBackWithWhatHappened() async throws {
+    @Test func aMessageHeldPastTheWindowIsMarkedNotSentWhereItWasDrawn() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
         defer { withExtendedLifetime(hub) {} }
@@ -107,9 +113,11 @@ import Testing
         await hub.bind(nil)
         store.send(prompt: "run the tests")
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
-        await settle { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await settle { store.turns.last?.localSend == .notSent }
+        // The message stays where it was drawn, marked on its own row; no toast, no draft back.
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.clientError == nil)
+        #expect(store.returnedDraft == nil)
         #expect(source.heldPrompts.isEmpty)
 
         // The Mac comes back later: the stale message is not sent behind the person's back.
@@ -118,43 +126,6 @@ import Testing
         #expect(mac.prompts.isEmpty)
     }
     #endif
-
-    /// Leo, 2026-11-23: "things just work". The not-sent notice asks the person to wait for the
-    /// Mac, so it goes once the Mac is back (the draft stays in the composer), and when the
-    /// person edits the draft; it never stays up saying "send again when it's back" after it is.
-    @Test func theNotSentNoticeGoesOnceTheMacIsBackOrTheDraftIsEdited() async throws {
-        let mac = Mac()
-        let (hub, link, source, store) = try await openChat(mac)
-        defer { withExtendedLifetime(hub) {} }
-        source.heldPromptWindow = .milliseconds(50)
-        await hub.bind(nil)
-        store.send(prompt: "run the tests")
-        try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
-        await settle { store.clientError != nil }
-        #expect(store.clientError == AgentChatStore.macOfflineNotice("mini"))
-        #expect(store.returnedDraft?.text == "run the tests")
-
-        // The link comes back: the notice goes, the draft stays for the person to send.
-        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
-        await settle { store.clientError == nil }
-        #expect(store.clientError == nil)
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(mac.prompts.isEmpty, "a stale message is never sent behind the person's back")
-
-        // Another outage: this time the person edits the draft before the Mac is back.
-        await hub.bind(nil)
-        store.send(prompt: "run the tests again")
-        try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
-        await settle { store.clientError != nil }
-        #expect(store.clientError != nil)
-        store.draftEdited()
-        #expect(store.clientError == nil)
-
-        // Other notices are not about the link, and an edit leaves them.
-        store.clientError = "Couldn't read photo.heic."
-        store.draftEdited()
-        #expect(store.clientError == "Couldn't read photo.heic.")
-    }
 
     /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
     /// message to one is refused, truly. The draft comes back with what to change; a reconnect
