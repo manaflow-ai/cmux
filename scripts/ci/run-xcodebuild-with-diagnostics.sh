@@ -252,6 +252,17 @@ if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]
   && github_egress_retry_direct "$output_log"; then
   echo "xcodebuild: the package resolve failed on the github.com proxy (status=$status); running it once more, direct"
   rm -rf "$output_dir"
+  # The first attempt already wrote its -resultBundlePath, and xcodebuild
+  # refuses an existing bundle ("Existing file at -resultBundlePath", status
+  # 64), so the rerun would fail on that instead of building direct. The
+  # bundle belongs to this build; clear it so the rerun can write it again.
+  prev_arg=""
+  for arg in "$@"; do
+    if [[ "$prev_arg" == "-resultBundlePath" && -n "$arg" ]]; then
+      rm -rf "$arg"
+    fi
+    prev_arg="$arg"
+  done
   exec "$script_dir/$(basename "$0")" -- "$@"
 fi
 set -e

@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// One Cloud machine.
+    CloudMachineGetOp {
+        name: "cloud.machine.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineGetParams,
+        result: CloudMachine,
+        error: CloudMachineGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineGetParams {
+    pub machine: MachineId,
+}
+
 wire_errors! {
     /// The error codes cloud.machine.get declares.
     CloudMachineGetError {
@@ -873,20 +893,4 @@ wire_op! {
 pub struct CloudSurgeCreateParams {
     pub count: i64,
     pub ttl_seconds: i64,
-}
-
-wire_errors! {
-    /// The error codes cloud.surge.create declares.
-    CloudSurgeCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudSurgeCapacity = "cloud.surge.capacity",
-        CloudSurgeUnavailable = "cloud.surge.unavailable",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

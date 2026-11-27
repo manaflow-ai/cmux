@@ -107,7 +107,8 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast"])
+        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast",
+                                           "lane-receipt-audit"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
         # fork branches, with no placement job and no dispatch runner input. Fork pull requests keep their ephemeral
@@ -461,9 +462,11 @@ class WorkflowShape(unittest.TestCase):
     def test_permissions_are_minimal(self):
         doc = workflow()
         self.assertEqual(doc["permissions"], {"contents": "read"})
-        # resolve runs no pull request code; its receipt steps read the receipt's run and post a valid one's status.
+        # resolve runs no pull request code; its receipt steps read the receipt's run, ask the controller for a lane's
+        # receipt with an OIDC token (audience cmux-ci-lane-receipt), and post a valid one's status.
         self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read",
-                                                              "actions": "read", "statuses": "write"})
+                                                              "actions": "read", "statuses": "write",
+                                                              "id-token": "write"})
         # The jobs that run pull request code can write nothing; only resolve and post can write a status.
         self.assertEqual(job(doc)["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "panic-ratchet")["permissions"], {"contents": "read"})
@@ -500,12 +503,33 @@ class WorkflowShape(unittest.TestCase):
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertEqual(int(checkout["with"]["fetch-depth"]), 2)
 
+    def test_a_lane_receipt_is_looked_up_and_its_audit_reported(self):
+        doc = workflow()
+        verify = step_named(job(doc, "resolve")["steps"], "Verify the local test receipt")
+        # The lane flag only when the base's verifier knows it, and vars.CI_LANE_RECEIPTS=0 turns it off.
+        self.assertIn('''grep -q -- '"--lane"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS+=(--lane)''', verify["run"])
+        self.assertEqual(verify["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
+        post = job(doc, "post")
+        self.assertEqual(post["outputs"]["state"], "${{ steps.status.outputs.state }}")
+        self.assertIn('echo "state=$state" >> "${GITHUB_OUTPUT:-/dev/null}"', step_named(post["steps"], "Post the cmux-next/fast-gates status")["run"])
+        audit = job(doc, "lane-receipt-audit")
+        self.assertEqual(audit["needs"], ["resolve", "post"])
+        for fragment in ("needs.resolve.outputs.receipt_audit == 'true'",
+                         "startsWith(needs.resolve.outputs.receipt_producer, 'lane:')",
+                         "needs.post.outputs.state == 'success' || needs.post.outputs.state == 'failure'"):
+            self.assertIn(fragment, audit["if"])
+        # No checkout and no repository code next to the OIDC token; a failed report changes no verdict.
+        self.assertEqual(audit["permissions"], {"id-token": "write"})
+        self.assertIs(audit["continue-on-error"], True)
+        self.assertFalse(any("uses" in step for step in audit["steps"]))
+        self.assertIn("audience=cmux-ci-lane-receipt", audit["steps"][0]["run"])
+
     def test_receipt_steps_run_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         self.assertNotIn("receipt", doc["jobs"], "the receipt is resolve's steps, not a runner of its own")
         resolve = job(doc, "resolve")
         self.assertEqual(resolve["permissions"], {"contents": "read", "pull-requests": "read", "actions": "read",
-                                                  "statuses": "write"})
+                                                  "statuses": "write", "id-token": "write"})
         verify = step_named(resolve["steps"], "Verify the local test receipt")
         self.assertEqual(verify["id"], "receipt-verify")
         # No API call unless a same-repository pull request names a receipt in its body (or is a lane's), and only
@@ -848,6 +872,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        self.assertIn("check:surface-bypass", module.CHECKS)
+        self.assertEqual(module.CHECK_CLASSES["check:surface-bypass"], module.LINT)  # advisory on the nightly
         # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
         # never the test shard's; the same per-error base comparison runs there.
         self.assertIn("--skip typecheck", steps[0]["run"])
@@ -879,8 +905,19 @@ class WorkflowShape(unittest.TestCase):
         # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
         # in full) and the last two run after the gate, so none of them is a verdict. The React Compiler transform
         # cache steps fail open the same way: a miss or a broken cache only makes the shard compile from scratch.
+        # Shard 1's background starts (scripts/ci/shard1_background.sh) fail open too: each check's own step waits for
+        # it, runs it inline when it never started, and that step's outcome is the one the gate reads.
         receipt_steps = ("same-input receipt", "the receipt's results", "React Compiler transform cache")
+        fail_open = [s for s in steps if "shard1_background.sh start" in s.get("run", "")]
+        for step in fail_open:
+            with self.subTest(started=step["name"]):
+                started = step["run"].split("shard1_background.sh start ", 1)[1].split()[0]
+                waits = [s for s in steps if f"shard1_background.sh wait {started} " in s.get("run", "")]
+                self.assertEqual(len(waits), 1)
+                self.assertIn(f"${{{{ steps.{waits[0]['id']}.outcome }}}}", gated)
         for step in steps:
+            if step in fail_open:
+                continue
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
                 continue
@@ -1525,6 +1562,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        self.assertEqual(calls["settings catalog keys"]["argv"][-2:], ["--base-rev", base])  # a base red is a note
         self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
@@ -2027,6 +2065,16 @@ class WebviewsChecksGate(unittest.TestCase):
         base = self.findings({"check:fixed-waits": "  test/a.test.ts: 3 fixed waits, baseline 2\n"}, "red base")
         self.findings({"check:fixed-waits": "  test/a.test.ts: 4 fixed waits, baseline 2\n"}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_a_new_ratchet_the_base_has_no_script_for_is_not_charged_for_its_baselined_findings(self):
+        # check:surface-bypass lands with its script and baseline: the base cannot run it, so its findings are not new.
+        base = self.findings({}, "base without the script")
+        commit(self.repo, {"webviews/scripts/check-surface-bypass.ts": "// the ratchet\n",
+                           "webviews/findings/check:surface-bypass": "  src/a.tsx: 3 raw-button, baseline 3\n"},
+               "the transition")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("check:surface-bypass is new; base has no command", result.stdout)
 
     def test_every_check_runs_after_a_red_one(self):
         base = self.findings({}, "base")

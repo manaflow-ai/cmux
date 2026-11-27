@@ -3,13 +3,6 @@ import Foundation
 // Personal state commands (`profiles-v1`, home session only;
 // plans/cmux-next/data-model.md 3.3). Each emits `personal-changed`.
 
-public struct ListPersonalRequest: DaemonRequest {
-    public typealias Response = PersonalState
-    public static let command = "list-personal"
-    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
-    public init() {}
-}
-
 public struct SetProfileFollowsRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "set-profile-follows"
