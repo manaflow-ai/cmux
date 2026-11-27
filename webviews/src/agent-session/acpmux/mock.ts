@@ -66,9 +66,6 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockListSize?: number;
   /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
   cmuxAcpmuxMockListShape?: "fleet";
-  /** bench/sim-ladder.bench.ts: page the list by the client's `limit` (`_acpmux/watch`, then `_acpmux/sessions`
-   *  from `nextCursor`), as acpmux does (list_reply.rs), so each page holds the first page, as the app's do. */
-  cmuxAcpmuxMockPaged?: boolean;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -402,24 +399,6 @@ export class MockAcpmuxSocket {
       this.readyState = 1;
       this.onopen?.();
     });
-  }
-
-  /// The list, or with `cmuxAcpmuxMockPaged` one page of it as acpmux answers one: at most `limit` rows, newest
-  /// first, from `cursor`, with `nextCursor` while more remain; with no `limit`, the rest. Unpaged (the default),
-  /// the whole list with no cursor: a daemon that ignores `limit`.
-  private listPage(params: Record<string, unknown>): { sessions: Record<string, any>[]; nextCursor?: string } {
-    if (!(globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged) return { sessions: this.sessions };
-    const cursor = typeof params.cursor === "string" ? params.cursor : undefined;
-    const from = cursor?.startsWith("mock:") ? Number(cursor.slice(5)) : 0;
-    const start = Number.isInteger(from) && from > 0 ? from : 0;
-    const limit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : undefined;
-    const ordered = [...this.sessions].sort(
-      (a, b) =>
-        (typeof b.updatedAt === "number" ? b.updatedAt : 0) - (typeof a.updatedAt === "number" ? a.updatedAt : 0),
-    );
-    const end = limit === undefined ? ordered.length : Math.min(ordered.length, start + limit);
-    const sessions = ordered.slice(start, end);
-    return end < ordered.length ? { sessions, nextCursor: `mock:${end}` } : { sessions };
   }
 
   /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
@@ -837,10 +816,7 @@ export class MockAcpmuxSocket {
       // until a watch turns it on again; it answers no list (server/list_reply.rs `watch`).
       case "_acpmux/watch":
         this.watching = params.enabled !== false;
-        return this.watching ? this.listPage(params) : {};
-      // The pages after the first (`nextCursor`), as acpmux answers them (list_reply.rs).
-      case "_acpmux/sessions":
-        return (globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged ? this.listPage(params) : {};
+        return this.watching ? { sessions: this.sessions } : {};
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
