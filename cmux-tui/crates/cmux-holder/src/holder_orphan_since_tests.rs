@@ -20,7 +20,7 @@ fn a_wall_clock_set_back_keeps_the_awake_time() {
 }
 
 /// Only a token file that is gone, or names another token, makes a holder
-/// unadoptable; an unreadable one keeps it (cmux21, 2026-11-27: holders of
+/// unadoptable; an unreadable one keeps it (a CI Mac, 2026-11-27: holders of
 /// deleted CI state roots kept 510 shells and every pty for a week).
 #[test]
 fn a_token_file_that_is_gone_or_replaced_makes_the_holder_unadoptable() {

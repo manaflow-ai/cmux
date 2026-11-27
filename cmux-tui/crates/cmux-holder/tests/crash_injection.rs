@@ -1216,7 +1216,7 @@ fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
 /// a CI job's temp folder is) can never be linked again: it ends its
 /// terminals after the unadoptable grace, not the week an orphan of a
 /// normal install waits, then exits idle. While the file stays, it keeps
-/// them (cmux21, 2026-11-27: five such holders held 510 shells, every pty).
+/// them (a CI Mac, 2026-11-27: five such holders held 510 shells, every pty).
 #[test]
 fn a_holder_whose_token_file_is_gone_ends_its_terminals_within_its_grace() {
     let dir = temp_dir();

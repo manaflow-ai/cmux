@@ -407,7 +407,7 @@ pub struct Holder {
 /// waits only out a token file being rewritten. CI runs a Nightly from a
 /// state root under the job's temp folder and deletes it; the week of
 /// [`crate::ABANDONED_GRACE`] then kept ~119 shells per run, and five runs
-/// used every pty of cmux21 (kern.tty.ptmx_max 511, 2026-11-27).
+/// used every pty of a CI Mac (kern.tty.ptmx_max 511, 2026-11-27).
 pub const UNADOPTABLE_GRACE: Duration = Duration::from_secs(60);
 
 /// How often an orphaned holder reads its token file.
