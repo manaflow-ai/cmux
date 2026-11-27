@@ -878,6 +878,9 @@ pub mod method {
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Hold this daemon's systemd watchdog until the machine resumes: the platform asks it just
+    /// before it pauses the VM (`daemon/watchdog.rs`). This machine's own clients only.
+    pub const MUX_WATCHDOG_HOLD: &str = "_acpmux/watchdog_hold";
     /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
     /// bench only, `available: false` in every other build.
     pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";

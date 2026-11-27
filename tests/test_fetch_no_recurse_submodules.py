@@ -27,6 +27,9 @@ ALLOWED: dict[str, str] = {
     # Its schedule runs main's copy (scheduled workflows match main's): the flag lands on main first.
     ".github/workflows/storage-maintenance.yml:git fetch --quiet --filter=blob:none origin":
         "scheduled from main; fix it there",
+    # The language-boundaries check guards itself: a change to it needs Leo's leo-approved-port label.
+    ".github/workflows/language-boundaries.yml:git fetch --no-tags --filter=blob:none --depth=2":
+        "a self-guarded check; its own PR",
 }
 
 
