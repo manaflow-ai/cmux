@@ -195,6 +195,17 @@ export const MARK_CARD = 10;
 /// the gap over it are TRANSCRIPT_LIVE_STEP_BOX and TRANSCRIPT_LIVE_STEP_GAP; under it, the room a row of that box
 /// has (tailGap). Not another step, which would sit flush.
 export const MARK_LIVE_STEP = 12;
+/// The same line right under a step row whose last item is a thought (model.ts `isLiveThought`): it stands the run
+/// gap a reply has under that thought (TRANSCRIPT_RUN_GAP), not the live step's 8, so the reply that takes its place
+/// lands at its top and the thought's gap is its final 16 from the thought's first frame. Under the 8 the reply came
+/// 8 lower than the line and everything over it moved up 8 more than the reply's own line, the reply overlapping the
+/// line's words while the follow caught up (Leo, 2026-11-24: "the extra spacing after thinking added more layout
+/// shifts"; test/agent-pane-thinking-cls.test.ts). Its box and the room under it are MARK_LIVE_STEP's.
+/// Once the reply is drawn the same line ("Writing") sits TRANSCRIPT_FOOTER_GAP (8) under it, in the place the
+/// turn's footer takes when the turn ends (test/agent-pane-stream-jitter.test.ts "a turn that ends leaves its reply
+/// where it was"). So with "Working for" opened, where the follow lets go, the line comes down by the reply's first
+/// line plus that 8 when the reply starts. Standing it 16 there instead would move the same 8 to the turn's end.
+export const MARK_LIVE_THOUGHT = 13;
 /// Added to a row's mark (a reply or a tool run) when it opens a turn the agent ran on its own that
 /// draws as its own turn, with no line of its own over it (model.ts `opensBackgroundTurn`): a task
 /// notification started it, not a prompt. It stands the turn gap from the row over it, as a prompt
@@ -401,6 +412,7 @@ export function transcriptGap(previous: number, next: number): number {
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
   if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
   if (next === MARK_LIVE_STEP) return liveStepGap();
+  if (next === MARK_LIVE_THOUGHT) return TRANSCRIPT_RUN_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
@@ -413,7 +425,8 @@ export function transcriptGap(previous: number, next: number): number {
 export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
   last = baseMark(last);
   // The live line in a run has the room under it that a row of its box has: an indicator's, or the footer slot's.
-  if (last === MARK_LIVE_STEP) last = liveGapLook().row === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
+  if (last === MARK_LIVE_STEP || last === MARK_LIVE_THOUGHT)
+    last = liveGapLook().row === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
   beforeLast = baseMark(beforeLast);
   if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;

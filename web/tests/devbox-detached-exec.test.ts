@@ -106,8 +106,43 @@ describe("detachedExec", () => {
         return inner.exec(args);
       },
     };
-    const error = await detachedExec(vm, "sleep 5", { dir: guestDir(), budgetMs: 100, ...fast, graceMs: 200 }).catch((e: unknown) => e);
+    const error = await detachedExec(vm, "sleep 5", { dir: guestDir(), budgetMs: 100, ...fast, graceMs: 200, outageMs: 300 }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(DetachedExecLost);
+    expect(String((error as Error).message)).toContain("no poll answered for");
     expect(String((error as Error).message)).toContain("last poll failed: TimeoutError");
+  });
+
+  test("a provider outage that outlasts the budget (run 45960390204) still reads the guest's status", async () => {
+    let failing = true;
+    const inner = localVm();
+    let n = 0;
+    const vm: DetachedExecVm = {
+      async exec(args) {
+        if (++n > 1 && failing) throw Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+        return inner.exec(args);
+      },
+    };
+    setTimeout(() => { failing = false; }, 1_500);
+    const t0 = Date.now();
+    const r = await detachedExec(vm, "sleep 0.2; echo baked", { dir: guestDir(), budgetMs: 300, ...fast, graceMs: 200, outageMs: 5_000 });
+    expect(r).toMatchObject({ code: 0, stdout: "baked" });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1_500);
+  });
+
+  test("a guest that answers with no status past the budget fails at once, outage window or not", async () => {
+    const vm = localVm();
+    const dir = guestDir();
+    // The guest "loses" the command: the start runs, but nothing ever writes status.
+    const lossy: DetachedExecVm = {
+      async exec(args) {
+        if (args.command.includes("nohup")) return vm.exec({ ...args, command: `mkdir -p ${dir} && touch ${dir}/started && echo started` });
+        return vm.exec(args);
+      },
+    };
+    const t0 = Date.now();
+    const error = await detachedExec(lossy, "echo never", { dir, budgetMs: 100, ...fast, graceMs: 200, outageMs: 60_000 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DetachedExecLost);
+    expect(String((error as Error).message)).toContain("the guest lost the command");
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 });

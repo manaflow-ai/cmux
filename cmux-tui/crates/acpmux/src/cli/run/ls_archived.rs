@@ -23,7 +23,7 @@ fn tag_text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 
 /// Whether `row` is archived, as the app reads the tag (`AgentChatDetail.archived`): any value
 /// but empty or `false`.
-pub(super) fn archived(row: &Value) -> bool {
+pub(crate) fn archived(row: &Value) -> bool {
     match tag(row, ARCHIVED_TAG) {
         None => false,
         Some(Value::Bool(b)) => *b,
@@ -37,7 +37,11 @@ fn archived_at(row: &Value) -> Option<u64> {
 }
 
 fn archived_by(row: &Value) -> &'static str {
-    if tag_text(row, ARCHIVED_BY_TAG) == Some("auto") { "auto" } else { "person" }
+    match tag_text(row, ARCHIVED_BY_TAG) {
+        Some("auto") => "auto",
+        Some("lifecycle") => "lifecycle",
+        _ => "person",
+    }
 }
 
 fn name(row: &Value) -> &str {

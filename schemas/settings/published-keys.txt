@@ -52,6 +52,7 @@ agentPane.display.senderIcon.lead
 agentPane.display.sessionInfo.placement
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
+agentPane.display.streaming
 agentPane.display.subagentOf
 agentPane.display.thinking.glyph
 agentPane.display.thinking.glyphSize
@@ -135,6 +136,7 @@ agents.trust.ownOrgs
 agents.trust.projectRoots
 announcements.enabled
 announcements.fetch
+app.captureScreenshotGlobalHotKey
 app.confirmQuit
 app.globalHotKey
 app.hideDockIconWithoutWindows
@@ -404,6 +406,7 @@ cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
 cloud.useMyClaudeLoginOnMyCloudMachines
 cloud.useMyCodexLoginOnMyCloudMachines
+cloud.useMyGitHubLogin
 computerUse.allowForeground
 computerUse.allowOwnMachines
 computerUse.cursorTag

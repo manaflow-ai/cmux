@@ -77,10 +77,25 @@ done
 [[ "$fps_trials" =~ ^[0-9]{1,2}$ && "$trials" =~ ^[0-9]{1,3}$ && "$samples" =~ ^[0-9]{1,3}$ ]] \
   || { echo "fps-trials=, trials= and samples= are counts" >&2; exit 2; }
 [[ "$inputs" =~ ^(key|click|scroll)(,(key|click|scroll))*$ ]] || { echo "inputs= lists key, click and scroll" >&2; exit 2; }
+# The synthetic sources exist only in bench builds (cmux-rd-host lib.rs: "macOS bench builds"); the NIGHTLY's
+# helper is a release build, so its `serve --source synthetic-still` prints no key, every trial sends the viewer
+# `peer_key: null` and fails "answer line: invalid type: null", and the run ends with no sample at all.
+[[ "$role" == viewer || "$host" != nightly || "$source" != synthetic ]] \
+  || { echo "screen-share-vs-pair.sh: host=nightly needs source=screen (the NIGHTLY's helper has no synthetic source; host=commit runs synthetic)" >&2; exit 2; }
 
 out=artifacts/screen-share-vs-pair
 work=$(mktemp -d "${TMPDIR:-/tmp}/ssvp.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# viewer_done: the host half's /done to the viewer half, once. On every exit after the viewer answered: an early
+# exit 3 (no LAN address, the tools build, the NIGHTLY helper, the rig) left the viewer Mac serving its whole hold-s=.
+viewer_url=""
+viewer_done() {
+  [[ -n "$viewer_url" ]] || return 0
+  python3 -I -c 'import sys, urllib.request
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
+    headers={"X-Eval-Token": open(sys.argv[2]).read().strip()}), timeout=10).close()' "$viewer_url" "$work/peer-token" || true
+  viewer_url=""
+}
+trap 'viewer_done; rm -rf "$work"' EXIT
 mkdir -p "$out"
 self=$(hostname -s)
 self_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
@@ -109,9 +124,11 @@ if [[ -n "$peer_token" ]]; then
 fi
 # The rig root screen-share-vs.py uses on both Macs. Over peer-serve the two steps run in different homes (a
 # worker's step home, the bench account's), so its home-relative default fails "different homes". Absolute, the
-# same on both Macs, per run by the secret token (no other account can claim it first), space-free.
+# same on both Macs, per run by the secret token (no other account can claim it first), space-free. One root only:
+# the source=screen rig listens under $rig_root, and a second --root on the leg (last flag wins) sent every rig
+# ping elsewhere, so the leg failed "the rig is not running" right after `SSVP rig up=1`.
 root_args=()
-[[ -n "$peer_token" ]] && root_args=(--root "/tmp/cmux-ssvp-$(shasum -a 256 "$work/peer-token" | cut -c17-32)")
+[[ -n "$rig_root" ]] && root_args=(--root "$rig_root")
 if [[ "$role" == viewer ]]; then
   [[ -n "$self_ip" ]] || { echo "SSVP no LAN address on $self" | tee -a "$work/probe.txt"; pack; exit 3; }
   echo "SSVP viewer serving $self_ip:$peer_port for ${hold_s} s" | tee -a "$work/probe.txt"
@@ -157,7 +174,8 @@ PY
     sleep 5
   done
   echo "SSVP peer $url out=${got:0:300}" | tee -a "$work/probe.txt"
-  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token" --root "$rig_root")
+  [[ "$got" == "$partner"* ]] && target="$partner" viewer_url="$url" \
+    via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
 fi
 [[ -n "$peer_token" ]] || for t in "$partner" "$partner.local" ${partner_ip:+"$partner_ip"}; do
   got=$(ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new "$t" 'hostname -s' 2>&1 | tail -1)
@@ -257,11 +275,7 @@ if [[ -n "$rig_pid" ]]; then
   kill "$rig_pid" 2>/dev/null; wait "$rig_pid" 2>/dev/null
 fi
 [[ -n "$rig_root" ]] && rm -rf "$rig_root"
-if [[ -n "$peer_token" ]]; then  # the viewer half ends now, not at its hold
-  python3 -I -c 'import sys, urllib.request
-urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
-    headers={"X-Eval-Token": open(sys.argv[2]).read().strip()}), timeout=10).close()' "$url" "$work/peer-token" || true
-fi
+viewer_done  # the viewer half ends now, not at its hold
 echo "SSVP done rc=$rc host=$self ($host) viewer=$partner link=$link inputs=$inputs at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 pack
 [[ "$rc" == 0 ]] || exit 1
