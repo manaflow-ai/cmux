@@ -268,6 +268,24 @@
  "hesselbom-dusk": {
   "mode": "auto"
  },
+ "hiroshige-asukayama": {
+  "mode": "auto",
+  "inset": [
+   0.03,
+   0.05,
+   0.08,
+   0.04
+  ]
+ },
+ "hiroshige-gotenyama": {
+  "mode": "auto",
+  "inset": [
+   0.03,
+   0.04,
+   0.03,
+   0.04
+  ]
+ },
  "hiroshige-hota-coast": {
   "mode": "auto"
  },
@@ -311,6 +329,15 @@
  "hokusai-umezawa": {
   "mode": "auto"
  },
+ "hokusai-yoshino": {
+  "mode": "auto",
+  "inset": [
+   0.0,
+   0.03,
+   0.0,
+   0.02
+  ]
+ },
  "holbein-ambassadors": {
   "mode": "auto"
  },
@@ -331,6 +358,20 @@
  },
  "kandinsky-yellow-red-blue": {
   "mode": "auto"
+ },
+ "kim-hong-do-chuseongbu": {
+  "mode": "crop",
+  "box": [
+   0.3,
+   0.0,
+   0.62,
+   1.0
+  ],
+  "focal": [
+   0.5,
+   0.45
+  ],
+  "quiet": "left"
  },
  "kim-hong-do-samgong": {
   "mode": "auto"
@@ -366,6 +407,23 @@
  "kramskoi-unknown-woman": {
   "mode": "auto"
  },
+ "kuniyoshi-horyukaku": {
+  "mode": "auto"
+ },
+ "kuniyoshi-takiyasha": {
+  "mode": "crop",
+  "box": [
+   0.3,
+   0.0,
+   0.95,
+   1.0
+  ],
+  "focal": [
+   0.4,
+   0.4
+  ],
+  "quiet": "right"
+ },
  "laurence-mckinley": {
   "mode": "auto"
  },
@@ -377,6 +435,15 @@
  },
  "ma-yuan-clouds-green-sea": {
   "mode": "auto"
+ },
+ "ma-yuan-spring-path": {
+  "mode": "auto",
+  "inset": [
+   0.01,
+   0.01,
+   0.045,
+   0.01
+  ]
  },
  "marc-foxes": {
   "mode": "auto"
@@ -498,6 +565,19 @@
   "mode": "auto"
  },
  "schiele-moa": {
+  "mode": "auto"
+ },
+ "sesshu-winter-landscape": {
+  "mode": "side",
+  "side": "right",
+  "inset": [
+   0.03,
+   0.02,
+   0.03,
+   0.02
+  ]
+ },
+ "sin-yun-bok-moonlit-lovers": {
   "mode": "auto"
  },
  "sohlberg-flower-meadow": {

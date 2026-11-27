@@ -89,6 +89,16 @@ public final class MockTerminalSession: TerminalSession {
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
         paintSamples += samples
+        // The DEBUG overlay in the simulator: the "Mac" is in the app, one clock and no wire,
+        // so the whole delta is receive to paint (a real Mac's join comes from hostd).
+        guard TerminalPaintOverlay.enabled, let paint = TerminalPaintTally.receiveToPaint(samples),
+              let last = samples.last, last.count == 3 else { return }
+        let part = TerminalPaintSummary.Part(n: samples.count, p50: paint.p50, p95: paint.p95,
+                                             max: samples.map { $0[2] - $0[1] }.max() ?? paint.p95)
+        let summary = TerminalPaintSummary(lastTotalMs: last[2] - last[1], total: part, phonePaint: part,
+                                           offsetMs: 0, offsetErrorMs: 0)
+        NotificationCenter.default.post(name: TerminalPaintSummary.didArrive, object: self,
+                                        userInfo: ["summary": summary])
     }
     /// DEBUG bench (`tuipan`): input goes the way `DaemonTerminalSession`
     /// sends it, one `send` per main-queue turn with everything Ghostty

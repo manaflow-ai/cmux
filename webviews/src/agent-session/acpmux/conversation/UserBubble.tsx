@@ -31,7 +31,7 @@ import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { PendingDelivery, usePendingShown } from "./PromptDelivery";
+import { PendingDelivery, resendsItself, usePendingShown } from "./PromptDelivery";
 import { ImageIcon, Pencil } from "./icons";
 import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -297,7 +297,7 @@ export function UserBubble({
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || hasAttachment || pending) && (
+        {(!row.failed || resendsItself(row.delivery)) && (text || hasAttachment || pending) && (
           <UserFooter
             className={
               (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
