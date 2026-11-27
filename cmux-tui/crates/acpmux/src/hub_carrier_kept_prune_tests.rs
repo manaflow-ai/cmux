@@ -46,14 +46,20 @@ impl FrameLink for Quiet {
     }
 }
 
-/// A kept circuit to `daemon` in the carrier's relay slot. `idle` zero: it idles out (closed
-/// for good, never reopened) at its first keepalive tick.
-async fn keep(carrier: &Arc<HubCarrier>, daemon: &str, idle: Duration) -> Arc<mux::Mux> {
+/// A kept circuit to `daemon` in the carrier's relay slot, its keepalive every `every`. `idle`
+/// zero: it idles out (closed for good, never reopened) at its first keepalive tick. `Quiet`
+/// never answers a PING, so a circuit meant to stay needs an `every` longer than the test.
+async fn keep(
+    carrier: &Arc<HubCarrier>,
+    daemon: &str,
+    every: Duration,
+    idle: Duration,
+) -> Arc<mux::Mux> {
     let (circuit, _said) = mux::start_dialer(
         Box::new(Quiet),
         carrier.stats.clone(),
         Arc::downgrade(&carrier.alive),
-        Duration::from_millis(5),
+        every,
         idle,
     );
     let slot = carrier.kept.slot(daemon, CircuitLane::Cheap);
@@ -75,7 +81,7 @@ async fn closed(circuits: &[Arc<mux::Mux>]) {
 async fn slots_stay_bounded_by_the_machines_kept_over_a_long_run_of_machines_that_went() {
     let carrier = HubCarrier::new(Arc::new(NoConnect), [7u8; 32], Timings::default());
     // One machine whose circuit is live all along, as a busy peer's is.
-    let live = keep(&carrier, "steady", Duration::from_secs(3600)).await;
+    let live = keep(&carrier, "steady", Duration::from_secs(3600), Duration::from_secs(3600)).await;
     const ROUNDS: usize = 200;
     const PER_ROUND: usize = 50;
     let mut gone: Vec<Weak<mux::Mux>> = Vec::new();
@@ -84,7 +90,15 @@ async fn slots_stay_bounded_by_the_machines_kept_over_a_long_run_of_machines_tha
         // A round of lane machines dialed once each, then left: their circuits idle out.
         let mut circuits = Vec::with_capacity(PER_ROUND);
         for n in 0..PER_ROUND {
-            circuits.push(keep(&carrier, &format!("lane-{round}-{n}"), Duration::ZERO).await);
+            circuits.push(
+                keep(
+                    &carrier,
+                    &format!("lane-{round}-{n}"),
+                    Duration::from_millis(5),
+                    Duration::ZERO,
+                )
+                .await,
+            );
         }
         closed(&circuits).await;
         gone.extend(circuits.iter().map(Arc::downgrade));
