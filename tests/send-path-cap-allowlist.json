@@ -204,6 +204,7 @@
     "cmux-tui/crates/acpmux/src/cli/host_self_update_tui.rs": {"count": 1, "reason": "safe: the self-update download bound for the cmux binary (512 MiB); no user data"},
     "cmux-tui/crates/acpmux/src/cli/join_input.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/cli/run/launch.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/cli/run/session_move_files.rs": {"count": 1, "reason": "safe: MAX_BYTES bounds only the compressed folder bundle carried by session move; an oversized folder remains on the source and the move tells the person to use --cwd or cmux link seed, so no message, prompt or attachment send is refused"},
     "cmux-tui/crates/acpmux/src/cli/ssh_join.rs": {"count": 1, "reason": "safe: keeps at most 64 KiB of the ssh probe's and the join script's stdout (uname, a host key, the script's progress lines) while it is read to its end; it never refuses or truncates a message, prompt or file the person sends"},
     "cmux-tui/crates/acpmux/src/cli/trigger.rs": {"count": 1, "reason": "safe: the platform's trigger-index reply read bound (1 MiB); no user message"},
     "cmux-tui/crates/acpmux/src/cli/trigger_chat.rs": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
