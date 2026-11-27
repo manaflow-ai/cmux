@@ -64,9 +64,11 @@ REPAIR_JIT = "cmux-gcp-repair-jit-x64"
 NIGHTLY_CALLER = "manaflow-ai/cmux/.github/workflows/nightly.yml@refs/heads/nightly-next"
 
 
-def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str | list[str]:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return EPHEMERAL  # classic and RC: their rate-limit waits must not hold the mini
+    if name == "nightly-next-deltas":
+        return [SIGN, MINI]  # both trusted signing and the declared one-mini label
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":

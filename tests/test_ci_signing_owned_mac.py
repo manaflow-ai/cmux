@@ -1600,8 +1600,10 @@ class PresenceConditionTests(unittest.TestCase):
             with self.subTest(runs_on=runs_on):
                 self.assertEqual(self.label_variables(runs_on), ["X", "X"])
 
-    def test_the_nightly_signing_jobs_read_the_mini_only_as_a_condition(self) -> None:
-        """In the tree: every rule 7a job's one-mini read is a presence test, and the label is the signer."""
+    def test_the_nightly_signing_jobs_keep_the_trusted_label_with_a_mini(self) -> None:
+        """A configured mini may narrow the trusted signer pool, never replace its label."""
+        from test_nightly_trusted_routing import evaluate, parse_expression
+
         jobs = workflows()["nightly.yml"]["jobs"]
         seen = 0
         for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
@@ -1612,10 +1614,19 @@ class PresenceConditionTests(unittest.TestCase):
             if "CI_NIGHTLY_MINI" not in runs_on:
                 continue
             seen += 1
-            with self.subTest(job=job_id):
-                self.assertRegex(runs_on, r"vars\.CI_NIGHTLY_MINI\s*!=\s*''\s*&&\s*"
-                                          r"(?:vars\.CI_NIGHTLY_SIGN_RUNNER|'glaeda-trusted-next-signing')")
-                self.assertNotIn("CI_NIGHTLY_MINI", self.label_variables(runs_on))
+            for mini in ('cmux15', 'macos-26', 'untrusted"label'):
+                with self.subTest(job=job_id, mini=mini):
+                    route = evaluate(parse_expression(runs_on[3:-2].strip()), {
+                        'github.repository_owner': 'manaflow-ai',
+                        'github.ref': 'refs/heads/nightly-next',
+                        'needs.decide.outputs.track': 'nightly-next',
+                        'vars.CI_NIGHTLY_MINI': mini,
+                        'vars.CI_NIGHTLY_SIGN_RUNNER': 'glaeda-trusted-next-signing',
+                    })
+                    if isinstance(route, list):
+                        self.assertEqual(route, ['glaeda-trusted-next-signing', 'glaeda-nightly-mini'])
+                    else:
+                        self.assertEqual(route, 'glaeda-trusted-next-signing')
         self.assertGreaterEqual(seen, 6, "one-mini mode is gone from the signing jobs; re-check this test")
 
 

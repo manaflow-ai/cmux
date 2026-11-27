@@ -345,6 +345,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(env.get("CMUX_CI_XCODE_APP"), "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
         self.assertEqual(env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"), "26")
         self.assertNotIn("nightly-next-deltas", str(jobs["published-build"].get("needs")))
+        self.assertNotIn("nightly-next-deltas", str(jobs["wake-nightly-next-tick"].get("needs")))
         steps = job.get("steps") or []
         names = [s.get("name") for s in steps]
         blobs = [yaml.safe_dump(s) for s in steps]
@@ -368,12 +369,20 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual((steps[upload].get("env") or {}).get("DELTAS_ONLY_WHILE_NEWEST"), "1")
         wipe = names.index("Wipe this job's credentials and temp files")
         remove = names.index("Remove this job's checkout, DMG and deltas")
+        readback = names.index("Check the published feed offers deltas")
+        self.assertLess(upload, readback)
+        self.assertLess(readback, wipe)
+        self.assertNotIn("if", steps[readback], "readback requires successful upload")
+        self.assertNotIn("Check the published feed offers deltas", [s.get("name") for s in jobs["wake-nightly-next-tick"]["steps"]])
         self.assertLess(wipe, remove)
         self.assertEqual(steps[wipe].get("working-directory"), ".nightly-next-deltas")
         self.assertEqual(steps[wipe].get("run"), 'bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe')
         self.assertEqual(one_line(steps[wipe].get("if")), "always()")
         prebuilt = next(s for s in steps if s.get("name") == "Point the deltas job at the keyless prebuild")
-        self.assertEqual(prebuilt.get("run"), 'echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"')
+        self.assertLess(names.index(prebuilt['name']), build)
+        self.assertIn('echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"', prebuilt['run'])
+        self.assertIn('echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"', prebuilt['run'],
+                      "mktemp keys must be inside the final wipe even after an interrupted signer")
         # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.
         for step in steps:
             path = (step.get("with") or {}).get("path")
