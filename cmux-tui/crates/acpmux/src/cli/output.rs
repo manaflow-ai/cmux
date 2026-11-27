@@ -184,6 +184,19 @@ fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// Only keyed, durable waiting sends retry these peer-link failures. Before acceptance the
+/// peer may have executed the request, so retry the same prompt id, never an agent-error turn.
+/// Keep this out of the global daemon classifier: creates and other unkeyed effects differ.
+fn waiting_transport_error(error: &anyhow::Error) -> bool {
+    daemon_closed_error(error)
+        || error.downcast_ref::<crate::client::DaemonError>().is_some_and(|error| {
+            matches!(
+                error.0.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str),
+                Some("peer_disconnected" | "peer_unreachable")
+            )
+        })
+}
+
 /// The daemon's shutdown refusal of a create it refused before making anything
 /// (`hub::shutting_down_before_create`): sent again to the next daemon, it can never
 /// make a second session, named or not.
@@ -695,7 +708,12 @@ struct StreamProgress {
 
 /// Answer a pending permission on the caller's behalf when the run policy
 /// says so. Returns true when the turn should be treated as failed.
-async fn auto_answer(client: &Arc<Client>, id: &str, p: &Value, mode: OnPermission) -> bool {
+async fn auto_answer(
+    client: &Arc<Client>,
+    id: &str,
+    p: &Value,
+    mode: OnPermission,
+) -> Result<bool> {
     let pid = p.get("permissionId").and_then(Value::as_str).unwrap_or("");
     let options =
         p.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -707,15 +725,22 @@ async fn auto_answer(client: &Arc<Client>, id: &str, p: &Value, mode: OnPermissi
         .and_then(|o| o.get("optionId").and_then(Value::as_str))
         .map(str::to_owned);
     match mode {
-        OnPermission::Wait => false,
+        OnPermission::Wait => Ok(false),
         OnPermission::Deny | OnPermission::Fail => {
-            let _ = client
+            let answered = client
                 .request(
                     method::MUX_PERMISSION_RESPOND,
                     json!({"sessionId": id, "permissionId": pid, "optionId": reject}),
                 )
                 .await;
-            mode == OnPermission::Fail
+            if let Err(error) = answered
+                && waiting_transport_error(&error)
+            {
+                // A lost answer is not a denial. Reattach and reconcile the same pending ask;
+                // the daemon dedupes an answer that reached it before the link was lost.
+                return Err(error);
+            }
+            Ok(mode == OnPermission::Fail)
         }
     }
 }
@@ -757,7 +782,7 @@ pub(crate) async fn stream_prompt(
         .await
         {
             Ok(()) => return Ok(()),
-            Err(error) if daemon_closed_error(&error) => {
+            Err(error) if waiting_transport_error(&error) => {
                 client =
                     reconnect_prompt(&client, deadline, id, error, &mut reconnect_pause).await?;
                 prompt.resend = true;
@@ -928,10 +953,11 @@ async fn stream_prompt_once(
                     asked += 1;
                     if opts.on_permission != OnPermission::Wait {
                         denied += 1;
-                        // This future only errors when the deadline expires. Use the same
-                        // ownership-aware cancellation as the ordinary timeout branch.
-                        let failed = match before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, opts.on_permission).await) }).await {
+                        // Transport failures reattach to recover the pending ask; the caller's
+                        // timeout still uses ownership-aware cancellation.
+                        let failed = match before_deadline(deadline, id, auto_answer(&client, id, &p, opts.on_permission)).await {
                             Ok(failed) => failed,
+                            Err(error) if waiting_transport_error(&error) => return Err(error),
                             Err(_) => return Err(timed_out(&client, id, opts, &steered, &mut turn).await),
                         };
                         if failed {
@@ -1210,7 +1236,7 @@ pub(crate) async fn collect_reply(
         match collect_once(client.clone(), id, text, opts, &prompt, deadline).await {
             Ok(r) => return Ok(r),
             Err(e) => {
-                if daemon_closed_error(&e) {
+                if waiting_transport_error(&e) {
                     client =
                         reconnect_prompt(&client, deadline, id, e, &mut reconnect_pause).await?;
                     prompt.resend = true;
@@ -1341,8 +1367,9 @@ async fn collect_once(
                             }
                             mode => {
                                 denied += 1;
-                                let failed = match before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, mode).await) }).await {
+                                let failed = match before_deadline(deadline, id, auto_answer(&client, id, &p, mode)).await {
                                     Ok(failed) => failed,
+                                    Err(error) if waiting_transport_error(&error) => return Err(error),
                                     Err(_) => return Err(timed_out(&client, id, opts, &steered, &mut turn).await),
                                 };
                                 if failed {
@@ -1374,6 +1401,7 @@ async fn collect_once(
         Err(e) if daemon_closed_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
+        Err(e) if waiting_transport_error(&e) => return Err(e),
         Err(e) => return Err(agent_error(&e, id, produced).into()),
     };
     let mut reply = t
@@ -1581,6 +1609,220 @@ mod prompt_tests {
         .await;
         assert!(result.is_err());
         assert!(started.elapsed() <= Duration::from_secs(10));
+    }
+
+    /// Inject the exact RPC errors a remote peer restart returns, while the caller's local
+    /// socket stays open. All other requests/notifications reach a real daemon and fake agent.
+    /// The ordered faults let us cut the foreground before acceptance, then its reattachment.
+    async fn peer_fault_proxy(
+        backend: &std::path::Path,
+        socket: &std::path::Path,
+        failures: Vec<(&'static str, &'static str)>,
+    ) -> (
+        Arc<Client>,
+        Arc<std::sync::Mutex<std::collections::VecDeque<(&'static str, &'static str)>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = crate::server::bind_unix(socket).await.unwrap();
+        let backend = backend.to_owned();
+        let failures = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(failures)));
+        let faults = failures.clone();
+        let serving = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
+            loop {
+                let incoming = tokio::select! {
+                    incoming = listener.accept() => incoming.unwrap().0,
+                    _ = connections.join_next(), if !connections.is_empty() => continue,
+                };
+                let upstream = tokio::net::UnixStream::connect(&backend).await.unwrap();
+                let faults = faults.clone();
+                connections.spawn(async move {
+                    let (incoming, mut outgoing) = incoming.into_split();
+                    let (upstream, mut requests) = upstream.into_split();
+                    let mut input = BufReader::new(incoming).lines();
+                    let mut answers = BufReader::new(upstream).lines();
+                    loop {
+                        tokio::select! {
+                            line = input.next_line() => {
+                                let Ok(Some(line)) = line else { break };
+                                let fault = if let Ok(Message::Request { id, method, .. }) = Message::parse(&line) {
+                                    let mut faults = faults.lock().unwrap();
+                                    if faults.front().is_some_and(|(m, _)| *m == method) {
+                                        let (_, reason) = faults.pop_front().unwrap();
+                                        Some(Message::Response { id, result: None,
+                                            error: Some(crate::rpc::RpcError::internal("peer disconnected")
+                                                .with_data(json!({"reason": reason, "peer": "remote"}))) }.to_line())
+                                    } else { None }
+                                } else { None };
+                                if let Some(fault) = fault {
+                                    if outgoing.write_all(fault.as_bytes()).await.is_err() { break; }
+                                } else if requests.write_all(format!("{line}\n").as_bytes()).await.is_err() { break; }
+                            }
+                            line = answers.next_line() => {
+                                let Ok(Some(line)) = line else { break };
+                                if outgoing.write_all(format!("{line}\n").as_bytes()).await.is_err() { break; }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        (Client::connect(socket).await.unwrap(), failures, serving)
+    }
+
+    /// The local durable receipt preceded a peer reset before the foreground was accepted.
+    /// Recovery must survive a second peer failure during attach, preserving one execution.
+    #[tokio::test]
+    async fn waiting_sends_recover_peer_restart_before_acceptance() {
+        for stream in [false, true] {
+            let (hub, daemon, dir) = daemon().await;
+            let session = daemon
+                .request(
+                    method::SESSION_NEW,
+                    json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+                )
+                .await
+                .unwrap();
+            let id = session["sessionId"].as_str().unwrap();
+            let (client, faults, proxy) = peer_fault_proxy(
+                daemon.socket(),
+                &dir.path().join("peer.sock"),
+                vec![
+                    (method::SESSION_PROMPT, "peer_disconnected"),
+                    (method::MUX_ATTACH, "peer_unreachable"),
+                    (method::SESSION_PROMPT, "peer_disconnected"),
+                ],
+            )
+            .await;
+            let prompt = PromptId::new(None);
+            let opts = CollectOpts {
+                timeout: Some(20),
+                deadline: None,
+                on_permission: OnPermission::Deny,
+                stall_secs: 0,
+                retries: 0,
+                steer: false,
+            };
+            if stream {
+                stream_prompt(
+                    client,
+                    id,
+                    "survived remote restart",
+                    false,
+                    true,
+                    false,
+                    opts,
+                    false,
+                    &prompt,
+                )
+                .await
+                .unwrap();
+            } else {
+                let result = collect_reply(client, id, "survived remote restart", opts, &prompt)
+                    .await
+                    .unwrap();
+                assert_eq!(result.reply, "echo: survived remote restart");
+            }
+            assert!(faults.lock().unwrap().is_empty(), "every restart fault must fire");
+            assert_eq!(
+                hub.events(id, 0, 1000)
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e.kind == "user_message")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                hub.outbox.list(None, 100).0.iter().filter(|d| d.prompt_id() == prompt.id).count(),
+                1
+            );
+            proxy.abort();
+        }
+    }
+
+    /// A transport failure answering an ask must reattach, not mark the unanswered ask seen
+    /// forever while the original prompt's accepted waiter survives the remote restart.
+    #[tokio::test]
+    async fn waiting_sends_recover_peer_restart_while_answering_permission() {
+        for stream in [false, true] {
+            let (hub, daemon, dir) = daemon().await;
+            hub.config.write().await.permission_policy = PermissionPolicy::Ask;
+            let session = daemon
+                .request(
+                    method::SESSION_NEW,
+                    json!({"cwd": std::env::temp_dir(), "mcpServers": []}),
+                )
+                .await
+                .unwrap();
+            let id = session["sessionId"].as_str().unwrap();
+            let (client, faults, proxy) = peer_fault_proxy(
+                daemon.socket(),
+                &dir.path().join("peer.sock"),
+                vec![(method::MUX_PERMISSION_RESPOND, "peer_disconnected")],
+            )
+            .await;
+            let prompt = PromptId::new(None);
+            let opts = CollectOpts {
+                timeout: Some(20),
+                deadline: None,
+                on_permission: OnPermission::Deny,
+                stall_secs: 0,
+                retries: 0,
+                steer: false,
+            };
+            let error = if stream {
+                stream_prompt(
+                    client,
+                    id,
+                    "ask: peer restart permission",
+                    false,
+                    true,
+                    false,
+                    opts,
+                    false,
+                    &prompt,
+                )
+                .await
+                .unwrap_err()
+            } else {
+                collect_reply(client, id, "ask: peer restart permission", opts, &prompt)
+                    .await
+                    .err()
+                    .expect("the recovered permission must be denied")
+            };
+            assert_eq!(
+                error.downcast_ref::<crate::cli::errors::AppError>().map(|e| e.detail.as_str()),
+                Some("all_denied")
+            );
+            assert!(faults.lock().unwrap().is_empty());
+            assert_eq!(last_replies(&daemon, id, 1).await.unwrap(), vec!["chose no"]);
+            assert_eq!(
+                hub.events(id, 0, 1000)
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e.kind == "user_message")
+                    .count(),
+                1
+            );
+            proxy.abort();
+        }
+    }
+
+    #[test]
+    fn peer_wait_retry_is_narrow_and_does_not_change_unkeyed_calls() {
+        for reason in ["peer_disconnected", "peer_unreachable", "no_peer", "permission_denied"] {
+            let error: anyhow::Error = crate::client::DaemonError(
+                crate::rpc::RpcError::internal("peer disconnected")
+                    .with_data(json!({"reason": reason, "retryable": true})),
+            )
+            .into();
+            assert_eq!(
+                waiting_transport_error(&error),
+                matches!(reason, "peer_disconnected" | "peer_unreachable")
+            );
+            assert!(!daemon_closed_error(&error));
+        }
     }
 
     /// A hub with the fake agent behind a real Unix socket, and a client.
