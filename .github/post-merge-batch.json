@@ -106,14 +106,14 @@
       "jobs": {"sweep": "acpmux simulation sweep"}
     },
     "swift-acpmux-protocol": {
-      "workflow": "swift-acpmux-protocol.yml",
+      "workflow": "swift-checks.yml",
       "paths": [
         "Packages/macOS/CmuxNext/Sources/**",
         "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
         "scripts/ci/check-swift-acpmux-protocol.py",
         "scripts/ci/swift-acpmux-protocol-allowlist.txt",
         "tests/test_check_swift_acpmux_protocol.py",
-        ".github/workflows/swift-acpmux-protocol.yml"
+        ".github/workflows/swift-checks.yml"
       ],
       "jobs": {"check": "Swift acpmux calls are in the protocol"}
     },

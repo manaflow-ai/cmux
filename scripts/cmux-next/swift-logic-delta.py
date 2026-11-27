@@ -10,7 +10,7 @@ For a pull request, BASE is the merge base (`git merge-base origin/feat-cmux-nex
 pull request's own share and not what landed on the base branch since it forked. It is a report: it exits 0 whatever
 the delta (a growth is no failure), and nonzero only when it cannot count.
 
-  ... --gate --body-file FILE   the ratchet (.github/workflows/swift-logic-ratchet.yml): exits 1 when the head's
+  ... --gate --body-file FILE   the ratchet (.github/workflows/swift-checks.yml): exits 1 when the head's
                                 swift_logic_lines + mirror_lines is above the base's and FILE (the pull request's
                                 description) has no line `Swift-growth: <reason>`; 0 otherwise, and 0 with a notice
                                 when it cannot count (a count that cannot be made never blocks)

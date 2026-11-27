@@ -417,8 +417,10 @@ jobs:
   swift-logic-ratchet:
     name: Swift logic ratchet
     needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-logic-ratchet.yml') }}
-    uses: ./.github/workflows/swift-logic-ratchet.yml
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-checks.yml') }}
+    uses: ./.github/workflows/swift-checks.yml
+    with:
+      check: ratchet
     permissions:
       contents: read
 
