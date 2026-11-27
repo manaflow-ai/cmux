@@ -42,7 +42,9 @@ pub(in crate::hub) fn review_after_restore(session: &Session) {
     }
     let Some(hub) = session.hub_ref.get().and_then(Weak::upgrade) else { return };
     let id = session.id.clone();
-    tokio::spawn(async move {
+    let owner = hub.clone();
+    // Owned by the hub's scope: its close ends a review still running (check-spawn-owner).
+    owner.scope.spawn_named("inbox review after restore", async move {
         if let Some(session) = hub.session_get(&id) {
             hub.inbox_review(&session);
         }
