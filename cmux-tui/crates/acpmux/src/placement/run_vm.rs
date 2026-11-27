@@ -31,6 +31,7 @@
 //! `$ACPMUX_HOME/run-vm.jsonl` (where it ran, fork and first-output times, files back, exit,
 //! the fallback's cause), which is what the RFD's thresholds are re-measured from.
 
+use super::command_shadow::{Predicted, workload_shape};
 use super::sub_fork::{self, ForkGuard, Machines};
 use super::sub_fork_run::{ForkLink, Frame, Harness, Job};
 use base64::Engine as _;
@@ -135,11 +136,18 @@ pub fn on_in(doc: Option<&serde_json::Value>, env: Option<&str>) -> bool {
 
 /// Whether a heavy `command` goes to a run VM now: run VMs `on`, a Cloud `machine`, a heavy class.
 pub fn goes(on: bool, machine: Option<&str>, command: &str) -> Option<&'static str> {
-    machine.map(str::trim).filter(|m| !m.is_empty())?;
-    if !on {
-        return None;
+    super::exec_router::route(on, machine, command, super::exec_router::Force::Auto)
+}
+
+/// The programs the heavy table names, each once (the exec router's shims, `exec_router.rs`).
+pub fn heavy_programs() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = Vec::new();
+    for (program, _, _) in HEAVY {
+        if !all.contains(program) {
+            all.push(program);
+        }
     }
-    heavy_class(command)
+    all
 }
 
 /// The shell text that runs `command` through `acpmux run-vm` with this binary (`exe` and its
@@ -164,6 +172,9 @@ impl Harness for ShellHarness {
         if let Some(path) = job.path.as_deref().filter(|p| !p.is_empty()) {
             cmd.env("PATH", path);
         }
+        // Decided: a shim under it (a build script's `cc`, `make`'s `cargo`) runs the real
+        // program here, on the run VM, never routes again (`exec_router.rs`).
+        cmd.env(super::exec_router::ROUTED_ENV, "fork");
         // Its own group: dropped mid-run (the stream gone), the child ends the whole command.
         cmd.process_group(0)
             .stdin(cmux_process::Stdio::null())
@@ -203,13 +214,73 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
+/// The fork sizes a run VM can start at, smallest first: (name, vCPU, GiB), the platform's chat
+/// ladder (cmux-platform `Sizes.ts`). A fork never starts smaller than its source.
+const LADDER: &[(&str, f64, f64)] = &[
+    ("sm", 2.0, 4.0),
+    ("md", 4.0, 8.0),
+    ("lg", 8.0, 16.0),
+    ("xl", 16.0, 32.0),
+    ("2xl", 32.0, 64.0),
+];
+
+/// The size a run VM starts at (RFD 0144 piece 8): the smallest ladder size that covers the
+/// predicted shape, the largest when none does, or none when the source's `sm` already covers it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sizing {
+    pub size: &'static str,
+    pub vcpu: f64,
+    pub mem_gib: f64,
+    /// How many of this repository's past runs predicted it; 0 is the class default.
+    pub runs: usize,
+}
+
+/// The run VM's size for what the rows file predicts, when it is above the smallest.
+pub fn sizing(predicted: &Predicted) -> Option<Sizing> {
+    let need = workload_shape(predicted.need?);
+    let (size, vcpu, mem_gib) = LADDER
+        .iter()
+        .find(|(_, vcpu, mem)| *vcpu >= need.vcpu && *mem >= need.mem_gib)
+        .or(LADDER.last())
+        .copied()?;
+    (size != LADDER[0].0).then_some(Sizing { size, vcpu, mem_gib, runs: predicted.runs })
+}
+
+/// The notice row for a sized run VM: what it starts at and why, in place of an ask.
+pub fn sizing_notice(class: &str, sizing: &Sizing) -> String {
+    let from = match sizing.runs {
+        0 => "the usual need of the class".to_owned(),
+        1 => "its last run here".to_owned(),
+        n => format!("its last {n} runs here"),
+    };
+    format!(
+        "[run-vm] {class}: running on a {} vCPU, {} GiB run VM, sized from {from}",
+        sizing.vcpu, sizing.mem_gib
+    )
+}
+
 /// Where a run ended up, one row of `run-vm.jsonl`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
     pub class: String,
+    /// The ladder size the run VM was asked for, when above the source's (RFD 0144 piece 8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
     /// `fork` when it ran on a run VM, `here` when it fell back.
     pub ran: &'static str,
+    /// What sent it: `hook` (Claude Code's Bash call), `shim` (a PATH shim, any process), `cli`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<&'static str>,
+    /// The program it ran (its first word's file name, never its arguments).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// Bytes of file changes the run VM sent back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_bytes: Option<usize>,
+    /// Bytes of output the run VM streamed back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub out_bytes: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fork: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -251,12 +322,18 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     command: &str,
     cwd: &Path,
     path: Option<String>,
+    size: Option<&str>,
     out: &mut (dyn FnMut(&str) + Send),
 ) -> Ran {
     let began = Instant::now();
     let mut row = Row {
         class: class.to_owned(),
+        size: size.map(str::to_owned),
         ran: "here",
+        via: None,
+        program: program_of(command),
+        patch_bytes: None,
+        out_bytes: None,
         fork: None,
         fork_ms: None,
         start_ms: None,
@@ -281,7 +358,7 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     };
     let key = format!("run-vm-{}-{}", std::process::id(), began.elapsed().as_nanos());
     let fork_began = Instant::now();
-    let fork = match machines.fork(machine, &key).await {
+    let fork = match machines.fork_sized(machine, &key, size).await {
         Ok(id) => id,
         Err(e) => return here(row, format!("fork: {e}")),
     };
@@ -358,6 +435,7 @@ async fn stream<L: ForkLink>(
                 }
             }
             Frame::Out(text) => {
+                *row.out_bytes.get_or_insert(0) += text.len() + 1;
                 if !started {
                     started = true;
                     row.first_output_ms = Some(began.elapsed().as_millis() as u64);
@@ -369,6 +447,7 @@ async fn stream<L: ForkLink>(
                 let patch = base64::engine::general_purpose::STANDARD
                     .decode(patch.as_bytes())
                     .map_err(|e| (true, format!("the fork's patch: {e}")))?;
+                row.patch_bytes = Some(patch.len());
                 match sub_fork::apply(checkout, &patch) {
                     Ok(files) => row.files = Some(files),
                     Err(e) => {
@@ -409,43 +488,146 @@ fn write_row(row: &Row) {
     }
     let path = rows_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    bound_rows(&path, ROWS_MAX_BYTES);
+    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
+}
+
+/// The rows file's bound: past it the older half is dropped before the next row.
+pub const ROWS_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Keep `path` under `max` bytes: past it, keep its newer half (whole lines).
+pub fn bound_rows(path: &Path, max: u64) {
+    if std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) <= max {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    // The newer half from the first line start past the middle. Found by bytes, so a middle
+    // that falls inside a multi-byte character cannot panic; just past a '\n' is always a char
+    // boundary, so `get` finds it.
+    let cut = text.len() / 2;
+    let newer = text
+        .as_bytes()
+        .iter()
+        .skip(cut)
+        .position(|&b| b == b'\n')
+        .and_then(|i| cut.checked_add(i)?.checked_add(1))
+        .and_then(|start| text.get(start..))
+        .unwrap_or("");
+    // Made whole: a copy beside it, renamed over it.
+    let _ = crate::home_fs::write(path, newer);
+}
+
+/// The program `command` runs, file name only, never a `VAR=value` or an argument: the first
+/// heavy-table program among its commands, else its first command's.
+pub fn program_of(command: &str) -> Option<String> {
+    let heavy = heavy_programs();
+    let (mut first, mut listed) = (None, None);
+    crate::host_load::for_each_command(command, &mut |argv: &[&str]| {
+        let Some(name) =
+            argv.iter().find(|w| !w.contains('=')).map(|w| w.rsplit('/').next().unwrap_or(w))
+        else {
+            return;
+        };
+        first.get_or_insert_with(|| name.to_owned());
+        if listed.is_none() && heavy.contains(&name) {
+            listed = Some(name.to_owned());
+        }
+    });
+    listed.or(first)
+}
+
+/// A row for a command the conformance switch kept here (`CMUX_EXEC_ROUTE=local`).
+pub fn write_forced_here(command: &str, via: &'static str) {
+    write_row(&Row {
+        class: heavy_class(command).unwrap_or("a command").to_owned(),
+        size: None,
+        ran: "here",
+        via: Some(via),
+        program: program_of(command),
+        patch_bytes: None,
+        out_bytes: None,
+        fork: None,
+        fork_ms: None,
+        start_ms: None,
+        first_output_ms: None,
+        wall_ms: None,
+        files: None,
+        exit: None,
+        fork_deleted: None,
+        cause: Some(format!("{}=local", super::exec_router::FORCE_ENV)),
+    });
 }
 
 /// `acpmux run-vm -- CMD`: run `CMD` on a run VM when it goes there, else here, and exit with
 /// its exit code.
 pub async fn main(command: &str) -> anyhow::Result<i32> {
+    use super::exec_router::{Force, route};
     let machine = sub_fork::this_machine();
-    let class = goes(run_vms_on(), machine.as_deref(), command);
-    let (Some(machine), Some(class)) = (machine, class) else { return run_here(command).await };
-    // The fork backend (cmux-cloud-api) is unix-only: elsewhere every command runs here.
-    #[cfg(not(unix))]
+    let force = Force::from_env();
+    let class = route(run_vms_on(), machine.as_deref(), command, force);
+    if let (Some(machine), Some(class)) = (machine, class)
+        && let Some(exit) = fork_or_here(&machine, class, command, "hook").await?
     {
-        let _ = (machine, class);
-        eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
-        return run_here(command).await;
+        return Ok(exit);
     }
-    #[cfg(unix)]
-    on_cloud(command, machine, class).await
+    if force == Force::Local {
+        write_forced_here(command, "hook");
+    }
+    run_here(command).await
 }
 
-/// `main` once the command goes to a run VM: fork this machine on cmux Cloud and run it there.
+/// Run `command` (a `class`) on a fork of `machine`, its output on this stdout: `Some(exit)` when
+/// it ran there, None when it must run here (the row says why). `via` names what sent it.
+/// The fork backend (cmux-cloud-api) is unix-only: elsewhere every command runs here.
+#[cfg(not(unix))]
+pub async fn fork_or_here(
+    machine: &str,
+    class: &'static str,
+    command: &str,
+    via: &'static str,
+) -> anyhow::Result<Option<i32>> {
+    let _ = (machine, class, command, via);
+    eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
+    Ok(None)
+}
+
+/// Run `command` (a `class`) on a fork of `machine`, its output on this stdout: `Some(exit)` when
+/// it ran there, None when it must run here (the row says why). `via` names what sent it.
 #[cfg(unix)]
-async fn on_cloud(command: &str, machine: String, class: &'static str) -> anyhow::Result<i32> {
+pub async fn fork_or_here(
+    machine: &str,
+    class: &'static str,
+    command: &str,
+    via: &'static str,
+) -> anyhow::Result<Option<i32>> {
     let machines = match sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok()) {
         Ok(m) => Arc::new(m),
         Err(e) => {
             eprintln!("[run-vm] ran here: {e}");
-            return run_here(command).await;
+            return Ok(None);
         }
     };
     let link = super::sub_fork_run::CloudLink::new(machines.request.clone());
     let cwd = std::env::current_dir()?;
-    eprintln!("[run-vm] {class}: running on a fork of this machine");
+    // AutoCloud sizes the run VM from the shadow table; without it, the source's size.
+    let sized = super::auto_cloud_on()
+        .then(|| {
+            let repo = cwd.to_string_lossy();
+            sizing(&super::command_sampler::predict_from_file(
+                &super::command_sampler::file_path(),
+                &repo,
+                command,
+            ))
+        })
+        .flatten();
+    match &sized {
+        Some(s) => eprintln!("{}", sizing_notice(class, s)),
+        None => eprintln!("[run-vm] {class}: running on a fork of this machine"),
+    }
     let mut stdout = tokio::io::stdout();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let mut push = move |l: &str| {
@@ -454,11 +636,12 @@ async fn on_cloud(command: &str, machine: String, class: &'static str) -> anyhow
     let run = on_fork(
         machines,
         &link,
-        &machine,
+        machine,
         class,
         command,
         &cwd,
         std::env::var("PATH").ok(),
+        sized.map(|s| s.size),
         &mut push,
     );
     tokio::pin!(run);
@@ -477,19 +660,21 @@ async fn on_cloud(command: &str, machine: String, class: &'static str) -> anyhow
     }
     stdout.flush().await?;
     match ran {
-        Ran::Done { exit, row } => {
+        Ran::Done { exit, mut row } => {
+            row.via = Some(via);
             write_row(&row);
             eprintln!(
                 "[run-vm] ran on a run VM: exit {exit}, {} file(s) back, {} s",
                 row.files.unwrap_or(0),
                 row.wall_ms.unwrap_or(0) / 1000
             );
-            Ok(exit)
+            Ok(Some(exit))
         }
-        Ran::Here { row } => {
+        Ran::Here { mut row } => {
+            row.via = Some(via);
             eprintln!("[run-vm] ran here: {}", row.cause.as_deref().unwrap_or("no run VM"));
             write_row(&row);
-            run_here(command).await
+            Ok(None)
         }
     }
 }
@@ -499,12 +684,18 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     let command = command.to_owned();
     // The command's own terminal streams: it runs here exactly as the agent asked.
     let status = tokio::task::spawn_blocking(move || {
-        cmux_process::Command::new("/bin/sh").arg("-c").arg(command).status()
+        cmux_process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(command)
+            // Decided: a shim under it runs the real program here (`exec_router.rs`).
+            .env(super::exec_router::ROUTED_ENV, "here")
+            .status()
     })
     .await??;
     Ok(exit_code(status))
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "run_vm_tests.rs"]
 mod tests;

@@ -238,6 +238,7 @@ export default componentEntry<Props>({
       play: runRestartAfterTurn,
     },
     "update-failed": {
+      // retry-prompt-ok: Try Again runs the agent's updater again (an install).
       note: "A failed update says so in one plain line, with Update in Terminal and Try Again; npm's own words wait under Details with Copy error.",
       props: { health: outdated, updater: "fails" },
       play: runFailed,

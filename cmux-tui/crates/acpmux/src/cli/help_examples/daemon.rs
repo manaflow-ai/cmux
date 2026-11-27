@@ -131,6 +131,31 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
         ],
     ),
+    (
+        "daemon history-delete",
+        &[
+            (
+                "Preview the chats a delete pass would remove",
+                "acpmux daemon history-delete --dry-run",
+            ),
+            (
+                "Delete chats unchanged over 180 days, exporting each first",
+                "acpmux daemon history-delete --older-than-days 180 --export ~/chat-export",
+            ),
+            (
+                "List Recently deleted: chats that can still be restored",
+                "acpmux daemon history-delete --deleted",
+            ),
+            ("Restore a deleted chat", "acpmux daemon history-delete --restore review-27310"),
+        ],
+    ),
+    (
+        "daemon history-offload",
+        &[(
+            "List old archived chats cloud history would take",
+            "acpmux daemon history-offload --dry-run",
+        )],
+    ),
     ("daemon schema", &[("Print the RPC schema as JSON", "acpmux daemon schema")]),
     (
         "daemon models",

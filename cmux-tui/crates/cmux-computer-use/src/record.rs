@@ -449,7 +449,11 @@ fn fit(raw: &RawFrame, max_edge: u32) -> RawFrame {
             let sx = x.min(w as usize - 1);
             let from = (sy * w as usize + sx) * 4;
             let to = (y * even_w as usize + x) * 4;
-            out[to..to + 4].copy_from_slice(&rgba[from..from + 4]);
+            // A frame shorter than its size leaves the missing pixels black.
+            let (Some(dst), Some(src)) = (out.get_mut(to..to + 4), rgba.get(from..from + 4)) else {
+                continue;
+            };
+            dst.copy_from_slice(src);
         }
     }
     RawFrame {

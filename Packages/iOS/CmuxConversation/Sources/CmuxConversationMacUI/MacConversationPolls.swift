@@ -406,6 +406,7 @@ extension MacConversationViewController {
         guard let window = view.window else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "conversation.poll.voteFailed", defaultValue: "Poll vote failed.", bundle: .module)
+        // retry-prompt-ok: re-sends the person's vote
         alert.informativeText = String(localized: "conversation.poll.voteFailedDescriptionMac", defaultValue: "Your vote was not sent. Click “Try Again” to resend your vote.", bundle: .module)
         alert.addButton(withTitle: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module))
         alert.addButton(withTitle: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module))

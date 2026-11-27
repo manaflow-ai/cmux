@@ -114,6 +114,7 @@ impl Keymap {
             ("model", "ctrl+l,alt+m,<leader>m"),
             ("mode", "ctrl+o,<leader>a"),
             ("effort", "alt+e"),
+            ("plan", "alt+shift+p"),
             ("policy", "alt+p"),
             ("cwd", "alt+shift+d,<leader>d"),
             ("skills", "<leader>k"),

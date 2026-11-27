@@ -7,7 +7,6 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { appendThought, mergeToolItem } from "../direct";
 import { SubagentFold } from "../subagents/subagentFold";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { firstStepCount, stepProbe } from "./toolGroupRowModel";
 import { FindReveal, type FindRevealTarget } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
@@ -168,7 +167,11 @@ for (const [kind, toolKind] of GROUP_KINDS)
         expect(ids()).toEqual(allIds);
         expect(container.textContent).toContain(`chunk-${chunk}`);
       }
-      row = { ...row, version: row.version + 1, items: appendThought(row.items!, "Inspect the next sample.", 1_000) };
+      row = {
+        ...row,
+        version: row.version + 1,
+        items: appendThought(row.items!, "Inspect the next sample.", 1_000),
+      };
       rendered.length = 0;
       await act(async () => root!.render(<ToolRows row={row} sessionId={`stream-${kind}`} />));
       expect(rendered).toEqual([]);
@@ -186,7 +189,14 @@ for (const [kind, toolKind] of GROUP_KINDS.filter(([kind]) => kind !== "reads"))
     let seq = 0;
     const feed = (update: Record<string, unknown>, acpmux: Record<string, unknown>) => {
       seq += 1;
-      fold.reduce({ seq, at: seq * 1_000, msg: { params: { update, _meta: { acpmux } } } }, update);
+      fold.reduce(
+        {
+          seq,
+          at: seq * 1_000,
+          msg: { params: { update, _meta: { acpmux } } },
+        },
+        update,
+      );
     };
     feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "parent", parent: null, name: "Sample parent" }] });
     feed(
@@ -199,7 +209,10 @@ for (const [kind, toolKind] of GROUP_KINDS.filter(([kind]) => kind !== "reads"))
         feed(
           {
             sessionUpdate: "agent_thought_chunk",
-            content: { type: "text", text: "Inspect every sample before choosing the next check." },
+            content: {
+              type: "text",
+              text: "Inspect every sample before choosing the next check.",
+            },
           },
           { subagent: nestedId },
         );
@@ -222,7 +235,9 @@ for (const [kind, toolKind] of GROUP_KINDS.filter(([kind]) => kind !== "reads"))
         title: "Stream sample",
         kind: toolKind,
         status: "in_progress",
-        rawInput: { command: toolKind === "execute" ? "echo nested" : undefined },
+        rawInput: {
+          command: toolKind === "execute" ? "echo nested" : undefined,
+        },
         content: { type: "text", text: "nested-0" },
       },
       { subagent: nestedId },
@@ -324,7 +339,10 @@ test("a failed step of an opened command group opens to its command, Exit code 1
     },
   });
   const items: AcpmuxActivity[] = [
-    shell("bg-done", "Find the retry references", { background: { state: "completed", endedAt: 2 }, output: "a\n" }),
+    shell("bg-done", "Find the retry references", {
+      background: { state: "completed", endedAt: 2 },
+      output: "a\n",
+    }),
     shell("failed", "Count the retry fixture cases", {
       status: "failed",
       output: "Exit code 1\nls: fixtures/retry-cases.json: No such file or directory",
@@ -403,7 +421,10 @@ for (const agentFamily of ["claude", "codex"])
     const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
     const { turnView } = await import("./turns");
     const projected = await underLiveTurnArm("line", async () =>
-      turnView(mixedToolTurnFixture(true), new Set(["worked-mixed-prompt"]), { agentFamily, working: true }),
+      turnView(mixedToolTurnFixture(true), new Set(["worked-mixed-prompt"]), {
+        agentFamily,
+        working: true,
+      }),
     );
     // The prompt stays; the finished run leaves no row, its work is the turn's one live line.
     expect(projected.some((row) => row.kind === "user")).toBe(true);
@@ -452,7 +473,13 @@ test("an opened mixed run keeps a command's returned image and printed screensho
       {
         kind: "tool",
         text: "Read notes.md",
-        tool: { id: "read-notes", title: "Read notes.md", kind: "read", status: "completed", output: "notes" },
+        tool: {
+          id: "read-notes",
+          title: "Read notes.md",
+          kind: "read",
+          status: "completed",
+          output: "notes",
+        },
       },
       {
         kind: "tool",
@@ -489,62 +516,47 @@ test("a finished turn whose only work is hidden discovery folds nothing under Wo
   const at = Date.UTC(2026, 10, 4, 0, 0);
   const discovery = mixedToolRunFixture()[2]!;
   const turn: AcpmuxRow[] = [
-    { id: "discovery-prompt", version: 1, kind: "user", at, text: "Which tools can you use?" },
-    { id: "discovery-activity", version: 1, kind: "activity", at: at + 1000, items: [discovery], toolCount: 0 },
-    { id: "discovery-answer", version: 1, kind: "assistant", at: at + 2000, text: "The repo tools." },
-    { id: "discovery-summary", version: 1, kind: "turnSummary", at: at + 3000, status: "completed", toolCount: 0 },
+    {
+      id: "discovery-prompt",
+      version: 1,
+      kind: "user",
+      at,
+      text: "Which tools can you use?",
+    },
+    {
+      id: "discovery-activity",
+      version: 1,
+      kind: "activity",
+      at: at + 1000,
+      items: [discovery],
+      toolCount: 0,
+    },
+    {
+      id: "discovery-answer",
+      version: 1,
+      kind: "assistant",
+      at: at + 2000,
+      text: "The repo tools.",
+    },
+    {
+      id: "discovery-summary",
+      version: 1,
+      kind: "turnSummary",
+      at: at + 3000,
+      status: "completed",
+      toolCount: 0,
+    },
   ];
   for (const agentFamily of ["codex", "claude"]) {
     const projected = turnView(turn, new Set(), { agentFamily });
-    expect(projected.some((row) => row.kind === WORKED)).toBe(false);
+    // The reply-only turn keeps its closed line (a heading holds its place), over no row.
+    expect(projected.filter((row) => row.kind === WORKED).every((row) => row.foldOpen === false)).toBe(true);
     expect(projected.some((row) => row.kind === "activity")).toBe(false);
     expect(projected.some((row) => row.text === "The repo tools.")).toBe(true);
   }
 });
 
-test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {
-  const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
-    ...item,
-    tool: { ...item.tool!, id: `execute-long-${at + 1}` },
-  }));
-  // The draws after the fold wait here until the test runs them, however soon their timer fires.
-  const held: (() => void)[] = [];
-  stepProbe.hold = (draw) => void held.push(draw);
-  try {
-    const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="long-run" folded />);
-    const line = container.querySelector<HTMLButtonElement>('button[data-tool-group="long-run"]')!;
-    expect(line.getAttribute("aria-expanded")).toBe("false");
-    const first = firstStepCount(window.innerHeight);
-    expect(first).toBeLessThan(100);
-    await act(async () => line.click());
-    const steps = () => container.querySelectorAll('[data-tool-group-items="long-run"] > .cv-step').length;
-    // The click's frame draws a window's worth, and a box for the rest.
-    expect(steps()).toBe(first);
-    expect(container.querySelector("[data-steps-rest]")?.getAttribute("data-steps-rest")).toBe(String(100 - first));
-    // After the fold (none plays in a test DOM), a window's worth per draw until every step is drawn.
-    for (let tries = 0; tries < 100 && steps() < 100; tries++) {
-      const draw = held.shift();
-      if (draw) await act(async () => draw());
-      else await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    }
-    expect(steps()).toBe(100);
-    expect(container.querySelector("[data-steps-rest]")).toBeNull();
-  } finally {
-    stepProbe.hold = undefined;
-  }
-});
-
-test("a run opened by itself (not a click) draws every step at once", async () => {
-  const items = Array.from({ length: 60 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
-    ...item,
-    tool: { ...item.tool!, id: `execute-open-${at + 1}` },
-  }));
-  const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="open-run" />);
-  expect(container.querySelectorAll('[data-tool-group-items="open-run"] > .cv-step').length).toBe(60);
-  expect(container.querySelector("[data-steps-rest]")).toBeNull();
-});
-
-test("Find into a click-opened run still drawing draws every step, its match past the first window", async () => {
+test("Find into a click-opened long run draws the step its match is in, past the window", async () => {
   const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
     ...item,
     tool: { ...item.tool!, id: `execute-find-${at + 1}` },
@@ -559,26 +571,12 @@ test("Find into a click-opened run still drawing draws every step, its match pas
       </FindReveal.Provider>
     );
   }
-  // The rows past the first window wait: the draws after the fold are held, not run.
-  const held: (() => void)[] = [];
-  stepProbe.hold = (draw) => void held.push(draw);
-  try {
-    const container = await render(<Scene />);
-    await act(async () => container.querySelector<HTMLButtonElement>('button[data-tool-group="find-run"]')!.click());
-    const steps = () => container.querySelectorAll('[data-tool-group-items="find-run"] > .cv-step').length;
-    const first = firstStepCount(window.innerHeight);
-    for (let tries = 0; tries < 20 && held.length === 0; tries++)
-      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(held.length).toBeGreaterThan(0);
-    expect(steps()).toBe(first);
-    expect(container.querySelector('[data-tool-id="execute-find-80"]')).toBeNull();
-    await act(async () =>
-      reveal({ rowId: "find-run", card: false, needle: "", repaint: () => {}, toolId: "execute-find-80" }),
-    );
-    expect(steps()).toBe(100);
-    expect(container.querySelector('[data-tool-id="execute-find-80"]')).not.toBeNull();
-    expect(container.querySelector("[data-steps-rest]")).toBeNull();
-  } finally {
-    stepProbe.hold = undefined;
-  }
+  const container = await render(<Scene />);
+  await act(async () => container.querySelector<HTMLButtonElement>('button[data-tool-group="find-run"]')!.click());
+  // The opened run mounts only its window (stepWindow.tsx): step 80 is not drawn yet.
+  expect(container.querySelector('[data-tool-id="execute-find-80"]')).toBeNull();
+  await act(async () =>
+    reveal({ rowId: "find-run", card: false, needle: "", repaint: () => {}, toolId: "execute-find-80" }),
+  );
+  expect(container.querySelector('[data-tool-id="execute-find-80"]')).not.toBeNull();
 });

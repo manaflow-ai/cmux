@@ -163,7 +163,7 @@ final class AgentPageChats {
         CloudStartChat.wireSetup(services)
         tabs.pageChats.cloudSetup = services.cloud.setup
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
-        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }
+        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.openGitHubConnect($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
@@ -196,7 +196,7 @@ final class AgentPageChats {
             // person picked Sandboxed and sent, Cloud is allowed and they are signed in. `account` is the account and team
             // they sent under, read now: the daemon starts the Run only while the app is still on them (CloudDaemon.runSandbox).
             guard services.cloud.isSignedIn, let account = services.cloud.auth.runAccount else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            let team = account.team, api = services.cloud.machineAPI.daemon.sending(as: account) // the Stack team, as followed
+            let team = account.team, api = services.cloud.machineAPI.sending(as: account) // the Stack team, as followed
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }

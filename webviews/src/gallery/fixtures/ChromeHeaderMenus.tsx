@@ -2,6 +2,7 @@
 // l10n-allow-file: design-review fixture labels, not shipped UI.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import "./ChromeHeaderMenus.css";
+import { KeyHint } from "../../ui/KeyHint";
 
 export type ChromeMenuId = "title" | "pane" | "developer" | null;
 export type ChromePaneKind = "agent" | "browser" | "terminal";
@@ -381,7 +382,7 @@ export function ChromeHeaderMenus({
             >
               <GlyphIcon glyph={item.glyph} />
               <span>{item.label}</span>
-              {item.shortcut && <kbd>{item.shortcut}</kbd>}
+              {item.shortcut && <KeyHint keys={item.shortcut} />}
               {item.children && (
                 <span className="chrome-header-menu-arrow" aria-hidden>
                   ›
