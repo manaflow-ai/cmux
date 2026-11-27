@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "backgroundTasks.noOutputYet" : {
-      "comment" : "Agent pane: a background command's card while it has printed nothing yet",
+    "composer.envCloudChecking" : {
+      "comment" : "Agent pane: machine control and machine list notice while the app reads the Cloud machines again before acting on a machine from the list kept from the last launch",
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No output yet"
-          }
-        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد مخرجات بعد"
+            "value" : "جارٍ التحقق من cmux Cloud…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Još nema izlaza"
+            "value" : "Provjera cmux Cloud…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Intet output endnu"
+            "value" : "Tjekker cmux Cloud…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Noch keine Ausgabe"
+            "value" : "cmux Cloud wird geprüft…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking cmux Cloud…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aún no hay salida"
+            "value" : "Comprobando cmux Cloud…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pas encore de sortie"
+            "value" : "Vérification de cmux Cloud…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ancora nessun output"
+            "value" : "Verifica di cmux Cloud…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "まだ出力はありません"
+            "value" : "cmux Cloud を確認中…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនទាន់មានលទ្ធផលនៅឡើយ"
+            "value" : "កំពុងពិនិត្យ cmux Cloud…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "아직 출력 없음"
+            "value" : "cmux Cloud 확인 중…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen utdata ennå"
+            "value" : "Sjekker cmux Cloud…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Brak danych wyjściowych"
+            "value" : "Sprawdzanie cmux Cloud…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ainda sem saída"
+            "value" : "Verificando o cmux Cloud…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вывода пока нет"
+            "value" : "Проверка cmux Cloud…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่มีเอาต์พุต"
+            "value" : "กำลังตรวจสอบ cmux Cloud…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Henüz çıktı yok"
+            "value" : "cmux Cloud denetleniyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Виводу ще немає"
+            "value" : "Перевірка cmux Cloud…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa có đầu ra"
+            "value" : "Đang kiểm tra cmux Cloud…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "暂无输出"
+            "value" : "正在检查 cmux Cloud…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "尚無輸出"
+            "value" : "正在檢查 cmux Cloud…"
           }
         }
       }
