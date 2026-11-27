@@ -36,7 +36,8 @@ async fn a_long_v1_summary_keeps_required_shapes_without_empty_extra() {
     assert_eq!(extra["cwd"], "/work/project///");
     assert!(extra["lastPrompt"].as_str().unwrap().chars().count() <= TEXT_CHARS);
     assert!(extra["preview"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-    assert!(extra.get("forkSeq").is_some());
+    // A null forkSeq says nothing (`said_nothing`); a fork's seq rides on the typed `fork_of`.
+    assert!(extra.get("forkSeq").is_none(), "{extra}");
     assert!(extra.get("spawnedBy").is_none());
     assert!(extra.get("queue").is_none());
     assert!(extra.get("usageStats").is_none());

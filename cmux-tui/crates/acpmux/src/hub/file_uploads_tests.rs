@@ -169,6 +169,56 @@ fn the_cap_leaves_the_frame_room_on_an_old_peers_link() {
     assert!(LEGACY_MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
 }
 
+/// Leo, 2026-11-17: dropping a large file (a screen recording) into a chat never makes the
+/// person wait. A finish of a 512 MiB upload answers once the file has its name, read-only,
+/// with nothing hashed on the way; the store takes it after, and its record and its link to
+/// the stored bytes appear then. Its own process, for a home of its own.
+#[test]
+#[cfg(unix)]
+fn a_large_upload_finishes_without_hashing_and_is_stored_after() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    crate::lost_home_race_tests::isolated(
+        module_path!(),
+        "a_large_upload_finishes_without_hashing_and_is_stored_after",
+        |_| {
+            let size: u64 = 512 << 20;
+            let began = begin("chat-a", &json!({"fileName": "screen.mov", "size": size}));
+            let id = began.unwrap()["uploadId"].as_str().unwrap().to_owned();
+            // Its bytes, sparse: written whole without writing 512 MiB.
+            let part = part_path("chat-a", &id).unwrap();
+            let file = std::fs::OpenOptions::new().write(true).open(&part).unwrap();
+            file.set_len(size).unwrap();
+            drop(file);
+            let params = json!({"uploadId": id, "fileName": "screen.mov", "size": size});
+            store::HASHED.with(|n| n.set(0));
+            let answer = finish("chat-a", &params).unwrap();
+            assert_eq!(store::HASHED.with(std::cell::Cell::get), 0, "the finish hashed");
+            let path = PathBuf::from(answer["path"].as_str().unwrap());
+            assert_eq!(path, finished_path("chat-a", &id, "screen.mov").unwrap());
+            assert_eq!(answer["size"], size);
+            let meta = std::fs::metadata(&path).unwrap();
+            assert_eq!((meta.len(), meta.permissions().mode() & 0o777), (size, 0o400));
+            // The store takes it after: its record, and the stored bytes are this file.
+            let dir = path.parent().unwrap();
+            let stored = || {
+                let record = store::record(dir)?;
+                store::stored_path(&root(), &record.sha256).filter(|p| p.exists())
+            };
+            let by = std::time::Instant::now() + Duration::from_secs(120);
+            while stored().is_none() && std::time::Instant::now() < by {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let record = store::record(dir).expect("the upload's record never appeared");
+            assert_eq!((record.name.as_str(), record.size), ("screen.mov", size));
+            let stored = store::stored_path(&root(), &record.sha256).unwrap();
+            let ino = |p: &Path| std::fs::metadata(p).unwrap().ino();
+            assert_eq!(ino(&stored), ino(&path));
+            assert_eq!(record.sha256, store::sha256_of(&path).unwrap());
+        },
+        |_, _| {},
+    );
+}
+
 /// Forced lost-home races for an upload's finish (#41372 review F3): the home is replaced by
 /// a copy of itself (as restored from the old one) once the writer passed its home check.
 /// The finished file and its stored bytes land in the held home; the new one is never changed.
@@ -200,6 +250,8 @@ mod lost_home {
                 let target = finished_path("chat-a", &id, "f.bin").unwrap();
                 let kept = format!("uploads/chat-a/{id}/f.bin");
                 forced(home, target, seed, Some(&kept), move || {
+                    // The store's writes done before the test looks at the homes.
+                    ADOPT_INLINE.with(|inline| inline.set(true));
                     let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
                     let _ = finish("chat-a", &params);
                 });
@@ -222,6 +274,8 @@ mod lost_home {
                 let target = stored.parent().unwrap().to_path_buf();
                 let kept = stored.strip_prefix(home).unwrap().to_string_lossy().into_owned();
                 forced(home, target, seed, Some(&kept), move || {
+                    // The store's checks on this thread, the hook's own.
+                    ADOPT_INLINE.with(|inline| inline.set(true));
                     let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
                     let _ = finish("chat-a", &params);
                 });
