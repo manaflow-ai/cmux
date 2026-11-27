@@ -267,6 +267,8 @@ mod peer_cache;
 pub(crate) mod peer_cache_disk;
 #[cfg(test)]
 mod peer_cache_disk_tests;
+#[cfg(test)]
+mod peer_cache_writer_tests;
 mod peer_closed_bound;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
@@ -1258,8 +1260,9 @@ pub struct Hub {
     /// a save writes only what changed. Entries are removed with the peer.
     pub(super) peer_cache_writers:
         StdMutex<HashMap<String, Arc<StdMutex<peer_cache_disk::OnDisk>>>>,
-    /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
-    pub(super) cache_write_gate: Arc<StdMutex<()>>,
+    /// The one thread that writes put-off peer caches (`peer_cache.rs`); notice application
+    /// never waits on it.
+    pub(super) cache_writer: Arc<peer_cache::CacheWriter>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
     /// Peer rows `visit_remote_sessions` copied out (`peer_notice_cost_tests.rs`).
@@ -1879,7 +1882,7 @@ impl Hub {
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
-            cache_write_gate: Arc::new(StdMutex::new(())),
+            cache_writer: Default::default(),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
             #[cfg(test)]
