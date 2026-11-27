@@ -336,6 +336,7 @@ impl ResourceOperation {
             Self::CloudPreviewsRefresh => "cloud.previews.refresh",
             Self::CloudPreviewsCreateLink => "cloud.previews.create_link",
             Self::CloudPreviewsRevokeLink => "cloud.previews.revoke_link",
+            Self::CloudArtifactsRead => "cloud.artifacts.read",
             Self::CloudMachineIo => "cloud.machine.io",
             Self::CloudMachineChatAccess => "cloud.machine.chat_access",
             Self::CloudMachineShareChat => "cloud.machine.share_chat",

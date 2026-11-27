@@ -483,6 +483,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
+        | Op::CloudArtifactsRead
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart

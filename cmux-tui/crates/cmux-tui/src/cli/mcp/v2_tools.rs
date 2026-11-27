@@ -208,6 +208,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("browser_import.read", BROWSER_IMPORT_REASON),
     ("language_packs.ensure", LANGUAGE_PACKS_REASON),
+    ("cloud.artifacts.read", CLOUD_API_REASON),
     ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),

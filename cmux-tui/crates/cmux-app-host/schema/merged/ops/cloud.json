@@ -8,6 +8,11 @@
       "risk": "read",
       "digest": "a24f88a2f0799132"
     },
+    "cloud.artifacts.read": {
+      "source": "local",
+      "class": "read",
+      "digest": "b9af125af6a2590d"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",

@@ -698,6 +698,8 @@ pub enum ResourceOperation {
     CloudPreviewsCreateLink,
     #[serde(rename = "cloud.previews.revoke_link")]
     CloudPreviewsRevokeLink,
+    #[serde(rename = "cloud.artifacts.read")]
+    CloudArtifactsRead,
     #[serde(rename = "cloud.machine.io")]
     CloudMachineIo,
     #[serde(rename = "cloud.machine.chat_access")]

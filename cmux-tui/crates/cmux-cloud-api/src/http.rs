@@ -138,6 +138,10 @@ pub(crate) struct Reply {
     pub(crate) header_code: Option<String>,
     /// `Retry-After`: a rate limit's window, in seconds.
     pub(crate) retry_after: Option<String>,
+    /// `Content-Type`, as sent.
+    pub(crate) content_type: Option<String>,
+    /// `X-Artifacts-Commit`: the commit an artifacts read resolved to.
+    pub(crate) commit: Option<String>,
     pub(crate) body: Vec<u8>,
 }
 
@@ -280,16 +284,13 @@ impl Http {
             Ok(Ok(response)) => response,
         };
         let status = response.status().as_u16();
-        let header_code = response
-            .headers()
-            .get("x-cmux-vm-error")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
+        let header = |name: &str| {
+            response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned)
+        };
+        let header_code = header("x-cmux-vm-error");
+        let retry_after = header(reqwest::header::RETRY_AFTER.as_str());
+        let content_type = header(reqwest::header::CONTENT_TYPE.as_str());
+        let commit = header("x-artifacts-commit");
         let body =
             match tokio::time::timeout(timeout, bounded_body(response, crate::MAX_ANSWER_BYTES))
                 .await
@@ -306,7 +307,7 @@ impl Http {
                 }
                 Ok(Ok(bytes)) => bytes,
             };
-        Ok(Reply { status, header_code, retry_after, body })
+        Ok(Reply { status, header_code, retry_after, content_type, commit, body })
     }
 }
 
