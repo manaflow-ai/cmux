@@ -183,7 +183,7 @@ jobs:
       - name: Checkout the base branch's scripts
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -200,7 +200,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the base branch's scripts (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -426,7 +426,7 @@ jobs:
       - name: Checkout the pull request check
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -445,7 +445,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request check (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -525,7 +525,7 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the rate limit helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -623,7 +623,7 @@ jobs:
       - name: Checkout the pull request head (trees only)
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
@@ -640,7 +640,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request head (trees only) (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
@@ -799,7 +799,7 @@ jobs:
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -824,7 +824,7 @@ jobs:
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the publisher (again)
         if: ${{ steps.checkout.outcome == 'failure' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
