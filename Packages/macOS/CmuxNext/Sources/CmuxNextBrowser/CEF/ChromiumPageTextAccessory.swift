@@ -68,12 +68,12 @@ nonisolated enum ChromiumPageTextAccessory {
 
 extension CEFRuntime {
     /// Whether `view`, a Chromium page view, shows a cmux page (a tab with a ``CEFTab/pageThemeSurface``, which only
-    /// the app's page host sets): its window is that page's page window.
+    /// the app's page host sets): a view of that page (``CEFTab/ownsPageView(_:)``: its page window, or its in-tree
+    /// container).
     func showsCmuxPage(_ view: NSView) -> Bool {
-        guard let window = view.window else { return false }
-        return hosts.values.contains { host in
+        hosts.values.contains { host in
             guard let tab = host.visibleTab, tab.pageThemeSurface != nil else { return false }
-            return tab.isPageWindow(window)
+            return tab.ownsPageView(view)
         }
     }
 }
