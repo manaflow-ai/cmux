@@ -104,6 +104,31 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 
 
 class WorkflowShape(unittest.TestCase):
+    def test_callers_forward_status_secrets(self):
+        # Run 45940333376/job 140314249449: the router passed no secrets, so minting the app token
+        # failed and a green gate could not post its status after the repository token hit quota.
+        # Derive the contract from every secret the callee reads, so a new fallback cannot silently
+        # work on dispatch alone. GITHUB_TOKEN is supplied by Actions, not by the caller.
+        secrets = set(re.findall(r"secrets\.([A-Za-z_][A-Za-z_0-9]*)", WORKFLOW.read_text())) - {"GITHUB_TOKEN"}
+        declared = (workflow()[True]["workflow_call"] or {}).get("secrets", {})
+        self.assertTrue(secrets)
+        self.assertEqual(set(declared), secrets)
+        for secret in secrets:
+            self.assertFalse(declared[secret].get("required", False))
+        callers = []
+        for path in sorted(WORKFLOW.parent.glob("*.yml")):
+            if "uses: ./.github/workflows/cmux-next-fast-gates.yml" not in path.read_text():
+                continue
+            for name, caller in yaml.safe_load(path.read_text())["jobs"].items():
+                if caller.get("uses") != "./.github/workflows/cmux-next-fast-gates.yml":
+                    continue
+                callers.append((path.name, name))
+                with self.subTest(workflow=path.name, job=name):
+                    self.assertEqual(caller.get("secrets"), {
+                        secret: "${{ secrets." + secret + " }}" for secret in secrets
+                    })
+        self.assertTrue(callers)
+
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
