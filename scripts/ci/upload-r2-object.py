@@ -10,6 +10,7 @@ import http.client
 import json
 import mimetypes
 import os
+import re
 import signal
 import sys
 import time
@@ -230,6 +231,16 @@ def main() -> int:
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
     parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Read an immutable object and exit without writing. Requires --expected-sha256.",
+    )
+    parser.add_argument(
+        "--expected-sha256",
+        metavar="HEX",
+        help="Expected SHA-256 for --preflight-only",
+    )
+    parser.add_argument(
         "--conflict-exit-code",
         type=int,
         help="With --write-once: exit with this code, with no immutable-r2-conflict annotation, when the "
@@ -258,6 +269,10 @@ def main() -> int:
         parser.error("--file and --cache-control are required for an upload")
     if args.replace_sha256 and args.write_once:
         parser.error("--replace-sha256 and --write-once are exclusive")
+    if args.preflight_only and (not args.expected_sha256 or not re.fullmatch(r"[0-9a-f]{64}", args.expected_sha256)):
+        parser.error("--preflight-only requires a 64-character lowercase --expected-sha256")
+    if args.preflight_only and args.replace_sha256:
+        parser.error("--preflight-only and --replace-sha256 are exclusive")
     if not args.content_type:
         content_type, encoding = mimetypes.guess_type(args.file)
         # A compressed file is not the unencoded type returned by guess_type.
@@ -272,6 +287,18 @@ def main() -> int:
         amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     body_digest = hashlib.sha256(body).hexdigest()
+    if args.preflight_only:
+        amz_date = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE")
+        if not amz_date:
+            amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            present = _read_existing_object(args, amz_date=amz_date, expected_digest=args.expected_sha256)
+        except ImmutableConflict as error:
+            _report_immutable_conflict(error)
+            return 1
+        print(json.dumps({"key": args.key, "expected_sha256": args.expected_sha256,
+                          "present": present, "preflight_only": True}, sort_keys=True))
+        return 0
     if args.dry_run_json:
         request = _build_signed_request(
             args,

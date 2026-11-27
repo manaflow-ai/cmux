@@ -67,6 +67,14 @@ comes from the Actions runs API (`actions: read`, $GH_TOKEN): the newest run of 
 have ended success, skipped or neutral; any other conclusion, a run still going, none at all or an unread answer keeps the
 head's usual tier. A head that merges something else, carries its own commit, or targets another base is unchanged.
 
+One-shot full-ci rule (goal ci-runner-min-per-day-500k): into feat-cmux-next, the `full-ci` label gives the full tier
+only on its own `labeled` event, at the head it was added on, not on every later head. Nothing took the label off, so
+each push and base merge after it re-ran the full suite: over 11-25 09Z..11-26 09Z the 265 open feat-cmux-next PRs
+carrying it spent about 246k GitHub runner-min (27% of PR minutes, about 69 runs per PR). A later head of such a PR
+gets the tier it would get without the label (the land rule's cheap tier until `ready-to-land`), and the land runs
+the full tier at the head it merges, as before. Another base keeps the sticky label. Leo, 2026-11-25: "de facto, im
+asking for 99% fewer minutes of ci time, period."
+
 Land carry rule (goal ci-runner-min-per-day-50k): a `ready-to-land` head into feat-cmux-next that only merges the base
 (GitHub's update-branch, which land asks for, or an agent's own merge of feat-cmux-next) onto a previous head whose
 full tier passed runs the cheap tier, and pr-router.yml carries `cmux/land-tier` success to it. "Passed" means the
@@ -127,7 +135,8 @@ gets it: a later push (`synchronize`) falls back to the usual rule (cheap until 
 landing tier at open, the same minutes as asking to land at open (lane-9's CI-minutes goal: a push after open must not
 pay the tier again). About 12 ask PRs a day. A draft stays cheap. CI_ASK_LANDING=0 turns it off.
 
-Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
+Switches: the repository variable CI_FULL_CI_ONE_SHOT=0 makes `full-ci` sticky again (every head of a labelled PR
+full); the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
@@ -160,6 +169,7 @@ ASK_ID = re.compile(r"\bask-[0-9a-f]{10}\b")
 # The pull_request actions whose head the ask rule hands off: the head at open or at ready, never a later push.
 ASK_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
+ONE_SHOT_VAR = "CI_FULL_CI_ONE_SHOT"  # 0: full-ci is sticky again (the one-shot full-ci rule above)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
 # The full-ci base merge carry rule's reasons: FULL_CARRY_REASON for a workflow that runs nothing (pr_router.land_status
@@ -205,6 +215,18 @@ def labels_of(event: dict) -> set[str]:
         if added:
             labels.add(added)
     return labels
+
+
+def full_ci_applies(event: dict, one_shot: str | None = None) -> bool:
+    """Whether EVENT's head gets the full tier from the `full-ci` label: the label is on the pull request and either
+    this is its own `labeled` event, the base is not feat-cmux-next, or ONE_SHOT (default $CI_FULL_CI_ONE_SHOT, on)
+    is 0. The workflows' `if:` gates read the same three conditions (tests/test_feat_ci_guard_group.py FULL_CI_ON)."""
+    pr = event.get("pull_request") or {}
+    if FULL_CI not in labels_of(event):
+        return False
+    switch = os.environ.get(ONE_SHOT_VAR, "1") if one_shot is None else one_shot
+    return ((switch or "1").strip() == "0" or str((pr.get("base") or {}).get("ref") or "") != LAND_BASE
+            or (event.get("action") == "labeled" and str((event.get("label") or {}).get("name") or "") == FULL_CI))
 
 
 def land_rule_applies(event: dict) -> bool:
@@ -349,13 +371,14 @@ def for_ask(event: dict, switch: str | None = None) -> bool:
     return isinstance(body, str) and bool(ASK_ID.search(body))
 
 
-def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0") -> bool:
+def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0",
+                       one_shot: str | None = None) -> bool:
     """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
-    head into feat-cmux-next (land_rule_applies), without `full-ci`, with both switches on."""
+    head into feat-cmux-next (land_rule_applies), without a `full-ci` that applies (full_ci_applies), with both switches on."""
     labels = labels_of(event)
     return ((carry_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
-            and LAND_LABEL in labels and FULL_CI not in labels)
+            and LAND_LABEL in labels and not full_ci_applies(event, one_shot))
 
 
 def carried(decided: tuple[str, str]) -> bool:
@@ -364,23 +387,24 @@ def carried(decided: tuple[str, str]) -> bool:
 
 
 def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = "0",
-                       labelled_switch: str = "1") -> bool:
+                       labelled_switch: str = "1", one_shot: str | None = None) -> bool:
     """Whether the green-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
-    feat-cmux-next (land_rule_applies) with both switches on, without `full-ci`, and (with LABELLED_SWITCH off, the
-    labelled base merge rule) without `ready-to-land`."""
+    feat-cmux-next (land_rule_applies) with both switches on, without a `full-ci` that applies (full_ci_applies),
+    and (with LABELLED_SWITCH off, the labelled base merge rule) without `ready-to-land`."""
     labels = labels_of(event)
-    held = {FULL_CI} if (labelled_switch or "1").strip() != "0" else {FULL_CI, LAND_LABEL}
+    held = set() if (labelled_switch or "1").strip() != "0" else {LAND_LABEL}
     return ((green_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
-            and not labels & held)
+            and not labels & held and not full_ci_applies(event, one_shot))
 
 
-def rerun_rule_applies(event: dict, rerun_switch: str = "1", land_switch: str = "0") -> bool:
+def rerun_rule_applies(event: dict, rerun_switch: str = "1", land_switch: str = "0",
+                       one_shot: str | None = None) -> bool:
     """Whether the red-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
-    feat-cmux-next (land_rule_applies) with both switches on and without `full-ci`."""
-    labels = labels_of(event)
+    feat-cmux-next (land_rule_applies) with both switches on and without a `full-ci` that applies (full_ci_applies)."""
     return ((rerun_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
-            and event.get("action") == "synchronize" and land_rule_applies(event) and FULL_CI not in labels)
+            and event.get("action") == "synchronize" and land_rule_applies(event)
+            and not full_ci_applies(event, one_shot))
 
 
 def full_carry_rule_applies(event: dict, switch: str = "1") -> bool:
@@ -487,7 +511,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
          labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1",
-         heavy_at_land_switch: str = "0") -> tuple[str, str]:
+         heavy_at_land_switch: str = "0", one_shot: str | None = None) -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`. With HEAVY_AT_LAND_SWITCH on, a full head of a pull
     request from this repository is `cheap` unless its event is the land handoff itself (see heavy_at_land)."""
@@ -495,7 +519,8 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     if (heavy_at_land_switch or "0").strip() not in ("0", "") and same_repo(event) and not land_handoff(event):
         decided = tier(event_name, event, switch, facts, now, idle_switch, land_switch, sync_switch, green_switch,
-                       carry_switch, land_full_switch, labelled_switch, rerun_switch, full_carry_switch)
+                       carry_switch, land_full_switch, labelled_switch, rerun_switch, full_carry_switch,
+                       one_shot=one_shot)
         if decided[0] == "full":
             return "cheap", (f"{HEAVY_AT_LAND_REASON}: heavy jobs run once, on the event that hands this pull "
                              f"request to land (adding `{LAND_LABEL}` or `{FULL_CI}`), not on every push; "
@@ -506,7 +531,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     carried_run = full_carry(facts) if full_carry_rule_applies(event, full_carry_switch) else None
     if carried_run:
         return carried_run
-    if FULL_CI in labels:
+    if full_ci_applies(event, one_shot):
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
     landing = (LAND_LABEL in labels or for_ask(event)) and pr.get("draft") is not True
@@ -515,17 +540,17 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
                         f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
     if (facts and facts.get("base_merge_only") and facts.get("previous_green") is True
-            and green_rule_applies(event, green_switch, land_switch, labelled_switch)):
+            and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)):
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
                         f"run passed: nothing runs until a new commit, {LAND_LABEL} (the land), or {FULL_CI}; "
                         f"{LAND_STATUS} stays pending")
     if (facts and facts.get("same_patch_green") is True
-            and green_rule_applies(event, green_switch, land_switch, labelled_switch)):
+            and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)):
         return "none", (f"this head carries the same change as {str(facts.get('before') or '')[:10]} (rebased or "
                         f"merged onto a newer base), whose every run passed: nothing runs until a new change, "
                         f"{LAND_LABEL} (the land), or {FULL_CI}; {LAND_STATUS} stays pending")
     if (facts and facts.get("base_merge_only") and facts.get("previous_green") is False
-            and facts.get("workflow_passed") is True and rerun_rule_applies(event, rerun_switch, land_switch)):
+            and facts.get("workflow_passed") is True and rerun_rule_applies(event, rerun_switch, land_switch, one_shot)):
         return "none", (f"{RERUN_REASON}: this head only merges the base onto "
                         f"{str(facts.get('previous') or '')[:10]}, where {facts.get('workflow')} passed and another "
                         f"run did not: only what was not green there runs again; {FULL_CI} or {LAND_LABEL} (the "
@@ -536,7 +561,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
                          "by git, not GitHub: the cheap tier runs, and the branch's next commit of its own, "
                          "`full-ci`, or land's update-branch runs the full tier")
     if (landing and facts and facts.get("base_merge_only") and facts.get("previous_landed") is True
-            and carry_rule_applies(event, carry_switch, land_switch)):
+            and carry_rule_applies(event, carry_switch, land_switch, one_shot)):
         return "cheap", (f"{CARRY_REASON}: this head only merges the base onto "
                          f"{str(facts.get('previous') or '')[:10]}, whose full tier passed ({LAND_STATUS} success, "
                          f"every run green): the cheap tier runs and {LAND_STATUS} carries success; a commit of its "
@@ -703,6 +728,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
     carry_switch = os.environ.get("CI_LAND_CARRY", "1")
     labelled_switch = os.environ.get("CI_LABELLED_BASE_MERGE_SKIP", "1")
     rerun_switch = os.environ.get("CI_RED_BASE_MERGE_RERUN", "1")
+    one_shot = os.environ.get(ONE_SHOT_VAR, "1")
     full_carry_switch = os.environ.get("CI_FULL_CI_BASE_MERGE_CARRY", "1")
     heavy_at_land_switch = os.environ.get("CI_HEAVY_AT_LAND", "1")
     labels = labels_of(event)
@@ -713,14 +739,14 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
             facts = {**facts, **full_carry_facts(event, facts)}
             decided = tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch,
                            green_switch, carry_switch, land_full_switch, labelled_switch, rerun_switch,
-                           full_carry_switch)
+                           full_carry_switch, one_shot=one_shot)
             if full_carry(facts):
                 return decided, facts
-    green_wanted = pull and green_rule_applies(event, green_switch, land_switch, labelled_switch)
-    carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch)
-    rerun_wanted = pull and rerun_rule_applies(event, rerun_switch, land_switch)
+    green_wanted = pull and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)
+    carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch, one_shot)
+    rerun_wanted = pull and rerun_rule_applies(event, rerun_switch, land_switch, one_shot)
     wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or carry_wanted
-                        or rerun_wanted) and FULL_CI not in labels)
+                        or rerun_wanted) and not full_ci_applies(event, one_shot))
     facts = head_facts(event) if wanted else None
     if facts and facts.get("base_merge_only") and (green_wanted or rerun_wanted):
         if idle_switch.strip() == "0" or not idle(facts, time.time()):
@@ -742,7 +768,8 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
         runs = runs_at(repo, previous, token) if landed else None
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0", heavy_at_land_switch), facts
+                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0", heavy_at_land_switch,
+                one_shot), facts
 
 
 def _load(path: str) -> dict:
