@@ -587,7 +587,7 @@ mod tests {
         let mut config = config(&home, true);
         config.pass.sessions = vec![crate::policy::Session {
             name: "s".into(),
-            cwd: repo.clone(),
+            cwd: repo,
             open: false,
             archived_checkout: None,
             updated_ms: 0,
