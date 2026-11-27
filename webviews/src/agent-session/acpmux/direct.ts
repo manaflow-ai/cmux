@@ -118,7 +118,7 @@ import {
 } from "./attachParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource, HOLD_ATTACH_CAPABILITY } from "./rows/chatSource";
-import { holdAttach, holdReads } from "./rows/holdKinds";
+import { holdAttach, holdAttachRefused, holdReads } from "./rows/holdKinds";
 import {
   forgetTail,
   keptEvents,
@@ -6659,38 +6659,51 @@ export class AcpmuxDirectClient {
     const attending = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible, undefined, attending) : undefined;
     // `forward: false` drops `afterSeq` (an `undefined` argument would take the default back).
-    const ask = (settled: boolean, forward = true) =>
+    const plainAsk = (settled: boolean, forward = true) =>
       this.typed(
         "_acpmux/attach",
-        hold ??
-          plainAttach(sessionId, {
-            settled,
-            visible,
-            attending,
-            local: guess ? guess.local : this.localOrigin,
-            maxBytes: OPEN_PAGE_BYTES,
-            afterSeq: forward ? afterSeq : undefined,
-          }),
+        plainAttach(sessionId, {
+          settled,
+          visible,
+          attending,
+          local: guess ? guess.local : this.localOrigin,
+          maxBytes: OPEN_PAGE_BYTES,
+          afterSeq: forward ? afterSeq : undefined,
+        }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
     // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
+    const plain = () =>
+      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && afterSeq === undefined
+        ? plainAsk(true).catch((error: unknown) => {
+            if (!settledAttachFailed(error)) throw error;
+            return plainAsk(false);
+          })
+        : plainAsk(false);
+    const sent: SentAttach = { attaching: Promise.resolve(), hold: !!hold };
+    // A host whose params rule does not take `hold` (a page newer than its app) refuses the hold as
+    // malformed: the chat falls to v1 and asks the plain attach, so it opens with no error line
+    // (Leo's NIGHTLY 2026-11-16: every chat on the store said "Something went wrong" after a restart).
     // So too a reconnect's forward attach that a host refuses as malformed (a relay whose params rule
     // does not take `afterSeq`, as every one before Leo's 2026-11-22 report): asked again for the
     // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
     // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
-    const attaching =
-      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
-        ? ask(true).catch((error: unknown) => {
-            if (!settledAttachFailed(error)) throw error;
-            return ask(false);
+    const attaching = hold
+      ? this.typed("_acpmux/attach", hold).catch((error: unknown) => {
+          if (!holdAttachRefused(error)) throw error;
+          console.warn("agent pane: the host refused the row store's hold; the chat opens on v1", error);
+          this.chatRows.holdRefused(sessionId);
+          sent.hold = false;
+          return plain();
+        })
+      : afterSeq !== undefined
+        ? plainAsk(false).catch((error: unknown) => {
+            if (!forwardAttachRefused(error)) throw error;
+            this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
+            return plainAsk(false, false);
           })
-        : !hold && afterSeq !== undefined
-          ? ask(false).catch((error: unknown) => {
-              if (!forwardAttachRefused(error)) throw error;
-              this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
-              return ask(false, false);
-            })
-          : ask(false);
+        : plain();
+    sent.attaching = attaching;
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
@@ -6704,7 +6717,8 @@ export class AcpmuxDirectClient {
       },
       () => settled(),
     );
-    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined, hold: !!hold };
+    sent.reads = reads ? this.startAttachReads(sessionId) : undefined;
+    return sent;
   }
 
   /// The attach asked with the list for a chat that may draw from the store: the switch is asked
@@ -6730,7 +6744,11 @@ export class AcpmuxDirectClient {
         const out = this.sendAttach(sessionId, generation, false, undefined, guess);
         sent.hold = out.hold;
         sent.switched = true;
-        return out.attaching;
+        // A refused hold that fell to v1 clears `out.hold` before its attach settles.
+        return out.attaching.then((result: unknown) => {
+          sent.hold = out.hold;
+          return result;
+        });
       });
     return sent;
   }
