@@ -1810,6 +1810,7 @@ async fn diagnose_per_read_memory() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     report.push(("relay_conn_initialize", rss_kib() - base));
+    report.push(("live_after_init", super::super::queue_gauge::live().len() as u64));
     let base = rss_kib();
     for _ in 0..N {
         let (tx, mut rx) = super::super::relay_connection(&b);
@@ -1819,5 +1820,6 @@ async fn diagnose_per_read_memory() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     report.push(("relay_conn_status", rss_kib() - base));
+    report.push(("live_after_status", super::super::queue_gauge::live().len() as u64));
     eprintln!("RSS_GROWTH_KIB over {N}: {report:?}");
 }
