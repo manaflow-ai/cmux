@@ -3,17 +3,18 @@
 The agent chat's transcript has a look: how far apart its rows sit, how wide its column is, how your
 messages and its cards are drawn, and when times show. A look is data, not code. It is a set of
 token values from one table, and you can change any token without a build or a restart. This page
-covers the two settings keys, the tokens, the shipped looks, and how to ship a look of your own.
+covers the settings keys, the tokens, the shipped looks, and how to ship a look of your own.
 
 The table is `schemas/transcript-look/transcript-look.json`. cmux checks every value against it
 (`cmux settings set`, `cmux theme check`), and the chat draws from the same file.
 
-## Two keys
+## The keys
 
 | Key | Value | Default |
 |---|---|---|
 | `agentPane.display.transcriptLook` | `cmux`, `claude`, `codex` or `studio` | `cmux` |
 | `agentPane.display.transcriptTokens` | an object of token name to value | `{}` |
+| `agentPane.display.streaming` | `words`, `lines` or `instant`: how a reply's text shows as it streams (whole words fading in, whole lines, or as it arrives with no fade) | `words` |
 
 A token's value comes from the first of these that sets it:
 
