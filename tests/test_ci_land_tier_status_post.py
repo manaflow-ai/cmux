@@ -40,6 +40,9 @@ if [ "$2" = rate_limit ]; then
   esac
   exit 0
 fi
+case " $DENY_TOKENS " in *" $GH_TOKEN "*)
+  echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1;;
+esac
 if [ "$RECOVER_AFTER_SLEEP" = 1 ] && [ -s "$SLEEPS" ]; then exit 0; fi
 case " $FAIL_TOKENS " in *" $GH_TOKEN "*)
   echo "$FAIL_MESSAGE" >&2; exit 1;;
@@ -61,8 +64,8 @@ def step(name: str) -> dict:
 class LandTierStatusPost(unittest.TestCase):
     def run_post(self, app_token: str, fail: str, state: str = "success", rounds: str = "",
                  script: str = "", pools: str = "", failure: str = "gh: API rate limit exceeded for installation.",
-                 max_wait: str = "0", reset: str = "4600", app_reset: str = "", recover: bool = False
-                 ) -> tuple[int, list[str], str]:
+                 max_wait: str = "0", reset: str = "4600", app_reset: str = "", recover: bool = False,
+                 deny: str = "") -> tuple[int, list[str], str]:
         script = script or step("Post the land tier status")["run"]
         with tempfile.TemporaryDirectory() as tmp:
             for name, body in {
@@ -82,7 +85,7 @@ class LandTierStatusPost(unittest.TestCase):
                    "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(Path(tmp, "output")), "POOL_TOKENS": pools,
                    "FAIL_MESSAGE": failure, "LAND_STATUS_MAX_WAIT_S": max_wait, "RESET_AT": reset,
                    "APP_RESET_AT": app_reset or reset, "RECOVER_AFTER_SLEEP": "1" if recover else "0",
-                   "SLEEPS": str(Path(tmp, "sleeps"))}
+                   "SLEEPS": str(Path(tmp, "sleeps")), "DENY_TOKENS": deny}
             if rounds:
                 env["LAND_STATUS_ROUNDS"] = rounds
             done = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True, timeout=30)
@@ -200,6 +203,27 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertEqual([c.split()[0] for c in calls], ["app", "job", "app", "job"])
         self.assertEqual(self.sleeps, ["10"])
         self.assertEqual(self.output.strip(), "unposted=true")
+
+    def test_a_spent_budget_names_the_rerun_time(self) -> None:
+        code, _, said = self.run_post("app", fail="app job", state="pending")
+        self.assertEqual(code, 1)
+        self.assertRegex(said, r"rerun after \S+: gh run rerun 123 --failed")
+
+    def test_pool_tokens_without_permission_do_not_block_the_wait(self) -> None:
+        # the regression: job 140277453358 (2026-11-27 02:34Z), cmux-bot and the job token rate limited, both pool
+        # tokens "Resource not accessible by integration": the near-reset wait never ran
+        code, calls, said = self.run_post("app", "app job", deny="pool1 pool2", pools="pool1 pool2",
+                                          max_wait="10", reset="1005", recover=True)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(self.sleeps, ["10"])
+        self.assertEqual(self.probes, ["app", "job"])
+
+    def test_only_permission_refusals_are_not_waited_on(self) -> None:
+        code, _, said = self.run_post("app", fail="", deny="app job", max_wait="60", reset="1005")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.probes, [])
+        self.assertEqual([w for w in self.sleeps if w != "0"], [])  # round backoff only, no reset wait
+        self.assertNotIn("rerun after", said)
 
     def test_every_description_fits_githubs_140_characters(self) -> None:
         # GitHub refuses a longer one ("Description is too long (maximum is 140 characters)", run 45827285472).
