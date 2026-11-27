@@ -561,7 +561,12 @@ elif args[0] == "api":
         if state.get("jobs_read") == "fail":
             server_error()
         emit({"total_count": len(state.get("jobs", {}).get(run_id, [])), "jobs": state.get("jobs", {}).get(run_id, [])})
-    elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
+    elif "POST" in args and endpoint.endswith("/labels"):
+        # The re-pin PR's stack-blocker label (publish-app-ffi-repin.sh stack_blocker_label).
+        names = [a.split("=", 1)[1] for a in args if a.startswith("labels[]=")]
+        state.setdefault("labelled", []).append(endpoint.split("/")[-2]); state.setdefault("label_names", []).append(names)
+        save(); emit([{"name": n} for n in names])
+    elif "/pulls?" in endpoint: emit([{"number": 1, "labels": [{"name": n} for n in state.get("pr_labels", [])]}])  # stale even after auto-close
     elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
@@ -586,7 +591,7 @@ elif args[0] == "api":
     elif "/pulls/" in endpoint:
         if state.get("pr_read") == "fail": server_error()
         number = endpoint.rsplit("/", 1)[1]
-        emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"},
+        emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"}, "mergeable": state.get("mergeable"),
               "head": {"ref": "app-ffi-repin", "sha": "f" * 40 if state["wrong_head"]
                        else state["refs"]["app-ffi-repin"]}})
     else: raise AssertionError(args)
@@ -628,7 +633,7 @@ class RePinPublication(unittest.TestCase):
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
                   rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None, head_runs=(),
-                  head_runs_read="ok"):
+                  head_runs_read="ok", mergeable=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -691,7 +696,7 @@ class RePinPublication(unittest.TestCase):
                 "prs": {"1": "closed" if closed else "open"}, "published": [],
                 "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
                 "wrong_head": wrong_head, "close_on_edit": close_on_edit,
-                "head_age_min": head_age_min, "checks": list(checks), "status": status,
+                "head_age_min": head_age_min, "checks": list(checks), "status": status, "mergeable": mergeable,
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
@@ -754,6 +759,19 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["prs"]["1"], "open")
         self.assertEqual(list(state["refs"]), ["app-ffi-repin"])
 
+    def test_the_re_pin_pull_request_carries_the_stack_blocker_label(self):
+        # Every PR that needs the new FFI waits on the re-pin landing: its CI ranks as a stack blocker (cmux#60275's
+        # compile waited 69 min behind ordinary PR CI). The open PR is labelled before the push, a new one on create,
+        # and a PR that has it already is not labelled again.
+        result, state = self.run_repin()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("labelled"), ["1"])
+        result, state = self.run_repin(closed=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("labelled"), ["1", "2"])
+        # ready-to-land with it: the PR-head compile does not start without it (land-judge on cmux#60965).
+        self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]] * 2)
+
     def test_closed_cached_pr_is_replaced_by_an_open_pr(self):
         result, state = self.run_repin(closed=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -812,12 +830,16 @@ class RePinPublication(unittest.TestCase):
     def test_a_young_head_under_ci_is_kept_not_moved(self):
         # 2026-11-09: #39384 was moved five times in 4.5 hours; each move
         # cancelled its checks, nothing landed, and the pin fell 359 min behind.
-        result, state = self.run_repin(head_age_min=20, checks=("success", "skipped", None))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("kept #1 at cccccccccccc", result.stdout)
-        self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
-        self.assertEqual(state["published"], [])
-        self.assertEqual(state["writes"], 0)
+        for mergeable in (None, True):  # GitHub answers null while it computes mergeability: that holds too
+            with self.subTest(mergeable=mergeable):
+                result, state = self.run_repin(head_age_min=20, checks=("success", "skipped", None), mergeable=mergeable)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["writes"], 0)
+                # A kept PR gets the stack-blocker and ready-to-land labels too (cmux#60965 sat unlabelled).
+                self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]])
 
     def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
         # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
@@ -1010,6 +1032,9 @@ class RePinPublication(unittest.TestCase):
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
             "the PR is closed": {"head_age_min": 20, "closed": True},
+            # 2026-11-27: #60275's head c175a22a conflicted with feat-cmux-next, no check failed, and each re-pin kept
+            # it for the 90 min hold while the app FFI pin sat 182 min behind.
+            "a head that conflicts with the base": {"head_age_min": 20, "checks": ("success",), "mergeable": False},
         }
         for name, options in cases.items():
             with self.subTest(name):
