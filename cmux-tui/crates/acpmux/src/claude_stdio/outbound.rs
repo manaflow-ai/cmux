@@ -157,6 +157,8 @@ impl Translator {
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
+                        // The turn's first request goes out with this line (`model_calls.rs`).
+                        self.model_clock.requested(super::prompt_cache::now_ms());
                         // A new prompt starts a fresh logical turn. A cancelled compaction may
                         // never emit its boundary/result, so clear its live compaction state here
                         // while retaining the separate late-result attribution marker.
