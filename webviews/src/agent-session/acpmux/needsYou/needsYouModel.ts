@@ -95,17 +95,16 @@ export function answerKey(item: NeedsYouItem, choice: NeedsYouAnswer): "y" | "n"
 const TYPES_HERE =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="menu"], [role="listbox"], [role="combobox"]';
 
-/// The answer button a key presses in the list: y or n answers the row that has focus, or the top
-/// row with a lettered answer when the list itself has it. None while a field has the keyboard.
-export function keyedAnswer(
-  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "target"> & {
-    repeat?: boolean;
-    isComposing?: boolean;
-    keyCode?: number;
-    defaultPrevented?: boolean;
-  },
-  panel: Element,
-): HTMLButtonElement | null {
+type KeyedEvent = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "target"> & {
+  repeat?: boolean;
+  isComposing?: boolean;
+  keyCode?: number;
+  defaultPrevented?: boolean;
+};
+
+/// The answer letter a key press is in the list, and the row it was pressed in (the row element with
+/// focus, if any); none while a field has the keyboard.
+export function keyedLetter(event: KeyedEvent): { key: "y" | "n"; row: Element | null } | null {
   if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return null;
   if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
   const key = event.key.toLowerCase();
@@ -113,8 +112,22 @@ export function keyedAnswer(
   const target = event.target as Element | null;
   const element = typeof target?.closest === "function" ? target : null;
   if (element?.closest(TYPES_HERE)) return null;
-  const rows = [...panel.querySelectorAll(".acpmux-needs-you-item")];
-  const row =
-    element?.closest(".acpmux-needs-you-item") ?? rows.find((each) => each.querySelector("[data-answer-key]"));
-  return row?.querySelector<HTMLButtonElement>(`button[data-answer-key="${key}"]:not(:disabled)`) ?? null;
+  return { key, row: element?.closest(".acpmux-needs-you-item") ?? null };
 }
+
+/// A row's enabled answer button for `key`.
+export const answerButton = (row: Element, key: "y" | "n") =>
+  row.querySelector<HTMLButtonElement>(`button[data-answer-key="${key}"]:not(:disabled)`);
+
+/// The answer button a key presses in the list: y or n answers the row that has focus, or the top
+/// row with a lettered answer when the list itself has it. None while a field has the keyboard.
+export function keyedAnswer(event: KeyedEvent, panel: Element): HTMLButtonElement | null {
+  const pressed = keyedLetter(event);
+  if (!pressed) return null;
+  const rows = [...panel.querySelectorAll(".acpmux-needs-you-item")];
+  const row = pressed.row ?? rows.find((each) => each.querySelector("[data-answer-key]"));
+  return row ? answerButton(row, pressed.key) : null;
+}
+
+/// Whether an ask has a y or n answer.
+export const lettered = (item: NeedsYouItem) => item.answers.some((choice) => answerKey(item, choice) !== undefined);

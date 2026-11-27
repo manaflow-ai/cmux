@@ -225,3 +225,22 @@ fn a_call_that_ends_between_two_readings_is_unmeasured_not_zero() {
     let p = shadow.lock().table.predict("/r", "echo", "echo hi", false);
     assert_eq!(p.source, shadow::Source::None);
 }
+
+#[test]
+fn a_process_that_is_not_the_daemon_predicts_from_the_rows_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("command-placer.jsonl");
+    let row = |cpu: f64, peak: f64| {
+        json!({"repo": "/r", "class": "cargo test", "wallS": 100.0,
+               "usage": {"cpuS": cpu, "peakMemGiB": peak}})
+        .to_string()
+    };
+    std::fs::write(&path, format!("{}\n{}\n", row(300.0, 4.0), row(500.0, 6.0))).unwrap();
+    let p = predict_from_file(&path, "/r", "cargo test -p x");
+    assert_eq!(p.runs, 2);
+    let need = p.need.unwrap();
+    assert!((need.vcpu - 5.0).abs() < 1e-9, "the busiest run's cores: {need:?}");
+    assert!((need.mem_gib - 9.0).abs() < 1e-9, "peak with headroom: {need:?}");
+    // Another repository has no history: the class default.
+    assert_eq!(predict_from_file(&path, "/other", "cargo test").runs, 0);
+}
