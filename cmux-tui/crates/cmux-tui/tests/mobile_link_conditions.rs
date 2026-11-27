@@ -13,7 +13,8 @@
 //!   replaces the connection's last one);
 //! - reconnect (profiles whose disruption drops the LAN link): attached to a surface printing every 250 ms, the
 //!   profile's disruption, then the app's policy (the link gives up after 20 s with nothing in;
-//!   an address change redials at once, iOS `NWPathMonitor` -> `path_changed`): a redial and
+//!   an address change or the path coming back redials at once, iOS `NWPathMonitor` ->
+//!   `path_changed`): a redial and
 //!   re-attach. `gap_after_link_back_ms` from the link's return to the first fresh output,
 //!   `gap_total_ms` from the disruption.
 //!
@@ -21,6 +22,12 @@
 //! makes the table. `#[ignore]`d: the script runs it (`--ignored`), not every test run.
 //! Env: `NETCOND_PROFILES` (comma list, default every profile), `NETCOND_SCALES` (1x,10x,100x),
 //! `NETCOND_RUNS` (5), `NETCOND_SEED_BASE` (0), `NETCOND_PROFILES_FILE` (the crate's file).
+//!
+//! The Cloud machine peer: `NETCOND_RELAY=<profile>` puts a second shaped hop between the phone's
+//! link and the daemon, so the daemon stands for the one a Cloud machine runs and the hop for
+//! the relay between the signed-in Mac and that machine (PROTOCOL.md `cloud-acpmux`: the phone
+//! reaches a Cloud machine through the Mac's link to it). Each hop ends its own TCP connection,
+//! as the Mac does. Rows then name both hops: `lte@1+relay-80@1`.
 
 #![cfg(unix)]
 
@@ -65,6 +72,41 @@ fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(default)
 }
 
+/// The second hop of the Cloud machine peer (`NETCOND_RELAY`), if this run has one.
+static RELAY: std::sync::OnceLock<Option<LinkProfile>> = std::sync::OnceLock::new();
+
+fn relay() -> Option<&'static LinkProfile> {
+    RELAY
+        .get_or_init(|| {
+            let name =
+                std::env::var("NETCOND_RELAY").ok().filter(|name| !name.trim().is_empty())?;
+            let file = match std::env::var("NETCOND_PROFILES_FILE") {
+                Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+                Err(_) => ProfileFile::builtin(),
+            };
+            Some(
+                file.get(name.trim())
+                    .unwrap_or_else(|| panic!("no link profile {name} for NETCOND_RELAY"))
+                    .clone(),
+            )
+        })
+        .as_ref()
+}
+
+/// A row's profile: the phone's link, then the relay hop when the peer is a Cloud machine.
+fn label(profile: &LinkProfile) -> String {
+    profile.label(relay())
+}
+
+/// The phone's link to `upstream`, and the relay hop behind it when there is one.
+async fn link(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    seed: u64,
+) -> std::io::Result<(Shaper, Option<Shaper>)> {
+    Shaper::start_through(upstream, profile.clone(), relay(), seed, &Trace::new()).await
+}
+
 fn emit(
     profile: &LinkProfile,
     phase: &str,
@@ -74,17 +116,14 @@ fn emit(
     run: u64,
     seed: u64,
 ) {
-    let row = json!({"surface": "terminal", "profile": format!("{}@{}", profile.name, profile.version),
+    let row = json!({"surface": "terminal", "profile": label(profile),
         "phase": phase, "scale": scale, "metric": metric,
         "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run, "seed": seed});
     println!("NETCOND {row}");
 }
 
 fn error(profile: &LinkProfile, phase: &str, scale: &str, run: u64, what: &str) {
-    println!(
-        "NETCOND-ERROR terminal {}@{} {phase} {scale} run {run}: {what}",
-        profile.name, profile.version
-    );
+    println!("NETCOND-ERROR terminal {} {phase} {scale} run {run}: {what}", label(profile));
 }
 
 fn ms(duration: Duration) -> f64 {
@@ -100,6 +139,9 @@ struct Daemon {
     history: Vec<(String, u64)>,
     /// Prints a tick every 250 ms (the reconnect's live output).
     ticker: u64,
+    /// Streams a line every 20 ms (the streaming duress: output on the link while another
+    /// surface attaches); none in the bytes-per-minute bench.
+    streamer: Option<u64>,
     /// The pane new tabs go in, and the next tab's serial (`Daemon::tab`).
     pane: Value,
     serial: AtomicU64,
@@ -133,7 +175,8 @@ fn surface_of(data: &Value) -> u64 {
 }
 
 impl Daemon {
-    fn start(scales: &[String]) -> Self {
+    /// A fresh daemon (private socket, state and config) and a control client on it.
+    fn launch() -> (Self, SyncClient) {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-netcond-{}-{stamp}", std::process::id()));
@@ -166,15 +209,30 @@ impl Daemon {
             std::thread::sleep(Duration::from_millis(25));
         };
         stream.set_read_timeout(Some(Duration::from_secs(120))).unwrap();
-        let mut client = SyncClient {
+        let client = SyncClient {
             writer: stream.try_clone().unwrap(),
             reader: BufReader::new(stream),
             next: 0,
         };
-        let base = client
-            .call(json!({"cmd": "new-workspace", "name": "netcond", "cols": 120, "rows": 40}));
+        (
+            Self {
+                child,
+                dir,
+                socket,
+                history: Vec::new(),
+                ticker: 0,
+                streamer: None,
+                pane: Value::Null,
+                serial: AtomicU64::new(0x800),
+            },
+            client,
+        )
+    }
+
+    /// The pane that holds `surface`.
+    fn pane_of(client: &mut SyncClient, surface: &Value) -> Value {
         let tree = client.call(json!({"cmd": "list-workspaces"}));
-        let pane = tree["workspaces"]
+        tree["workspaces"]
             .as_array()
             .unwrap()
             .iter()
@@ -182,13 +240,18 @@ impl Daemon {
             .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
             .find(|pane| {
                 pane["tabs"].as_array().into_iter().flatten().any(|tab| {
-                    tab == &base["surface"]
-                        || tab["id"] == base["surface"]
-                        || tab["surface"] == base["surface"]
+                    tab == surface || &tab["id"] == surface || &tab["surface"] == surface
                 })
             })
             .map(|pane| pane["id"].clone())
-            .unwrap_or_else(|| panic!("no pane holds the base surface: {tree}"));
+            .unwrap_or_else(|| panic!("no pane holds the base surface: {tree}"))
+    }
+
+    fn start(scales: &[String]) -> Self {
+        let (mut daemon, mut client) = Self::launch();
+        let base = client
+            .call(json!({"cmd": "new-workspace", "name": "netcond", "cols": 120, "rows": 40}));
+        let pane = Self::pane_of(&mut client, &base["surface"]);
         let mut serial = 0x100_u64;
         let mut tab = |client: &mut SyncClient, script: String| {
             serial += 1;
@@ -209,6 +272,12 @@ impl Daemon {
             &mut client,
             "i=0; while :; do i=$((i+1)); printf 'tick %d\\n' $i; sleep 0.25; done".to_owned(),
         );
+        let streamer = (!scales.is_empty()).then(|| {
+            tab(
+                &mut client,
+                "i=0; while :; do i=$((i+1)); printf 'stream %07d the quick brown fox jumps over the lazy dog\\n' $i; sleep 0.02; done".to_owned(),
+            )
+        });
         // Every history is printed before anything is measured.
         let deadline = std::time::Instant::now() + Duration::from_secs(300);
         for (scale, surface) in &history {
@@ -224,7 +293,11 @@ impl Daemon {
                 std::thread::sleep(Duration::from_millis(200));
             }
         }
-        Self { child, dir, socket, history, ticker, pane, serial: AtomicU64::new(0x800) }
+        daemon.history = history;
+        daemon.ticker = ticker;
+        daemon.streamer = streamer;
+        daemon.pane = pane;
+        daemon
     }
 
     /// A new tab in the bench's pane running `script`; its surface.
@@ -295,10 +368,15 @@ enum Inbound {
     Output { surface: u64, data: Vec<u8>, vt_state: bool },
 }
 
+/// The app's wait after a path change before it redials (cmux-next-ios
+/// LinkController.swift:180 `networkSettle`).
+const NETWORK_SETTLE: Duration = Duration::from_millis(150);
+
 /// One phone channel to the daemon over the shaper.
 struct Conn {
     writer: tokio::net::tcp::OwnedWriteHalf,
-    inbound: mpsc::UnboundedReceiver<(Instant, Inbound)>,
+    /// Each item with when it was read and the bytes read on the connection up to it.
+    inbound: mpsc::UnboundedReceiver<(Instant, u64, Inbound)>,
     next: u64,
     down_bytes: Arc<AtomicU64>,
     up_bytes: u64,
@@ -321,17 +399,20 @@ impl Conn {
             let mut line = String::new();
             loop {
                 line.clear();
-                match lines.read_line(&mut line).await {
+                let read = match lines.read_line(&mut line).await {
                     Ok(0) | Err(_) => return,
-                    Ok(n) => {
-                        counted.fetch_add(n as u64, Ordering::SeqCst);
-                    }
-                }
+                    Ok(n) => n as u64,
+                };
+                let total = counted.fetch_add(read, Ordering::SeqCst) + read;
                 let at = Instant::now();
                 let parsed = serde_json::from_str::<Value>(&line);
                 tapped.lock().unwrap().down(parsed.as_ref().ok(), line.len());
                 let Ok(value) = parsed else { continue };
-                let item = if let Some(id) = value.get("id").and_then(Value::as_u64) {
+                // A `cmux.protocol/2` reply's id is the string `rN` (`Conn::send_resources`).
+                let id = value.get("id").and_then(|id| {
+                    id.as_u64().or_else(|| id.as_str()?.strip_prefix('r')?.parse().ok())
+                });
+                let item = if let Some(id) = id {
                     Inbound::Reply(id, value)
                 } else {
                     let event = value.get("event").and_then(Value::as_str).unwrap_or_default();
@@ -350,7 +431,7 @@ impl Conn {
                         .unwrap_or_default();
                     Inbound::Output { surface, data, vt_state: event == "vt-state" }
                 };
-                if send.send((at, item)).is_err() {
+                if send.send((at, total, item)).is_err() {
                     return;
                 }
             }
@@ -360,6 +441,16 @@ impl Conn {
 
     /// Writes `requests` in one write; returns their ids.
     async fn send(&mut self, requests: Vec<(&str, Value)>) -> std::io::Result<Vec<u64>> {
+        self.send_with_resources(requests, Vec::new()).await
+    }
+
+    /// Writes `requests`, then `operations` as `cmux.protocol/2` requests
+    /// (DaemonClient.resourceRequest's form, id `rN`), in one write; returns every id in order.
+    async fn send_with_resources(
+        &mut self,
+        requests: Vec<(&str, Value)>,
+        operations: Vec<(&str, Value)>,
+    ) -> std::io::Result<Vec<u64>> {
         let mut bytes = Vec::new();
         let mut ids = Vec::new();
         for (cmd, mut params) in requests {
@@ -368,6 +459,18 @@ impl Conn {
             params["cmd"] = json!(cmd);
             let line = params.to_string();
             self.tap.lock().unwrap().up(self.next, cmd, line.len() + 1);
+            bytes.extend_from_slice(line.as_bytes());
+            bytes.push(b'\n');
+            ids.push(self.next);
+        }
+        for (operation, mut params) in operations {
+            self.next += 1;
+            params["machine"] = json!("current");
+            params["session"] = json!("current");
+            let line = json!({"protocol": "cmux.protocol/2", "type": "request",
+                "id": format!("r{}", self.next), "operation": operation, "params": params})
+            .to_string();
+            self.tap.lock().unwrap().up(self.next, operation, line.len() + 1);
             bytes.extend_from_slice(line.as_bytes());
             bytes.push(b'\n');
             ids.push(self.next);
@@ -385,7 +488,7 @@ impl Conn {
     ) -> Option<Value> {
         let deadline = Instant::now() + WAIT;
         loop {
-            let (at, item) =
+            let (at, _, item) =
                 tokio::time::timeout_at(deadline, self.inbound.recv()).await.ok()??;
             match item {
                 Inbound::Reply(got, value) if got == id => return Some(value),
@@ -407,7 +510,7 @@ impl Conn {
     ) -> Option<Instant> {
         let mut seen = Vec::new();
         loop {
-            let (at, item) =
+            let (at, _, item) =
                 tokio::time::timeout_at(deadline, self.inbound.recv()).await.ok()??;
             if let Inbound::Output { surface: got, data, vt_state: is_state } = item {
                 if got != surface || (vt_state && !is_state) {
@@ -478,9 +581,8 @@ impl Bench {
         run: u64,
         seed: u64,
     ) {
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "cold", scale, run, &format!("shaper: {e}")),
         };
         let started = Instant::now();
@@ -594,18 +696,87 @@ impl Bench {
         }
     }
 
-    async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
-        let scale = "1x";
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
-            Err(e) => return error(profile, "reconnect", scale, run, &format!("shaper: {e}")),
+    /// Duress: another surface streams on the link while this one attaches.
+    async fn streaming(
+        &self,
+        profile: &LinkProfile,
+        scale: &str,
+        surface: u64,
+        streamer: u64,
+        run: u64,
+        seed: u64,
+    ) {
+        let phase = "streaming";
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
+            Err(e) => return error(profile, phase, scale, run, &format!("shaper: {e}")),
         };
         let Ok(mut conn) = Conn::open(shaper.addr()).await else {
-            return error(profile, "reconnect", scale, run, "connect failed");
+            return error(profile, phase, scale, run, "connect failed");
+        };
+        if attach(&mut conn, streamer, true).await.is_none()
+            || conn
+                .output(streamer, None, false, Instant::now() + Duration::from_secs(10))
+                .await
+                .is_none()
+        {
+            emit(profile, phase, scale, "first_content_ms", None, run, seed);
+            return error(profile, phase, scale, run, "the stream is not live");
+        }
+        shaper.reset_counters();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let started = Instant::now();
+        match attach(&mut conn, surface, false).await {
+            Some(first) => {
+                emit(
+                    profile,
+                    phase,
+                    scale,
+                    "first_content_ms",
+                    Some(ms(first - started)),
+                    run,
+                    seed,
+                );
+                let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+                emit(profile, phase, scale, "bytes_down", Some(down as f64), run, seed);
+            }
+            None => {
+                emit(profile, phase, scale, "first_content_ms", None, run, seed);
+                error(profile, phase, scale, run, "no first content");
+            }
+        }
+    }
+
+    /// `path_back` (the path-change row, the app's behaviour): a dial from the dark still pending
+    /// when the link comes back is dropped for a new one after `NETWORK_SETTLE`, as the app does
+    /// on its NWPathMonitor event (cmux-next-ios NetworkPathMonitor.swift:55, LinkController.swift
+    /// :180, :193). Without it, on a blackout (the harness-dark-dial row), the harness's own dial
+    /// from the dark rides the shaper's SYN backoff; the app does not do that.
+    async fn reconnect(
+        &self,
+        profile: &LinkProfile,
+        surface: u64,
+        run: u64,
+        seed: u64,
+        path_back: bool,
+    ) {
+        let blackout =
+            matches!(profile.disruption, Some(cmux_fault::shaper::Disruption::Blackout { .. }));
+        let phase = match (path_back, blackout) {
+            (true, _) => "path-change",
+            (false, true) => "harness-dark-dial",
+            (false, false) => "reconnect",
+        };
+        let scale = "1x";
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
+            Err(e) => return error(profile, phase, scale, run, &format!("shaper: {e}")),
+        };
+        let Ok(mut conn) = Conn::open(shaper.addr()).await else {
+            return error(profile, phase, scale, run, "connect failed");
         };
         if attach(&mut conn, surface, true).await.is_none() {
-            return error(profile, "reconnect", scale, run, "first attach failed");
+            return error(profile, phase, scale, run, "first attach failed");
         }
         // Live: a tick has arrived since the attach.
         if conn
@@ -613,7 +784,7 @@ impl Bench {
             .await
             .is_none()
         {
-            return error(profile, "reconnect", scale, run, "the ticker is not live");
+            return error(profile, phase, scale, run, "the ticker is not live");
         }
         let address_change = matches!(
             profile.disruption,
@@ -634,7 +805,7 @@ impl Bench {
                 match timeout(wait.saturating_duration_since(Instant::now()), conn.inbound.recv())
                     .await
                 {
-                    Ok(Some((at, Inbound::Output { surface: got, .. }))) if got == surface => {
+                    Ok(Some((at, _, Inbound::Output { surface: got, .. }))) if got == surface => {
                         if at >= back {
                             break Some(at);
                         }
@@ -652,38 +823,77 @@ impl Bench {
             Some(at) => Some(at),
             None => {
                 drop(conn);
-                match Conn::open(shaper.addr()).await {
-                    Ok(mut new) => attach(&mut new, surface, true).await,
-                    Err(_) => None,
+                let addr = shaper.addr();
+                // The fresh output's time, and the dial's: when it went out, when it opened. The
+                // local connect to the shaper returns at once (it holds the upstream connect, SYN
+                // backoff included), so the dial is open at the first answer through it: the
+                // client-info/identify reply, as chat's is at `initialize`.
+                let dial = move || async move {
+                    let sent = Instant::now();
+                    let mut new = Conn::open(addr).await.ok()?;
+                    let ids = new
+                        .send(vec![("set-client-info", client_info()), ("identify", json!({}))])
+                        .await
+                        .ok()?;
+                    new.reply(*ids.last()?, |_, _, _, _| {}).await?;
+                    let open = Instant::now();
+                    Some((attach(&mut new, surface, false).await?, sent, open))
+                };
+                let now = Instant::now();
+                let got = if path_back && now < back {
+                    match timeout(back - now, dial()).await.ok().flatten() {
+                        Some(got) => Some(got),
+                        None => {
+                            tokio::time::sleep_until(back + NETWORK_SETTLE).await;
+                            dial().await
+                        }
+                    }
+                } else {
+                    dial().await
+                };
+                if let Some((_, sent, open)) = got {
+                    let from_back = if sent >= back { ms(sent - back) } else { -ms(back - sent) };
+                    emit(
+                        profile,
+                        phase,
+                        scale,
+                        "dial_from_link_back_ms",
+                        Some(from_back),
+                        run,
+                        seed,
+                    );
+                    emit(profile, phase, scale, "dial_open_ms", Some(ms(open - sent)), run, seed);
                 }
+                got.map(|(at, _, _)| at)
             }
         };
         let Some(fresh) = fresh else {
             for metric in ["gap_after_link_back_ms", "gap_total_ms"] {
-                emit(profile, "reconnect", scale, metric, None, run, seed);
+                emit(profile, phase, scale, metric, None, run, seed);
             }
-            return error(
-                profile,
-                "reconnect",
-                scale,
-                run,
-                "no fresh output after the link came back",
-            );
+            return error(profile, phase, scale, run, "no fresh output after the link came back");
         };
         emit(
             profile,
-            "reconnect",
+            phase,
             scale,
             "gap_after_link_back_ms",
             Some(ms(fresh.saturating_duration_since(back))),
             run,
             seed,
         );
-        emit(profile, "reconnect", scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
+        emit(profile, phase, scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
+        // The path-change gap split: the app's fixed settle before its redial, then the rest.
+        if phase == "path-change" {
+            let settle = ms(NETWORK_SETTLE);
+            let after = ms(fresh.saturating_duration_since(back));
+            emit(profile, phase, scale, "settle_ms", Some(settle), run, seed);
+            emit(profile, phase, scale, "gap_after_settle_ms", Some(after - settle), run, seed);
+        }
         if let Some(redial) = redial_at {
             emit(
                 profile,
-                "reconnect",
+                phase,
                 scale,
                 "redial_after_drop_ms",
                 Some(ms(redial - dropped)),
@@ -722,17 +932,632 @@ fn terminal_attach_under_link_profiles() {
             for (scale, surface) in &daemon.history {
                 for run in 0..runs {
                     bench.cold_and_warm(profile, scale, *surface, run, seed_base + run).await;
+                    if let Some(streamer) = daemon.streamer {
+                        bench
+                            .streaming(profile, scale, *surface, streamer, run, seed_base + run)
+                            .await;
+                    }
                 }
             }
             if profile.disrupts_lan() {
+                // path-change only differs on a blackout: an address change redials at once.
+                let blackout = matches!(
+                    profile.disruption,
+                    Some(cmux_fault::shaper::Disruption::Blackout { .. })
+                );
                 for run in 0..runs {
-                    bench.reconnect(profile, daemon.ticker, run, seed_base + run).await;
+                    bench.reconnect(profile, daemon.ticker, run, seed_base + run, false).await;
+                    if blackout {
+                        bench.reconnect(profile, daemon.ticker, run, seed_base + run, true).await;
+                    }
                 }
             }
         }
     });
     drop(runtime);
     daemon.stop();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Duress (Leo, 2026-11-22, ask-bb9c69b84e: "testing under duress"): the phone's open path, the
+// Home first window and the terminal reattach, against a daemon that holds many workspaces and a
+// terminal with a long scrollback and output streaming into it while the measurement runs, over
+// the shaped link, next to an idle fixture (no shaper, no stream, small counts) for the 2x check.
+//
+// The requests are the phone's at each daemon (scripts/measure/mobile-open-path.py's forms):
+// - home: WorkspaceSync.prepare's one write: set-client-info, identify, subscribe {tree_events:
+//   deltas}, list-agents, list-workspaces, with {limit: 40} when the daemon's identify lists
+//   `list-workspaces-page-v1` (ListFirstWindow). First content: the last of the five replies.
+// - reattach: DaemonTerminalSession's reattach on a fresh connection, its input lane opening
+//   beside it: resolve-terminal, then set-client-info + identify, then attach-surface (3 round
+//   trips); with `attach-terminal-id-v1` listed, set-client-info, identify and attach-surface
+//   {terminal_id} in one write (1 round trip). First content: the surface's first vt-state;
+//   interactive: a typed key's echo on the attach stream.
+// The phone remembers the capabilities from its earlier connect: a probe identify before the runs.
+//
+// Env: NETCOND_DURESS_PROFILES (lte,lossy-3), NETCOND_RUNS (5), NETCOND_SEED_BASE (0),
+// NETCOND_IDLE_WORKSPACES (5), NETCOND_IDLE_SCROLLBACK (1000), NETCOND_DURESS_WORKSPACES (50),
+// NETCOND_DURESS_SCROLLBACK (10000), NETCOND_DURESS_STREAM_LINES (50 lines of ~80 bytes per
+// 20 ms tick). Rows: profile `none` (no shaper) or `NAME@VERSION`, phase `home` or `reattach`,
+// scale the fixture (`idle` or `duress`), plus phase `fixture` (the daemon's capabilities and the
+// stream's measured rate).
+
+const ATTACH_TERMINAL_ID_CAPABILITY: &str = "attach-terminal-id-v1";
+const FIRST_WINDOW_CAPABILITY: &str = "list-workspaces-page-v1";
+/// ListFirstWindow.limit.
+const FIRST_WINDOW_LIMIT: u64 = 40;
+const INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+const REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// The Mac pane's grid (the phone attaches at COLS x ROWS).
+const MAC_COLS: u64 = 160;
+const MAC_ROWS: u64 = 50;
+
+struct Fixture {
+    name: &'static str,
+    workspaces: u64,
+    scrollback: u64,
+    stream_lines: u64,
+    /// `none` (no shaper) or a link profile.
+    links: Vec<Option<LinkProfile>>,
+}
+
+/// The duress daemon: `workspaces` workspaces, one terminal (by `terminal_id`) with `scrollback`
+/// lines drawn, then output streaming into it until the daemon's directory goes, and `cat`
+/// echoing what is typed.
+struct OpenDaemon {
+    daemon: Daemon,
+    surface: u64,
+    terminal_id: String,
+    capabilities: Vec<String>,
+}
+
+fn duress_emit(link: &str, phase: &str, fixture: &str, metric: &str, value: Option<f64>, run: u64) {
+    let row = json!({"surface": "terminal", "profile": link, "phase": phase, "scale": fixture,
+        "metric": metric, "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run, "seed": run});
+    println!("NETCOND {row}");
+}
+
+fn duress_error(link: &str, phase: &str, fixture: &str, run: u64, what: &str) {
+    println!("NETCOND-ERROR terminal {link} {phase} {fixture} run {run}: {what}");
+}
+
+impl OpenDaemon {
+    fn start(fixture: &Fixture) -> Self {
+        let (mut daemon, mut client) = Daemon::launch();
+        let base = client.call(json!({"cmd": "new-workspace", "name": "netcond-open",
+            "cols": MAC_COLS, "rows": MAC_ROWS}));
+        for index in 1..fixture.workspaces {
+            client.call(json!({"cmd": "new-workspace", "name": format!("netcond-ws-{index}"),
+                "cols": MAC_COLS, "rows": MAC_ROWS}));
+        }
+        let pane = Daemon::pane_of(&mut client, &base["surface"]);
+        daemon.pane = pane.clone();
+        let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x200);
+        // The stream starts once the scrollback is drawn (the go file) and stops when the
+        // daemon's directory is removed, so no writer outlives the bench.
+        let go = daemon.dir.join("stream-go");
+        let go = go.display();
+        let lines = fixture.scrollback;
+        let stream = if fixture.stream_lines > 0 {
+            format!(
+                "(while [ ! -f '{go}' ]; do sleep 0.05; done; exec awk 'BEGIN{{for(n=0;;){{for(i=0;i<{per};i++) printf \"stream %09d an agent build log line streaming into the attached terminal\\n\", n++; fflush(); if (system(\"[ -f {go} ] && sleep 0.02\") != 0) exit}}}}') & ",
+                per = fixture.stream_lines
+            )
+        } else {
+            String::new()
+        };
+        let script = format!(
+            "awk 'BEGIN{{for(i=0;i<{lines};i++) printf \"%07d the quick brown fox jumps over the lazy dog, scrollback line for the mobile link bench\\n\", i}}'; printf 'READY-open\\n'; {stream}exec cat"
+        );
+        let surface = surface_of(&client.call(json!({"cmd": "new-tab", "pane": pane,
+            "terminal_id": terminal_id, "cols": MAC_COLS, "rows": MAC_ROWS,
+            "env": {"SHELL": "/bin/sh"}, "shell_args": ["-c", script]})));
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        loop {
+            let screen = client.call(json!({"cmd": "read-screen", "surface": surface}));
+            if screen.to_string().contains("READY-open") {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the scrollback did not finish drawing");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if fixture.stream_lines > 0 {
+            fs::write(daemon.dir.join("stream-go"), b"go").unwrap();
+        }
+        let capabilities = client.call(json!({"cmd": "identify"}))["capabilities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c.as_str().map(str::to_owned))
+            .collect();
+        Self { daemon, surface, terminal_id, capabilities }
+    }
+
+    fn lists(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|c| c == capability)
+    }
+}
+
+fn lists(capabilities: &Value, capability: &str) -> bool {
+    capabilities.as_array().into_iter().flatten().any(|c| c.as_str() == Some(capability))
+}
+
+/// set-client-info of the phone's setup batch (WorkspaceSync.prepare).
+fn setup_client_info() -> Value {
+    json!({"name": "bench iPhone", "kind": "ios", "device_kind": "iphone",
+        "device_name": "bench iPhone", "device_id": "bench-device-0001",
+        "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]})
+}
+
+/// set-client-info of the phone's attach channel (DaemonTerminalSession).
+fn attach_client_info() -> Value {
+    json!({"name": "bench iPhone", "kind": "ios", "device_kind": "iphone",
+        "device_name": "bench iPhone", "device_id": "bench-device-0001",
+        "capabilities": ["size-lease-v2", "size-lease-v1", "shared-sizing-v1", "host-grid-view-v1"]})
+}
+
+/// attach-surface as the phone sends it to a daemon with `capabilities`.
+fn phone_attach_params(surface: u64, capabilities: &Value) -> Value {
+    let mut params = json!({"surface": surface});
+    if lists(capabilities, INITIAL_SIZE_CAPABILITY) {
+        params["cols"] = json!(COLS);
+        params["rows"] = json!(ROWS);
+    }
+    if lists(capabilities, REPLAY_HISTORY_ROWS_CAPABILITY) {
+        params["replay_history_rows"] = json!(0);
+    }
+    params
+}
+
+/// Until reply `id` is ok and `surface`'s first vt-state came (either order): when, and the
+/// bytes read on the connection up to it.
+async fn first_state(conn: &mut Conn, id: u64, surface: u64) -> Result<(Instant, u64), String> {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
+            .await
+            .map_err(|_| "no vt-state within the bound".to_owned())?
+            .ok_or("the connection closed")?;
+        match item {
+            Inbound::Reply(got, reply) if got == id && reply["ok"] != json!(true) => {
+                return Err(format!("attach-surface failed: {reply}"));
+            }
+            Inbound::Output { surface: got, vt_state: true, .. } if got == surface => {
+                return Ok((at, total));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Until every reply of `ids` came, each ok: when the last did, the bytes up to it, the replies.
+async fn all_replies(conn: &mut Conn, ids: &[u64]) -> Result<(Instant, u64, Vec<Value>), String> {
+    let deadline = Instant::now() + WAIT;
+    let mut pending: Vec<u64> = ids.to_vec();
+    let mut replies = Vec::new();
+    loop {
+        let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
+            .await
+            .map_err(|_| format!("replies {pending:?} missing at the bound"))?
+            .ok_or("the connection closed")?;
+        if let Inbound::Reply(got, reply) = item
+            && let Some(index) = pending.iter().position(|id| *id == got)
+        {
+            if reply["ok"] != json!(true) {
+                return Err(format!("request {got} failed: {reply}"));
+            }
+            pending.remove(index);
+            replies.push(reply);
+            if pending.is_empty() {
+                return Ok((at, total, replies));
+            }
+        }
+    }
+}
+
+struct OpenSample {
+    first_content_ms: f64,
+    interactive_ms: Option<f64>,
+    bytes_down: u64,
+    bytes_up: u64,
+    round_trips: u64,
+    /// home: the workspaces the first window holds.
+    shown: Option<u64>,
+}
+
+/// `list-workspaces-known-v1` (WorkspaceSync.knownCapability): the refresh sends `known`.
+const KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
+
+/// Until every reply of `ids` came, the first `must_ok` of them ok (the arrangement reads after
+/// them are best effort, as on the phone): when the last came and the bytes read up to it.
+async fn answered(conn: &mut Conn, ids: &[u64], must_ok: usize) -> Result<(Instant, u64), String> {
+    answered_keeping(conn, ids, must_ok, None).await.map(|(at, total, _)| (at, total))
+}
+
+/// `answered`, also returning the reply to `keep` (Null when not asked).
+async fn answered_keeping(
+    conn: &mut Conn,
+    ids: &[u64],
+    must_ok: usize,
+    keep: Option<u64>,
+) -> Result<(Instant, u64, Value), String> {
+    let deadline = Instant::now() + WAIT;
+    let mut pending: Vec<u64> = ids.to_vec();
+    let mut kept = Value::Null;
+    loop {
+        let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
+            .await
+            .map_err(|_| format!("replies {pending:?} missing at the bound"))?
+            .ok_or("the connection closed")?;
+        if let Inbound::Reply(got, reply) = item
+            && let Some(index) = pending.iter().position(|id| *id == got)
+        {
+            if ids[..must_ok].contains(&got) && reply["ok"] != json!(true) {
+                return Err(format!("request {got} failed: {reply}"));
+            }
+            if keep == Some(got) {
+                kept = reply;
+            }
+            pending.remove(index);
+            if pending.is_empty() {
+                return Ok((at, total, kept));
+            }
+        }
+    }
+}
+
+/// The Workspaces list settled (the Mac's order and pins applied) on a fresh connection.
+/// `batched` false is the phone before this change: the five-request setup, then `refresh()`'s
+/// `list-personal`, `sidebar_layout.get` and `list-workspaces` one after another (4 round
+/// trips). `batched` true is WorkspaceSync.prepare now: all seven in one write (1), its list
+/// with `known` `{}` so the reply carries the tree's revision, and the check `refresh()` makes
+/// after the list is drawn sends it back and gets `unchanged` (off the critical path: in
+/// `bytes_down`, not in `setup_ms` or `round_trips`). Both lists are the phone's: no `limit`.
+async fn settled_once(
+    addr: std::net::SocketAddr,
+    daemon: &OpenDaemon,
+    batched: bool,
+) -> Result<OpenSample, String> {
+    let started = Instant::now();
+    let mut conn = Conn::open(addr).await.map_err(|e| format!("connect: {e}"))?;
+    let knows = daemon.lists(KNOWN_CAPABILITY);
+    let list = if batched && knows { json!({"known": {}}) } else { json!({}) };
+    let setup = vec![
+        ("set-client-info", setup_client_info()),
+        ("identify", json!({})),
+        ("subscribe", json!({"tree_events": "deltas"})),
+        ("list-agents", json!({})),
+        ("list-workspaces", list),
+    ];
+    let write = |e: std::io::Error| format!("write: {e}");
+    let (at, bytes_down, round_trips) = if batched {
+        let mut setup = setup;
+        setup.push(("list-personal", json!({})));
+        let ids = conn
+            .send_with_resources(setup, vec![("sidebar_layout.get", json!({}))])
+            .await
+            .map_err(write)?;
+        let (at, mut bytes, reply) = answered_keeping(&mut conn, &ids, 5, Some(ids[4])).await?;
+        let revision = &reply["data"]["tree_revision"];
+        if knows && revision.is_string() {
+            let mut known = json!({"tree_revision": revision});
+            for field in [
+                "registry_id",
+                "generation",
+                "workspace_revision",
+                "pane_revision",
+                "terminal_revision",
+            ] {
+                if !reply["data"][field].is_null() {
+                    known[field] = reply["data"][field].clone();
+                }
+            }
+            let ids = conn
+                .send(vec![("list-workspaces", json!({"known": known}))])
+                .await
+                .map_err(write)?;
+            (_, bytes) = answered(&mut conn, &ids, 1).await?;
+        }
+        (at, bytes, 1)
+    } else {
+        let ids = conn.send(setup).await.map_err(write)?;
+        answered(&mut conn, &ids, 5).await?;
+        let ids = conn.send(vec![("list-personal", json!({}))]).await.map_err(write)?;
+        answered(&mut conn, &ids, 0).await?;
+        let ids = conn
+            .send_with_resources(Vec::new(), vec![("sidebar_layout.get", json!({}))])
+            .await
+            .map_err(write)?;
+        answered(&mut conn, &ids, 0).await?;
+        // The setup's list carried no `known` (no tree_revision held): the refresh sends `{}`.
+        let params = if knows { json!({"known": {}}) } else { json!({}) };
+        let ids = conn.send(vec![("list-workspaces", params)]).await.map_err(write)?;
+        let (at, bytes) = answered(&mut conn, &ids, 1).await?;
+        (at, bytes, 4)
+    };
+    Ok(OpenSample {
+        first_content_ms: ms(at - started),
+        interactive_ms: None,
+        bytes_down,
+        bytes_up: conn.up_bytes,
+        round_trips,
+        shown: None,
+    })
+}
+
+/// The Home tab's first window on a fresh connection.
+async fn home_once(addr: std::net::SocketAddr, daemon: &OpenDaemon) -> Result<OpenSample, String> {
+    let started = Instant::now();
+    let mut conn = Conn::open(addr).await.map_err(|e| format!("connect: {e}"))?;
+    let mut list = json!({});
+    if daemon.lists(FIRST_WINDOW_CAPABILITY) {
+        list["limit"] = json!(FIRST_WINDOW_LIMIT);
+    }
+    let ids = conn
+        .send(vec![
+            ("set-client-info", setup_client_info()),
+            ("identify", json!({})),
+            ("subscribe", json!({"tree_events": "deltas"})),
+            ("list-agents", json!({})),
+            ("list-workspaces", list),
+        ])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (at, bytes_down, replies) = all_replies(&mut conn, &ids).await?;
+    let list_id = ids.last().copied();
+    let shown = replies
+        .iter()
+        .find(|reply| reply["id"].as_u64() == list_id)
+        .and_then(|reply| reply["data"]["workspaces"].as_array())
+        .map(|rows| rows.len() as u64);
+    Ok(OpenSample {
+        first_content_ms: ms(at - started),
+        interactive_ms: None,
+        bytes_down,
+        bytes_up: conn.up_bytes,
+        round_trips: 1,
+        shown,
+    })
+}
+
+/// The reattach on the attach channel: the first vt-state, the bytes read to it, round trips.
+async fn attach_path(conn: &mut Conn, daemon: &OpenDaemon) -> Result<(Instant, u64, u64), String> {
+    let surface = daemon.surface;
+    if daemon.lists(ATTACH_TERMINAL_ID_CAPABILITY) {
+        let mut params = phone_attach_params(surface, &json!(daemon.capabilities));
+        params["terminal_id"] = json!(daemon.terminal_id);
+        let ids = conn
+            .send(vec![
+                ("set-client-info", attach_client_info()),
+                ("identify", json!({})),
+                ("attach-surface", params),
+            ])
+            .await
+            .map_err(|e| format!("write: {e}"))?;
+        let (at, bytes) = first_state(conn, ids[2], surface).await?;
+        return Ok((at, bytes, 1));
+    }
+    let ids = conn
+        .send(vec![("resolve-terminal", json!({"terminal_id": daemon.terminal_id}))])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (_, _, resolved) = all_replies(conn, &ids).await?;
+    if resolved.first().map(|r| r["data"]["surface"].clone()) != Some(json!(surface)) {
+        return Err(format!("resolve-terminal named another surface: {resolved:?}"));
+    }
+    let ids = conn
+        .send(vec![("set-client-info", attach_client_info()), ("identify", json!({}))])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (_, _, setup) = all_replies(conn, &ids).await?;
+    let capabilities = setup
+        .iter()
+        .find(|reply| reply["id"].as_u64() == ids.last().copied())
+        .map(|reply| reply["data"]["capabilities"].clone())
+        .unwrap_or(Value::Null);
+    let ids = conn
+        .send(vec![("attach-surface", phone_attach_params(surface, &capabilities))])
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    let (at, bytes) = first_state(conn, ids[0], surface).await?;
+    Ok((at, bytes, 3))
+}
+
+/// The input lane's own set-client-info and identify.
+async fn input_ready(input: &mut Conn) -> Result<(), String> {
+    let ids = input
+        .send(vec![("set-client-info", attach_client_info()), ("identify", json!({}))])
+        .await
+        .map_err(|e| format!("input write: {e}"))?;
+    all_replies(input, &ids).await.map(|_| ())
+}
+
+/// The terminal reattach on fresh connections (attach channel and input lane), then a typed key.
+async fn reattach_once(
+    addr: std::net::SocketAddr,
+    daemon: &OpenDaemon,
+    run: u64,
+) -> Result<OpenSample, String> {
+    let surface = daemon.surface;
+    let started = Instant::now();
+    let (attach_conn, input_conn) = tokio::join!(Conn::open(addr), Conn::open(addr));
+    let mut conn = attach_conn.map_err(|e| format!("connect: {e}"))?;
+    let mut input = input_conn.map_err(|e| format!("connect: {e}"))?;
+    let (attached, input_ok) =
+        tokio::join!(attach_path(&mut conn, daemon), input_ready(&mut input));
+    let (first, bytes_down, round_trips) = attached?;
+    let bytes_up = conn.up_bytes + input.up_bytes;
+    let interactive = async {
+        input_ok.ok()?;
+        let key = format!("KQ{run}Z");
+        let typed = base64::engine::general_purpose::STANDARD.encode(key.as_bytes());
+        input.send(vec![("send", json!({"surface": surface, "bytes": typed}))]).await.ok()?;
+        conn.output(surface, Some(key.as_bytes()), false, Instant::now() + WAIT).await
+    };
+    let interactive_ms = interactive.await.map(|echo| ms(echo - started));
+    Ok(OpenSample {
+        first_content_ms: ms(first - started),
+        interactive_ms,
+        bytes_down,
+        bytes_up,
+        round_trips,
+        shown: None,
+    })
+}
+
+/// The stream's rate at the daemon, as a viewer on the unshaped socket sees it over 2 s.
+async fn stream_rate(addr: std::net::SocketAddr, surface: u64) -> Option<f64> {
+    let mut conn = Conn::open(addr).await.ok()?;
+    let ids = conn
+        .send(vec![("identify", json!({})), ("attach-surface", json!({"surface": surface}))])
+        .await
+        .ok()?;
+    first_state(&mut conn, ids[1], surface).await.ok()?;
+    let start = Instant::now();
+    let end = start + Duration::from_secs(2);
+    let mut bytes = 0_u64;
+    while let Ok(Some((_, _, item))) = tokio::time::timeout_at(end, conn.inbound.recv()).await {
+        if let Inbound::Output { surface: got, data, vt_state: false } = item
+            && got == surface
+        {
+            bytes += data.len() as u64;
+        }
+    }
+    Some(bytes as f64 / ms(start.elapsed()) * 1000.0)
+}
+
+fn emit_sample(link: &str, phase: &str, fixture: &str, run: u64, sample: &OpenSample) {
+    duress_emit(link, phase, fixture, "first_content_ms", Some(sample.first_content_ms), run);
+    if phase.starts_with("settled") {
+        // Link up to the settled list: the setup's round trips and the daemon's handler time.
+        duress_emit(link, phase, fixture, "setup_ms", Some(sample.first_content_ms), run);
+    }
+    if phase == "reattach" {
+        duress_emit(link, phase, fixture, "interactive_ms", sample.interactive_ms, run);
+        if sample.interactive_ms.is_none() {
+            duress_error(link, phase, fixture, run, "no echo of a typed key");
+        }
+    }
+    duress_emit(link, phase, fixture, "bytes_down", Some(sample.bytes_down as f64), run);
+    duress_emit(link, phase, fixture, "bytes_up", Some(sample.bytes_up as f64), run);
+    duress_emit(link, phase, fixture, "round_trips", Some(sample.round_trips as f64), run);
+    if let Some(shown) = sample.shown {
+        duress_emit(link, phase, fixture, "workspaces_shown", Some(shown as f64), run);
+    }
+}
+
+#[test]
+#[ignore = "the duress bench: scripts/measure/ios-network-conditions.sh mode=duress runs it"]
+fn open_path_under_duress() {
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+        Err(_) => ProfileFile::builtin(),
+    };
+    let mut duress_links = vec![None];
+    for name in env_list("NETCOND_DURESS_PROFILES", "lte,lossy-3") {
+        let profile = file.get(&name).unwrap_or_else(|| panic!("no link profile {name}"));
+        duress_links.push(Some(profile.clone()));
+    }
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let fixtures = [
+        Fixture {
+            name: "idle",
+            workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
+            scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
+            stream_lines: 0,
+            // The same links as duress, so a duress number is judged against the idle
+            // fixture on its own link, not against loopback.
+            links: duress_links.clone(),
+        },
+        Fixture {
+            name: "duress",
+            workspaces: env_u64("NETCOND_DURESS_WORKSPACES", 50),
+            scrollback: env_u64("NETCOND_DURESS_SCROLLBACK", 10_000),
+            stream_lines: env_u64("NETCOND_DURESS_STREAM_LINES", 50),
+            links: duress_links,
+        },
+    ];
+    for fixture in &fixtures {
+        let daemon = OpenDaemon::start(fixture);
+        println!(
+            "NETCOND-FIXTURE {} workspaces={} scrollback={} stream_lines_per_20ms={} attach-terminal-id-v1={} list-workspaces-page-v1={}",
+            fixture.name,
+            fixture.workspaces,
+            fixture.scrollback,
+            fixture.stream_lines,
+            daemon.lists(ATTACH_TERMINAL_ID_CAPABILITY),
+            daemon.lists(FIRST_WINDOW_CAPABILITY)
+        );
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let upstream = splice(&daemon.daemon.socket).await;
+            if fixture.stream_lines > 0 {
+                let rate = stream_rate(upstream, daemon.surface).await;
+                duress_emit("none", "fixture", fixture.name, "stream_bytes_per_s", rate, 0);
+            }
+            for link in &fixture.links {
+                let label = link
+                    .as_ref()
+                    .map_or_else(|| "none".to_owned(), |p| format!("{}@{}", p.name, p.version));
+                for run in 0..runs {
+                    let seed = seed_base + run;
+                    // One shaper per run: home, then the reattach, each on fresh connections.
+                    let shaper = match link {
+                        Some(profile) => {
+                            match Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+                                .await
+                            {
+                                Ok(shaper) => Some(shaper),
+                                Err(e) => {
+                                    duress_error(
+                                        &label,
+                                        "home",
+                                        fixture.name,
+                                        run,
+                                        &format!("shaper: {e}"),
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+                    let addr = shaper.as_ref().map_or(upstream, |s| s.addr());
+                    // settled_serial / settled_batched: link up to the settled Workspaces list,
+                    // the phone's setup before and after the arrangement joined its one write.
+                    for phase in ["home", "settled_serial", "settled_batched", "reattach"] {
+                        let sample = match phase {
+                            "home" => home_once(addr, &daemon).await,
+                            "settled_serial" => settled_once(addr, &daemon, false).await,
+                            "settled_batched" => settled_once(addr, &daemon, true).await,
+                            _ => reattach_once(addr, &daemon, run).await,
+                        };
+                        match sample {
+                            Ok(sample) => emit_sample(&label, phase, fixture.name, run, &sample),
+                            Err(why) => {
+                                duress_emit(
+                                    &label,
+                                    phase,
+                                    fixture.name,
+                                    "first_content_ms",
+                                    None,
+                                    run,
+                                );
+                                duress_error(&label, phase, fixture.name, run, &why);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        drop(runtime);
+        daemon.daemon.stop();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -747,6 +1572,15 @@ struct Tap {
     up: std::collections::BTreeMap<String, (u64, u64)>,
     /// The terminal bytes `output` and `vt-state` events carried, decoded (their payload).
     terminal_bytes: u64,
+    /// The last `vt-state`'s `history_rows_omitted` and `history_rows_skipped` (the scroll-step
+    /// bench walks the phone's history fetches from them).
+    vt_history: Option<(u64, u64)>,
+    /// `output` and `vt-state` lines whose terminal bytes repaint from the top (`ESC [ H`, a
+    /// full-screen program's whole-screen redraw): the redraws they carry (one per `ESC [ H`)
+    /// and their line bytes; the rest of those lines' bytes are incremental output.
+    full_redraws: u64,
+    full_redraw_bytes: u64,
+    incremental_bytes: u64,
 }
 
 impl Tap {
@@ -768,10 +1602,29 @@ impl Tap {
                 match (v.get("event").and_then(Value::as_str), v.get("id").and_then(Value::as_u64))
                 {
                     (Some(event), _) => {
+                        if event == "vt-state" {
+                            let field =
+                                |name: &str| v.get(name).and_then(Value::as_u64).unwrap_or(0);
+                            self.vt_history = Some((
+                                field("history_rows_omitted"),
+                                field("history_rows_skipped"),
+                            ));
+                        }
                         if matches!(event, "output" | "vt-state")
                             && let Some(data) = v.get("data").and_then(Value::as_str)
                         {
                             self.terminal_bytes += (data.len() as u64 / 4) * 3;
+                            let bytes = base64::engine::general_purpose::STANDARD
+                                .decode(data)
+                                .unwrap_or_default();
+                            let homes =
+                                bytes.windows(3).filter(|window| *window == b"\x1b[H").count();
+                            if homes > 0 {
+                                self.full_redraws += homes as u64;
+                                self.full_redraw_bytes += len as u64;
+                            } else {
+                                self.incremental_bytes += len as u64;
+                            }
                         }
                         format!("event:{event}")
                     }
@@ -791,6 +1644,9 @@ impl Tap {
         self.down.clear();
         self.up.clear();
         self.terminal_bytes = 0;
+        self.full_redraws = 0;
+        self.full_redraw_bytes = 0;
+        self.incremental_bytes = 0;
         out
     }
 }
@@ -957,8 +1813,7 @@ fn terminal_bytes_per_minute() {
                 "read go; seq 1 200000; i=0; while :; do i=$((i+1)); printf 'trickle %06d\\n' $i; sleep 1; done",
             );
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let shaper =
-                Shaper::start(upstream, profile.clone(), 0, &Trace::new()).await.unwrap();
+            let (shaper, _relay) = link(upstream, &profile, 0).await.unwrap();
             let (Ok(mut control), Ok(mut conn)) =
                 (Conn::open(shaper.addr()).await, Conn::open(shaper.addr()).await)
             else {
@@ -1009,4 +1864,1253 @@ fn terminal_bytes_per_minute() {
     });
     drop(runtime);
     daemon.stop();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per scroll step: the phone's history fetches over a long, streaming terminal
+
+/// `DaemonTerminalSession.swift`: rows each `loadOlderHistory()` adds to the tail allowance.
+const HISTORY_CHUNK_ROWS: u64 = 2_000;
+/// The newest rows the phone holds before it switches to a window (`maxTailHistoryRows`).
+const MAX_TAIL_HISTORY_ROWS: u64 = 5 * HISTORY_CHUNK_ROWS;
+/// The window far above the screen (`historyWindowRows`) and its step (`historyWindowStep`).
+const HISTORY_WINDOW_ROWS: u64 = 2 * HISTORY_CHUNK_ROWS;
+const HISTORY_WINDOW_STEP: u64 = 1_500;
+
+/// One scroll step's request, as `DaemonTerminalSession.loadOlderHistory()` makes it from the
+/// last `vt-state`'s `history_rows_omitted`: against a daemon with
+/// `attach-replay-history-window-v1`, the tail grows to `MAX_TAIL_HISTORY_ROWS` and past it a
+/// window moves up `HISTORY_WINDOW_STEP`; against one without, the tail allowance grows a chunk per
+/// step (the whole history once a chunk or less is left). `None`: the phone sends nothing.
+struct ScrollPolicy {
+    tail: bool,
+    window: bool,
+    allowance: Option<u64>,
+    start: Option<u64>,
+}
+
+impl ScrollPolicy {
+    fn next(&mut self, surface: u64, omitted: u64) -> Option<Value> {
+        if !self.tail || omitted == 0 {
+            return None;
+        }
+        if self.window
+            && (self.start.is_some()
+                || self.allowance.unwrap_or(0) + HISTORY_CHUNK_ROWS > MAX_TAIL_HISTORY_ROWS)
+        {
+            let start = omitted.saturating_sub(HISTORY_WINDOW_STEP);
+            self.start = Some(start);
+            return Some(json!({"surface": surface, "cols": COLS, "rows": ROWS,
+                "replay_history_rows": HISTORY_WINDOW_ROWS, "replay_history_start": start}));
+        }
+        let allowance = self.allowance?;
+        self.allowance =
+            if omitted <= HISTORY_CHUNK_ROWS { None } else { Some(allowance + HISTORY_CHUNK_ROWS) };
+        let mut params = json!({"surface": surface, "cols": COLS, "rows": ROWS});
+        if let Some(rows) = self.allowance {
+            params["replay_history_rows"] = json!(rows);
+        }
+        Some(params)
+    }
+}
+
+/// Bytes per scroll step: a terminal with `NETCOND_SCROLL_LINES` (20000) lines of history that
+/// keeps streaming a line every 50 ms, attached the phone's way (`replay_history_rows: 0`), then
+/// `NETCOND_SCROLL_STEPS` (10) history fetches up toward line 1, each the request the phone's
+/// `loadOlderHistory()` sends to this daemon (`ScrollPolicy`), through the shaper. Per step
+/// (`phase` `scroll_step`, `scale` `step<N>`): `bytes_down` (everything down from the request to
+/// its replay: the `vt-state`, its reply and the streamed output meanwhile), `replay_bytes`
+/// (the `vt-state` and the reply), `rows_asked`, `history_rows_omitted`, `step_ms`. Env:
+/// `NETCOND_PROFILES` (lte,good-wifi), `NETCOND_RUNS` (1), `NETCOND_SEED_BASE` (0).
+#[test]
+#[ignore = "the scroll-step bench: run with --ignored --nocapture"]
+fn terminal_scroll_steps() {
+    let file = ProfileFile::builtin();
+    let profiles = env_list("NETCOND_PROFILES", "lte,good-wifi");
+    let lines = env_u64("NETCOND_SCROLL_LINES", 20_000);
+    let steps = env_u64("NETCOND_SCROLL_STEPS", 10);
+    let runs = env_u64("NETCOND_RUNS", 1);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let daemon = Daemon::start(&[]);
+    let surface = daemon.tab(&format!(
+        "awk 'BEGIN{{for(i=0;i<{lines};i++) printf \"%07d the quick brown fox jumps over the lazy dog, scrollback line for the mobile link bench\\n\", i}}'; i=0; while :; do i=$((i+1)); printf 'stream %07d an agent streaming its answer while the reader scrolls\\n' $i; sleep 0.05; done"
+    ));
+    {
+        let stream = std::os::unix::net::UnixStream::connect(&daemon.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        while !client
+            .call(json!({"cmd": "read-screen", "surface": surface}))
+            .to_string()
+            .contains("stream ")
+        {
+            assert!(std::time::Instant::now() < deadline, "history did not finish printing");
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    println!(
+        "NETCOND-SCROLL lines={lines} steps={steps} streaming=20 lines/s (about 1.5 KB/s) cols={COLS} rows={ROWS}"
+    );
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    let failed = runtime.block_on(async {
+        let upstream = splice(&daemon.socket).await;
+        let mut failed = 0;
+        for name in &profiles {
+            let profile =
+                file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
+            for run in 0..runs {
+                let seed = seed_base + run;
+                if let Err(why) = scroll_steps(upstream, &profile, surface, steps, run, seed).await
+                {
+                    error(&profile, "scroll_step", "all", run, &why);
+                    failed += 1;
+                }
+            }
+        }
+        failed
+    });
+    drop(runtime);
+    daemon.stop();
+    assert_eq!(failed, 0, "scroll-step runs failed (NETCOND-ERROR lines above)");
+}
+
+async fn scroll_steps(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    surface: u64,
+    steps: u64,
+    run: u64,
+    seed: u64,
+) -> Result<(), String> {
+    let shaper = Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+        .await
+        .map_err(|e| format!("shaper: {e}"))?;
+    let mut conn = Conn::open(shaper.addr()).await.map_err(|e| format!("connect: {e}"))?;
+    let mut info = client_info();
+    info["capabilities"].as_array_mut().unwrap().push(json!("attach-replay-history-window-v1"));
+    let ids = conn
+        .send(vec![("set-client-info", info), ("identify", json!({}))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let identify = conn.reply(ids[1], |_, _, _, _| {}).await.ok_or("no identify reply")?;
+    let caps = identify.to_string();
+    let tail = caps.contains("attach-replay-history-rows-v1");
+    let window = tail && caps.contains("attach-replay-history-window-v1");
+    println!(
+        "NETCOND-SCROLL {}@{} run {run}: daemon tail={tail} window={window}",
+        profile.name, profile.version
+    );
+    attach(&mut conn, surface, false).await.ok_or("no first attach")?;
+    let mut policy = ScrollPolicy { tail, window, allowance: Some(0), start: None };
+    for step in 1..=steps {
+        let (omitted, _) = conn.tap.lock().unwrap().vt_history.unwrap_or((0, 0));
+        let Some(params) = policy.next(surface, omitted) else { break };
+        let rows_asked = params["replay_history_rows"].as_u64();
+        conn.tap.lock().unwrap().take();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let started = Instant::now();
+        let ids = conn.send(vec![("attach-surface", params)]).await.map_err(|e| e.to_string())?;
+        let mut replayed = false;
+        let reply = conn
+            .reply(ids[0], |_, got, _, is_state| replayed |= got == surface && is_state)
+            .await
+            .ok_or(format!("step {step}: no reply"))?;
+        if reply["ok"] != json!(true) {
+            return Err(format!("step {step}: {reply}"));
+        }
+        if !replayed {
+            conn.output(surface, None, true, Instant::now() + WAIT)
+                .await
+                .ok_or(format!("step {step}: no replay"))?;
+        }
+        let took = started.elapsed();
+        let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+        let tap = conn.tap.lock().unwrap().take();
+        let of = |key: &str| tap.down.get(key).map(|slot| slot.1).unwrap_or(0);
+        let replay = of("event:vt-state") + of("reply:attach-surface");
+        let scale = format!("step{step:02}");
+        let put = |metric: &str, value: f64| {
+            emit(profile, "scroll_step", &scale, metric, Some(value), run, seed);
+        };
+        put("bytes_down", down as f64);
+        put("replay_bytes", replay as f64);
+        put("streamed_bytes", of("event:output") as f64);
+        put("rows_asked", rows_asked.map(|r| r as f64).unwrap_or(-1.0));
+        put("history_rows_omitted", omitted as f64);
+        put("step_ms", ms(took));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per alt-screen pan: a one-finger drag over a full-screen app (#49954's path)
+
+/// A pager on the alternate screen over `NETCOND_PAN_LINES` lines that asked for the mouse
+/// (DECSET 1000 + 1006), appends a line every 50 ms and redraws its whole screen on each line and
+/// on each input read; a wheel report (button 64 up, 65 down) moves its view a line.
+const PAGER: &str = r#"
+import os, re, select, sys, time, tty
+n = int(sys.argv[1])
+lines = ["%07d the quick brown fox jumps over the lazy dog, pager line for the mobile link bench" % i for i in range(n)]
+tty.setraw(0)
+out = sys.stdout.buffer
+out.write(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[?25l")
+off, pending, tick, due = 0, b"", 0, time.time() + 0.05
+wheel = re.compile(rb"\x1b\[<(\d+);\d+;\d+[Mm]")
+def draw():
+    cols, rows = os.get_terminal_size(1)
+    end = len(lines) - off
+    view = lines[max(0, end - (rows - 1)):end]
+    body = "".join(line[:cols] + "\x1b[K\r\n" for line in view)
+    out.write(("\x1b[H" + body + "\x1b[7m PAGER %d/%d \x1b[0m\x1b[K" % (end, len(lines))).encode())
+    out.flush()
+draw()
+while True:
+    ready, _, _ = select.select([0], [], [], max(0.0, due - time.time()))
+    dirty = False
+    if ready:
+        pending += os.read(0, 4096)
+        last = 0
+        for m in wheel.finditer(pending):
+            off += {64: 1, 65: -1}.get(int(m.group(1)), 0)
+            last = m.end()
+        pending = pending[last:][-64:]
+        off = max(0, min(off, len(lines) - 1))
+        dirty = True
+    if time.time() >= due:
+        tick += 1
+        lines.append("stream %07d an agent streaming its answer while the reader pans" % tick)
+        if off:
+            off += 1
+        due += 0.05
+        dirty = True
+    if dirty:
+        draw()
+"#;
+
+/// The phone's display rate, and the pan's drag: `PAN_FRAMES` frames at `PAN_SPEED` points per
+/// second (a reading drag, released without a fling).
+const PAN_FRAME: Duration = Duration::from_micros(16_667);
+const PAN_FRAMES: u64 = 30;
+const PAN_SPEED: f64 = 600.0;
+/// Points of wheel per line Ghostty reports (a cell's height at the phone's default font).
+const PAN_CELL_PT: f64 = 16.0;
+/// After the finger lifts, the window waits this long for the app's last redraw.
+const PAN_SETTLE: Duration = Duration::from_millis(500);
+
+/// `TerminalTUIScroll.gain(speed:)`: 1:1 up to 300 pt/s, rising to 3x at 3000 pt/s.
+fn pan_gain(speed: f64) -> f64 {
+    if speed <= 300.0 { 1.0 } else { 1.0 + 2.0 * ((speed - 300.0) / 2700.0).min(1.0) }
+}
+
+/// Bytes per alt-screen pan: the pager above over `NETCOND_PAN_LINES` (20000) lines, streaming
+/// 20 lines/s, attached the phone's way, then `NETCOND_PAN_PANS` (10) one-finger pans up, each the
+/// phone's rule (`TerminalTUIScrollController` + `TerminalTUIScroll`, unchanged by #49954, and
+/// `DaemonTerminalSession.scheduleInputDrain`): every display frame the finger's movement times
+/// the gain becomes wheel points, each `PAN_CELL_PT` of them one SGR wheel-up report at the
+/// finger, and a frame's reports go out as one `send {surface, bytes, key}` that nothing waits
+/// on. Per pan (`phase` `alt_pan`, `scale` `pan<N>`): `bytes_down` (everything down from the first
+/// frame to `PAN_SETTLE` after the last: the app's redraws, the send replies and the stream
+/// meanwhile), `bytes_up`, `sends`, `wheel_reports`, `output_bytes`, `pan_ms`; and `scale`
+/// `idle`: `bytes_down` over the same window length with no finger (the stream alone). Env:
+/// `NETCOND_PROFILES` (lte,good-wifi), `NETCOND_SEED_BASE` (0).
+#[test]
+#[ignore = "the alt-screen pan bench: run with --ignored --nocapture"]
+fn alt_screen_pan_bytes() {
+    let file = ProfileFile::builtin();
+    let profiles = env_list("NETCOND_PROFILES", "lte,good-wifi");
+    let lines = env_u64("NETCOND_PAN_LINES", 20_000);
+    let pans = env_u64("NETCOND_PAN_PANS", 10);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let daemon = Daemon::start(&[]);
+    let pager = daemon.dir.join("pager.py");
+    fs::write(&pager, PAGER).unwrap();
+    let surface = daemon.tab(&format!("exec python3 {} {lines}", pager.display()));
+    {
+        let stream = std::os::unix::net::UnixStream::connect(&daemon.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut client = SyncClient {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+            next: 0,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        while !client
+            .call(json!({"cmd": "read-screen", "surface": surface}))
+            .to_string()
+            .contains("PAGER ")
+        {
+            assert!(std::time::Instant::now() < deadline, "the pager did not start");
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    println!(
+        "NETCOND-PAN lines={lines} pans={pans} streaming=20 lines/s, a full-screen redraw each \
+         frames={PAN_FRAMES} speed={PAN_SPEED}pt/s cell={PAN_CELL_PT}pt cols={COLS} rows={ROWS}"
+    );
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    let failed = runtime.block_on(async {
+        let upstream = splice(&daemon.socket).await;
+        let mut failed = 0;
+        for name in &profiles {
+            let profile =
+                file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone();
+            let run = profiles.iter().position(|p| p == name).unwrap_or(0) as u64;
+            if let Err(why) = alt_pans(upstream, &profile, surface, pans, seed_base, run).await {
+                error(&profile, "alt_pan", "all", 0, &why);
+                failed += 1;
+            }
+        }
+        failed
+    });
+    drop(runtime);
+    daemon.stop();
+    assert_eq!(failed, 0, "alt-screen pan runs failed (NETCOND-ERROR lines above)");
+}
+
+/// Reads everything the connection got so far (the reader task already counted its bytes).
+fn drain_inbound(conn: &mut Conn) {
+    while conn.inbound.try_recv().is_ok() {}
+}
+
+async fn alt_pans(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    surface: u64,
+    pans: u64,
+    seed: u64,
+    run: u64,
+) -> Result<(), String> {
+    let shaper = Shaper::start(upstream, profile.clone(), seed, &Trace::new())
+        .await
+        .map_err(|e| format!("shaper: {e}"))?;
+    let mut conn = Conn::open(shaper.addr()).await.map_err(|e| format!("connect: {e}"))?;
+    // `NETCOND_PAN_CAPS`: capabilities the phone declares besides `client_info`'s (a transport
+    // setting under test, e.g. `terminal-full-screen-frames-v1` with the lean ones it needs).
+    let mut info = client_info();
+    for cap in env_list("NETCOND_PAN_CAPS", "") {
+        info["capabilities"].as_array_mut().unwrap().push(json!(cap));
+    }
+    let ids = conn
+        .send(vec![("set-client-info", info), ("identify", json!({}))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let identify = conn.reply(ids[1], |_, _, _, _| {}).await.ok_or("no identify reply")?;
+    let keyed = identify.to_string().contains("send-key-v1");
+    // The attach's reply; what draws the screen (a `vt-state`, or a frames viewer's keyframe)
+    // lands in the second before the first window.
+    let ids = conn
+        .send(vec![("attach-surface", attach_params(surface))])
+        .await
+        .map_err(|e| e.to_string())?;
+    let reply = conn.reply(ids[0], |_, _, _, _| {}).await.ok_or("no attach reply")?;
+    if reply["ok"] != json!(true) {
+        return Err(format!("attach: {reply}"));
+    }
+    let window = PAN_FRAME * PAN_FRAMES as u32 + PAN_SETTLE;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    drain_inbound(&mut conn);
+    let put = |scale: &str, metric: &str, value: f64| {
+        emit(profile, "alt_pan", scale, metric, Some(value), 0, seed);
+    };
+    // Per category: whole-screen redraws vs incremental output, lean frames (a frames viewer's
+    // `agent-cli-lean`/`agent-cli-frame`), and the shaper's own count of what it carried down (a
+    // lost segment is delayed one RTO, never sent twice: equal to `bytes_down` when no byte
+    // is retransmitted).
+    let categories = |scale: &str, tap: &Tap, shaper_down: u64| {
+        let of = |key: &str| tap.down.get(key).copied().unwrap_or((0, 0));
+        let (lean_n, lean_b) = of("event:agent-cli-lean");
+        let (frame_n, frame_b) = of("event:agent-cli-frame");
+        put(scale, "full_redraws", tap.full_redraws as f64);
+        put(scale, "full_redraw_bytes", tap.full_redraw_bytes as f64);
+        put(scale, "incremental_output_bytes", tap.incremental_bytes as f64);
+        put(scale, "frame_events", (lean_n + frame_n) as f64);
+        put(scale, "frame_bytes", (lean_b + frame_b) as f64);
+        put(scale, "shaper_down_bytes", shaper_down as f64);
+    };
+    // The stream alone over one pan's window.
+    let down_before = conn.down_bytes.load(Ordering::SeqCst);
+    conn.tap.lock().unwrap().take();
+    shaper.reset_counters();
+    tokio::time::sleep(window).await;
+    drain_inbound(&mut conn);
+    let tap = conn.tap.lock().unwrap().take();
+    put("idle", "bytes_down", (conn.down_bytes.load(Ordering::SeqCst) - down_before) as f64);
+    put("idle", "output_bytes", tap.down.get("event:output").map(|s| s.1).unwrap_or(0) as f64);
+    categories("idle", &tap, shaper.counters().down_bytes);
+    // The finger at the screen's middle, 1-based (Ghostty reports the cell under it).
+    let report = format!("\x1b[<64;{};{}M", COLS / 2 + 1, ROWS / 2 + 1);
+    let per_frame = PAN_SPEED * PAN_FRAME.as_secs_f64() * pan_gain(PAN_SPEED);
+    for pan in 1..=pans {
+        conn.tap.lock().unwrap().take();
+        shaper.reset_counters();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let up_before = conn.up_bytes;
+        let started = Instant::now();
+        let mut ticks = tokio::time::interval(PAN_FRAME);
+        let (mut points, mut sends, mut reports) = (0.0_f64, 0_u64, 0_u64);
+        for frame in 0..PAN_FRAMES {
+            ticks.tick().await;
+            points += per_frame;
+            let lines = (points / PAN_CELL_PT).floor();
+            points -= lines * PAN_CELL_PT;
+            if lines < 1.0 {
+                continue;
+            }
+            let bytes = report.repeat(lines as usize);
+            let mut params = json!({"surface": surface,
+                "bytes": base64::engine::general_purpose::STANDARD.encode(bytes.as_bytes())});
+            if keyed {
+                // Unique per profile run too: the daemon remembers applied keys daemon-wide
+                // for 600 s (`send_once`), so a second profile reusing the first's keys had
+                // every wheel send answered and dropped (good-wifi's pans never reached the
+                // pager in run 45101382894).
+                params["key"] = json!(format!(
+                    "00000000-0000-4000-{:04x}-{:06x}{:06x}",
+                    0x8000 + run,
+                    pan,
+                    frame
+                ));
+            }
+            conn.send(vec![("send", params)]).await.map_err(|e| e.to_string())?;
+            sends += 1;
+            reports += lines as u64;
+            drain_inbound(&mut conn);
+        }
+        tokio::time::sleep_until(started + window).await;
+        drain_inbound(&mut conn);
+        let took = started.elapsed();
+        let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+        let tap = conn.tap.lock().unwrap().take();
+        let of = |key: &str| tap.down.get(key).map(|slot| slot.1).unwrap_or(0);
+        let scale = format!("pan{pan:02}");
+        put(&scale, "bytes_down", down as f64);
+        put(&scale, "bytes_up", (conn.up_bytes - up_before) as f64);
+        put(&scale, "sends", sends as f64);
+        put(&scale, "wheel_reports", reports as f64);
+        put(&scale, "output_bytes", of("event:output") as f64);
+        put(&scale, "send_reply_bytes", of("reply:send") as f64);
+        put(&scale, "pan_ms", ms(took));
+        categories(&scale, &tap, shaper.counters().down_bytes);
+        // The finger lifts and comes back.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drain_inbound(&mut conn);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Send: tap to the keyed `send`'s answer, with the phone's retry, and what the host applied
+//
+// Leo, 2026-11-24 (relayed, ask-1124-0818): "i think we can maybe be more optimistic sometimes.
+// it is a bit slow on ios." Item 1, the BEFORE. The terminal composer's Send is one `send
+// {surface, text + "\r", key}` on the input lane (cmux-composer-send's `Form::TextReturn`), and it
+// is "visible as sent" when the daemon's answer comes back (the grid shows the text only on the
+// Mac's echo). A send whose answer does not come within the link's give-up (20 s with nothing
+// inbound) or whose channel closes goes again on a fresh channel under the SAME key, until the
+// outbox's 30 s hold after the tap; the daemon applies a key once. After a row the terminal's own
+// bytes say what the host applied: the surface runs `cat >> typed.log` (raw), so a key found twice
+// is a double send, none a lost send.
+//
+// Rows (phase `send`, scale = the row): idle (no shaper, the idle fixture), lte, lossy-3, duress
+// (the duress fixture: 50 workspaces, a 10,000-line terminal streaming, every core spinning, over
+// lte), link-down (lte; at each tap the link drops for `NETCOND_SEND_BLACKOUT_MS`, default 3000).
+// Metrics: `send_visible_ms` (null: no answer within the hold), `sends`, `double_sends`,
+// `lost_sends`, `retries`. Env: `NETCOND_SENDS` (25), `NETCOND_SEND_ROWS`,
+// `NETCOND_SEND_BLACKOUT_MS`, `NETCOND_SEED_BASE`, and the duress fixture's own.
+
+/// Cmux-composer-send's `DEFAULT_HOLD`.
+const SEND_HOLD: Duration = Duration::from_secs(30);
+
+/// Threads that keep every core busy until dropped: the Mac under load.
+struct Spin {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Spin {
+    fn start() -> Self {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cores = std::thread::available_parallelism().map_or(4, usize::from);
+        let threads = (0..cores)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 1u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        for _ in 0..100_000 {
+                            x = x
+                                .wrapping_mul(6364136223846793005)
+                                .wrapping_add(1442695040888963407);
+                        }
+                        std::hint::black_box(x);
+                    }
+                })
+            })
+            .collect();
+        Self { stop, threads }
+    }
+}
+
+impl Drop for Spin {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The phone's input lane: a channel with its setup answered.
+async fn input_lane(addr: std::net::SocketAddr, deadline: Instant) -> Option<Conn> {
+    let mut conn = timeout(deadline.saturating_duration_since(Instant::now()), Conn::open(addr))
+        .await
+        .ok()?
+        .ok()?;
+    let ids =
+        conn.send(vec![("set-client-info", client_info()), ("identify", json!({}))]).await.ok()?;
+    let last = *ids.last()?;
+    timeout(deadline.saturating_duration_since(Instant::now()), conn.reply(last, |_, _, _, _| {}))
+        .await
+        .ok()??;
+    Some(conn)
+}
+
+/// One send as the outbox does it. Returns (visible_ms, attempts); `conn` is replaced on a loss.
+async fn terminal_send_once(
+    conn: &mut Option<Conn>,
+    addr: std::net::SocketAddr,
+    surface: u64,
+    key: &str,
+    tap: Instant,
+) -> (Option<f64>, u64) {
+    let deadline = tap + SEND_HOLD;
+    let mut attempts = 0;
+    let typed = format!("{key}\r");
+    while Instant::now() < deadline {
+        if conn.is_none() {
+            *conn = input_lane(addr, deadline).await;
+            if conn.is_none() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            }
+        }
+        let channel = conn.as_mut().unwrap();
+        attempts += 1;
+        let Ok(ids) = channel
+            .send(vec![("send", json!({"surface": surface, "text": typed, "key": key}))])
+            .await
+        else {
+            *conn = None;
+            continue;
+        };
+        // A channel with nothing inbound for the link's give-up is gone.
+        let wait = LINK_GIVE_UP.min(deadline.saturating_duration_since(Instant::now()));
+        match timeout(wait, channel.reply(ids[0], |_, _, _, _| {})).await {
+            Ok(Some(reply)) if reply["ok"] == json!(true) => {
+                return (Some(ms(tap.elapsed())), attempts - 1);
+            }
+            // The daemon refused it (nothing written, the outbox's NotSent).
+            Ok(Some(_)) => return (None, attempts - 1),
+            Ok(None) | Err(_) => *conn = None,
+        }
+    }
+    (None, attempts.saturating_sub(1))
+}
+
+#[test]
+#[ignore = "the send bench: scripts/measure/ios-network-conditions.sh mode=send runs it"]
+fn terminal_send_under_link_conditions() {
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+        Err(_) => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_SENDS", 25);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let blackout = Duration::from_millis(env_u64("NETCOND_SEND_BLACKOUT_MS", 3000));
+    let wanted = env_list("NETCOND_SEND_ROWS", "idle,lte,lossy-3,link-down,duress");
+    for loaded in [false, true] {
+        let rows: Vec<&String> =
+            wanted.iter().filter(|r| (r.as_str() == "duress") == loaded).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let fixture = if loaded {
+            Fixture {
+                name: "duress",
+                workspaces: env_u64("NETCOND_DURESS_WORKSPACES", 50),
+                scrollback: env_u64("NETCOND_DURESS_SCROLLBACK", 10_000),
+                stream_lines: env_u64("NETCOND_DURESS_STREAM_LINES", 50),
+                links: Vec::new(),
+            }
+        } else {
+            Fixture {
+                name: "idle",
+                workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
+                scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
+                stream_lines: 0,
+                links: Vec::new(),
+            }
+        };
+        let daemon = OpenDaemon::start(&fixture);
+        let typed_log = daemon.daemon.dir.join("typed.log");
+        let surface = daemon
+            .daemon
+            .tab(&format!("stty raw -echo 2>/dev/null; exec cat >> '{}'", typed_log.display()));
+        std::thread::sleep(Duration::from_millis(500));
+        println!(
+            "NETCOND-FIXTURE send-{} workspaces={} scrollback={} stream_lines_per_20ms={}",
+            fixture.name, fixture.workspaces, fixture.scrollback, fixture.stream_lines
+        );
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let upstream = splice(&daemon.daemon.socket).await;
+            let _spin = loaded.then(Spin::start);
+            for row in &rows {
+                let (profile, down) = match row.as_str() {
+                    "idle" => (None, false),
+                    "lte" | "duress" => (file.get("lte"), false),
+                    "lossy-3" => (file.get("lossy-3"), false),
+                    "link-down" => (file.get("lte"), true),
+                    other => panic!("NETCOND_SEND_ROWS: no row {other}"),
+                };
+                let label = profile
+                    .map_or_else(|| "none".to_owned(), |p| format!("{}@{}", p.name, p.version));
+                let shaper = match profile {
+                    Some(p) => {
+                        match Shaper::start(upstream, p.clone(), seed_base, &Trace::new()).await {
+                            Ok(s) => Some(s),
+                            Err(e) => {
+                                duress_error(&label, "send", row, 0, &format!("shaper: {e}"));
+                                continue;
+                            }
+                        }
+                    }
+                    None => None,
+                };
+                let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+                let mut conn = input_lane(addr, Instant::now() + WAIT).await;
+                if conn.is_none() {
+                    duress_error(&label, "send", row, 0, "the input lane did not open");
+                    continue;
+                }
+                let tag = std::process::id();
+                let mut keys = Vec::new();
+                let mut retries_total = 0;
+                for i in 0..sends {
+                    let key = format!("nc-{row}-{tag}-{i};");
+                    let tap = Instant::now();
+                    if down && let Some(s) = &shaper {
+                        s.blackout(blackout);
+                    }
+                    let (visible, retries) =
+                        terminal_send_once(&mut conn, addr, surface, &key, tap).await;
+                    retries_total += retries;
+                    duress_emit(&label, "send", row, "send_visible_ms", visible, i);
+                    if visible.is_none() {
+                        duress_error(&label, "send", row, i, "no answer to the send in time");
+                    }
+                    keys.push(key);
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                }
+                // What the terminal received, read from the file `cat` wrote.
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                let got = fs::read_to_string(&typed_log).unwrap_or_default();
+                let counts: Vec<usize> =
+                    keys.iter().map(|k| got.matches(k.as_str()).count()).collect();
+                duress_emit(&label, "send", row, "sends", Some(sends as f64), 0);
+                duress_emit(
+                    &label,
+                    "send",
+                    row,
+                    "double_sends",
+                    Some(counts.iter().filter(|c| **c > 1).count() as f64),
+                    0,
+                );
+                duress_emit(
+                    &label,
+                    "send",
+                    row,
+                    "lost_sends",
+                    Some(counts.iter().filter(|c| **c == 0).count() as f64),
+                    0,
+                );
+                duress_emit(&label, "send", row, "retries", Some(retries_total as f64), 0);
+            }
+        });
+        drop(runtime);
+        daemon.daemon.stop();
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Background: the time-away table (Leo, 2026-11-24: "the syncing can arguably happen in the
+// background too, so deltas can be sipped and maintained"; cmux-next-ios/design/
+// background-delta-sync.md). The phone's link is closed while the Mac produces what a span of
+// time away produces (simulated: the events are made at once, no real time is slept), then the
+// link reopens through the shaper and each surface catches up.
+//
+// Loads (per span of time away):
+// - idle: a Mac with nothing running. The terminal is quiet; the workspace list changes once
+//   per BG_IDLE_LIST_EVERY_S (a clock-like status).
+// - busy: one agent streaming. The terminal gets build-log text at BG_BUSY_TERMINAL_BYTES_PER_S
+//   (lines of ~85 bytes); the list changes once per BG_BUSY_LIST_EVERY_S (the agent's status and
+//   title). A span past the host's terminal resume ring (4 MiB, cmux-tui-core resume_ring.rs)
+//   produces the ring plus BG_PAST_RING_BYTES: the host holds no more, so what it can answer is
+//   the same past it (`events_behind` says the span's full count, `held_behind` what was made).
+//
+// Phone forms, phase:
+// - before (the phone today): the terminal re-attaches with no resume_offset (a full screen
+//   replay, `replay_history_rows: 0`, DaemonTerminalSession.historyAttachParams); the list after
+//   a cold relaunch has no `known` (`known: {}`, WorkspaceSync.swift).
+// - after (the cursor form): the terminal re-attaches with resume_offset + resume_generation of
+//   the stream it held; the list sends the persisted `known`.
+// - after_bounded (only when the daemon lists `terminal-resume-bounded-v1`): the after form plus
+//   `resume_max_bytes` = the byte size of the phone's previous full replay.
+// Each surface's catch-up runs on its own fresh connection through the shaper: setup and the
+// request in one write. `catch_up_ms` from the connect to the surface current (terminal: the
+// first vt-state or the exact resume's output; list: every reply of the setup write), bytes and
+// round trips (request turns + the connect) from the shaper's counters.
+//
+// Env: NETCOND_PROFILES (good-wifi,lte,lossy-3), NETCOND_AWAY (1m,10m,1h,8h), NETCOND_LOADS
+// (idle,busy), NETCOND_RUNS, NETCOND_SEED_BASE. Rows: surface `terminal` or `workspaces`,
+// scale `<away>-<load>` (`1h-busy`).
+
+const BG_BUSY_TERMINAL_BYTES_PER_S: u64 = 2_048;
+const BG_IDLE_LIST_EVERY_S: u64 = 600;
+const BG_BUSY_LIST_EVERY_S: u64 = 60;
+/// cmux-tui-core surface/resume_ring.rs RESUME_RING_BYTES.
+const BG_RESUME_RING_BYTES: u64 = 4 * 1024 * 1024;
+const BG_PAST_RING_BYTES: u64 = 512 * 1024;
+const BG_WORKSPACES: u64 = 10;
+const BG_SCROLLBACK: u64 = 2_000;
+const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
+const TERMINAL_RESUME_BOUNDED_CAPABILITY: &str = "terminal-resume-bounded-v1";
+
+/// `30s`, `10m`, `8h`: seconds.
+fn away_secs(label: &str) -> u64 {
+    let (number, unit) = label.split_at(label.len() - 1);
+    let n: u64 = number.parse().unwrap_or_else(|_| panic!("time away {label}: 30s, 10m or 8h"));
+    match unit {
+        "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        _ => panic!("time away {label}: 30s, 10m or 8h"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bg_emit(
+    surface: &str,
+    link: &str,
+    phase: &str,
+    scale: &str,
+    metric: &str,
+    value: Option<f64>,
+    run: u64,
+    seed: u64,
+) {
+    let row = json!({"surface": surface, "profile": link, "phase": phase, "scale": scale,
+        "metric": metric, "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run,
+        "seed": seed});
+    println!("NETCOND {row}");
+}
+
+/// A raw line connection: every line in, parsed, with when it came.
+struct BgConn {
+    writer: tokio::net::tcp::OwnedWriteHalf,
+    rx: mpsc::UnboundedReceiver<(Instant, Value)>,
+    next: u64,
+}
+
+impl BgConn {
+    async fn open(addr: std::net::SocketAddr) -> Result<Self, String> {
+        let stream = TcpStream::connect(addr).await.map_err(|e| format!("connect: {e}"))?;
+        stream.set_nodelay(true).map_err(|e| e.to_string())?;
+        let (read, writer) = stream.into_split();
+        let (send, rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(read);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match lines.read_line(&mut line).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                let at = Instant::now();
+                if let Ok(value) = serde_json::from_str::<Value>(&line)
+                    && send.send((at, value)).is_err()
+                {
+                    return;
+                }
+            }
+        });
+        Ok(Self { writer, rx, next: 0 })
+    }
+
+    async fn send(&mut self, requests: Vec<(&str, Value)>) -> Result<Vec<u64>, String> {
+        let mut bytes = Vec::new();
+        let mut ids = Vec::new();
+        for (cmd, mut params) in requests {
+            self.next += 1;
+            params["id"] = json!(self.next);
+            params["cmd"] = json!(cmd);
+            bytes.extend_from_slice(params.to_string().as_bytes());
+            bytes.push(b'\n');
+            ids.push(self.next);
+        }
+        self.writer.write_all(&bytes).await.map_err(|e| format!("write: {e}"))?;
+        Ok(ids)
+    }
+
+    async fn recv(&mut self, deadline: Instant) -> Result<(Instant, Value), String> {
+        tokio::time::timeout_at(deadline, self.rx.recv())
+            .await
+            .map_err(|_| "nothing within the bound".to_owned())?
+            .ok_or_else(|| "the connection closed".to_owned())
+    }
+}
+
+/// What the phone held when it left: the terminal stream's cursor and the list's revision.
+struct BgCursor {
+    offset: u64,
+    generation: String,
+    /// The byte size of the full replay it last got (resume_max_bytes).
+    replay_bytes: u64,
+    cols: u64,
+    rows: u64,
+    known: Value,
+}
+
+struct BgFixture {
+    daemon: Daemon,
+    upstream: std::net::SocketAddr,
+    surface: u64,
+    workspaces: Vec<Value>,
+    capabilities: Vec<String>,
+    renames: AtomicU64,
+    produced: AtomicU64,
+}
+
+fn bg_client_info(resume: bool) -> Value {
+    let mut info = attach_client_info();
+    if resume {
+        info["capabilities"].as_array_mut().unwrap().push(json!(TERMINAL_RESUME_CAPABILITY));
+    }
+    info
+}
+
+impl BgFixture {
+    fn start() -> Self {
+        let (daemon, mut client) = Daemon::launch();
+        let base = client.call(json!({"cmd": "new-workspace", "name": "netcond-bg-0",
+            "cols": COLS, "rows": ROWS}));
+        for index in 1..BG_WORKSPACES {
+            client.call(json!({"cmd": "new-workspace", "name": format!("netcond-bg-{index}"),
+                "cols": COLS, "rows": ROWS}));
+        }
+        let pane = Daemon::pane_of(&mut client, &base["surface"]);
+        let dir = daemon.dir.display().to_string();
+        // Scrollback, then a producer: `req` names a byte count and a tag; it prints that many
+        // bytes of build-log lines and `EMITTED-<tag>`.
+        let script = format!(
+            "awk 'BEGIN{{for(i=0;i<{BG_SCROLLBACK};i++) printf \"%07d the quick brown fox jumps over the lazy dog, scrollback line for the mobile link bench\\n\", i}}'; printf 'READY-bg\\n'; \
+             while :; do if [ -f '{dir}/req' ]; then set -- $(cat '{dir}/req'); rm -f '{dir}/req'; \
+             awk -v n=\"$1\" 'BEGIN{{for(b=0;b<n;){{k++; s=sprintf(\"[%7d] Compiling netcond-crate-%04d v0.1.%d (/build/src/netcond/crate_%04d) in 0.%02ds\", k, k%9973, k%97, k%9973, k%100); print s; b+=length(s)+2}}}}'; \
+             printf 'EMITTED-%s\\n' \"$2\"; fi; sleep 0.05; done"
+        );
+        let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x300);
+        let surface = surface_of(&client.call(json!({"cmd": "new-tab", "pane": pane,
+            "terminal_id": terminal_id, "cols": COLS, "rows": ROWS,
+            "env": {"SHELL": "/bin/sh"}, "shell_args": ["-c", script]})));
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        loop {
+            let screen = client.call(json!({"cmd": "read-screen", "surface": surface}));
+            if screen.to_string().contains("READY-bg") {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the scrollback did not finish drawing");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let tree = client.call(json!({"cmd": "list-workspaces"}));
+        let workspaces: Vec<Value> =
+            tree["workspaces"].as_array().unwrap().iter().map(|ws| ws["id"].clone()).collect();
+        let capabilities = client.call(json!({"cmd": "identify"}))["capabilities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c.as_str().map(str::to_owned))
+            .collect();
+        Self {
+            daemon,
+            upstream: "127.0.0.1:0".parse().unwrap(),
+            surface,
+            workspaces,
+            capabilities,
+            renames: AtomicU64::new(0),
+            produced: AtomicU64::new(0),
+        }
+    }
+
+    fn lists(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|c| c == capability)
+    }
+
+    fn client(&self) -> SyncClient {
+        let stream = std::os::unix::net::UnixStream::connect(&self.daemon.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(120))).unwrap();
+        SyncClient { writer: stream.try_clone().unwrap(), reader: BufReader::new(stream), next: 0 }
+    }
+
+    /// What the phone held when it left: an attach as the after form's phone makes it (unshaped),
+    /// its vt-state's stamp and size, and the list's revision.
+    async fn cursor(&self) -> Result<BgCursor, String> {
+        let mut conn = BgConn::open(self.upstream).await?;
+        let ids = conn
+            .send(vec![
+                ("set-client-info", bg_client_info(true)),
+                ("identify", json!({})),
+                (
+                    "attach-surface",
+                    json!({"surface": self.surface, "cols": COLS, "rows": ROWS,
+                    "replay_history_rows": 0}),
+                ),
+                ("list-workspaces", json!({"known": {}})),
+            ])
+            .await?;
+        let deadline = Instant::now() + WAIT;
+        let (mut state, mut list) = (None, None);
+        while state.is_none() || list.is_none() {
+            let (_, value) = conn.recv(deadline).await?;
+            if value["event"] == "vt-state" && value["surface"] == json!(self.surface) {
+                state = Some(value);
+            } else if value["id"] == json!(ids[3]) {
+                list = Some(value);
+            } else if value["id"] == json!(ids[2]) && value["ok"] != json!(true) {
+                return Err(format!("attach-surface: {value}"));
+            }
+        }
+        let (state, list) = (state.unwrap(), list.unwrap());
+        let data = &list["data"];
+        let mut known = json!({"tree_revision": data["tree_revision"]});
+        for field in [
+            "registry_id",
+            "generation",
+            "workspace_revision",
+            "pane_revision",
+            "terminal_revision",
+        ] {
+            if !data[field].is_null() {
+                known[field] = data[field].clone();
+            }
+        }
+        let replay_bytes = state["data"].as_str().map_or(0, |data| {
+            base64::engine::general_purpose::STANDARD.decode(data).map_or(0, |b| b.len() as u64)
+        });
+        Ok(BgCursor {
+            offset: state["offset"].as_u64().ok_or(format!("vt-state has no offset: {state}"))?,
+            generation: state["generation"]
+                .as_str()
+                .ok_or("vt-state has no generation")?
+                .to_owned(),
+            replay_bytes,
+            cols: state["cols"].as_u64().unwrap_or(COLS),
+            rows: state["rows"].as_u64().unwrap_or(ROWS),
+            known,
+        })
+    }
+
+    /// The Mac while the phone is away: `bytes` of build log into the terminal and `changes`
+    /// list changes (a workspace renamed, as a status or title change).
+    fn produce(&self, bytes: u64, changes: u64) {
+        let mut client = self.client();
+        for _ in 0..changes {
+            let n = self.renames.fetch_add(1, Ordering::SeqCst);
+            let workspace = &self.workspaces[(n as usize) % self.workspaces.len()];
+            client.call(json!({"cmd": "rename-workspace", "workspace": workspace,
+                "name": format!("netcond-status-{n}")}));
+        }
+        if bytes == 0 {
+            return;
+        }
+        let tag = self.produced.fetch_add(1, Ordering::SeqCst);
+        let dir = &self.daemon.dir;
+        fs::write(dir.join("req.tmp"), format!("{bytes} {tag}\n")).unwrap();
+        fs::rename(dir.join("req.tmp"), dir.join("req")).unwrap();
+        let needle = format!("EMITTED-{tag}");
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        loop {
+            let screen = client.call(json!({"cmd": "read-screen", "surface": self.surface}));
+            if screen.to_string().contains(&needle) {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "the producer did not finish {bytes} B");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+struct BgSample {
+    catch_up_ms: f64,
+    bytes_down: u64,
+    bytes_up: u64,
+    round_trips: u64,
+    /// The host answered from the cursor (an exact resume, an `unchanged` list); None: the
+    /// form sent none.
+    cursor_hit: Option<bool>,
+    /// Terminal: the bytes the host held after the cursor (the exact resume's `through`).
+    held_behind: Option<u64>,
+}
+
+/// The terminal's catch-up on a fresh connection.
+async fn bg_terminal_once(
+    shaper: &Shaper,
+    fx: &BgFixture,
+    cursor: &BgCursor,
+    phase: &str,
+) -> Result<BgSample, String> {
+    shaper.reset_counters();
+    let started = Instant::now();
+    let mut conn = BgConn::open(shaper.addr()).await?;
+    let resume = phase != "before";
+    let mut params = json!({"surface": fx.surface, "cols": cursor.cols, "rows": cursor.rows,
+        "replay_history_rows": 0});
+    if resume {
+        params["resume_offset"] = json!(cursor.offset);
+        params["resume_generation"] = json!(cursor.generation);
+    }
+    if phase == "after_bounded" {
+        params["resume_max_bytes"] = json!(cursor.replay_bytes);
+    }
+    let ids = conn
+        .send(vec![
+            ("set-client-info", bg_client_info(resume)),
+            ("identify", json!({})),
+            ("attach-surface", params),
+        ])
+        .await?;
+    let deadline = Instant::now() + WAIT;
+    let (mut content, mut reply) = (None, None);
+    while content.is_none() || reply.is_none() {
+        let (at, value) = conn.recv(deadline).await?;
+        if value["id"] == json!(ids[2]) {
+            if value["ok"] != json!(true) {
+                return Err(format!("attach-surface: {value}"));
+            }
+            reply = Some(value);
+        } else if value["surface"] == json!(fx.surface)
+            && (value["event"] == "vt-state"
+                || (value["event"] == "output" && value.get("resume").is_some()))
+        {
+            content = Some(at);
+        }
+    }
+    let at = content.unwrap();
+    let reply = reply.unwrap();
+    let counters = shaper.counters();
+    let resumed = reply["data"]["resume"].as_str();
+    let through = reply["data"]["through"].as_u64();
+    Ok(BgSample {
+        catch_up_ms: ms(at - started),
+        bytes_down: counters.down_bytes,
+        bytes_up: counters.up_bytes,
+        round_trips: counters.up_turns + 1,
+        cursor_hit: resume.then_some(resumed == Some("exact")),
+        held_behind: through.map(|through| through.saturating_sub(cursor.offset)),
+    })
+}
+
+/// The workspace list's catch-up on a fresh connection: WorkspaceSync.prepare's setup write.
+async fn bg_list_once(shaper: &Shaper, cursor: &BgCursor, phase: &str) -> Result<BgSample, String> {
+    shaper.reset_counters();
+    let started = Instant::now();
+    let mut conn = BgConn::open(shaper.addr()).await?;
+    let known = if phase == "before" { json!({}) } else { cursor.known.clone() };
+    let ids = conn
+        .send(vec![
+            ("set-client-info", setup_client_info()),
+            ("identify", json!({})),
+            ("subscribe", json!({"tree_events": "deltas"})),
+            ("list-agents", json!({})),
+            ("list-workspaces", json!({"known": known})),
+        ])
+        .await?;
+    let deadline = Instant::now() + WAIT;
+    let mut pending = ids.clone();
+    let mut list = Value::Null;
+    let mut last = started;
+    while !pending.is_empty() {
+        let (at, value) = conn.recv(deadline).await?;
+        let Some(id) = value["id"].as_u64() else { continue };
+        let Some(index) = pending.iter().position(|p| *p == id) else { continue };
+        if value["ok"] != json!(true) {
+            return Err(format!("request {id}: {value}"));
+        }
+        pending.remove(index);
+        if id == ids[4] {
+            list = value;
+        }
+        last = at;
+    }
+    let counters = shaper.counters();
+    Ok(BgSample {
+        catch_up_ms: ms(last - started),
+        bytes_down: counters.down_bytes,
+        bytes_up: counters.up_bytes,
+        round_trips: counters.up_turns + 1,
+        cursor_hit: (phase != "before").then_some(list["data"]["unchanged"] == json!(true)),
+        held_behind: None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bg_emit_sample(
+    surface: &str,
+    link: &str,
+    phase: &str,
+    scale: &str,
+    run: u64,
+    seed: u64,
+    sample: Result<BgSample, String>,
+    behind: (u64, u64),
+) {
+    let (events_behind, stale_s) = behind;
+    bg_emit(surface, link, phase, scale, "events_behind", Some(events_behind as f64), run, seed);
+    bg_emit(surface, link, phase, scale, "stale_s", Some(stale_s as f64), run, seed);
+    match sample {
+        Ok(sample) => {
+            bg_emit(
+                surface,
+                link,
+                phase,
+                scale,
+                "catch_up_ms",
+                Some(sample.catch_up_ms),
+                run,
+                seed,
+            );
+            for (metric, value) in [
+                ("bytes_down", sample.bytes_down),
+                ("bytes_up", sample.bytes_up),
+                ("round_trips", sample.round_trips),
+            ] {
+                bg_emit(surface, link, phase, scale, metric, Some(value as f64), run, seed);
+            }
+            if let Some(hit) = sample.cursor_hit {
+                bg_emit(
+                    surface,
+                    link,
+                    phase,
+                    scale,
+                    "cursor_hit",
+                    Some(f64::from(u8::from(hit))),
+                    run,
+                    seed,
+                );
+            }
+            if let Some(held) = sample.held_behind {
+                bg_emit(surface, link, phase, scale, "held_behind", Some(held as f64), run, seed);
+            }
+        }
+        Err(why) => {
+            bg_emit(surface, link, phase, scale, "catch_up_ms", None, run, seed);
+            println!("NETCOND-ERROR {surface} {link} {phase} {scale} run {run}: {why}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "the time-away bench: scripts/measure/ios-network-conditions.sh mode=background runs it"]
+fn background_catch_up_after_time_away() {
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+        Err(_) => ProfileFile::builtin(),
+    };
+    let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", "good-wifi,lte,lossy-3")
+        .iter()
+        .map(|name| file.get(name).unwrap_or_else(|| panic!("no link profile {name}")).clone())
+        .collect();
+    let aways = env_list("NETCOND_AWAY", "1m,10m,1h,8h");
+    let loads = env_list("NETCOND_LOADS", "idle,busy");
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let mut fx = BgFixture::start();
+    let mut phases = vec!["before", "after"];
+    if fx.lists(TERMINAL_RESUME_BOUNDED_CAPABILITY) {
+        phases.push("after_bounded");
+    }
+    println!(
+        "NETCOND-FIXTURE background: {BG_WORKSPACES} workspaces, terminal {COLS}x{ROWS} with \
+         {BG_SCROLLBACK} lines of scrollback; busy: {BG_BUSY_TERMINAL_BYTES_PER_S} B/s of build \
+         log, a list change every {BG_BUSY_LIST_EVERY_S} s; idle: a list change every \
+         {BG_IDLE_LIST_EVERY_S} s; terminal capped at {} B (ring {BG_RESUME_RING_BYTES} B); \
+         phases {phases:?}",
+        BG_RESUME_RING_BYTES + BG_PAST_RING_BYTES
+    );
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    runtime.block_on(async {
+        fx.upstream = splice(&fx.daemon.socket).await;
+        for load in &loads {
+            let busy = load == "busy";
+            for away in &aways {
+                let secs = away_secs(away);
+                let scale = format!("{away}-{load}");
+                let span_bytes = if busy { secs * BG_BUSY_TERMINAL_BYTES_PER_S } else { 0 };
+                let made_bytes = span_bytes.min(BG_RESUME_RING_BYTES + BG_PAST_RING_BYTES);
+                let changes = secs / if busy { BG_BUSY_LIST_EVERY_S } else { BG_IDLE_LIST_EVERY_S };
+                for run in 0..runs {
+                    let seed = seed_base + run;
+                    let cursor = match fx.cursor().await {
+                        Ok(cursor) => cursor,
+                        Err(why) => {
+                            println!("NETCOND-ERROR background {scale} run {run}: cursor: {why}");
+                            continue;
+                        }
+                    };
+                    let produced = Instant::now();
+                    fx.produce(made_bytes, changes);
+                    eprintln!(
+                        "netcond: {scale} run {run}: made {made_bytes} B and {changes} list changes in {:?}",
+                        produced.elapsed()
+                    );
+                    for profile in &profiles {
+                        let label = label(profile);
+                        let (shaper, _relay) = match link(fx.upstream, profile, seed).await {
+                            Ok(link) => link,
+                            Err(e) => {
+                                println!("NETCOND-ERROR background {label} {scale}: shaper: {e}");
+                                continue;
+                            }
+                        };
+                        for phase in &phases {
+                            let sample = bg_terminal_once(&shaper, &fx, &cursor, phase).await;
+                            bg_emit_sample("terminal", &label, phase, &scale, run, seed, sample,
+                                (span_bytes, secs));
+                            if *phase == "after_bounded" {
+                                continue; // the list has no bounded form
+                            }
+                            let sample = bg_list_once(&shaper, &cursor, phase).await;
+                            bg_emit_sample("workspaces", &label, phase, &scale, run, seed, sample,
+                                (changes, secs));
+                        }
+                    }
+                }
+            }
+        }
+    });
+    drop(runtime);
+    fx.daemon.stop();
 }

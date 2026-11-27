@@ -42,31 +42,39 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
-use crate::store::LibraryMark;
-use crate::store::{Draft, Generation, Kind};
+use crate::store::{Draft, Generation, Kind, LibraryMark};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
+pub mod applies;
 pub mod code;
 mod collection;
+pub mod doctor;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
 mod put;
 pub mod recover;
+pub mod standup;
 mod text;
 
+pub use applies::{NoLongerApplies, Stale};
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
+pub use standup::{Standup, StandupLine};
 pub use text::thumbnail;
 use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
 /// The most entries one collection or library holds.
+/// Measured: every change rewrites `library.json` whole (each entry carries its profile's
+/// settings and files) and rescans every entry for the keys it references, and an exported
+/// library must import under MAX_COLLECTION_BYTES (8 MiB): about 16 KiB an entry for 500.
+/// Derived from those bounds, not timed; per-entry storage would lift it.
 pub const MAX_ENTRIES: usize = 500;
 /// The largest collection file import reads.
 pub const MAX_COLLECTION_BYTES: usize = 8 * 1024 * 1024;
@@ -225,6 +233,23 @@ struct LibraryFile {
     /// Top first.
     entries: Vec<Entry>,
     base: Base,
+    /// The app commit (`CMUXCommit`, as the app stamps it) `refresh` last
+    /// ran on, so the app runs it again at start only after an update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refreshed_on: Option<String>,
+}
+
+/// Whether `refresh` is due on an app at `app` (its `CMUXCommit`) when it
+/// last ran on `recorded`: never on a build with no commit (a DEV build),
+/// always the first time, then only when the commit changed. A NIGHTLY
+/// stamps a short commit, so one that starts the other is the same commit.
+pub fn refresh_due(recorded: Option<&str>, app: Option<&str>) -> bool {
+    let Some(app) = app.map(str::trim).filter(|app| !app.is_empty()) else { return false };
+    let Some(recorded) = recorded.map(str::trim).filter(|recorded| !recorded.is_empty()) else {
+        return true;
+    };
+    let (app, recorded) = (app.to_ascii_lowercase(), recorded.to_ascii_lowercase());
+    !(app.starts_with(&recorded) || recorded.starts_with(&app))
 }
 
 /// One entry as a list shows it.
@@ -414,6 +439,33 @@ impl Customize {
     /// The entries, top first, and every conflict among those that are on.
     pub fn library(&self) -> Result<Listing, Error> {
         Ok(listing(&self.read_library()?.entries))
+    }
+
+    /// The library as one line per entry for standup ([`standup::standup`]):
+    /// code first, then setup repos, then recipes. A setups file that cannot
+    /// be read names no repo; the lines are still there.
+    pub fn library_standup(&self, now_ms: u64) -> Result<Standup, Error> {
+        let listing = self.library()?;
+        let setups = self.setups().unwrap_or_default();
+        Ok(standup::standup(&listing, &setups, now_ms))
+    }
+
+    /// The app commit `refresh` last ran on ([`refresh_due`]).
+    pub fn library_refreshed_on(&self) -> Result<Option<String>, Error> {
+        Ok(self.read_library()?.refreshed_on)
+    }
+
+    /// Records that `refresh` ran on app commit `commit`. Only that field
+    /// changes: no generation, nothing live. Writes nothing when it is
+    /// already the one recorded.
+    pub fn library_mark_refreshed(&self, commit: &str) -> Result<(), Error> {
+        let _lock = self.store().lock()?;
+        let mut library = self.read_library()?;
+        if library.refreshed_on.as_deref() == Some(commit) {
+            return Ok(());
+        }
+        library.refreshed_on = Some(commit.to_owned());
+        self.write_library(&mut library)
     }
 
     /// Saves what applied generation `generation` changed from its parent as
@@ -795,6 +847,13 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Imported, Error> {
+        // A collection kept from an older cmux names some keys the old way:
+        // they come in under their new names (`Profile::migrated`).
+        let mut collection = collection.clone();
+        for entry in &mut collection.entries {
+            entry.profile = entry.profile.migrated().0;
+        }
+        let collection = &collection;
         self.check_collection(collection)?;
         let mut added = Vec::new();
         let mut already = Vec::new();

@@ -10,6 +10,8 @@ const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
     "handle",
+    // The chat's own icon (`session_icon.rs`); an image is left to the full summary.
+    "icon",
     "shortName",
     "indicator",
     "titleSource",
@@ -23,13 +25,12 @@ const EXTRA_KEYS: &[&str] = &[
     "preview",
     "subagentsRunning",
     "subagentNames",
+    "recentSubagents",
+    "subagentsSeen",
     "commandsRunning",
     "pullRequests",
     "usageWarnings",
     "lastMessage",
-    // The chat's task list, counts and lines only (`task_list.rs`): the row's "3/7" and its step.
-    "taskList",
-    "rollingSummary",
     "lane",
     "turn",
     "tags",
@@ -53,6 +54,7 @@ const EXTRA_KEYS: &[&str] = &[
     "watching",
     "loopEpisode",
     "coldArchive",
+    "autoSession",
     "waitingPrompt",
     "since",
     "stuckError",
@@ -125,8 +127,15 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !value.is_null()
                 && !(key.as_str() == "handle" && derived_handle(row, value))
+                && !(key.as_str() == "icon"
+                    && value.get("kind").and_then(Value::as_str) == Some("image"))
+                // Every chat's row carries `autoSession` (#54159), Auto off on almost all; the
+                // off default is what a reader assumes when it is absent, and its ~90 bytes in
+                // both forms push a full row past MAX_SUMMARY_BYTES. Nulls say the same as a missing key.
+                && !(key.as_str() == "autoSession"
+                    && **value == crate::auto_session::record::AutoRecord::row_of(None))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
@@ -138,15 +147,10 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         values.insert("status".into(), Value::String(status.to_owned()));
     }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
-    retain(
-        values.get_mut("taskList"),
-        &["source", "done", "total", "current", "next", "updatedAt"],
-    );
-    retain(values.get_mut("rollingSummary"), &["text", "next", "source", "turn", "at"]);
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
         values.get_mut("turn"),
-        &["startedAt", "prompt", "notice", "activity", "planStep", "stalledSince", "turnId"],
+        &["startedAt", "prompt", "notice", "activity", "stalledSince", "turnId"],
     );
     retain(values.get_mut("lastTurn"), &["status", "endedAt"]);
     retain(values.get_mut("pullRequest"), &["number", "title", "state", "reviewReady", "checks"]);
@@ -192,9 +196,6 @@ fn shrinkable(key: &str) -> bool {
             | "prompt"
             | "waitingPrompt"
             | "activity"
-            | "planStep"
-            | "current"
-            | "next"
             | "error"
             | "stuckError"
             | "cwd"
@@ -429,7 +430,7 @@ mod tests {
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(config, store);
         hub.wait_store().await;
-        let session = hub.sessions.lock().unwrap().get("fixture").cloned().unwrap();
+        let session = hub.session_get("fixture").unwrap();
         (hub, session)
     }
 
@@ -443,7 +444,8 @@ mod tests {
         assert_eq!(extra["cwd"], "/work/project///");
         assert!(extra["lastPrompt"].as_str().unwrap().chars().count() <= TEXT_CHARS);
         assert!(extra["preview"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-        assert!(extra.get("forkSeq").is_some());
+        // A null forkSeq says nothing (`said_nothing`); a fork's seq rides on the typed `fork_of`.
+        assert!(extra.get("forkSeq").is_none(), "{extra}");
         assert!(extra.get("spawnedBy").is_none());
         assert!(extra.get("queue").is_none());
         assert!(extra.get("usageStats").is_none());

@@ -15,10 +15,16 @@
 //!    changed. A conflict's machine version is written beside this Mac's file
 //!    (`NAME.cmux-sync-conflict`, [`super::merge::write_conflict`]); this Mac's is never replaced.
 //!    A git conflict stops everything before a file changes.
-//! 5. Only once all of that applied does the machine drop the projection (`projection.drop`:
-//!    unmount, delete the upper layer and cache) and this Mac stop the folder's server.
+//! 5. Only once all of that applied does the machine free the projection: brought back at the
+//!    mark it read (`projection.brought_back`; `projection.drop` on a machine whose listing has no
+//!    mark): unmount, delete the upper layer and cache. This Mac then stops the folder's server.
+//!    An upper layer the agent wrote to since it was read stays on the machine, mounted again on
+//!    the next dial (`edited_since` in the summary), and so does this Mac's record of it.
 //!
-//!     cmux link project back --socket S --at REMOTE FOLDER [--keep]
+//! ```text
+//! cmux link project back --socket S --at REMOTE FOLDER [--keep]
+//! cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
+//! ```
 
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Read as _, Seek as _, Write as _};
@@ -131,6 +137,40 @@ pub(crate) fn back_command(args: &[String]) -> anyhow::Result<Value> {
     }
 }
 
+/// `release --socket S --at REMOTE FOLDER [--why archived|deleted]`: the chat is archived or
+/// deleted, so nothing will bring its edits back: the machine ends the projection and frees its
+/// state (`projection.release`), and this Mac stops the folder's server and forgets it.
+pub(crate) fn release_command(args: &[String]) -> anyhow::Result<Value> {
+    let (mut socket, mut at, mut folder, mut why) = (None, None, None, "archived".to_owned());
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--socket" => socket = words.next().map(PathBuf::from),
+            "--at" => at = words.next().cloned(),
+            "--why" => why = words.next().cloned().context("--why needs archived or deleted")?,
+            other if other.starts_with("--") => bail!("unknown flag {other}"),
+            other => folder = Some(PathBuf::from(other)),
+        }
+    }
+    anyhow::ensure!(matches!(why.as_str(), "archived" | "deleted"), "--why is archived or deleted");
+    let socket = socket.context("--socket is required")?;
+    let at = at.context("--at is required")?;
+    let folder = folder.context("the folder is required")?;
+    let found = recorded(&folder, &at)
+        .with_context(|| format!("{} is not a projected folder at {at}", folder.display()))?;
+    let line = json!({"cmd": "projection.release", "name": found.name, "why": why});
+    match dial_answer(&socket, &line)? {
+        Ok(answer) => {
+            let _ = super::project::stop_server(&found.remote);
+            forget(&found.name);
+            Ok(json!({"ok": true, "released": true,
+                      "freed_bytes": field(&answer, "/data/freed_bytes")}))
+        }
+        Err(answer) => Ok(json!({"ok": false, "error": field(&answer, "/error"),
+                                 "error_code": field(&answer, "/error_code")})),
+    }
+}
+
 /// Bring Back of the projected folder `found` (module docs). `keep`: leave the projection on the
 /// machine afterwards.
 pub(in crate::link) fn bring_back(socket: &Path, found: &Recorded, keep: bool) -> Back {
@@ -155,7 +195,10 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
 
     let (answer, mut reader) =
         dial(socket, &json!({"cmd": "projection.layer", "name": found.name}), &[])?;
-    let bytes = answer["data"]["bytes"].as_u64().context("the machine sent no listing size")?;
+    let bytes =
+        field(&answer, "/data/bytes").as_u64().context("the machine sent no listing size")?;
+    // The upper layer as the machine read it: what `projection.brought_back` frees.
+    let mark = field(&answer, "/data/mark").as_str().map(str::to_owned);
     let mut raw = Vec::new();
     (&mut reader).take(bytes).read_to_end(&mut raw)?;
     anyhow::ensure!(raw.len() as u64 == bytes, "the machine's listing ended early");
@@ -267,13 +310,33 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
     }
     let applied_ms = ms(started);
 
-    let mut dropped = false;
+    let (mut dropped, mut edited_since, mut freed_bytes) = (false, false, None);
     if !keep {
-        let (answer, _) =
-            dial(socket, &json!({"cmd": "projection.drop", "name": found.name}), &[])?;
-        dropped = answer["data"]["dropped"] == true;
-        let _ = super::project::stop_server(&found.remote);
-        forget(&found.name);
+        let line = match &mark {
+            Some(mark) => {
+                json!({"cmd": "projection.brought_back", "name": found.name, "mark": mark})
+            }
+            None => json!({"cmd": "projection.drop", "name": found.name}),
+        };
+        match dial_answer(socket, &line)? {
+            Ok(answer) => {
+                dropped = field(&answer, "/data/dropped").as_bool() == Some(true);
+                freed_bytes = field(&answer, "/data/freed_bytes").as_u64();
+                let _ = super::project::stop_server(&found.remote);
+                forget(&found.name);
+            }
+            Err(answer)
+                if field(&answer, "/error_code").as_str() == Some("projection.edited_since") =>
+            {
+                edited_since = true;
+            }
+            Err(answer) => {
+                bail!(
+                    "{}",
+                    field(&answer, "/error").as_str().unwrap_or("the machine refused Bring Back")
+                )
+            }
+        }
     }
     let conflicts: Vec<Value> = plan
         .conflicts
@@ -312,6 +375,8 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         "bytes": fetched_bytes,
         "listing_bytes": bytes,
         "dropped": dropped,
+        "edited_since": edited_since,
+        "freed_bytes": freed_bytes,
         "timings": {"listed_ms": listed_ms, "plan_ms": plan_ms, "fetched_ms": fetched_ms,
                     "applied_ms": applied_ms, "total_ms": ms(started)},
     })))
@@ -345,8 +410,7 @@ fn diff_stage(
     let mut by_repo: BTreeMap<String, Vec<Change>> = BTreeMap::new();
     let mut add = |path: &str, file: Option<PathBuf>| {
         let Some(repo) = repository_of(manifest, path) else { return };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = path_inside(&repo, path);
         by_repo.entry(repo).or_default().push(Change { path: path.to_owned(), inside, file });
     };
     for write in plan.writes.iter().filter(|w| w.kind == Kind::File) {
@@ -526,8 +590,7 @@ fn keep_ignored_home(
         .filter(|(path, _)| manifest.resolve(path).is_none());
     for (path, dir) in new_paths {
         let Some(repo) = repository_of(manifest, path) else { continue };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = path_inside(&repo, path);
         // A folder is asked about through a name inside it: git checks a missing path's leading
         // folders as folders (so `target/` matches), never the missing path itself.
         by_repo.entry(repo).or_default().push(if dir {
@@ -569,14 +632,25 @@ fn keep_ignored_home(
     Ok(ignored)
 }
 
+/// `path` relative to repository folder `repo`, which `repository_of` found as a whole leading
+/// folder of it (`""` is the root).
+fn path_inside(repo: &str, path: &str) -> String {
+    if repo.is_empty() {
+        return path.to_owned();
+    }
+    path.strip_prefix(repo).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path).to_owned()
+}
+
 /// The repository (its folder, empty for the top) whose working tree holds `path`, by the
 /// manifest's `.git` entries; None outside any.
 fn repository_of(manifest: &Manifest, path: &str) -> Option<String> {
     let parts: Vec<&str> = path.split('/').collect();
-    (0..parts.len()).rev().map(|end| parts[..end].join("/")).find(|folder| {
-        let dotgit = if folder.is_empty() { ".git".into() } else { format!("{folder}/.git") };
-        manifest.resolve(&dotgit).is_some()
-    })
+    (0..parts.len()).rev().filter_map(|end| parts.get(..end)).map(|folder| folder.join("/")).find(
+        |folder| {
+            let dotgit = if folder.is_empty() { ".git".into() } else { format!("{folder}/.git") };
+            manifest.resolve(&dotgit).is_some()
+        },
+    )
 }
 
 /// Whether repository `repo`'s HEAD, branch and index here are as the manifest listed them, so
@@ -646,12 +720,15 @@ fn apply(
     for write in plan.writes.iter().filter(|write| write.replaces == Some(Kind::File)) {
         expected.insert(write.path.clone(), expected_here(&root, &write.path)?);
     }
+    let expected_of = |path: &str| {
+        expected.get(path).with_context(|| format!("{path} was not checked before the change"))
+    };
     let mut transaction = Transaction::new(root_path, &staging.0)?;
     let mut staged_number = 0u64;
     let outcome = (|| -> anyhow::Result<()> {
         for delete in &plan.deletes {
             match delete.kind {
-                Kind::File => transaction.delete(&delete.path, &expected[&delete.path])?,
+                Kind::File => transaction.delete(&delete.path, expected_of(&delete.path)?)?,
                 Kind::Link => {
                     let text = manifest
                         .resolve(&delete.path)
@@ -676,7 +753,7 @@ fn apply(
                     transaction.remove_link(&write.path, &text)?;
                 }
                 Some(Kind::File) if write.kind != Kind::File => {
-                    transaction.delete(&write.path, &expected[&write.path])?;
+                    transaction.delete(&write.path, expected_of(&write.path)?)?;
                 }
                 Some(Kind::Dir) if write.kind != Kind::Dir => {
                     let (parent, name) = place::parent_of(&root, &write.path)?
@@ -697,8 +774,11 @@ fn apply(
                         &staged,
                         std::fs::Permissions::from_mode(local::permissions_of(write.mode)),
                     )?;
-                    let replaced =
-                        (write.replaces == Some(Kind::File)).then(|| &expected[&write.path]);
+                    let replaced = if write.replaces == Some(Kind::File) {
+                        Some(expected_of(&write.path)?)
+                    } else {
+                        None
+                    };
                     transaction.write(&write.path, &name, replaced)?;
                 }
                 Kind::Link => {
@@ -751,6 +831,28 @@ fn apply(
     Ok(applied)
 }
 
+/// One request-only dial (`projection.brought_back`, `projection.release`): the machine's answer,
+/// `Err` with it when refused.
+fn dial_answer(socket: &Path, line: &Value) -> anyhow::Result<Result<Value, Value>> {
+    dial_answer_within(socket, line, ANSWER_WAIT)
+}
+
+/// [`dial_answer`], waiting up to `wait` for the answer (a pin fetches before it answers).
+pub(super) fn dial_answer_within(
+    socket: &Path,
+    line: &Value,
+    wait: Duration,
+) -> anyhow::Result<Result<Value, Value>> {
+    let (answer, _) = dial_raw(socket, line, &[], wait)?;
+    Ok(if field(&answer, "/ok").as_bool() == Some(true) { Ok(answer) } else { Err(answer) })
+}
+
+/// The value at `pointer` in a machine's answer, `null` when it has none.
+pub(super) fn field<'a>(answer: &'a Value, pointer: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    answer.pointer(pointer).unwrap_or(&NULL)
+}
+
 /// One Bring Back dial: `line` (with an id added) and `body`, then the machine's answer line,
 /// refused unless ok; the stream after it.
 fn dial(
@@ -758,27 +860,41 @@ fn dial(
     line: &Value,
     body: &[u8],
 ) -> anyhow::Result<(Value, BufReader<UnixStream>)> {
+    let (answer, reader) = dial_raw(socket, line, body, ANSWER_WAIT)?;
+    if field(&answer, "/ok").as_bool() != Some(true) {
+        let code = answer.get("error_code");
+        if code.is_none_or(|code| code.as_str() == Some("projection.unavailable")) {
+            bail!("the machine does not serve Bring Back for projected folders: {answer}");
+        }
+        bail!("{}", field(&answer, "/error").as_str().unwrap_or("the machine refused Bring Back"));
+    }
+    Ok((answer, reader))
+}
+
+/// [`dial`], ok or not.
+fn dial_raw(
+    socket: &Path,
+    line: &Value,
+    body: &[u8],
+    wait: Duration,
+) -> anyhow::Result<(Value, BufReader<UnixStream>)> {
     let mut stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
     let mut line = line.clone();
-    line["id"] = json!(1);
+    if let Some(fields) = line.as_object_mut() {
+        fields.insert("id".to_owned(), json!(1));
+    }
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
     stream.write_all(&bytes)?;
     stream.write_all(body)?;
     stream.flush()?;
-    stream.set_read_timeout(Some(ANSWER_WAIT))?;
+    stream.set_read_timeout(Some(wait))?;
     let mut reader = BufReader::with_capacity(256 * 1024, stream);
     let mut answer = String::new();
     reader.read_line(&mut answer)?;
     let answer: Value = serde_json::from_str(answer.trim())
         .with_context(|| format!("the machine answered {answer:?}"))?;
-    if answer["ok"] != true {
-        if answer["error_code"] == "projection.unavailable" || answer.get("error_code").is_none() {
-            bail!("the machine does not serve Bring Back for projected folders: {answer}");
-        }
-        bail!("{}", answer["error"].as_str().unwrap_or("the machine refused Bring Back"));
-    }
     Ok((answer, reader))
 }
 

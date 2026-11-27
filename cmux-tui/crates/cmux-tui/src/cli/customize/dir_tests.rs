@@ -19,7 +19,7 @@ fn fake_builders(dir: &Path, fail: Option<&str>) {
 }
 
 #[test]
-fn the_three_builders_fill_every_nested_surface_and_leave_no_log() {
+fn the_builders_fill_every_nested_surface_and_leave_no_log() {
     let tmp = tempfile::tempdir().unwrap();
     fake_builders(tmp.path(), None);
     let out = tmp.path().join("out");
@@ -28,7 +28,7 @@ fn the_three_builders_fill_every_nested_surface_and_leave_no_log() {
         assert!(out.join(prefix).join("index.js").is_file(), "{prefix}");
     }
     let found = files(&out).unwrap();
-    assert_eq!(found.len(), 3, "{found:?}");
+    assert_eq!(found.len(), SURFACES.len(), "{found:?}");
     let logs: Vec<_> = std::fs::read_dir(&out)
         .unwrap()
         .filter_map(Result::ok)
@@ -83,11 +83,12 @@ fn the_same_build_is_the_same_layer_and_a_change_is_another() {
                 "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/x",
                 "c",
             ),
+            ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/other.txt", "d"),
         ],
     );
     let found = files(&out).unwrap();
-    // Agent Activity is no overlay surface.
-    assert_eq!(found.len(), 2);
+    // Agent Activity is a surface; a file beside the surfaces is none.
+    assert_eq!(found.len(), 3);
     let one = digest(&out, &found).unwrap();
     assert_eq!(one, digest(&out, &files(&out).unwrap()).unwrap());
     tree(&out, &[("Resources/markdown-viewer/webviews-app/index.html", "c")]);
@@ -143,6 +144,35 @@ fn a_folder_is_named_by_its_last_part() {
 }
 
 #[test]
+fn a_file_opened_or_read_is_not_a_save() {
+    use notify::EventKind;
+    use notify::event::{
+        AccessKind, AccessMode, CreateKind, DataChange, MetadataKind, ModifyKind, RemoveKind,
+        RenameMode,
+    };
+    let event = |kind| Ok(notify::Event::new(kind).add_path(PathBuf::from("/w/a.ts")));
+    for kind in [
+        EventKind::Access(AccessKind::Open(AccessMode::Any)),
+        EventKind::Access(AccessKind::Read),
+        EventKind::Access(AccessKind::Close(AccessMode::Read)),
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)),
+        EventKind::Other,
+    ] {
+        assert!(saved_paths(event(kind)).is_empty(), "{kind:?}");
+    }
+    for kind in [
+        EventKind::Create(CreateKind::File),
+        EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+        EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+        EventKind::Access(AccessKind::Close(AccessMode::Write)),
+        EventKind::Remove(RemoveKind::File),
+        EventKind::Any,
+    ] {
+        assert_eq!(saved_paths(event(kind)), vec![PathBuf::from("/w/a.ts")], "{kind:?}");
+    }
+}
+
+#[test]
 fn output_and_installs_are_not_saves() {
     let tmp = tempfile::tempdir().unwrap();
     let kept = worth_a_build(
@@ -153,4 +183,25 @@ fn output_and_installs_are_not_saves() {
         ],
     );
     assert!(kept.is_empty());
+}
+
+#[test]
+fn a_failed_build_names_its_error_line_when_warnings_fill_the_tail() {
+    // hq run 45341531578 (2026-11-24): the row showed only the esbuild warning.
+    let mut text = String::from("vite v7 building\nerror TS2304: Cannot find name 'expect'.\n");
+    for _ in 0..30 {
+        text.push_str(
+            "▲ [WARNING] No matching export in \"src/agent-session/acpmux/layoutWatch.ts\"\n",
+        );
+    }
+    let said = super::why_failed("build.sh", &text);
+    assert!(said.starts_with("build.sh failed: error TS2304"), "{said}");
+    assert!(said.ends_with("layoutWatch.ts\""), "{said}");
+    assert!(!said.contains("vite v7"), "{said}");
+}
+
+#[test]
+fn a_failed_build_with_its_error_in_the_tail_is_the_tail() {
+    let said = super::why_failed("build.sh", "a\nb\nerror: boom\n");
+    assert_eq!(said, "build.sh failed:\na\nb\nerror: boom");
 }

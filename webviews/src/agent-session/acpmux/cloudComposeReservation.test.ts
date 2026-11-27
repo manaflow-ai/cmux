@@ -318,6 +318,74 @@ test("a reserve that failed (Cloud remembered on load, no gesture) is tried agai
   ]);
 });
 
+test("a key the platform says is over is not retried: the next intent reserves with a new key", async () => {
+  // The dev build of 2026-11-19: the first reserve got no answer in time, the platform's hold ran out, and each
+  // retry of that key was refused `reservation.terminal`.
+  const answers: (() => Promise<unknown>)[] = [
+    () => Promise.reject({ code: "unavailable" }),
+    () => Promise.reject({ code: "reservation.terminal" }),
+    async () => ({}),
+  ];
+  const h = harness(() => answers.shift()!());
+  h.reservation.selected();
+  await settle();
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("x");
+  await settle();
+  expect(await h.reservation.ready("compose-1")).toBe(false);
+  // Inside the gap after two failures in a row nothing goes out, old key or new.
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xy");
+  await settle();
+  expect(h.calls).toHaveLength(2);
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xyz");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-2" }],
+  ]);
+  // The Send binds the new key's machine, and the ended key is never released: nothing of it is left.
+  const request = { task: "xyz", reservationKey: h.reservation.handoff() };
+  expect(await h.start(request, "send-1")).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "xyz", key: "send-1", reservationKey: "compose-2", gestureTicket: "ticket-1" },
+  ]);
+  expect(h.calls.some(([method]) => method === "cloud.releaseReservation")).toBe(false);
+});
+
+test("a new key's reserve waits for a reserve of the ended key that is still out", async () => {
+  // The native pane takes one key at a time: a new key sent while the old key's reserve is out is refused.
+  const out: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = [];
+  const h = harness(() => new Promise((resolve, reject) => out.push({ resolve, reject })));
+  h.reservation.selected();
+  await settle();
+  out[0]!.reject({ code: "unavailable" });
+  await settle();
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("x");
+  await settle();
+  // A second retry of the same key is queued behind the first, which then says the key is over.
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xy");
+  await settle();
+  expect(h.calls).toHaveLength(2);
+  out[1]!.reject({ code: "reservation.terminal" });
+  await settle();
+  expect(h.calls).toHaveLength(3);
+  h.advance(RESERVATION_RETRY_MS * 2);
+  h.reservation.typed("xyz");
+  await settle();
+  expect(h.calls).toHaveLength(3);
+  out[2]!.reject({ code: "reservation.terminal" });
+  await settle();
+  expect(h.calls.map(([, params]) => params.composeKey)).toEqual(["compose-1", "compose-1", "compose-1", "compose-2"]);
+  out[3]!.resolve({});
+  expect(await h.reservation.ready("compose-2")).toBe(true);
+});
+
 test("a renewal that failed keeps the Send off the key: it goes as an ordinary one", async () => {
   let fail = false;
   const h = harness(async () => {
@@ -474,5 +542,80 @@ test("a Send refused before its reservation was bound gives the machine back, an
   expect(h.calls.filter(([method]) => method === "cloud.reserve").at(-1)).toEqual([
     "cloud.reserve",
     { composeKey: "compose-2" },
+  ]);
+});
+
+test("a composer that opens on Cloud leases at open, says atOpen until the first intent, and keeps its key", async () => {
+  const h = harness();
+  h.reservation.opened();
+  h.reservation.opened();
+  await settle();
+  expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1", atOpen: true }]]);
+  // The first key renews the same key as an ordinary compose, never a second machine.
+  h.advance(RESERVATION_RENEW_MS);
+  h.reservation.typed("hello");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", atOpen: true }],
+    ["cloud.reserve", { composeKey: "compose-1" }],
+  ]);
+});
+
+test("an open lease nobody types into is released at the idle bound", async () => {
+  const h = harness();
+  h.reservation.opened("chat-1");
+  await settle();
+  h.advance(RESERVATION_IDLE_RELEASE_MS);
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1", atOpen: true }],
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+  ]);
+});
+
+test("an open lease the host refused (a hidden spare) asks again when the page opens again, then the key retries without atOpen", async () => {
+  let refuse = true;
+  const h = harness(async () => {
+    if (refuse) throw { code: "gesture_required" };
+    return {};
+  });
+  h.reservation.opened();
+  await settle();
+  refuse = false;
+  h.reservation.opened();
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", atOpen: true }],
+    ["cloud.reserve", { composeKey: "compose-1", atOpen: true }],
+  ]);
+  expect(await h.reservation.ready(h.reservation.handoff()!)).toBe(true);
+});
+
+// Leo, 2026-11-25: "the new tab page. so when you select cloud/autocloud. that's when it can start."
+test("picking Auto (AutoCloud) on the New Tab page leases one machine at the pick, and Auto deciding Cloud keeps that key for the Send", async () => {
+  const h = harness();
+  h.reservation.selected(undefined, false, true);
+  await settle();
+  expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1", auto: true }]]);
+  // Auto decided Cloud (App.tsx applyRunMode("cloud")): the same compose, no second machine, and the Send takes it.
+  h.reservation.selected(undefined);
+  await settle();
+  expect(h.calls).toHaveLength(1);
+  const key = h.reservation.handoff();
+  expect(key).toBe("compose-1");
+  expect(await h.reservation.ready(key!)).toBe(true);
+});
+
+test("a New Tab page that opens with Auto remembered leases at open, and Auto deciding this Mac gives it back", async () => {
+  const h = harness();
+  h.reservation.opened(undefined, true);
+  h.reservation.opened(undefined, true);
+  await settle();
+  expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1", atOpen: true, auto: true }]]);
+  h.reservation.abandon();
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", atOpen: true, auto: true }],
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
   ]);
 });

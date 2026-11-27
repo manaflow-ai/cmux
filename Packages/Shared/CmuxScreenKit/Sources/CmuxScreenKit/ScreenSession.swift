@@ -100,6 +100,15 @@ public final class ScreenSession {
     /// the Mac then leaves its cursor out of the video. Set before
     /// connecting; an app that never sets it gets the cursor in the picture.
     @ObservationIgnored public var drawsPointers = false
+    /// Follow mode's camera, which the app supplies (nil: no Follow button).
+    public var camera: (any ScreenCamera)?
+    /// One message of a screen stream's `focus` channel: a JSON focus event
+    /// from the Mac (main actor). The camera reads it.
+    @ObservationIgnored public var onFocus: ((Data) -> Void)?
+    /// The Mac's cursor shape on a screen stream, its own image (nil: none
+    /// yet, or a Mac that sends none). Only with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onStreamCursor: ((ScreenStreamCursor?) -> Void)?
+    @ObservationIgnored private var streamCursors = ScreenStreamCursorCache()
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -268,6 +277,11 @@ public final class ScreenSession {
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 
+    /// The RFB handshake's rules (cmux-vnc) for a VNC connection and the demo desktop: the app
+    /// that makes the session sets its channel (the phone's cmux-mobile-link-ffi `vnc_json`).
+    /// Without one a VNC connection fails; a screen stream does not need them.
+    @ObservationIgnored public var vncRules = VNCRules()
+
     /// A VNC server reached directly (LAN, tailnet).
     public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
                 preferences: ScreenPreferences = ScreenPreferences()) {
@@ -342,7 +356,7 @@ public final class ScreenSession {
             guard let self else { return }
             var target = endpoint
             if target == nil {
-                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop"))
+                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop", rules: vncRules))
                 demo = server
                 guard let port = try? await server.start() else {
                     phase = .failed(message: "The demo desktop could not start.", needsSignIn: false)
@@ -351,7 +365,7 @@ public final class ScreenSession {
                 target = VNCEndpoint(host: "127.0.0.1", port: port)
             }
             guard let target else { return }
-            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
+            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor, rules: vncRules)
             start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
         })
     }
@@ -395,10 +409,18 @@ public final class ScreenSession {
 
     // MARK: Stream
 
+    /// A new or ended stream: its Mac's cursor shapes start over.
+    private func resetStreamCursor() {
+        let had = streamCursors.current != nil
+        streamCursors.reset()
+        if had { onStreamCursor?(nil) }
+    }
+
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         // The last stream's pointers: a new host may send none (it draws its cursor).
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
@@ -459,9 +481,25 @@ public final class ScreenSession {
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
+            let shape = message.shape
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
+                if self.streamCursors.select(shape) { self.onStreamCursor?(self.streamCursors.current) }
                 self.onTelepointers?(person, agent)
+            }
+        }
+        viewer.onFocus = { [weak self, weak viewer] message in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.onFocus?(message)
+            }
+        }
+        viewer.onCursorShape = { [weak self, weak viewer] shape in
+            // Decoded here, off the main actor.
+            guard let cursor = ScreenStreamCursor(shape) else { return }
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                if self.streamCursors.add(cursor) { self.onStreamCursor?(self.streamCursors.current) }
             }
         }
         viewer.onState = { [weak self, weak viewer] message in
@@ -673,6 +711,7 @@ public final class ScreenSession {
         }
         stream = nil
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         stats.targetFps = nil
         if !silently { phase = .ended }
     }

@@ -85,8 +85,37 @@ public struct WorkspaceHoverCardGallery {
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
-        return layoutCards(now: now) + tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + closeAndSpinnerCards(now: now)
-            + workCards(now: now) + originCards(now: now) + richCards
+        return layoutCards(now: now) + tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + portCards(now: now)
+            + closeAndSpinnerCards(now: now) + workCards(now: now) + originCards(now: now) + richCards
+    }
+
+    /// A workspace whose terminal serves a dev server (its `ports` entry, ":5173"): one row per port under the tab
+    /// list, with details shut or open, that opens the port in a browser tab of the workspace; on another machine the
+    /// same row opens that machine's localhost (the header names the machine once). Hovered: the tab rows' fill.
+    @MainActor static func portCards(now: Date) -> [(name: String, view: NSView)] {
+        // Made-up machine names: the capture's privacy check refuses a real host's.
+        let local = SidebarMachine(id: .local, name: "studio", kind: .local)
+        let remote = SidebarMachine(id: MachineID("dev-mini"), name: "dev-mini", kind: .ssh, status: .connected)
+        var shell = SidebarTab(id: TabID("dev"), title: "~/Projects/web", kind: .terminal, folder: "~/Projects/web")
+        shell.command = "npm run dev"
+        let states: [(String, SidebarMachine, String, Bool, Bool)] = [
+            ("Ports · this Mac · one port", local, ":5173", false, false),
+            ("Ports · this Mac · two ports · details open", local, ":3000, :5173", true, false),
+            ("Ports · another machine · its localhost", remote, ":5173", false, false),
+            ("Ports · port row hovered", local, ":5173", false, true),
+        ]
+        return states.map { name, machine, ports, expanded, hovered in
+            var workspace = SidebarWorkspace(id: WorkspaceID("ports-\(machine.id.rawValue)"), machineID: machine.id, title: "web")
+            workspace.tabs = [shell]
+            workspace.ports = ports
+            let card = WorkspaceHoverCardView()
+            card.configure(.make(workspace, machine: machine, now: now), now: now)
+            card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now, machine: machine)
+            card.onOpenPort = { _, _ in }
+            if expanded { card.detailsToggle.performClick(nil) }
+            if hovered { card.portViews.first?.isHovered = true }
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
     }
 
     /// One workspace with a long history, as the Timeline layout (the default until 2026-11-20) and as

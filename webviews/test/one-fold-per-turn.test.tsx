@@ -14,6 +14,7 @@ import type { Root } from "react-dom/client";
 import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -161,9 +162,10 @@ test("a plain turn's opened run line starts closed, as before", async () => {
 // The estimate of an open run line is the rows it draws (review of cmux#37710): a run that keeps a
 // coordination card (a message to another agent) and a change waiting for permission in sight draws,
 // with `runOpen`, each stretch's line over its steps (ToolRunSteps.tsx, a line per call), as a run of
-// plain work does. Every one of those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
-// height is the count of `.cv-tool` lines and sent-message rows (`.cv-sent-msg`, one each) times 22.
-const LINE = 22;
+// plain work does. Every one of those rows is one tool line (design/chat-transcript.md "One-line row pitch", 32 px
+// since the row air shipped, transcriptGrid.ts `TRANSCRIPT_LINE_ROW`), so the drawn height is the count of `.cv-tool`
+// lines and sent-message rows (`.cv-sent-msg`, one each) times that pitch.
+const LINE = TRANSCRIPT_LINE_ROW;
 /// An opened line's body sits one base grid unit under its line (model.ts `openRunBody`,
 /// conversation.css `.cv-tools > * + .cv-fold::before`): 4px per open body.
 const BODY_GAP = 4;
@@ -236,7 +238,7 @@ async function renderWorked(rows: readonly AcpmuxRow[]) {
   return labels;
 }
 const workedOf = (rows: AcpmuxRow[]) => {
-  globalThis.cmuxExperiments = { "turn-fold-steered": "header" };
+  globalThis.cmuxExperiments = { "turn-fold-steered": "header", "worked-line": "time" };
   return view(rows, "codex").find((shown) => shown.kind === WORKED)!;
 };
 const withRun = (id: string, run: AcpmuxRow) => steered.map((shown) => (shown.id === id ? run : shown));

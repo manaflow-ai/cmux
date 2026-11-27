@@ -17,8 +17,13 @@
 //!   caller token, `server/requests.rs`), before the outbox keeps it or a peer gets it: `acpmux
 //!   send`, the MCP `send` tool, a fan-out or tag send and a cross-host send all carry it, and the
 //!   receiving daemon keeps the sender's line.
-//! - Idempotent: a text with a line that starts `Sent-by: ` already (a lane VM's broker relay
-//!   stamps first) gets no second one.
+//! - Only the daemon's line counts: in a send from a proven session, any line the sender wrote
+//!   that starts `Sent-by: ` is quoted (`> Sent-by: ...`) before the true line goes on, so a
+//!   reader (`agent_text.rs`, the chat's `agentText.ts`) never takes it for the sender. The line
+//!   also rides in `_meta.acpmux.sentBy` ([`META_KEY`]), which only the daemon sets: a slash
+//!   command carries it there alone, so its words stay the command's. Stamping the same send
+//!   twice is stamping it once. A lane VM's broker relay sends through a connection that proves
+//!   no session, so its own line is kept as it wrote it.
 //! - Not stamped: a notice (`_meta.acpmux.notice`), acpmux's own prompts (they come from the hub,
 //!   not a caller's connection), a session's note to itself, and a send no session proved (the
 //!   person's own terminal send).
@@ -33,6 +38,13 @@ use serde_json::{Value, json};
 /// The start of the trailer line.
 pub const PREFIX: &str = "Sent-by: ";
 
+/// Where the daemon carries the line in `_meta.acpmux`, beside the text's own: never taken from a
+/// client ([`drop_claimed`]).
+pub const META_KEY: &str = "sentBy";
+
+/// What a sender's own [`PREFIX`] line becomes: a quote, which no reader takes for the trailer.
+const QUOTE: &str = "> ";
+
 /// What the line names; each field but the session may be unknown.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Sender {
@@ -40,6 +52,9 @@ pub struct Sender {
     pub session: String,
     pub harness: Option<String>,
     pub model: Option<String>,
+    /// The handle a person or the agent gave it (`acpmux rename @ Mango --handle`): the name
+    /// people call it, written last (`handle=Mango`) so readers of the first token keep working.
+    pub handle: Option<String>,
 }
 
 /// The trailer line for `sender`, with no line break.
@@ -60,6 +75,10 @@ pub fn line(sender: &Sender) -> String {
     if let Some(model) = field(&sender.model) {
         out.push_str(" model=");
         out.push_str(model);
+    }
+    if let Some(handle) = field(&sender.handle) {
+        out.push_str(" handle=");
+        out.push_str(handle);
     }
     out
 }
@@ -119,171 +138,158 @@ fn is_command(text: &str) -> bool {
         && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
 }
 
-/// Appends `line` to a `session/prompt`'s `prompt` blocks: to its last text block after a blank
-/// line, or as a text block of its own when it has no text. A prompt whose first text is a slash
-/// command is left as it is: a harness reads the command's words as its arguments, and an adapter
-/// that sends only the last text block would send the line in place of the command. Nothing when a
-/// text block has a [`PREFIX`] line already. Returns whether it stamped.
-pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
-    fn text_of(b: &Value) -> Option<&str> {
-        (b.get("type").and_then(Value::as_str) == Some("text"))
-            .then(|| b.get("text").and_then(Value::as_str))
-            .flatten()
+/// `text` with each line that starts with [`PREFIX`] quoted, or None when it has none. A line is
+/// read from the start of the text or after a `\n`, as the readers read it.
+fn quote_lines(text: &str) -> Option<String> {
+    if !has_line(text) {
+        return None;
     }
+    let mut out = String::with_capacity(text.len() + 2 * QUOTE.len());
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if line.starts_with(PREFIX) {
+            out.push_str(QUOTE);
+        }
+        out.push_str(line);
+    }
+    Some(out)
+}
+
+fn text_of(b: &Value) -> Option<&str> {
+    (b.get("type").and_then(Value::as_str) == Some("text"))
+        .then(|| b.get("text").and_then(Value::as_str))
+        .flatten()
+}
+
+/// Whether `blocks` end with `line` as their one [`PREFIX`] line: the last text block's last line,
+/// after a blank line or as the whole block, and no other line anywhere ([`stamp_blocks`] ran).
+fn stamped_with(blocks: &[Value], line: &str) -> bool {
+    let Some(last) = blocks.iter().rposition(|b| text_of(b).is_some()) else {
+        return false;
+    };
+    let others = blocks.iter().take(last).filter_map(text_of).any(has_line);
+    let Some(text) = blocks.get(last).and_then(text_of) else { return false };
+    let body = if text == line {
+        Some("")
+    } else {
+        text.strip_suffix(line).and_then(|t| t.strip_suffix("\n\n"))
+    };
+    !others && body.is_some_and(|b| !has_line(b))
+}
+
+/// Puts `line` on a `session/prompt`'s `prompt` blocks, the only [`PREFIX`] line in them: every
+/// line a block already has that starts with it is quoted first ([`QUOTE`]). It goes on the last
+/// text block after a blank line, or as a text block of its own when there is no text, and in
+/// `_meta.acpmux` ([`META_KEY`]). A prompt whose first text is a slash command carries it in
+/// `_meta` alone: a harness reads the command's words as its arguments, and an adapter that sends
+/// only the last text block would send the line in place of the command. Stamping an already
+/// stamped prompt changes nothing. Returns whether it changed the prompt.
+pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
     let Some(blocks) = prompt.get_mut("prompt").and_then(Value::as_array_mut) else {
         return false;
     };
-    if blocks.iter().filter_map(text_of).any(has_line) {
-        return false;
-    }
-    if blocks.iter().find_map(text_of).is_some_and(is_command) {
-        return false;
-    }
-    let last = blocks.iter().rposition(|b| text_of(b).is_some());
-    match last.and_then(|i| blocks.get_mut(i)) {
-        Some(block) => {
-            let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
-            let text = format!("{}\n\n{line}", text.trim_end_matches(['\n', '\r']));
-            block["text"] = json!(text);
+    let command = blocks.iter().find_map(text_of).is_some_and(is_command);
+    let mut changed = false;
+    if command || !stamped_with(blocks, line) {
+        for block in blocks.iter_mut() {
+            if let Some(quoted) = text_of(block).and_then(quote_lines) {
+                block["text"] = json!(quoted);
+                changed = true;
+            }
         }
-        None => blocks.push(json!({"type": "text", "text": line})),
+        if !command {
+            let last = blocks.iter().rposition(|b| text_of(b).is_some());
+            match last.and_then(|i| blocks.get_mut(i)) {
+                Some(block) => {
+                    let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
+                    let text = format!("{}\n\n{line}", text.trim_end_matches(['\n', '\r']));
+                    block["text"] = json!(text);
+                }
+                None => blocks.push(json!({"type": "text", "text": line})),
+            }
+            changed = true;
+        }
     }
-    true
+    if prompt.pointer("/_meta/acpmux").and_then(|m| m.get(META_KEY)).and_then(Value::as_str)
+        != Some(line)
+        && let Some(fields) = prompt.as_object_mut()
+    {
+        let meta = fields.entry("_meta").or_insert_with(|| json!({}));
+        if !meta.is_object() {
+            *meta = json!({});
+        }
+        let mux = meta.as_object_mut().map(|m| m.entry("acpmux").or_insert_with(|| json!({})));
+        if let Some(mux) = mux {
+            if !mux.is_object() {
+                *mux = json!({});
+            }
+            if let Some(mux) = mux.as_object_mut() {
+                mux.insert(META_KEY.into(), json!(line));
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Quotes every [`PREFIX`] line in `prompt`'s text blocks, stamping nothing: a proven session's
+/// notice still names no sender it is not.
+fn quote_blocks(prompt: &mut Value) {
+    let Some(blocks) = prompt.get_mut("prompt").and_then(Value::as_array_mut) else { return };
+    for block in blocks.iter_mut() {
+        if let Some(quoted) = text_of(block).and_then(quote_lines) {
+            block["text"] = json!(quoted);
+        }
+    }
+}
+
+/// Drops a [`META_KEY`] a client sent: only the daemon sets it. `carried` is a connection whose
+/// `_meta.acpmux` is the daemon's own (the outbox, a peer daemon: `sender_harness::check_trust`).
+pub(crate) fn drop_claimed(prompt: &mut Value, carried: bool) {
+    if carried {
+        return;
+    }
+    if let Some(mux) = prompt.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.remove(META_KEY);
+    }
 }
 
 /// The [`Sender`] the daemon knows for session `id`: None when no session here has that id.
 pub fn of_session(hub: &crate::hub::Hub, id: &str) -> Option<Sender> {
     let session = hub.resolve(id).ok().filter(|s| s.id == id)?;
-    let (name, harness, model) = session.read_meta(|m| {
+    let (name, harness, model, handle) = session.read_meta(|m| {
         let harness = m
             .family
             .clone()
             .filter(|f| !f.trim().is_empty())
             .or_else(|| (!m.harness.trim().is_empty()).then(|| m.harness.clone()));
-        (m.name.clone(), harness, meta_model(m))
+        let handle = m.handle.clone().filter(|h| crate::session_handle::valid(h));
+        (m.name.clone(), harness, meta_model(m), handle)
     });
     let session = if name.trim().is_empty() { id.to_owned() } else { name };
-    Some(Sender { host: this_host(), session, harness, model })
+    Some(Sender { host: this_host(), session, harness, model, handle })
 }
 
 /// Stamps a send that `caller` (the session the connection proved) makes with `prompt` (a
 /// `session/prompt`'s params), unless it is a notice or the caller's note to itself.
+/// Any [`PREFIX`] line the sender wrote is quoted either way, so only the daemon's line names who
+/// sent it.
 pub(crate) fn stamp_send(hub: &crate::hub::Hub, prompt: &mut Value, caller: &str) {
-    if prompt.pointer("/_meta/acpmux/notice").is_some_and(|n| !n.is_null()) {
-        return;
-    }
     let target = crate::server::session_key(prompt).ok().and_then(|key| hub.resolve(key).ok());
     if target.is_some_and(|t| t.id == caller) {
         return;
     }
-    if let Some(sender) = of_session(hub, caller) {
-        stamp_blocks(prompt, &line(&sender));
+    let sender = of_session(hub, caller);
+    match sender {
+        Some(sender) if prompt.pointer("/_meta/acpmux/notice").is_none_or(|n| n.is_null()) => {
+            stamp_blocks(prompt, &line(&sender));
+        }
+        _ => quote_blocks(prompt),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn lane_x(model: Option<&str>) -> Sender {
-        Sender {
-            host: Some("devbox".into()),
-            session: "lane-x".into(),
-            harness: Some("claude".into()),
-            model: model.map(str::to_owned),
-        }
-    }
-
-    #[test]
-    fn names_host_session_harness_and_model() {
-        assert_eq!(
-            line(&lane_x(Some("claude-opus-5-5"))),
-            "Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5"
-        );
-    }
-
-    #[test]
-    fn an_unknown_field_is_left_out() {
-        assert_eq!(line(&lane_x(None)), "Sent-by: devbox/lane-x harness=claude");
-        let bare = Sender { session: "lane-x".into(), ..Sender::default() };
-        assert_eq!(line(&bare), "Sent-by: lane-x");
-    }
-
-    #[test]
-    fn appends_after_a_blank_line() {
-        let mut p =
-            json!({"sessionId": "b", "prompt": [{"type": "text", "text": "PR #1 is green.\n"}]});
-        assert!(stamp_blocks(&mut p, &line(&lane_x(Some("claude-opus-5-5")))));
-        assert_eq!(
-            p["prompt"][0]["text"],
-            "PR #1 is green.\n\nSent-by: devbox/lane-x harness=claude \
-             model=claude-opus-5-5"
-        );
-    }
-
-    #[test]
-    fn a_text_with_a_line_already_gets_no_second() {
-        let first = "hi\n\nSent-by: lane-vm/lane-a harness=codex model=gpt-6.2-astra";
-        let mut p = json!({"prompt": [{"type": "text", "text": first}]});
-        assert!(!stamp_blocks(&mut p, &line(&lane_x(Some("claude-opus-5-5")))));
-        assert_eq!(p["prompt"][0]["text"], first);
-        // Stamping twice is stamping once.
-        let mut p = json!({"prompt": [{"type": "text", "text": "hi"}]});
-        stamp_blocks(&mut p, "Sent-by: a/b");
-        stamp_blocks(&mut p, "Sent-by: a/b");
-        assert_eq!(p["prompt"][0]["text"], "hi\n\nSent-by: a/b");
-        // Prose that only mentions it is no line.
-        assert!(!has_line("see the Sent-by: trailer"));
-    }
-
-    #[test]
-    fn a_slash_command_is_left_as_it_is_and_no_text_gets_a_block_of_its_own() {
-        for command in ["/compact", "/model opus", "  /review 12"] {
-            let mut p = json!({"prompt": [{"type": "text", "text": command}]});
-            assert!(!stamp_blocks(&mut p, "Sent-by: a/b"), "{command}");
-            assert_eq!(p["prompt"], json!([{"type": "text", "text": command}]));
-        }
-        // A path is text, not a command: the line joins its block, so an adapter that sends the
-        // last text block sends both.
-        let mut p = json!({"prompt": [{"type": "text", "text": "/tmp/report.txt"}]});
-        assert!(stamp_blocks(&mut p, "Sent-by: a/b"));
-        assert_eq!(
-            p["prompt"],
-            json!([{"type": "text", "text": "/tmp/report.txt\n\nSent-by: a/b"}])
-        );
-        let mut p = json!({"prompt": [{"type": "image", "data": "", "mimeType": "image/png"}]});
-        stamp_blocks(&mut p, "Sent-by: a/b");
-        assert_eq!(p["prompt"][1], json!({"type": "text", "text": "Sent-by: a/b"}));
-    }
-
-    #[test]
-    fn an_alias_is_no_model_id() {
-        assert_eq!(model_id("claude-opus-5-5").as_deref(), Some("claude-opus-5-5"));
-        assert_eq!(model_id("claude-opus-5-5[1m]").as_deref(), Some("claude-opus-5-5"));
-        assert_eq!(model_id("gpt-6.2-astra").as_deref(), Some("gpt-6.2-astra"));
-        for alias in ["opus", "sonnet[1m]", "default", "gpt", "", "  "] {
-            assert_eq!(model_id(alias), None, "{alias}");
-        }
-    }
-
-    #[test]
-    fn the_model_is_the_harness_report_before_the_request() {
-        let raw = json!({"schema": crate::store::META_SCHEMA, "id": "s", "name": "lane-x",
-            "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2});
-        let mut meta: crate::store::SessionMeta =
-            serde_json::from_value(raw).unwrap_or_else(|e| panic!("meta: {e}"));
-        assert_eq!(meta_model(&meta), None);
-        meta.model_request = Some("opus".into());
-        assert_eq!(meta_model(&meta), None);
-        meta.models = Some(json!({"currentModelId": "claude-opus-5-5"}));
-        assert_eq!(meta_model(&meta).as_deref(), Some("claude-opus-5-5"));
-        // Switched to an alias after starting: the old id is not named.
-        meta.model_request = Some("claude-opus-5-5".into());
-        meta.models = None;
-        meta.config_options = Some(
-            serde_json::from_value(json!([{"id": "model", "currentValue": "sonnet"}]))
-                .unwrap_or_else(|e| panic!("config options: {e}")),
-        );
-        assert_eq!(meta_model(&meta), None);
-    }
-}
+#[path = "sent_by_tests.rs"]
+mod tests;

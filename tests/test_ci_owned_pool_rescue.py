@@ -2447,12 +2447,13 @@ class Workflow(unittest.TestCase):
             set(triggers["workflow_run"]["workflows"]),
             {"iOS App Store screenshots", "Nightly macOS build", "CI", "iOS simulator tests", "Iroh release gate",
              "Agent brand icons", "Auth and session lifecycle", "cmux-next base autofix", "cmux-next batch queue",
-             "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
+             "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix (advisory)", "cmux-next CEF shim C++ tests",
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily", "cmux-next-ios kit tests",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
              "cmux-next car guards", "cmux-rd Windows host", "macOS cross-compile parity",
-             "nightly-next launch smoke", "cmux NEXT Stable"},
+             "nightly-next launch smoke", "cmux NEXT Stable",
+             "Cloud chat proof (staging and production, tagged DEV app)"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(
@@ -2501,11 +2502,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
+        # Never from an owned pool it may rescue (the repair JIT label is one-job VMs), and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue.
         self.assertEqual(
             workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
-            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

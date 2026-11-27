@@ -6,8 +6,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { describedText, shownText, visibleLabelText } from "./support/factsCard";
 import { teardownDom } from "./support/domTeardown";
-import { describedText, shownText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -54,20 +54,18 @@ async function render(kind: string) {
       </SessionCwdContext.Provider>,
     ),
   );
-  return [...host.querySelectorAll(".cv-tool__text")].map((node) => shownText(node));
+  return [...host.querySelectorAll(".cv-tool__text")].map(visibleLabelText);
 }
 
 test("a tool row names a file in the session's folder by its path from there", async () => {
   expect(await render("edit")).toEqual(["Edit docs/guide.md", "Edit /Users/you/notes.md"]);
 });
 
-// Since the 2026-11-14 change a Read row names its file by its name alone, the full path on hover:
-// the name's hover card and description (chips/FactsHoverCard.tsx), not a native title.
-test("a Read row names its file by its name, with its full path on hover", async () => {
+// Since the 2026-11-14 change a Read row names its file by its name alone, the full path on hover.
+test("a Read row names its file by its name, with its full path in the accessible description", async () => {
   expect(await render("read")).toEqual(["Read guide.md", "Read notes.md"]);
-  const files = [...host.querySelectorAll(".cv-tool__file")];
-  expect(files.map((node) => node.hasAttribute("title"))).toEqual([false, false]);
-  expect(files.map((node) => describedText(node))).toEqual(["/Users/you/src/app/docs/guide.md", "/Users/you/notes.md"]);
+  const descriptions = [...host.querySelectorAll(".cv-tool__file")].map(describedText);
+  expect(descriptions).toEqual(["/Users/you/src/app/docs/guide.md", "/Users/you/notes.md"]);
 });
 
 test("a failed read or a read of several files is no flat read row, so its row still opens", async () => {

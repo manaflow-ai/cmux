@@ -3,7 +3,6 @@ import Foundation
 public nonisolated enum HomeEngineStrings {
     static var title: String { String(localized: "home.engine.title", defaultValue: "Chief Settings", table: "Home", bundle: .localizedModule) }
     public static var pillHelp: String { String(localized: "home.engine.pillHelp", defaultValue: "Shows or hides this Chief's settings", table: "Home", bundle: .localizedModule) }
-    static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .localizedModule) }
     static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .localizedModule) }
     static var showMemory: String { String(localized: "home.engine.showMemory", defaultValue: "Show Memory", table: "Home", bundle: .localizedModule) }
     /// The popover's link to Settings > Chief, the page with every Chief setting.
@@ -22,6 +21,7 @@ public nonisolated enum HomeEngineStrings {
     }
     /// A hosted cloud Chief: the Cloud service did not answer.
     static var errorCloudUnreachable: String {
+        // retry-prompt-ok: a cloud Chief's engine change goes to a paid service; the person re-sends it
         String(localized: "home.engine.error.cloudUnreachable", defaultValue: "cmux could not reach the cloud for this Chief. Check your connection and try again.", table: "Home", bundle: .localizedModule)
     }
     /// A hosted cloud Chief: no account is signed in.
@@ -46,7 +46,7 @@ public nonisolated enum HomeEngineStrings {
     }
     /// This Mac's brain was not running; the panel has just started it.
     static var errorLocalStarting: String {
-        String(localized: "home.engine.error.localStarting", defaultValue: "This Mac's Chief was not running. It is starting now; try again in a moment.", table: "Home", bundle: .localizedModule)
+        String(localized: "home.engine.error.localStarting", defaultValue: "This Mac's Chief didn't start in time, so the change wasn't saved.", table: "Home", bundle: .localizedModule)
     }
     static var errorForbidden: String {
         String(localized: "home.engine.error.forbidden", defaultValue: "This server does not let this connection change its Chief.", table: "Home", bundle: .localizedModule)
@@ -104,7 +104,7 @@ public nonisolated enum HomeEngineStrings {
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .localizedModule) }
     /// The card's Reactions block (a416): whether a tapback can wake the Chief, and its classifier.
     static var reactionsSection: String { String(localized: "home.engine.reactions", defaultValue: "Reactions", table: "Home", bundle: .localizedModule) }
-    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Can Wake the Chief", table: "Home", bundle: .localizedModule) }
+    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Wake Chief", table: "Home", bundle: .localizedModule) }
     static var reactionsOn: String { String(localized: "home.engine.reactions.on", defaultValue: "On", table: "Home", bundle: .localizedModule) }
     static var reactionsOff: String { String(localized: "home.engine.reactions.off", defaultValue: "Off", table: "Home", bundle: .localizedModule) }
     static var reactionClassifier: String { String(localized: "home.engine.reactions.classifier", defaultValue: "Classifier", table: "Home", bundle: .localizedModule) }
@@ -114,12 +114,25 @@ public nonisolated enum HomeEngineStrings {
     /// The harness field's placeholder while neither this Chief nor cmux.json names one.
     static var reactionHarnessDefault: String { String(localized: "home.engine.reactions.harnessDefault", defaultValue: "Default (Claude route)", table: "Home", bundle: .localizedModule) }
     static var reactionPromptBuiltIn: String { String(localized: "home.engine.reactions.promptBuiltIn", defaultValue: "Built-in instructions", table: "Home", bundle: .localizedModule) }
-    static var reactionsNote: String {
-        String(localized: "home.engine.reactions.note", defaultValue: "A cheap model decides whether your reaction on a Chief message needs an answer. Only then does the Chief start typing. Empty fields use your settings.", table: "Home", bundle: .localizedModule)
-    }
     /// A picker's "Default" item naming what it runs: "Default (claude)", "Default (Opus 5.5)".
     static var defaultNamedFormat: String {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .localizedModule)
+    }
+    // Computer (cmux issue 36047): where a Chief of this Mac does computer use.
+    static var computerSection: String { String(localized: "home.engine.section.computer", defaultValue: "cmux Computer Use", table: "Home", bundle: .localizedModule) }
+    static var computerRow: String { String(localized: "home.engine.computer", defaultValue: "Computer", table: "Home", bundle: .localizedModule) }
+    static var computerThisMac: String { String(localized: "home.engine.computer.thisMac", defaultValue: "This Mac", table: "Home", bundle: .localizedModule) }
+    static var computerNew: String { String(localized: "home.engine.computer.new", defaultValue: "New Cloud Computer…", table: "Home", bundle: .localizedModule) }
+    static var computerMacNote: String {
+        String(localized: "home.engine.computer.macNote", defaultValue: "The Chief clicks and types in this Mac's apps. Pick a Cloud computer to keep it off this Mac.",
+               table: "Home", bundle: .localizedModule)
+    }
+    static var computerCloudNote: String {
+        String(localized: "home.engine.computer.cloudNote", defaultValue: "The Chief clicks, types and browses on this Cloud computer, starting with its next turn.",
+               table: "Home", bundle: .localizedModule)
+    }
+    static var computerShowDesktop: String {
+        String(localized: "home.engine.computer.showDesktop", defaultValue: "Show Desktop", table: "Home", bundle: .localizedModule)
     }
     static var agentSection: String { String(localized: "home.engine.section.agent", defaultValue: "Agent", table: "Home", bundle: .localizedModule) }
     static var appearanceSection: String {
@@ -127,7 +140,7 @@ public nonisolated enum HomeEngineStrings {
     }
     static var diagnostics: String { String(localized: "home.engine.section.diagnostics", defaultValue: "Diagnostics", table: "Home", bundle: .localizedModule) }
     /// Under the name, for a Chief whose brain runs here.
-    static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .localizedModule) }
+    public static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .localizedModule) }
     /// The Hosted Chief's place line.
     public static var runsInCloud: String {
         String(localized: "home.engine.runsInCloud", defaultValue: "Runs in the cloud", table: "Home", bundle: .localizedModule)
@@ -161,6 +174,7 @@ public nonisolated enum HomeEngineStrings {
         String(localized: "home.engine.harnessChecking", defaultValue: "Checking %@…", table: "Home", bundle: .localizedModule)
     }
     static var renameRefused: String {
+        // retry-prompt-ok: a rename is the person's edit, refused by the brain
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .localizedModule)
     }
@@ -201,6 +215,7 @@ public nonisolated enum HomeEngineStrings {
             String(localized: "home.engine.primarySignedOut", defaultValue: "Sign in to cmux to choose your primary Chief.", table: "Home", bundle: .localizedModule)
         case .notFound: primaryUnknown
         default:
+            // retry-prompt-ok: making a Chief primary is a side-effecting change the person chose
             String(localized: "home.engine.primaryRefused", defaultValue: "This Chief couldn’t be made primary. Try again.", table: "Home", bundle: .localizedModule)
         }
     }

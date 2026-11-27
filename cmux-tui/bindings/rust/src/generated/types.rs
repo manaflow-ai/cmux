@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
+// cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -25,7 +25,13 @@ pub type TabRef = serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySnapshot {
     pub attached_clients: u32,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub echo_at_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub echo_input_at_ms: Optional<u64>,
     pub last_agent_action_at_ms: Nullable<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub last_person_attach_at_ms: Optional<u64>,
     pub last_user_input_at_ms: Nullable<u64>,
     pub live_agents: u32,
 }
@@ -988,6 +994,8 @@ pub struct HomeInboxRow {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub chief_state: Option<HomeChiefState>,
     pub id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub index: Option<u64>,
     pub kind: HomeInboxKind,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub last_author: Option<String>,
@@ -1054,9 +1062,21 @@ pub struct IdMapping {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdentifyRestore {
+    pub done: Nullable<u64>,
+    pub elapsed_ms: u64,
+    pub last_advance_ms: u64,
+    pub phase: String,
+    pub total: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_version: Optional<String>,
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
@@ -1094,9 +1114,13 @@ pub struct IdentifyResult {
     pub machine_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub min_api_revision: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub min_api_version: Optional<String>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restore: Option<IdentifyRestore>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen_device_id: Optional<String>,
     pub session: String,
@@ -1242,6 +1266,13 @@ pub struct ListWorkspacesKnown {
     pub tree_revision: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace_revision: Optional<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListWorkspacesSince {
+    pub epoch: String,
+    pub seq: u64,
 }
 
 #[rustfmt::skip]
@@ -1532,6 +1563,15 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReleaseWorkspaceNamesResult {
+    /// Workspace names this call handed back to the automatic namer.
+    pub released: u64,
+    /// User-owned names left pinned: a row renamed between the read and its release.
+    pub still_pinned: u64,
 }
 
 #[rustfmt::skip]
@@ -1906,6 +1946,8 @@ pub struct ServerStatsConnections {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsDisk {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub checkpoints: Optional<ServerStatsDiskCheckpoints>,
     pub error: Nullable<String>,
     pub files: Vec<ServerStatsDiskFile>,
     pub files_truncated: bool,
@@ -1918,6 +1960,16 @@ pub struct ServerStatsDisk {
     pub segments: Nullable<ServerStatsDiskSegments>,
     pub shm_bytes: u64,
     pub wal_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskCheckpoints {
+    pub budget_bytes: u64,
+    pub bytes: u64,
+    pub checkpoints: u64,
+    pub largest_bytes: u64,
+    pub over_budget: bool,
 }
 
 #[rustfmt::skip]
@@ -2194,6 +2246,15 @@ pub enum ServerStatsWriterPhase {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetClientInfoResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub api_revision: Option<u32>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub api_version: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -3248,11 +3309,25 @@ pub struct TerminalResumeCommandResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tree {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub changed: Option<Vec<Workspace>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub delta: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub generation: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub next: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub order: Option<Vec<Id>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub pane_revision: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub registry_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Vec<Id>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_revision: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

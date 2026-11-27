@@ -82,13 +82,13 @@ jobs:
   provision:
     # The staging server key is handed only to feat-cmux-next's own code.
     if: github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Each target's own server key: the script refuses a key whose project is not the target's.
     environment: ${{ (inputs.target == 'production' || inputs.target == 'production-team' || inputs.target == 'journey-production' || inputs.target == 'platform-production') && 'cloud-vm-production' || 'cloud-vm-staging' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The dispatched commit itself, never a later tip: the server key goes only to code that was reviewed.
           ref: ${{ github.sha }}

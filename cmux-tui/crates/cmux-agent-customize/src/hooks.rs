@@ -462,10 +462,10 @@ fn acpmux_free_is_cmux_plugin(folder: &Path) -> bool {
         .take(4)
         .map(|part| part.as_os_str().to_string_lossy().into_owned())
         .collect();
-    parts.len() == 4
-        && parts[0] == "claude-plugin"
-        && parts[2] == "builds"
-        && parts[3] == "cmux-tui"
+    matches!(
+        parts.as_slice(),
+        [plugin, _, builds, tui] if plugin == "claude-plugin" && builds == "builds" && tui == "cmux-tui"
+    )
 }
 
 fn list_codex(
@@ -514,7 +514,7 @@ fn list_codex(
                 let before = hooks.len();
                 collect_json_hooks(&root, Agent::Codex, scope, &path, None, hooks);
                 let key_path = paths.codex_state_key_path(&path);
-                for hook in &mut hooks[before..] {
+                for hook in hooks.iter_mut().skip(before) {
                     apply_codex_state(hook, &key_path, &states);
                 }
                 source.hooks = hooks.len() - before;
@@ -532,7 +532,7 @@ fn list_codex(
         let before = hooks.len();
         collect_json_hooks(&root, Agent::Codex, Scope::UserConfig, &config_path, None, hooks);
         let key_path = paths.codex_state_key_path(&config_path);
-        for hook in &mut hooks[before..] {
+        for hook in hooks.iter_mut().skip(before) {
             hook.read_only = true;
             apply_codex_state(hook, &key_path, &states);
         }
@@ -1046,11 +1046,13 @@ fn claude_layout(store: &[OJson], root: &OJson, hook: &HookEntry, handler: &OJso
     if let Some(groups) = layout.get_mut("groups").and_then(OJson::as_array_mut) {
         match file_group.and_then(|group| layout_group_of(groups, group).map(|at| (group, at))) {
             Some((group, at)) => {
-                let before = &group_handlers(group)
-                    [..hook.location.handler.min(group_handlers(group).len())];
-                if let Some(handlers) = groups[at].get_mut("hooks").and_then(OJson::as_array_mut) {
+                let before = group_handlers(group).iter().take(hook.location.handler);
+                if let Some(handlers) = groups
+                    .get_mut(at)
+                    .and_then(|group| group.get_mut("hooks"))
+                    .and_then(OJson::as_array_mut)
+                {
                     let after = before
-                        .iter()
                         .rev()
                         .find_map(|previous| handlers.iter().position(|item| item == previous))
                         .map_or(0, |index| index + 1);
@@ -1090,8 +1092,9 @@ fn claude_event_order(store: &[OJson], root: &OJson, file: &str) -> OJson {
         if order.iter().any(|known| known == name) {
             continue;
         }
-        let after = current[..at]
+        let after = current
             .iter()
+            .take(at)
             .rev()
             .find_map(|previous| order.iter().position(|known| known == previous))
             .map_or(0, |index| index + 1);
@@ -1179,7 +1182,7 @@ fn claude_reinsert(
             .iter()
             .position(|name| *name == hook.event)
             .and_then(|mine| {
-                order[..mine].iter().rev().find_map(|previous| events.get_index_of(*previous))
+                order.iter().take(mine).rev().find_map(|previous| events.get_index_of(*previous))
             })
             .map_or(if order.contains(&hook.event.as_str()) { 0 } else { events.len() }, |index| {
                 index + 1
@@ -1228,14 +1231,16 @@ fn claude_reinsert(
         groups.iter().map(|group| layout_group_of(layout_groups, group)).collect();
     match mapped.iter().position(|at| *at == Some(mine)) {
         Some(index) => {
-            let layout_handlers = group_handlers(&layout_groups[mine]);
+            let layout_handlers = layout_groups.get(mine).map(group_handlers).unwrap_or_default();
             let position = layout_handlers.iter().position(|item| *item == handler).unwrap_or(0);
-            let handlers = groups[index]
-                .get_mut("hooks")
+            let handlers = groups
+                .get_mut(index)
+                .and_then(|group| group.get_mut("hooks"))
                 .and_then(OJson::as_array_mut)
                 .context("a hook group has no `hooks` array")?;
-            let at = layout_handlers[..position]
+            let at = layout_handlers
                 .iter()
+                .take(position)
                 .rev()
                 .find_map(|previous| handlers.iter().position(|item| item == previous))
                 .map_or(0, |index| index + 1);
@@ -1375,8 +1380,13 @@ fn lock(paths: &AgentPaths, path: &Path) -> anyhow::Result<fs::File> {
 }
 
 /// Writes `root` to `path` (the caller holds `path`'s [`lock`]).
+/// Members the edit left alone keep their text ([`OJson::render_over`]).
 fn write_json(paths: &AgentPaths, path: &Path, root: &OJson) -> anyhow::Result<()> {
-    write_text(paths, path, &root.to_pretty())
+    let text = match fs::read_to_string(path) {
+        Ok(old) => root.render_over(&old),
+        Err(_) => root.to_pretty(),
+    };
+    write_text(paths, path, &text)
 }
 
 /// Replaces `path` with `text` through the shared store: backups of the prior file, then an

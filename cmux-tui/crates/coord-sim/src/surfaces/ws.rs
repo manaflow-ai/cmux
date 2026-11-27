@@ -162,7 +162,7 @@ impl Ws {
                 0x8 => return Ok(Frame::Closed),
                 0x9 => self.write_frame(0xA, &payload)?,
                 0xA => {}
-                0x0 | 0x1 | 0x2 => {
+                0x0..=0x2 => {
                     if op != 0 {
                         message_op = op;
                     }
@@ -182,15 +182,5 @@ impl Ws {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_matches_rfc4648() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-    }
-}
+#[path = "ws_tests.rs"]
+mod tests;

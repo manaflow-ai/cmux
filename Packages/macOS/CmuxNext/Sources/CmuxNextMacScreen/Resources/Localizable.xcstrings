@@ -19526,127 +19526,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شاشته مطفأة. أيقظه ثم حاول مرة أخرى."
+            "value": "شاشته مطفأة. أيقظه للاتصال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ekran mu je isključen. Probudite ga pa pokušajte ponovo."
+            "value": "Ekran mu je isključen. Probudite ga da se povežete."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skærmen er slukket. Væk den, og prøv igen."
+            "value": "Skærmen er slukket. Væk den for at oprette forbindelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sein Display ist aus. Wecke ihn auf und versuche es erneut."
+            "value": "Sein Display ist aus. Wecke ihn auf, um dich zu verbinden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Its display is off. Wake it, then try again."
+            "value": "Its display is off. Wake it to connect."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Su pantalla está apagada. Actívalo e inténtalo de nuevo."
+            "value": "Su pantalla está apagada. Actívalo para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Son écran est éteint. Réveillez-le, puis réessayez."
+            "value": "Son écran est éteint. Réveillez-le pour vous connecter."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il suo schermo è spento. Riattivalo, poi riprova."
+            "value": "Il suo schermo è spento. Riattivalo per connetterti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ディスプレイがオフです。スリープを解除してから、もう一度お試しください。"
+            "value": "ディスプレイがオフです。接続するにはスリープを解除してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អេក្រង់របស់វាបិទ។ ដាស់វា រួចព្យាយាមម្ដងទៀត។"
+            "value": "អេក្រង់របស់វាបិទ។ ដាស់វាដើម្បីភ្ជាប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "디스플레이가 꺼져 있습니다. 깨운 다음 다시 시도하세요."
+            "value": "디스플레이가 꺼져 있습니다. 연결하려면 깨우세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skjermen er av. Vekk den, og prøv igjen."
+            "value": "Skjermen er av. Vekk den for å koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jego ekran jest wyłączony. Wybudź go i spróbuj ponownie."
+            "value": "Jego ekran jest wyłączony. Wybudź go, aby się połączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A tela está desligada. Desperte-o e tente novamente."
+            "value": "A tela está desligada. Desperte-o para conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Его дисплей выключен. Разбудите его и попробуйте снова."
+            "value": "Его дисплей выключен. Разбудите его, чтобы подключиться."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "จอภาพปิดอยู่ ปลุกเครื่องแล้วลองอีกครั้ง"
+            "value": "จอภาพปิดอยู่ ปลุกเครื่องเพื่อเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ekranı kapalı. Uyandırın, sonra yeniden deneyin."
+            "value": "Ekranı kapalı. Bağlanmak için uyandırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Його дисплей вимкнено. Розбудіть його й спробуйте ще раз."
+            "value": "Його дисплей вимкнено. Розбудіть його, щоб під’єднатися."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Màn hình đang tắt. Hãy đánh thức máy rồi thử lại."
+            "value": "Màn hình đang tắt. Hãy đánh thức máy để kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它的显示器已关闭。请将其唤醒后重试。"
+            "value": "它的显示器已关闭。唤醒它即可连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "它的顯示器已關閉。請將其喚醒後再試一次。"
+            "value": "它的顯示器已關閉。喚醒它即可連線。"
           }
         }
       }
@@ -27904,264 +27904,133 @@
         }
       }
     },
-    "macScreen.hub.offlineBody": {
+    "macScreen.hub.offlineBodyWaits": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "افتح cmux على ذلك الـ Mac وتأكد من أنه مسجّل الدخول."
+            "value": "ستظهر شاشته هنا فور عودته إلى الاتصال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otvorite cmux na tom Macu i provjerite da li je prijavljen."
+            "value": "Njegov ekran će se prikazati ovdje čim ponovo bude na mreži."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åbn cmux på den Mac, og sørg for, at den er logget ind."
+            "value": "Skærmen vises her, så snart den er online igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öffne cmux auf diesem Mac und stelle sicher, dass er angemeldet ist."
+            "value": "Der Bildschirm erscheint hier, sobald das Gerät wieder online ist."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open cmux on that Mac and make sure it is signed in."
+            "value": "Its screen shows here as soon as it is back online."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abre cmux en ese Mac y asegúrate de que tiene la sesión iniciada."
+            "value": "Su pantalla se mostrará aquí en cuanto vuelva a estar en línea."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrez cmux sur ce Mac et vérifiez qu’il est connecté."
+            "value": "Son écran s’affichera ici dès qu’il sera de nouveau en ligne."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apri cmux su quel Mac e assicurati che abbia effettuato l’accesso."
+            "value": "Il suo schermo verrà mostrato qui non appena tornerà online."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そのMacでcmuxを開き、サインインしていることを確認してください。"
+            "value": "オンラインに戻り次第、この画面が表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បើក cmux នៅលើ Mac នោះ ហើយប្រាកដថាវាបានចូលហើយ។"
+            "value": "អេក្រង់របស់វានឹងបង្ហាញនៅទីនេះភ្លាមៗ នៅពេលវាត្រឡប់មកអនឡាញវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "해당 Mac에서 cmux를 열고 로그인되어 있는지 확인하십시오."
+            "value": "다시 온라인이 되면 바로 이곳에 화면이 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åpne cmux på den Macen og sørg for at den er pålogget."
+            "value": "Skjermen vises her så snart enheten er online igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otwórz cmux na tamtym Macu i upewnij się, że jest zalogowany."
+            "value": "Jego ekran pojawi się tutaj, gdy tylko wróci online."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abra o cmux naquele Mac e verifique se a sessão está iniciada."
+            "value": "A tela dele aparecerá aqui assim que voltar a ficar online."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Откройте cmux на том Mac и убедитесь, что вход выполнен."
+            "value": "Его экран появится здесь, как только устройство снова выйдет в сеть."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิด cmux บน Mac เครื่องนั้นและตรวจสอบให้แน่ใจว่าลงชื่อเข้าใช้แล้ว"
+            "value": "หน้าจอจะแสดงที่นี่ทันทีที่กลับมาออนไลน์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Mac’te cmux’u açın ve oturum açık olduğundan emin olun."
+            "value": "Ekranı yeniden çevrimiçi olur olmaz burada görünecek."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрийте cmux на тому Mac і переконайтеся, що в ньому виконано вхід."
+            "value": "Його екран з’явиться тут, щойно він знову буде онлайн."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mở cmux trên máy Mac đó và đảm bảo đã đăng nhập."
+            "value": "Màn hình của máy sẽ hiển thị ở đây ngay khi máy trực tuyến trở lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在那台 Mac 上打开 cmux，并确保已登录。"
+            "value": "设备重新上线后，其屏幕会立即显示在这里。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在那部 Mac 上打開 cmux，並確定已登入。"
-          }
-        }
-      }
-    },
-    "macScreen.hub.offlineBodyLinux": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تأكد من أن جهاز Linux هذا يعمل وأن مضيف شاشة cmux عليه قيد التشغيل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Provjerite je li taj Linux računar uključen i radi li na njemu cmux host ekrana."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sørg for, at Linux-maskinen er tændt, og at dens cmux-skærmvært kører."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stelle sicher, dass dieser Linux-Rechner eingeschaltet ist und sein cmux-Bildschirmhost läuft."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Make sure that Linux machine is on and its cmux screen host is running."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Asegúrate de que ese equipo Linux esté encendido y de que su host de pantalla de cmux esté en ejecución."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vérifiez que cette machine Linux est allumée et que son hôte d’écran cmux est en cours d’exécution."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Assicurati che quella macchina Linux sia accesa e che il suo host dello schermo cmux sia in esecuzione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その Linux マシンの電源が入っていて、cmux の画面ホストが実行中であることを確認してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សូមប្រាកដថាម៉ាស៊ីន Linux នោះបើក ហើយម៉ាស៊ីនបង្ហាញអេក្រង់ cmux របស់វាកំពុងដំណើរការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "해당 Linux 컴퓨터가 켜져 있고 cmux 화면 호스트가 실행 중인지 확인하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sørg for at Linux-maskinen er på og at cmux-skjermverten kjører."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upewnij się, że ta maszyna z Linuksem jest włączona, a jej host ekranu cmux działa."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verifique se essa máquina Linux está ligada e se o host de tela do cmux está em execução."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Убедитесь, что этот компьютер с Linux включён и на нём запущен хост экрана cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตรวจสอบว่าเครื่อง Linux นั้นเปิดอยู่และโฮสต์หน้าจอ cmux กำลังทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Linux makinesinin açık olduğundan ve cmux ekran ana bilgisayarının çalıştığından emin olun."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переконайтеся, що цей комп’ютер з Linux увімкнено і на ньому працює хост екрана cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hãy đảm bảo máy Linux đó đang bật và máy chủ màn hình cmux của nó đang chạy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请确保该 Linux 机器已开机，且其 cmux 屏幕主机正在运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請確認該 Linux 電腦已開機，且其 cmux 螢幕主機正在執行。"
+            "value": "裝置重新上線後，其螢幕會立即顯示在這裡。"
           }
         }
       }
@@ -28303,127 +28172,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على مركز الأجهزة بدء الجلسة. حاول مرة أخرى."
+            "value": "تعذّر على مركز الأجهزة بدء الجلسة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Čvorište uređaja nije moglo pokrenuti sesiju. Pokušajte ponovo."
+            "value": "Čvorište uređaja nije moglo pokrenuti sesiju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhedshubben kunne ikke starte sessionen. Prøv igen."
+            "value": "Enhedshubben kunne ikke starte sessionen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Geräte-Hub konnte die Sitzung nicht starten. Versuche es erneut."
+            "value": "Der Geräte-Hub konnte die Sitzung nicht starten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The device hub could not start the session. Try again."
+            "value": "The device hub could not start the session."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El centro de dispositivos no pudo iniciar la sesión. Inténtalo de nuevo."
+            "value": "El centro de dispositivos no pudo iniciar la sesión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le hub des appareils n’a pas pu démarrer la session. Réessayez."
+            "value": "Le hub des appareils n’a pas pu démarrer la session."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’hub dei dispositivi non ha potuto avviare la sessione. Riprova."
+            "value": "L’hub dei dispositivi non ha potuto avviare la sessione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスハブはセッションを開始できませんでした。もう一度お試しください。"
+            "value": "デバイスハブはセッションを開始できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មជ្ឈមណ្ឌលឧបករណ៍មិនអាចចាប់ផ្ដើមវគ្គបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "មជ្ឈមណ្ឌលឧបករណ៍មិនអាចចាប់ផ្ដើមវគ្គបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기기 허브에서 세션을 시작할 수 없습니다. 다시 시도하십시오."
+            "value": "기기 허브에서 세션을 시작할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhetshuben kunne ikke starte økten. Prøv igjen."
+            "value": "Enhetshuben kunne ikke starte økten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Centrum urządzeń nie mogło rozpocząć sesji. Spróbuj ponownie."
+            "value": "Centrum urządzeń nie mogło rozpocząć sesji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A central de dispositivos não conseguiu iniciar a sessão. Tente novamente."
+            "value": "A central de dispositivos não conseguiu iniciar a sessão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Центру устройств не удалось начать сеанс. Повторите попытку."
+            "value": "Центру устройств не удалось начать сеанс."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ศูนย์กลางอุปกรณ์ไม่สามารถเริ่มเซสชันได้ ลองอีกครั้ง"
+            "value": "ศูนย์กลางอุปกรณ์ไม่สามารถเริ่มเซสชันได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aygıt merkezi oturumu başlatamadı. Yeniden deneyin."
+            "value": "Aygıt merkezi oturumu başlatamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Центр пристроїв не зміг розпочати сеанс. Спробуйте ще раз."
+            "value": "Центр пристроїв не зміг розпочати сеанс."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trung tâm thiết bị không thể bắt đầu phiên. Hãy thử lại."
+            "value": "Trung tâm thiết bị không thể bắt đầu phiên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设备中心无法开始会话。请重试。"
+            "value": "设备中心无法开始会话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "裝置中心無法開始工作階段。請再試一次。"
+            "value": "裝置中心無法開始工作階段。"
           }
         }
       }
@@ -28565,127 +28434,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سمح %@ بالجلسة، لكن تعذّر بدؤها. حاول مرة أخرى."
+            "value": "سمح %@ بالجلسة، لكن تعذّر بدؤها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ je dozvolio sesiju, ali nije mogla početi. Pokušajte ponovo."
+            "value": "%@ je dozvolio sesiju, ali nije mogla početi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ tillod sessionen, men den kunne ikke starte. Prøv igen."
+            "value": "%@ tillod sessionen, men den kunne ikke starte."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ hat die Sitzung erlaubt, aber sie konnte nicht starten. Versuch es noch einmal."
+            "value": "%@ hat die Sitzung erlaubt, aber sie konnte nicht starten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ allowed the session, but it couldn’t start. Try again."
+            "value": "%@ allowed the session, but it couldn’t start."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ permitió la sesión, pero no se pudo iniciar. Vuelve a intentarlo."
+            "value": "%@ permitió la sesión, pero no se pudo iniciar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ a autorisé la session, mais elle n’a pas pu démarrer. Réessayez."
+            "value": "%@ a autorisé la session, mais elle n’a pas pu démarrer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ha consentito la sessione, ma non è stato possibile avviarla. Riprova."
+            "value": "%@ ha consentito la sessione, ma non è stato possibile avviarla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ はセッションを許可しましたが、開始できませんでした。もう一度お試しください。"
+            "value": "%@ はセッションを許可しましたが、開始できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ បានអនុញ្ញាតវគ្គ ប៉ុន្តែមិនអាចចាប់ផ្ដើមបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "%@ បានអនុញ្ញាតវគ្គ ប៉ុន្តែមិនអាចចាប់ផ្ដើមបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 세션을 허용했지만 시작할 수 없었습니다. 다시 시도하십시오."
+            "value": "%@에서 세션을 허용했지만 시작할 수 없었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ tillot økten, men den kunne ikke starte. Prøv igjen."
+            "value": "%@ tillot økten, men den kunne ikke starte."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ zezwolił na sesję, ale nie udało się jej rozpocząć. Spróbuj ponownie."
+            "value": "%@ zezwolił na sesję, ale nie udało się jej rozpocząć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ permitiu a sessão, mas ela não pôde ser iniciada. Tente novamente."
+            "value": "%@ permitiu a sessão, mas ela não pôde ser iniciada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ разрешил сеанс, но его не удалось начать. Повторите попытку."
+            "value": "%@ разрешил сеанс, но его не удалось начать."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ อนุญาตเซสชันแล้ว แต่เริ่มไม่ได้ ลองอีกครั้ง"
+            "value": "%@ อนุญาตเซสชันแล้ว แต่เริ่มไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ oturuma izin verdi ancak oturum başlatılamadı. Yeniden deneyin."
+            "value": "%@ oturuma izin verdi ancak oturum başlatılamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ дозволив сеанс, але його не вдалося почати. Спробуйте ще раз."
+            "value": "%@ дозволив сеанс, але його не вдалося почати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ đã cho phép phiên nhưng không thể bắt đầu. Hãy thử lại."
+            "value": "%@ đã cho phép phiên nhưng không thể bắt đầu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已允许会话，但会话无法开始。请重试。"
+            "value": "%@ 已允许会话，但会话无法开始。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已允許工作階段，但無法開始。請再試一次。"
+            "value": "%@ 已允許工作階段，但無法開始。"
           }
         }
       }
@@ -31437,137 +31306,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "僅檢視權限"
-          }
-        }
-      }
-    },
-    "macScreen.hub.waitingBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طلبت %@. يجب أن يسمح بذلك شخص على ذلك الـ Mac."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zatražili ste %@. Neko za tim Macom to mora dozvoliti."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du bad om %@. En person ved den Mac skal tillade det."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du hast „%@“ angefragt. Jemand an diesem Mac muss es erlauben."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You asked for %@. Someone at that Mac needs to allow it."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Has solicitado %@. Alguien en ese Mac tiene que permitirlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vous avez demandé : %@. Quelqu’un sur ce Mac doit l’autoriser."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hai chiesto: %@. Qualcuno su quel Mac deve consentirlo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@をリクエストしました。そのMacで誰かが許可する必要があります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អ្នកបានស្នើសុំ %@។ នរណាម្នាក់នៅ Mac នោះត្រូវអនុញ្ញាតវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 권한을 요청했습니다. 해당 Mac 앞에 있는 사람이 허용해야 합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du ba om %@. Noen ved den Macen må tillate det."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Poproszono o: %@. Ktoś przy tamtym Macu musi na to pozwolić."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Você pediu %@. Alguém naquele Mac precisa permitir."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вы запросили: %@. Кто-то за тем Mac должен это разрешить."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คุณขอ %@ ผู้ที่อยู่ที่ Mac เครื่องนั้นต้องอนุญาต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ istediniz. O Mac’in başındaki birinin izin vermesi gerekiyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ви запросили: %@. Хтось біля того Mac має це дозволити."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bạn đã yêu cầu %@. Một người tại máy Mac đó cần cho phép."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你请求了“%@”。需要有人在那台 Mac 上允许。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你要求了「%@」。需要有人在那部 Mac 上允許。"
           }
         }
       }
@@ -34581,6 +34319,1578 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "流暢動態"
+          }
+        }
+      }
+    },
+    "macScreen.readout.codec": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترميز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodek"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Códec"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーデック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូឌិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코덱"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodek"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодек"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โคเดก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодек"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ mã hóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编解码器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編解碼器"
+          }
+        }
+      }
+    },
+    "macScreen.readout.encode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زمن الترميز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodiranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codificación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encodage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンコード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការអ៊ិនកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인코딩"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koding"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodowanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codificação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодирование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้ารหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodlama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã hóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編碼"
+          }
+        }
+      }
+    },
+    "macScreen.readout.fps": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإطارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kadrovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billeder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilder"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frames"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotogramas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Images"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotogrammi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ហ្វ្រេម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프레임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klatki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quadros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฟรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kare"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадри"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帧率"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幀率"
+          }
+        }
+      }
+    },
+    "macScreen.readout.loss": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفقد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gubitak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlust"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loss"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pérdida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perdita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "損失"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបាត់បង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손실"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utrata"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потери"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสูญหาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıp"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Втрати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mất gói"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丢包"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遺失"
+          }
+        }
+      }
+    },
+    "macScreen.readout.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوضع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模式"
+          }
+        }
+      }
+    },
+    "macScreen.readout.panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إحصاءات البث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistika streama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streamstatistik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream-Statistiken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream stats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estadísticas de la transmisión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistiques du flux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistiche dello stream"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリームの統計"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថិតិស្ទ្រីម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트림 통계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strømstatistikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statystyki strumienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estatísticas do stream"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика потока"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถิติสตรีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akış istatistikleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика потоку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thống kê luồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "串流统计"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "串流統計"
+          }
+        }
+      }
+    },
+    "macScreen.readout.path": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rute"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chemin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Percorso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経路"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rota"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маршрут"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นทาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rota"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маршрут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tuyến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路由"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路由"
+          }
+        }
+      }
+    },
+    "macScreen.readout.rate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المعدل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brzina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datahastighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datenrate"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Débit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velocità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビットレート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្រា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송률"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datahastighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przepływność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Битрейт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตราบิต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бітрейт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tốc độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "码率"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位元率"
+          }
+        }
+      }
+    },
+    "macScreen.readout.rtt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زمن الذهاب والإياب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povratno vrijeme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rundtur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufzeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Round trip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ida y vuelta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller-retour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andata e ritorno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "往復時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំណើរទៅមក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왕복 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rundtur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czas podróży"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ida e volta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задержка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาไป-กลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gidiş-dönüş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затримка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khứ hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "往返"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "往返"
+          }
+        }
+      }
+    },
+    "macScreen.readout.size": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحجم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boyut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kích thước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尺寸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尺寸"
+          }
+        }
+      }
+    },
+    "macScreen.readout.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តង់ដារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu chuẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "macScreen.readout.ultra": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فائق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウルトラ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ៊ុលត្រា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "울트라"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ультра"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัลตรา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ультра"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超清"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超清"
           }
         }
       }
@@ -39694,137 +41004,6 @@
         }
       }
     },
-    "macScreen.home.allowDetailShort": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن لأجهزتك المسجّلة في cmux أن تطلب رؤية هذا الـ Mac أو التحكم فيه. أنت توافق على كل جهاز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vaši uređaji prijavljeni u cmux mogu tražiti da vide ili kontrolišu ovaj Mac. Svaki odobravate vi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dine enheder, der er logget ind på cmux, kan bede om at se eller styre denne Mac. Du godkender hver enkelt."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine bei cmux angemeldeten Geräte können anfragen, diesen Mac zu sehen oder zu steuern. Du bestätigst jedes einzeln."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your devices signed in to cmux can ask to see or control this Mac. You approve each one."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tus dispositivos con sesión en cmux pueden pedir ver o controlar este Mac. Tú apruebas cada uno."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vos appareils connectés à cmux peuvent demander à voir ou contrôler ce Mac. Vous approuvez chacun d’eux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I tuoi dispositivi connessi a cmux possono chiedere di vedere o controllare questo Mac. Approvi ognuno."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmuxにサインインしているデバイスは、このMacの表示や操作をリクエストできます。デバイスごとに承認します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ឧបករណ៍របស់អ្នកដែលបានចូល cmux អាចស្នើសុំមើល ឬគ្រប់គ្រង Mac នេះ។ អ្នកអនុម័តឧបករណ៍នីមួយៗ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux에 로그인한 기기에서 이 Mac을 보거나 제어하도록 요청할 수 있습니다. 기기마다 직접 승인합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enhetene dine som er logget på cmux, kan be om å se eller styre denne Macen. Du godkjenner hver enkelt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Twoje urządzenia zalogowane w cmux mogą prosić o podgląd lub sterowanie tym Makiem. Każde zatwierdzasz sam."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seus dispositivos conectados ao cmux podem pedir para ver ou controlar este Mac. Você aprova cada um."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваши устройства, вошедшие в cmux, могут запросить просмотр или управление этим Mac. Каждое вы одобряете сами."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อุปกรณ์ของคุณที่ลงชื่อเข้า cmux ขอดูหรือควบคุม Mac เครื่องนี้ได้ คุณอนุมัติทีละเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux’a giriş yapmış aygıtlarınız bu Mac’i görmek veya denetlemek isteyebilir. Her birini siz onaylarsınız."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваші пристрої, що увійшли в cmux, можуть попросити переглядати цей Mac або керувати ним. Кожен ви схвалюєте самі."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Các thiết bị đã đăng nhập cmux có thể yêu cầu xem hoặc điều khiển máy Mac này. Bạn duyệt từng thiết bị."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登录了 cmux 的设备可以请求查看或控制这台 Mac。每台设备都需你批准。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已登入 cmux 的裝置可以要求檢視或控制這部 Mac。每部裝置都需你核准。"
-          }
-        }
-      }
-    },
     "macScreen.home.screenRecordingNeeded": {
       "extractionState": "manual",
       "localizations": {
@@ -44018,7 +45197,1317 @@
         }
       }
     },
-    "macScreen.actions.noScreen.noDesktop": {
+    "macScreen.setup.setUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعداد cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurer cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux einrichten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurer cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configura cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux をセットアップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រៀបចំ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurer cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skonfiguruj cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่า cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'u Kur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiết lập cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定 cmux"
+          }
+        }
+      }
+    },
+    "macScreen.setup.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل cmux على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni cmux na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start cmux på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf %@ starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start cmux on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar cmux en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer cmux sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia cmux su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux を起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្ដើម cmux នៅលើ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 cmux 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start cmux på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom cmux na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar o cmux em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустить cmux на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่ม cmux บน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde cmux'u başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустити cmux на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khởi động cmux trên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 %@ 上启动 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 %@ 上啟動 cmux"
+          }
+        }
+      }
+    },
+    "macScreen.setup.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تشغيل cmux على %@…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje cmux na %@…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter cmux på %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wird auf %@ gestartet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting cmux on %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando cmux en %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage de cmux sur %@…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio di cmux su %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux を起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្ដើម cmux នៅលើ %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 cmux를 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter cmux på %@ …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie cmux na %@…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando o cmux em %@…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск cmux на %@…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่ม cmux บน %@…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde cmux başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск cmux на %@…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động cmux trên %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在 %@ 上启动 cmux…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在 %@ 上啟動 cmux…"
+          }
+        }
+      }
+    },
+    "macScreen.setup.settingUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ إعداد cmux على %@…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavljanje cmux na %@…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurerer cmux på %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wird auf %@ eingerichtet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up cmux on %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurando cmux en %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configuration de cmux sur %@…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurazione di cmux su %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux をセットアップしています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរៀបចំ cmux នៅលើ %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 cmux를 설정하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurerer cmux på %@ …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurowanie cmux na %@…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurando o cmux em %@…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка cmux на %@…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังตั้งค่า cmux บน %@…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde cmux kuruluyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування cmux на %@…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang thiết lập cmux trên %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在 %@ 上设置 cmux…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在 %@ 上設定 cmux…"
+          }
+        }
+      }
+    },
+    "macScreen.setup.started": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل cmux على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux radi na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kører på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux läuft auf %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is running on %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux se está ejecutando en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux est en cours d’exécution sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è in esecuzione su %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux が実行中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux កំពុងដំណើរការនៅលើ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 cmux가 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kjører på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux działa na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux está em execução em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux работает на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux กำลังทำงานบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ üzerinde çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux працює на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đang chạy trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 正在 %@ 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 正在 %@ 上執行。"
+          }
+        }
+      }
+    },
+    "macScreen.setup.setUpDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إعداد cmux على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je postavljen na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux er konfigureret på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ist auf %@ eingerichtet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is set up on %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux está configurado en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux est configuré sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è configurato su %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux のセットアップが完了しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ត្រូវបានរៀបចំនៅលើ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 cmux가 설정되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux er konfigurert på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux jest skonfigurowany na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux está configurado em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux настроен на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่า cmux บน %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ üzerinde kuruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux налаштовано на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã được thiết lập trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 已在 %@ 上设置好。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 已在 %@ 上設定完成。"
+          }
+        }
+      }
+    },
+    "macScreen.setup.startFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل cmux على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće pokrenuti cmux na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke starte cmux på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte auf %@ nicht gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start cmux on %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo iniciar cmux en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de démarrer cmux sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile avviare cmux su %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux を起動できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចាប់ផ្ដើម cmux នៅលើ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 cmux를 시작할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke starte cmux på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się uruchomić cmux na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível iniciar o cmux em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить cmux на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่ม cmux บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ üzerinde başlatılamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити cmux на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động cmux trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在 %@ 上启动 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在 %@ 上啟動 cmux。"
+          }
+        }
+      }
+    },
+    "macScreen.setup.setUpFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر إعداد cmux على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće postaviti cmux na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke konfigurere cmux på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte auf %@ nicht eingerichtet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t set up cmux on %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo configurar cmux en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de configurer cmux sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile configurare cmux su %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ で cmux をセットアップできませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចរៀបចំ cmux នៅលើ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 cmux를 설정할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke konfigurere cmux på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się skonfigurować cmux na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível configurar o cmux em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось настроить cmux на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถตั้งค่า cmux บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ üzerinde kurulamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося налаштувати cmux на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể thiết lập cmux trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在 %@ 上设置 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在 %@ 上設定 cmux。"
+          }
+        }
+      }
+    },
+    "macScreen.setup.needsNewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع هذا الإصدار من cmux القيام بذلك بعد. حدّث cmux على هذا الـ Mac، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija cmux-a to još ne može. Ažurirajte cmux na ovom Macu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version af cmux kan ikke gøre det endnu. Opdater cmux på denne Mac, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese cmux-Version kann das noch nicht. Aktualisiere cmux auf diesem Mac und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This version of cmux can’t do this yet. Update cmux on this Mac, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versión de cmux aún no puede hacer esto. Actualiza cmux en este Mac y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version de cmux ne peut pas encore le faire. Mettez à jour cmux sur ce Mac, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa versione di cmux non può ancora farlo. Aggiorna cmux su questo Mac, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このバージョンの cmux ではまだこの操作はできません。この Mac の cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែ cmux នេះមិនទាន់អាចធ្វើបែបនេះបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux នៅលើ Mac នេះ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 버전의 cmux는 아직 이 작업을 할 수 없습니다. 이 Mac의 cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen av cmux kan ikke gjøre dette ennå. Oppdater cmux på denne Macen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta wersja cmux jeszcze tego nie potrafi. Zaktualizuj cmux na tym Macu i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão do cmux ainda não pode fazer isso. Atualize o cmux neste Mac e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта версия cmux пока так не умеет. Обновите cmux на этом Mac и попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เวอร์ชันนี้ยังทำสิ่งนี้ไม่ได้ อัปเดต cmux บน Mac เครื่องนี้ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un bu sürümü bunu henüz yapamıyor. Bu Mac'teki cmux'u güncelleyip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця версія cmux поки що цього не вміє. Оновіть cmux на цьому Mac і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên bản cmux này chưa làm được việc này. Hãy cập nhật cmux trên máy Mac này rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 还不能执行此操作。请更新这台 Mac 上的 cmux，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 還無法執行此操作。請更新這台 Mac 上的 cmux，然後再試一次。"
+          }
+        }
+      }
+    },
+    "macScreen.setup.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gotovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "OK"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Готово"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Готово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "macScreen.actions.refusal.noScreen.noDesktop": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -44149,7 +46638,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.notRegistered": {
+    "macScreen.actions.refusal.noScreen.notRegistered": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -44280,7 +46769,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.offline": {
+    "macScreen.actions.refusal.noScreen.offline": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -44411,7 +46900,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.phone": {
+    "macScreen.actions.refusal.noScreen.phone": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -44542,7 +47031,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.unknown": {
+    "macScreen.actions.refusal.noScreen.unknown": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -45324,6 +47813,530 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有開啟的螢幕共享工作階段。"
+          }
+        }
+      }
+    },
+    "macScreen.home.sharingOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاركة متوقفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabe aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivisione disattivata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកបានបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 꺼짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ выключен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดการแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaşım kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã tắt chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享已關閉"
+          }
+        }
+      }
+    },
+    "macScreen.home.blockedShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not allowed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مسموح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije dozvoljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tilladt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erlaubt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No permitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non autorisé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non consentito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអនុញ្ញាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tillatt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedozwolone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não permitido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не разрешено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่อนุญาต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin verilmiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не дозволено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không được phép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允許"
+          }
+        }
+      }
+    },
+    "macScreen.home.offlineGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل (%d)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van mreže (%d)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verbunden (%d)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión (%d)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne (%d)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン（%d）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ៊ីនធឺណិត (%d)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 (%d)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frakoblet (%d)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в сети (%d)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออฟไลน์ (%d)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çevrimdışı (%d)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в мережі (%d)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngoại tuyến (%d)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线（%d）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線（%d）"
+          }
+        }
+      }
+    },
+    "macScreen.home.offlineCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d van mreže"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d nicht verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d sin conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d hors ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 台がオフライン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d គ្មានអ៊ីនធឺណិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d대 오프라인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d frakoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в сети: %d"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออฟไลน์ %d เครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d çevrimdışı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в мережі: %d"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d ngoại tuyến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 台离线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 台離線"
           }
         }
       }
@@ -46765,530 +49778,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "允許後，%@ 今後可以檢視這台 Mac。可在「裝置」中更改。"
-          }
-        }
-      }
-    },
-    "macScreen.home.sharingOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sharing off"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المشاركة متوقفة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dijeljenje isključeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deling slået fra"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Freigabe aus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartir desactivado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partage désactivé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condivisione disattivata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共有オフ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការចែករំលែកបានបិទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "공유 꺼짐"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deling av"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Udostępnianie wyłączone"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartilhamento desativado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Доступ выключен"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิดการแชร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paylaşım kapalı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спільний доступ вимкнено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã tắt chia sẻ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共享已关闭"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共享已關閉"
-          }
-        }
-      }
-    },
-    "macScreen.home.blockedShort": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not allowed"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غير مسموح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije dozvoljeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke tilladt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht erlaubt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No permitido"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non autorisé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non consentito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可されていません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអនុញ្ញាត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "허용되지 않음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke tillatt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niedozwolone"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não permitido"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не разрешено"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่อนุญาต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İzin verilmiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не дозволено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không được phép"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不允許"
-          }
-        }
-      }
-    },
-    "macScreen.home.offlineGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غير متصل (%d)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Van mreže (%d)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht verbunden (%d)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin conexión (%d)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hors ligne (%d)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフライン（%d）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គ្មានអ៊ីនធឺណិត (%d)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오프라인 (%d)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frakoblet (%d)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в сети (%d)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออฟไลน์ (%d)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çevrimdışı (%d)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в мережі (%d)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ngoại tuyến (%d)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "离线（%d）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "離線（%d）"
-          }
-        }
-      }
-    },
-    "macScreen.home.offlineCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d غير متصل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d van mreže"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d nicht verbunden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d sin conexión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d hors ligne"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 台がオフライン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d គ្មានអ៊ីនធឺណិត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d대 오프라인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d frakoblet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в сети: %d"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออฟไลน์ %d เครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d çevrimdışı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в мережі: %d"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d ngoại tuyến"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 台离线"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 台離線"
           }
         }
       }
@@ -49912,6 +52401,1712 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "檢視"
+          }
+        }
+      }
+    },
+    "macScreen.toolbar.startedBy": {
+      "comment": "A Screen Sharing tab's toolbar, after the device's name, when an agent or the CLI started viewing without the person's click. %@ is the agent's chat, terminal or app name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأه %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenuo: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet af %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestartet von %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started by %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciado por %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancé par %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviato da %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@が開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមដោយ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 시작함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet av %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchomione przez: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciado por %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущено: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มโดย %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlatan: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущено: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do %@ bắt đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 %@ 发起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 %@ 發起"
+          }
+        }
+      }
+    },
+    "macScreen.toolbar.startedByAgent": {
+      "comment": "A Screen Sharing tab's toolbar when an agent or the CLI started viewing without the person's click and named no chat, terminal or app.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأه وكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenuo agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet af en agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von einem Agenten gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started by an agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciado por un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancé par un agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviato da un agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមដោយភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 시작함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet av en agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchomione przez agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciado por um agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущено агентом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มโดยเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan başlattı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущено агентом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do một tác tử bắt đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由智能体发起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由代理發起"
+          }
+        }
+      }
+    },
+    "macScreen.hub.waitingOwnerBody": {
+      "comment": "The waiting card of a Screen Sharing tab while the device's owner has not answered. %@ is View Only or Full Control. The device may be a Mac, a Linux machine or a phone.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبت %@. يجب أن يسمح مالكه بذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatražili ste %@. Vlasnik to mora dozvoliti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bad om %@. Ejeren skal tillade det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast „%@“ angefragt. Der Besitzer muss es erlauben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You asked for %@. Its owner needs to allow it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has solicitado %@. Su propietario tiene que permitirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous avez demandé : %@. Son propriétaire doit l’autoriser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai chiesto: %@. Il proprietario deve consentirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@をリクエストしました。所有者が許可する必要があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកបានស្នើសុំ %@។ ម្ចាស់របស់វាត្រូវអនុញ្ញាតវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 권한을 요청했습니다. 소유자가 허용해야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du ba om %@. Eieren må tillate det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poproszono o: %@. Właściciel musi na to pozwolić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você pediu %@. O proprietário precisa permitir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы запросили: %@. Владелец должен это разрешить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณขอ %@ เจ้าของต้องอนุญาต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ istediniz. Sahibinin izin vermesi gerekiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви запросили: %@. Власник має це дозволити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn đã yêu cầu %@. Chủ sở hữu cần cho phép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你请求了“%@”。需要其所有者允许。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你要求了「%@」。需要其擁有者允許。"
+          }
+        }
+      }
+    },
+    "macScreen.home.connectedControlling": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متصل: %@ · يتحكم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezano: %@ · Upravlja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbundet: %@ · Styrer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbunden: %@ · Steuert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected: %@ · Controlling"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado: %@ · Controlando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecté : %@ · Contrôle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connesso: %@ · Controlla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続中：%@・操作中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានភ្ជាប់៖ %@ · កំពុងគ្រប់គ្រង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결됨: %@ · 제어 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilkoblet: %@ · Styrer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączono: %@ · Steruje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado: %@ · Controlando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключено: %@ · Управление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อแล้ว: %@ · กำลังควบคุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlı: %@ · Denetliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднано: %@ · Керування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã kết nối: %@ · Đang điều khiển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已连接：%@ · 正在控制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已連線：%@ · 正在控制"
+          }
+        }
+      }
+    },
+    "macScreen.home.connectedViewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متصل: %@ · يشاهد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezano: %@ · Gleda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbundet: %@ · Ser med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbunden: %@ · Sieht zu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected: %@ · Viewing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado: %@ · Viendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecté : %@ · Visualise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connesso: %@ · Visualizza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続中：%@・表示のみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានភ្ជាប់៖ %@ · កំពុងមើល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결됨: %@ · 보기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilkoblet: %@ · Ser på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączono: %@ · Ogląda"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado: %@ · Visualizando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключено: %@ · Просмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อแล้ว: %@ · กำลังดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlı: %@ · İzliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднано: %@ · Перегляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã kết nối: %@ · Đang xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已连接：%@ · 正在查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已連線：%@ · 正在檢視"
+          }
+        }
+      }
+    },
+    "macScreen.home.grantAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "منح الإذن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giv adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zugriff erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grant Access"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dar acceso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser l’accès"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Concedi accesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アクセスを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្តល់សិទ្ធិចូលប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접근 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przyznaj dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conceder acesso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дать доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้สิทธิ์เข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erişim Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надати доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cấp quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "授予权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "授予權限"
+          }
+        }
+      }
+    },
+    "macScreen.home.grantAccessibilityDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يطلب macOS مرة واحدة، لتتمكن أجهزتك من النقر والكتابة هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS pita jednom, da bi vaši uređaji mogli klikati i kucati ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS spørger én gang, så dine enheder kan klikke og skrive her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS fragt einmal, damit deine Geräte hier klicken und tippen können."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS asks once, so your devices can click and type here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS lo pide una vez para que tus dispositivos puedan hacer clic y escribir aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS le demande une fois, pour que vos appareils puissent cliquer et saisir ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS lo chiede una volta, così i tuoi dispositivi possono fare clic e scrivere qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS が一度だけ確認します。これでほかのデバイスからここでクリックや入力ができます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS សួរម្តង ដើម្បីឱ្យឧបករណ៍របស់អ្នកអាចចុច និងវាយអក្សរនៅទីនេះបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS가 한 번만 묻습니다. 그러면 다른 기기에서 여기서 클릭하고 입력할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS spør én gang, så enhetene dine kan klikke og skrive her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS zapyta raz, aby Twoje urządzenia mogły tu klikać i pisać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O macOS pede uma vez para que seus dispositivos possam clicar e digitar aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS спросит один раз, чтобы ваши устройства могли здесь нажимать и печатать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS จะถามครั้งเดียว เพื่อให้อุปกรณ์ของคุณคลิกและพิมพ์ที่นี่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS bir kez sorar; böylece cihazlarınız burada tıklayıp yazabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS запитає один раз, щоб ваші пристрої могли тут натискати й друкувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS chỉ hỏi một lần, để các thiết bị của bạn có thể bấm và gõ ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS 只会询问一次，之后你的设备即可在这里点按和输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS 只會詢問一次，之後你的裝置即可在這裡點按和輸入。"
+          }
+        }
+      }
+    },
+    "macScreen.home.grantBoth": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسجيل الشاشة وتسهيلات الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimanje ekrana i pristupačnost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmoptagelse og tilgængelighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmaufnahme und Bedienungshilfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording and Accessibility"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grabación de pantalla y accesibilidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrement de l’écran et accessibilité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrazione schermo e accessibilità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画面収録とアクセシビリティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការថតអេក្រង់ និងភាពងាយស្រួល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "화면 기록 및 손쉬운 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermopptak og tilgjengelighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nagrywanie ekranu i dostępność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gravação de tela e acessibilidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запись экрана и универсальный доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การบันทึกหน้าจอและการช่วยการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Kaydı ve Erişilebilirlik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Записування екрана і доступність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghi màn hình và trợ năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "屏幕录制与辅助功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "螢幕錄製與輔助使用"
+          }
+        }
+      }
+    },
+    "macScreen.home.grantDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يطلب macOS مرة واحدة، لتتمكن أجهزتك من رؤية جهاز Mac هذا والتحكم فيه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS pita jednom, da bi vaši uređaji mogli vidjeti i upravljati ovim Macom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS spørger én gang, så dine enheder kan se og styre denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS fragt einmal, damit deine Geräte diesen Mac sehen und steuern können."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS asks once, so your devices can see and control this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS lo pide una vez para que tus dispositivos puedan ver y controlar este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS le demande une fois, pour que vos appareils puissent voir et contrôler ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS lo chiede una volta, così i tuoi dispositivi possono vedere e controllare questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS が一度だけ確認します。これでほかのデバイスからこの Mac を表示・操作できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS សួរម្តង ដើម្បីឱ្យឧបករណ៍របស់អ្នកអាចមើល និងគ្រប់គ្រង Mac នេះបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS가 한 번만 묻습니다. 그러면 다른 기기에서 이 Mac을 보고 제어할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS spør én gang, så enhetene dine kan se og styre denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS zapyta raz, aby Twoje urządzenia mogły widzieć tego Maca i nim sterować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O macOS pede uma vez para que seus dispositivos possam ver e controlar este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS спросит один раз, чтобы ваши устройства могли видеть этот Mac и управлять им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS จะถามครั้งเดียว เพื่อให้อุปกรณ์ของคุณดูและควบคุม Mac เครื่องนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS bir kez sorar; böylece cihazlarınız bu Mac’i görüp denetleyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS запитає один раз, щоб ваші пристрої могли бачити цей Mac і керувати ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS chỉ hỏi một lần, để các thiết bị của bạn có thể xem và điều khiển máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS 只会询问一次，之后你的设备即可查看和控制这台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS 只會詢問一次，之後你的裝置即可檢視和控制這台 Mac。"
+          }
+        }
+      }
+    },
+    "macScreen.home.notViewable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن العرض بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još se ne može prikazati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke vises endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch nicht anzeigbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t view yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no se puede ver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pas encore visible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non ancora visualizzabile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "まだ表示できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់អាចមើលបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 볼 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke vises ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeszcze nie można wyświetlić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não é possível ver"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока нельзя просмотреть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังดูไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz görüntülenemiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки не можна переглянути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂时无法查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫時無法檢視"
+          }
+        }
+      }
+    },
+    "macScreen.home.shareThisMacOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تستطيع أجهزتك رؤية جهاز Mac هذا أو التحكم فيه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaši uređaji ne mogu vidjeti niti upravljati ovim Macom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine enheder kan ikke se eller styre denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Geräte können diesen Mac nicht sehen oder steuern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your devices can’t see or control this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus dispositivos no pueden ver ni controlar este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos appareils ne peuvent ni voir ni contrôler ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I tuoi dispositivi non possono vedere né controllare questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかのデバイスからこの Mac を表示・操作できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍របស់អ្នកមិនអាចមើល ឬគ្រប់គ្រង Mac នេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 기기에서 이 Mac을 보거나 제어할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enhetene dine kan ikke se eller styre denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje urządzenia nie mogą widzieć ani sterować tym Makiem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seus dispositivos não podem ver nem controlar este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши устройства не могут видеть этот Mac или управлять им."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์ของคุณไม่สามารถดูหรือควบคุม Mac เครื่องนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cihazlarınız bu Mac’i göremez veya denetleyemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші пристрої не можуть бачити цей Mac або керувати ним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các thiết bị của bạn không thể xem hay điều khiển máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的设备无法查看或控制这台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的裝置無法檢視或控制這台 Mac。"
+          }
+        }
+      }
+    },
+    "macScreen.home.shareThisMacOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لأجهزتك على هذا الحساب الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaši uređaji na ovom računu se mogu povezati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine enheder på denne konto kan oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Geräte mit diesem Konto können sich verbinden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your devices on this account can connect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus dispositivos de esta cuenta pueden conectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos appareils sur ce compte peuvent se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I tuoi dispositivi su questo account possono connettersi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このアカウントのデバイスから接続できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍របស់អ្នកនៅលើគណនីនេះអាចភ្ជាប់បាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 계정의 기기에서 연결할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enhetene dine på denne kontoen kan koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje urządzenia na tym koncie mogą się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seus dispositivos nesta conta podem se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши устройства с этой учётной записью могут подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์ของคุณในบัญชีนี้เชื่อมต่อได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu hesaptaki cihazlarınız bağlanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші пристрої з цим обліковим записом можуть під’єднатися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các thiết bị của bạn trong tài khoản này có thể kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此账户下的设备可以连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此帳號下的裝置可以連線。"
+          }
+        }
+      }
+    },
+    "macScreen.home.stopSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stop"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detener"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ឈប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stopp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остановить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зупинити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dừng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止"
           }
         }
       }

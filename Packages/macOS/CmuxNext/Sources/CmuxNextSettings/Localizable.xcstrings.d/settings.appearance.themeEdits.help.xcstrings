@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.themeEdits.help" : {
+      "comment" : "Help for appearance.themeEdits. Keep the JSON example verbatim.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تغييراتك على ألوان سمة، مثل \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaše izmjene boja teme, npr. \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dine farveændringer til et tema, fx \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine Farbänderungen an einem Theme, etwa \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tus cambios de color en un tema, como \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vos modifications de couleur d’un thème, comme \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le tue modifiche ai colori di un tema, come \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "テーマの色の変更（例: \"Rose Pine/background\": \"#1f1d2e\"）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការផ្លាស់ប្ដូរពណ៌របស់អ្នកលើរចនាប័ទ្ម ដូចជា \"Rose Pine/background\": \"#1f1d2e\"។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "테마의 색상 변경 사항입니다(예: \"Rose Pine/background\": \"#1f1d2e\")."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fargeendringene dine i et tema, for eksempel \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twoje zmiany kolorów motywu, np. \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suas alterações de cor em um tema, como \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваши изменения цветов темы, например \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การเปลี่ยนสีของธีมที่คุณทำ เช่น \"Rose Pine/background\": \"#1f1d2e\""
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir temada yaptığınız renk değişiklikleri, örneğin \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваші зміни кольорів теми, наприклад \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các thay đổi màu của bạn cho một chủ đề, như \"Rose Pine/background\": \"#1f1d2e\"."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你对主题颜色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你對主題顏色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

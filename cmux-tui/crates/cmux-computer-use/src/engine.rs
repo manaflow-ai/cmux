@@ -14,13 +14,14 @@
 //!    shows the click or the typing.
 //! 5. Screenshots go through [`crate::frame`]; accessibility frames come back
 //!    in the pixels of the agent's latest screenshot of that window.
-//! 6. An acting call returns the window as it is after acting: a wait of at
-//!    most [`Settle::floor`] (cut short by the app's accessibility signal),
-//!    then one screenshot. Only when the app has no watched signals, or
-//!    signalled a change the pixels do not show yet, do more screenshots
-//!    follow until the pixels differ from what the agent last saw, up to
-//!    [`Settle::ceiling`]. Plus its tree. One round trip per step;
-//!    `observe: false` skips it.
+//! 6. An acting call returns the window as it is at once after acting, plus its
+//!    tree, with no wait for the screen (`settle: "openai"`, the default).
+//!    `settle: "adaptive"` waits at most [`Settle::floor`] (cut short by the
+//!    app's accessibility signal), then one screenshot. Only when the app has
+//!    no watched signals, or signalled a change the pixels do not show yet, do
+//!    more screenshots follow until the pixels differ from what the agent last
+//!    saw, up to [`Settle::ceiling`]. One round trip per step; `observe: false`
+//!    skips it.
 //! 7. One audit line per call.
 
 use std::collections::HashMap;
@@ -540,6 +541,17 @@ impl Engine {
         if self.stops.is_stopped(&ctx.session) {
             return self.refuse_stopped(ctx, tool, name);
         }
+        // A window named by its title or app instead of its id: the id, so
+        // the agent needs no list_windows turn first (engine_window_name.rs).
+        let named;
+        let args = match self.window_by_name(args) {
+            Ok(Some(resolved)) => {
+                named = resolved;
+                &named
+            }
+            Ok(None) => args,
+            Err(refused) => return refused,
+        };
         // An acting call is recorded on disk before it acts and again with its
         // result, so a retry (same call_id), even after a worker restart,
         // never acts twice.
@@ -802,6 +814,12 @@ impl Engine {
         }
         match tool.name {
             "status" => Ok((self.status(&config), None)),
+            "list_displays" => {
+                self.authorize(&config, ctx, Access::Discover, None, false)?;
+                let body = crate::displays::list(self.desktop.as_ref())
+                    .map_err(|e| ToolOutput::desktop(&e))?;
+                Ok((ToolOutput::ok(body), None))
+            }
             "list_machines" => Ok((
                 ToolOutput::ok(
                     json!({"machines": [], "note": "Only this machine is reachable from here."}),
@@ -869,6 +887,7 @@ impl Engine {
                 }
                 self.authorize(&config, ctx, Access::Discover, None, false)?;
                 let which = need(args, "permission")?;
+                self.wait_for_person(&config, ctx, None)?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((ToolOutput::ok(json!({"requested": which})), None))
             }
@@ -915,6 +934,7 @@ impl Engine {
                 Ok((ToolOutput::ok(Value::Object(body)), Some(app)))
             }
             "click" => self.click(&config, ctx, args),
+            "move_pointer" => self.move_pointer(&config, ctx, args),
             "type_text" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let text = args
@@ -1072,6 +1092,7 @@ impl Engine {
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
+                self.wait_for_person(&config, ctx, None)?;
                 let launch = match identities.as_slice() {
                     [only] if by_identity => only.as_str(),
                     _ => id,
@@ -1090,6 +1111,8 @@ impl Engine {
             }
             "wait" => self.wait(&config, ctx, args),
             "batch" => self.batch(ctx, args),
+            "list_alerts" => self.list_alerts(&config, ctx),
+            "dismiss_alert" => self.dismiss_alert(&config, ctx, args),
             other => Err(ToolOutput::error("unknown_tool", format!("unknown tool {other:?}"))),
         }
     }
@@ -1111,6 +1134,13 @@ impl Engine {
             "menus": config.menus.as_str(),
             "screen_locked": self.desktop.screen_locked(),
             "while_locked": config.while_locked,
+            "alerts": config.alerts,
+            // Which binary answers, so `cmux computer-use doctor` can say
+            // whether the staged, verified helper is the one running.
+            "worker": {
+                "executable": std::env::current_exe().ok(),
+                "pid": std::process::id(),
+            },
         }))
     }
 
@@ -1264,22 +1294,48 @@ impl Engine {
             || window.focused
             || self.desktop.is_frontmost_app(window)
             || (pointer && pointer_in(window));
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(Duration::ZERO) {
+        if could_collide {
+            self.wait_for_person(config, ctx, Some(center(&window.frame)))?;
+        }
+        Ok(app)
+    }
+
+    /// With `pause_on_takeover`, waits up to [`TAKEOVER_WAIT`] for the
+    /// person to stop using the mouse and keyboard (the agent cursor shows
+    /// Paused meanwhile, at `at`), else refuses `person_in_control`. For
+    /// input that meets theirs ([`Self::act_on`]) and for calls that bring
+    /// an app to the front on their own whatever the delivery: `launch_app`
+    /// (most apps activate when they finish launching) and
+    /// `request_permission` (the OS prompt or System Settings opens in
+    /// front). Either one while the person types sends their next keys to
+    /// the app that came forward, which the focus guard can only undo
+    /// afterwards (Leo, 2026-11-22: agents kept interrupting his input and
+    /// foregrounding apps).
+    fn wait_for_person(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        at: Option<Point>,
+    ) -> Result<(), ToolOutput> {
+        if !config.pause_on_takeover {
+            return Ok(());
+        }
+        if !self.takeover.wait_idle(Duration::ZERO) {
             // The person is using the mouse or keyboard right now: show that the
             // agent waits for them before it waits.
             self.cursor.show(CursorEvent::Paused {
                 session: ctx.session.clone(),
                 label: ctx.label.clone(),
-                at: Some(center(&window.frame)),
+                at,
             });
         }
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
+        if !self.takeover.wait_idle(TAKEOVER_WAIT) {
             return Err(ToolOutput::error(
                 "person_in_control",
                 "The person is using the mouse or keyboard; the agent paused and will not act until they stop. Try again shortly.",
             ));
         }
-        Ok(app)
+        Ok(())
     }
 
     fn geometry_for(&self, ctx: &CallContext, window: &Window) -> Geometry {
@@ -1381,46 +1437,7 @@ impl Engine {
             .unwrap_or_default();
         let modifiers = KeyCombo::parse_modifiers(&modifiers)
             .map_err(|e| ToolOutput::error("invalid_arguments", e))?;
-        let (window, target) = match args_str(args, "window_id") {
-            Some(id) => {
-                let window = self.window(id)?;
-                if args_str(args, "element_id").is_none()
-                    && (args_f64(args, "x").is_none() || args_f64(args, "y").is_none())
-                {
-                    return Err(ToolOutput::error(
-                        "invalid_arguments",
-                        "click needs element_id or x and y",
-                    ));
-                }
-                // Mapped after the policy check (a denied app is refused as such).
-                (window, None)
-            }
-            None => {
-                let (x, y) = (need_f64(args, "x")?, need_f64(args, "y")?);
-                let key = lock(&self.last_display).get(&ctx.session).cloned().ok_or_else(|| {
-                    ToolOutput::error(
-                        "invalid_arguments",
-                        "click with no window_id uses your latest display screenshot; take one first, or pass window_id",
-                    )
-                })?;
-                let geometry = lock(&self.seen)
-                    .get(&(ctx.session.clone(), key))
-                    .map(|(g, _)| *g)
-                    .ok_or_else(|| {
-                    ToolOutput::error("invalid_arguments", "take a display screenshot first")
-                })?;
-                let point = geometry.to_global(x, y);
-                let window = self
-                    .windows()?
-                    .into_iter()
-                    .find(|w| w.on_screen && !w.minimized && contains(&w.frame, point))
-                    .ok_or_else(|| {
-                        ToolOutput::error("target_not_found", "no window at that point")
-                    })?;
-                let target = PointerTarget::Point { window_id: window.id.clone(), point };
-                (window, Some(target))
-            }
-        };
+        let (window, target) = self.pointer_window(ctx, args, "click")?;
         if args_str(args, "menu_item").is_some() && !self.desktop.picks_menu_items() {
             return Err(ToolOutput::error(
                 "unsupported",
@@ -2232,8 +2249,17 @@ mod observe_glue;
 #[path = "engine_batch.rs"]
 mod batch_glue;
 
+#[path = "engine_alerts.rs"]
+mod alerts_glue;
+
 #[path = "engine_record.rs"]
 mod record_glue;
+
+#[path = "engine_window_name.rs"]
+mod window_name;
+
+#[path = "engine_pointer.rs"]
+mod pointer_glue;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]
@@ -2256,5 +2282,13 @@ mod observe_tests;
 mod batch_tests;
 
 #[cfg(test)]
+#[path = "engine_alerts_tests.rs"]
+mod alerts_tests;
+
+#[cfg(test)]
 #[path = "engine_record_tests.rs"]
 mod record_tests;
+
+#[cfg(test)]
+#[path = "engine_pointer_tests.rs"]
+mod pointer_tests;

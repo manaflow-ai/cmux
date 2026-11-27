@@ -76,10 +76,33 @@ normalize_archs() {
 archs="$(normalize_archs)"
 arch_key="${archs// /-}"
 cache_root="${CMUX_NEXT_ACPMUX_CACHE:-$repo_root/cmux-tui/target/hosted/acpmux}"
-cache_dir="$cache_root/in-tree-$source_commit/$arch_key"
+# A build under CARGO_PROFILE_RELEASE_* overrides (tools/devbuild, a fast
+# reload-build) is not the shipped binary: its cache entry and Cargo target dir
+# name the overrides, so a nightly or release never picks up a DEV binary and
+# the two profiles never invalidate each other's incremental state. With no
+# override both paths are exactly what they were.
+profile_spec=""
+for profile_var in $(compgen -v CARGO_PROFILE_RELEASE_ | LC_ALL=C sort); do
+  profile_spec+="${profile_var#CARGO_PROFILE_RELEASE_}=${!profile_var};"
+done
+profile_suffix=""
+if [[ -n "$profile_spec" ]]; then
+  profile_suffix="-profile-$(printf '%s' "$profile_spec" | shasum -a 256 | cut -c1-12)"
+fi
+cache_dir="$cache_root/in-tree-$source_commit$profile_suffix/$arch_key"
 cache_bin="$cache_dir/acpmux"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+# A binary's architectures, space separated: `lipo -archs`, else what file(1) names (a Mac with only the
+# /usr/bin/lipo stub, no developer tools: air-blue, 2026-11-21, where the fetched acpmux was skipped in silence).
+binary_archs() {
+  local out
+  if out="$(lipo -archs "$1" 2>/dev/null)" && [[ -n "$out" ]]; then printf '%s\n' "$out"; return 0; fi
+  out="$(file -b "$1" 2>/dev/null || true)"
+  [[ "$out" == *Mach-O* ]] || return 0
+  printf '%s\n' "$(grep -oE 'arm64|x86_64' <<<"$out" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+}
 
 # An nx-remote --app-from-fleet job (NX_APP set, for example
 # `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- scripts/cmux-next/build-acpmux.sh --print-path`):
@@ -91,7 +114,7 @@ sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 if [[ -n "${NX_APP:-}" && ! -x "$cache_bin" ]]; then
   app_bin="$NX_APP/Contents/Resources/bin/acpmux"
   app_commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$NX_APP/Contents/Resources/bin/acpmux.version" 2>/dev/null || true)"
-  app_archs="$(lipo -archs "$app_bin" 2>/dev/null || true)"
+  app_archs="$(binary_archs "$app_bin")"
   why=""
   if [[ ! -f "$app_bin" || -L "$app_bin" || ! -x "$app_bin" ]]; then
     why="no regular executable at $app_bin"
@@ -137,11 +160,11 @@ if [[ ! -x "$cache_bin" && -x "$repo_root/scripts/cmux-next/pin-cmux-tui.sh" ]];
     for arch in $archs; do
       pick=""
       for tree_bin in "${tree_bins[@]}"; do
-        [[ " $(lipo -archs "$tree_bin" 2>/dev/null || true) " == *" $arch "* ]] && { pick="$tree_bin"; break; }
+        [[ " $(binary_archs "$tree_bin") " == *" $arch "* ]] && { pick="$tree_bin"; break; }
       done
       if [[ -n "$pick" ]]; then picks+=("$arch=$pick"); else missing+=" $arch"; fi
     done
-    for tree_bin in "${tree_bins[@]}"; do have+=" $tree_bin ($(lipo -archs "$tree_bin" 2>/dev/null || echo unknown))"; done
+    for tree_bin in "${tree_bins[@]}"; do tb_archs="$(binary_archs "$tree_bin")"; have+=" $tree_bin (${tb_archs:-unknown})"; done
     if [[ -z "$missing" ]]; then
       mkdir -p "$cache_dir"
       staged="$cache_bin.tmp.$$"
@@ -153,7 +176,7 @@ if [[ ! -x "$cache_bin" && -x "$repo_root/scripts/cmux-next/pin-cmux-tui.sh" ]];
         slices=()
         for p in "${picks[@]}"; do
           arch="${p%%=*}" tree_bin="${p#*=}"
-          if [[ "$(lipo -archs "$tree_bin")" == "$arch" ]]; then
+          if [[ "$(binary_archs "$tree_bin")" == "$arch" ]]; then
             slices+=("$tree_bin")
           else
             lipo "$tree_bin" -thin "$arch" -output "$staged.$arch"
@@ -165,7 +188,7 @@ if [[ ! -x "$cache_bin" && -x "$repo_root/scripts/cmux-next/pin-cmux-tui.sh" ]];
       fi
       chmod 755 "$staged"
       mv -f "$staged" "$cache_bin"
-      tree_archs="$(lipo -archs "$cache_bin" 2>/dev/null || echo "$archs")"
+      tree_archs="$(binary_archs "$cache_bin")"; tree_archs="${tree_archs:-$archs}"
       printf '%s\n' "commit=$source_commit" "source=same-tree${have}" "archs=$tree_archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
       echo "acpmux from the same-tree fetch${have} (no Cargo build)" >&2
     else
@@ -242,14 +265,14 @@ source "$repo_root/scripts/lib/rust-targets.sh"
 # A persistent target dir in the tree's own (ignored) cmux-tui/target: the
 # next commit of a warm tree or fleet slot compiles incrementally instead of
 # all 200+ crates (cx-t3e5). Cargo locks it against concurrent builds.
-build_root="${CMUX_NEXT_ACPMUX_TARGET_DIR:-$source_root/cmux-tui/target/acpmux-app}"
+build_root="${CMUX_NEXT_ACPMUX_TARGET_DIR:-$source_root/cmux-tui/target/acpmux-app}$profile_suffix"
 mkdir -p "$build_root" "$cache_dir"
 built_slices=()
 for arch in $archs; do
   target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
   target_dir="$build_root"
   if [[ -n "$fleet_target_helper" ]]; then
-    target_dir="$(fleet_rust_target_dir acpmux "$target" "$source_root/cmux-tui")"
+    target_dir="$(fleet_rust_target_dir "acpmux$profile_suffix" "$target" "$source_root/cmux-tui")"
     mkdir -p "$target_dir"
   fi
   echo "==> building acpmux ($source_mode $source_commit, $target)"
@@ -271,7 +294,7 @@ else
 fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$source_commit" "source=$source_mode" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+printf '%s\n' "commit=$source_commit" "source=$source_mode" "profile=${profile_spec:-release}" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
 
 if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
   mkdir -p "$(dirname "$output")"

@@ -43,6 +43,7 @@ import {
 } from "./pickerModel";
 import { fuzzyFilter } from "./fuzzy";
 import { E } from "./strings";
+import { KeyHint } from "../ui/KeyHint";
 
 export type PickerList = (path: string | null, options: { mode: PickerMode; hidden: boolean }) => Promise<unknown>;
 
@@ -420,15 +421,15 @@ export function PathPicker({
       <div className="ve-picker-foot">
         <span className="ve-picker-hints" aria-hidden="true">
           <span className="ve-hint">
-            <kbd>Tab</kbd>
+            <KeyHint keys="⇥" />
             {t(E.pickerHintOpen)}
           </span>
           <span className="ve-hint">
-            <kbd>⌘↑</kbd>
+            <KeyHint keys="⌘↑" />
             {t(E.pickerHintUp)}
           </span>
           <span className="ve-hint">
-            <kbd>↩</kbd>
+            <KeyHint keys="↩" />
             {t(E.pickerHintChoose)}
           </span>
         </span>

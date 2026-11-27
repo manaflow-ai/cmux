@@ -11,10 +11,7 @@
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
-#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk),
-#     and the seven SDKs' .cmux-resource-api.json descriptors from
-#     cmux-tui/spec/resource-operations-v2.json
-#     (cmux-tui/bindings/rust/scripts/sync-resource-api.py; with --sdk);
+#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
 #     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
@@ -36,8 +33,7 @@
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
-#   - webviews formatting and the acpmux protocol types: applies PATCH, the `vp fmt`
-#     and `acpmux-protocol-codegen.ts` output of the
+#   - webviews formatting: applies PATCH, the `vp fmt` output of the
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
@@ -59,6 +55,17 @@
 #     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
 #     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
 #     request until #40883. Only Cargo.lock files are written.
+#   - the daemon ABI surface: cmux-tui/spec/api-compat.surface.json, refreshed with --sdk
+#     by api-compat-check --write only when breaks have rules and the fixtures pass.
+#     Frozen surfaces are skipped; a failed check keeps the incoming surface.
+#   - the acpmux protocol IR and ABI surface: cmux-tui/crates/acpmux/spec/acpmux-protocol.json and
+#     acpmux-abi.surface.json, written by acpmux's own protocol tests with ACPMUX_PROTOCOL_BLESS=1
+#     (with --acpmux-ir). The surface is written only when every ABI break has a rule in
+#     acpmux-abi.compat.json; when the tests still fail both files are put back and the run reports it.
+#   - the iPhone app's uniffi Swift bindings: rewrites
+#     cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift from
+#     cmux-mobile-link-ffi (scripts/ios-ffi-bindings.sh, a host cargo build; with --ios-ffi).
+#     Only that file is written.
 #   - undeclared pull request jobs: each job no router declares its inputs to is
 #     recorded as runs-always in scripts/ci/job-inputs-always.json
 #     (scripts/ci/job_inputs.py fix; with --job-inputs). Only that file is written.
@@ -79,10 +86,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--acpmux-ir] [--ios-ffi] [--job-inputs] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 job_inputs=0 fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 acpmux_ir=0 ios_ffi=0 job_inputs=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -99,12 +106,14 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --locks) locks=1; shift ;;
+    --acpmux-ir) acpmux_ir=1; shift ;;
+    --ios-ffi) ios_ffi=1; shift ;;
     --job-inputs) job_inputs=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--acpmux-ir] [--ios-ffi] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--job-inputs] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--acpmux-ir] [--ios-ffi] [--job-inputs] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -167,6 +176,75 @@ for id in marked("removal"):
         print(f"{markers}/removal/{id}")
 PY
   )
+  # A fields/<id> marker lists JSON pointers into <id>'s action-catalog.json row that the crate changed and the
+  # pinned FFI did not have yet: the committed export keeps the old value until the re-pin. A pointer whose value
+  # the regenerated export changed from the committed one (HEAD) is settled, which swift_parity reports as "the re-pin
+  # landed, so take /x out". The re-pin rarely takes them out (117 had piled up by 11-26, the exports unregenerated
+  # since 11-24), so a marker loses its settled lines here and goes once none are left. A /surfacePlan/ pointer is also
+  # checked against action-surfaces.json, which this does not read, so it stays for a person.
+  while IFS=$'\t' read -r kind stale pointer; do
+    [[ -n "$stale" ]] || continue
+    if frozen "$stale"; then echo "skipped (frozen): $stale"; continue; fi
+    if [[ "$kind" == rm ]]; then
+      rm -f "$repo/$stale"
+      echo "fixed: deleted $stale (the regenerated exports carry the re-pin)"
+    else
+      python3 -I -c '
+import sys
+path, pointer = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    lines = f.readlines()
+with open(path, "w") as f:
+    f.writelines(line for line in lines if line.split("#", 1)[0].strip() != pointer)
+' "$repo/$stale" "$pointer"
+      echo "fixed: took $pointer out of $stale (the regenerated exports carry it)"
+    fi
+  done < <(python3 -I - "$repo" "$markers" <<'FIELDS'
+import json, os, subprocess, sys
+repo, markers = sys.argv[1], sys.argv[2]
+export = "plans/cmux-next/action-catalog.json"
+def rows(text):
+    try:
+        actions = json.loads(text)["actions"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return {r["id"]: r for r in actions if isinstance(r, dict) and isinstance(r.get("id"), str)}
+try:
+    with open(os.path.join(repo, export)) as f:
+        new = rows(f.read())
+    old = rows(subprocess.run(["git", "-C", repo, "show", f"HEAD:{export}"], capture_output=True, text=True,
+                              check=True).stdout)
+except (OSError, subprocess.CalledProcessError):
+    sys.exit(0)  # no committed export to compare with: settle nothing
+if not new or not old:
+    sys.exit(0)
+MISSING = object()
+def at(row, pointer):
+    value = row
+    for part in pointer.lstrip("/").split("/"):
+        part = part.replace("~1", "/").replace("~0", "~")
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            return MISSING
+    return value
+d = os.path.join(repo, markers, "fields")
+for id in sorted(n for n in os.listdir(d) if not n.startswith(".")) if os.path.isdir(d) else []:
+    rel = f"{markers}/fields/{id}"
+    with open(os.path.join(repo, rel)) as f:
+        pointers = [p for p in (line.split("#", 1)[0].strip() for line in f) if p]
+    if id not in new or id not in old or not pointers:
+        continue  # a gone row or an empty marker is swift_parity's to name
+    settled = [p for p in pointers if not p.startswith("/surfacePlan/") and at(new[id], p) != at(old[id], p)]
+    if settled and len(settled) == len(pointers):
+        print(f"rm\t{rel}\t")
+    else:
+        for p in settled:
+            print(f"edit\t{rel}\t{p}")
+FIELDS
+  )
 fi
 
 # 1b. The CI target graph, from the checkout's own generator.
@@ -184,28 +262,20 @@ fi
 # 1c. (Page strings: build output since #21946, never committed. --strings is
 # still accepted, as a no-op, for callers that pass it.)
 
-# 1d. SDK wire layers, and the SDKs' resource API descriptors (their
-# catalog_sha256 goes stale on any resource-operations-v2.json change: #23191,
-# #34498). A frozen one is put back as it was and reported.
+# 1d. SDK wire layers. (The SDKs' resource API descriptors, whose pasted
+# catalog_sha256 went stale on catalog changes, #23191 and #34498, are gone:
+# resource-operations-v2.json is the only copy, cmux-tui/scripts/check-sdk-single-source.py.)
+# A frozen one is put back as it was and reported.
 if (( sdk )); then
   codegen="$repo/cmux-tui/bindings/codegen/generate.py"
-  resource_sync="$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
-  sdk_stale=0
   if [[ -f "$codegen" ]] && ! python3 -I "$codegen" --check >/dev/null 2>&1; then
     python3 -I "$codegen" --write >/dev/null
-    sdk_stale=1
-  fi
-  if [[ -f "$resource_sync" ]] && ! python3 -I "$resource_sync" --check >/dev/null 2>&1; then
-    python3 -I "$resource_sync" >/dev/null
-    sdk_stale=1
-  fi
-  if (( sdk_stale )); then
     changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- cmux-tui/bindings)"
     while IFS= read -r rel; do
       [[ -n "$rel" ]] || continue
       if frozen "$rel"; then
         git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
-        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write and python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py)"
+        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write)"
       else
         echo "fixed: regenerated $rel"
       fi
@@ -326,8 +396,7 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
 fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
-# (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
+# (scripts/ci/defaults_guard.py snapshot).
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()
@@ -469,7 +538,8 @@ fi
 # to it (--all would also format its path dependencies).
 if (( fmt )) && [[ -f "$repo/cmux-tui/Cargo.toml" ]]; then
   before="$(git -C "$repo" status --porcelain -- cmux-tui)"
-  (cd "$repo/cmux-tui" && cargo fmt --all)
+  # The it-binary crates' test files are formatted per crate, with that crate's edition.
+  (cd "$repo/cmux-tui" && bash "$script_dir/../ci/cmux-tui-fmt.sh")
   after="$(git -C "$repo" status --porcelain -- cmux-tui)"
   [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in cmux-tui"
 fi
@@ -494,6 +564,85 @@ if (( locks )); then
     python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
   else
     echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
+fi
+
+# 5c. The daemon ABI surface follows the same SDK schema as the bindings. Run after lock repair,
+# using the checker's write mode: it refuses uncovered breaks and invalid compatibility fixtures.
+# Keep the incoming bytes on failure, including an earlier repair or an uncommitted edit.
+if (( sdk )) && [[ -f "$repo/cmux-tui/crates/cmux-api-compat/Cargo.toml" ]]; then
+  daemon_surface=cmux-tui/spec/api-compat.surface.json
+  if frozen "$daemon_surface"; then
+    echo "skipped (frozen): $daemon_surface"
+  elif ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $daemon_surface not refreshed (no cargo on PATH)"
+  elif [[ ! -f "$repo/$daemon_surface" ]]; then
+    echo "left: $daemon_surface missing (the compatibility baseline must exist before refresh)"
+  else
+    abi_before="$(mktemp)" abi_log="$(mktemp)"
+    cp "$repo/$daemon_surface" "$abi_before"
+    if (cd "$repo/cmux-tui" && cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write >"$abi_log" 2>&1); then
+      if ! cmp -s "$abi_before" "$repo/$daemon_surface"; then
+        echo "fixed: refreshed $daemon_surface"
+      fi
+    else
+      cp "$abi_before" "$repo/$daemon_surface"
+      echo "left: $daemon_surface not refreshed (api-compat-check refused; check spec/api-compat.json and spec/api-compat-fixtures.json): $(grep -m1 -E 'api-compat-check:|^error' "$abi_log" || tail -n 1 "$abi_log")"
+    fi
+    rm -f "$abi_before" "$abi_log"
+  fi
+fi
+
+# 5b. The acpmux protocol IR and its ABI surface, after the locks the test builds with. Both are derived from acpmux's
+# protocol registry, and the PR tier skips the check (scripts/ci/affected-jobs.json pull_request_skip), so a change
+# that registers a method leaves them stale on feat-cmux-next until someone blesses them by hand: #56240 and #57905
+# each added a method on 11-26, and `acpmux protocol IR is current` and `api-compat` stayed red in the post-merge
+# batch for every pull request after them. The test writes the surface only when every ABI break has a rule in
+# acpmux-abi.compat.json (cmux_api_compat::json_schema::check_files), so an uncovered break is never blessed: when
+# the tests still fail, both files are put back and the break is left to a person.
+if (( acpmux_ir )) && [[ -f "$repo/cmux-tui/crates/acpmux/Cargo.toml" ]]; then
+  acpmux_spec=cmux-tui/crates/acpmux/spec
+  acpmux_ir_files=("$acpmux_spec/acpmux-protocol.json" "$acpmux_spec/acpmux-abi.surface.json")
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $acpmux_spec not blessed (no cargo on PATH)"
+  else
+    ir_log="$(mktemp)"
+    if (cd "$repo/cmux-tui" && ACPMUX_PROTOCOL_BLESS=1 cargo test --locked -p acpmux --lib -- protocol:: >"$ir_log" 2>&1); then
+      for rel in "${acpmux_ir_files[@]}"; do
+        git -C "$repo" diff --quiet -- "$rel" 2>/dev/null && continue
+        if frozen "$rel"; then
+          git -C "$repo" checkout --quiet -- "$rel"
+          echo "skipped (frozen): $rel (stale; ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib -- protocol:: in cmux-tui)"
+        else
+          echo "fixed: blessed $rel"
+        fi
+      done
+    else
+      git -C "$repo" checkout --quiet -- "${acpmux_ir_files[@]}" 2>/dev/null || true
+      echo "left: acpmux protocol tests fail with ACPMUX_PROTOCOL_BLESS=1 (an ABI break needs a rule in $acpmux_spec/acpmux-abi.compat.json first): $(grep -m1 -E 'panicked at|^error' "$ir_log" || tail -n 1 "$ir_log")"
+    fi
+    rm -f "$ir_log"
+  fi
+fi
+
+# 5a. The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh), after the locks it builds with. Every
+# base merge that touched the FFI crate used to leave the committed copy one side's or stale, and a person rebuilt
+# it by hand on a Linux box and pushed the diff. Leo: "you need to stop acting like "ok let me do that
+# now" but fix the underlying problems. always. this goes for everybody".
+if (( ios_ffi )) && [[ -f "$repo/scripts/ios-ffi-bindings.sh" ]]; then
+  ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+  if frozen "$ffi_swift"; then
+    echo "skipped (frozen): $ffi_swift (scripts/ios-ffi-bindings.sh)"
+  elif ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $ffi_swift not regenerated (no cargo on PATH)"
+  else
+    ffi_log="$(mktemp)"
+    if out="$(bash "$repo/scripts/ios-ffi-bindings.sh" 2>"$ffi_log")"; then
+      grep '^fixed: ' <<<"$out" || true
+    else
+      echo "left: scripts/ios-ffi-bindings.sh failed: $(tail -n 1 "$ffi_log")"
+    fi
+    rm -f "$ffi_log"
   fi
 fi
 

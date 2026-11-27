@@ -2,9 +2,10 @@ name: cmux-next post-merge batch
 
 # The base's deferred checks run here on the clock, not once per merge (RFD 0023 in cmuxterm-hq;
 # Leo 2026-11-21: "everything else runs once post-merge, batched"). main's
-# cmux-next-post-merge-dispatch.yml ticks every 30 min and starts a batch run on the newest
-# feat-cmux-next tip once a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed
-# since the last one and the tip is untested. A batch run calls every suite in
+# cmux-next-post-merge-dispatch.yml ticks every 30 min, and each batch run's judge ticks once more as
+# it ends; a tick starts a batch run on the newest feat-cmux-next tip when it is untested and either
+# 10 or more merges past the last batch run (vars.NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns the
+# count off) or a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed since it. A batch run calls every suite in
 # .github/post-merge-batch.json whose paths the commits since the last batch run touched. A job red
 # here and green on the last batch run where it ran starts a bisect: probe runs of that job alone,
 # each dispatched by the one before, end on the first red commit, and the last probe opens its
@@ -81,7 +82,7 @@ env:
 jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -89,17 +90,54 @@ jobs:
       suites: ${{ steps.plan.outputs.suites }}
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
+      base: ${{ steps.plan.outputs.base }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
+      # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
+      # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
+      - id: checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           persist-credentials: false
-          fetch-depth: 0
-          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+      - name: Fetch this ref's history
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2; do
+            shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
+            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+          done
+          exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
       # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: read-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Mint the read token
         id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -114,15 +152,16 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           SUITE: ${{ inputs.suite }}
           ONLY: ${{ inputs.only }}
           PROBE_SHA: ${{ inputs.sha }}
+          GOOD: ${{ inputs.good }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
-            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA"
+            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -172,9 +211,11 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # statuses: its full-carry job (scripts/ci/head_tier.py) asks for it.
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web:
     needs: plan
@@ -183,6 +224,11 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # R2 write secrets: the batch saves the base's webview test history there for pull requests.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
     # actions: read: the base's webview test history and duration manifest are artifacts (ci-web.yml).
     permissions:
       contents: read
@@ -200,13 +246,109 @@ jobs:
       contents: read
       issues: write
 
+  # The fast tier's full run (note-559): a pull request runs only the entries its change reaches.
+  fast-tier:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' fast-tier ')
+    uses: ./.github/workflows/cmux-next-fast-tier-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  # tooling-tests' full run: a pull request runs only the steps its changed files reach by name.
+  tooling-tests:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' tooling-tests ')
+    uses: ./.github/workflows/cmux-next-tooling-tests-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  # pr-pipeline.yml's linux job, every step: a pull request runs only the steps its changed files reach by name
+  # (ci/run --pr-scope).
+  pr-pipeline-linux:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-linux ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-linux-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
+  # A web type check red with no machine fix (fixit-compile, ci-web.yml's fixit_nofix) on a batch run of the base:
+  # fixit-handoff.yml names the culprit and pushes its revert when clear, else opens the revert's own pull request,
+  # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
+  fixit-handoff:
+    needs: [plan, web]
+    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch fixit-handoff on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          CHECK: ${{ needs.web.outputs.fixit_check }}
+          ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh workflow run fixit-handoff.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f sha="$SHA" -f check="$CHECK" -f origin="$ORIGIN"
+
+  gallery-health:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' gallery-health ')
+    uses: ./.github/workflows/gallery-health.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
+      # then fails; the standing reds are listed by name in its summary.
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+
+  cmux-tui-sdks:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-sdks ')
+    uses: ./.github/workflows/cmux-tui-sdks.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  cmux-tui-spec:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-spec ')
+    uses: ./.github/workflows/cmux-tui-spec.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    # R2 write secrets: the batch saves the base's acpmux test log there for pull requests.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
+    # cmux-tui-spec.yml's changes job asks for these (head_tier.py; a push reads nothing with them).
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       actions: write
       contents: read
@@ -218,16 +360,52 @@ jobs:
       pieces: ${{ steps.judge.outputs.pieces }}
       piece: ${{ steps.judge.outputs.piece }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
+      # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
+      # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
+      - id: checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           persist-credentials: false
-          fetch-depth: 0
-          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+      - name: Fetch this ref's history
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2; do
+            shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
+            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+          done
+          exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
       # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: read-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Mint the read token
         id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -242,7 +420,7 @@ jobs:
         id: judge
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           BRANCH: ${{ github.ref_name }}
           SUITE: ${{ inputs.suite }}
@@ -258,12 +436,26 @@ jobs:
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
             --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES"
+      # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
+      # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
+      # judge only, and never fails it: a red here would make this batch read as untested.
+      - name: Start the next batch when merges have piled up
+        if: ${{ inputs.mode != 'probe' && github.ref_name == 'feat-cmux-next' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
+          NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
+          NEXT_POST_MERGE_EVERY_MERGES: ${{ vars.NEXT_POST_MERGE_EVERY_MERGES }}
+        run: |
+          python3 scripts/ci/post_merge_batch.py tick --branch "$GITHUB_REF_NAME" --self-run-id "$GITHUB_RUN_ID"
 
   revert:
     needs: judge
     if: ${{ !cancelled() && needs.judge.outputs.culprit != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
     # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).
     environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
@@ -273,17 +465,54 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
+      # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
+      # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
+      - id: checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           persist-credentials: false
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-          filter: blob:none
+          ref: ${{ github.ref }}
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+      - name: Fetch this ref's history
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2; do
+            shallow=""; [ "$(git rev-parse --is-shallow-repository)" = true ] && shallow=--unshallow
+            timeout 110 git fetch --quiet --no-tags --filter=blob:none $shallow origin "$(git rev-parse HEAD)" && exit 0
+          done
+          exit 1
       # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
       # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: read-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Mint the read token
         id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -311,9 +540,26 @@ jobs:
       # Creating a branch based on feat-cmux-next needs workflows write: its workflow files differ from
       # main's, and GitHub refuses or times out a token without it (drill-5, -6 and -7). Minted on every
       # branch, so a drill proves the same push; the pull request itself still opens with GH_TOKEN.
+      # The workflows token below creates and pushes every swap-out, probe and revert branch: a ref at a
+      # feat-cmux-next commit needs workflows write whatever the diff (drill 9 run 45096141472: HTTP 403 with
+      # the contents token). Its mint may fail (the App had no Workflows permission, hq#18499); then the
+      # contents-only push token takes over and only a diff touching .github/workflows/** stops, with the
+      # command to do it by hand.
       - name: Mint the revert push token
         id: push-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Mint the workflows push token
+        id: workflows-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -326,15 +572,16 @@ jobs:
       - name: Swap out the piece, or open the revert pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           PUSH_TOKEN: ${{ steps.push-token.outputs.token || steps.app-token.outputs.token || github.token }}
+          WORKFLOWS_TOKEN: ${{ steps.workflows-token.outputs.token }}
           CULPRIT: ${{ needs.judge.outputs.culprit }}
           RED_JOB: ${{ needs.judge.outputs.job }}
           GOOD: ${{ needs.judge.outputs.good }}
           ORIGIN: ${{ needs.judge.outputs.origin }}
           BRANCH: ${{ github.ref_name }}
           DISPATCH_TOKEN: ${{ github.token }}
-          # Hot swap out first, for classes .github/piece-swap.json lists (only drill ships); 0 turns it off.
+          # Hot swap out first, for classes .github/piece-swap.json lists (drill, web-ui, rust-core); 0 turns it off.
           NEXT_PIECE_SWAP: ${{ vars.NEXT_PIECE_SWAP }}
           PIECES: ${{ needs.judge.outputs.pieces }}
           PIECE: ${{ needs.judge.outputs.piece }}
@@ -343,4 +590,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 scripts/ci/post_merge_batch.py revert --branch "$BRANCH" --culprit "$CULPRIT" --job "$RED_JOB" \
             --good "$GOOD" --origin "$ORIGIN" --pieces "$PIECES" --piece "$PIECE" \
-            --push-url "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            --push-url "https://x-access-token:{token}@github.com/${GITHUB_REPOSITORY}.git"

@@ -39,7 +39,7 @@ env:
 
 jobs:
   route:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # the default branch's scheduled run starts feat-cmux-next's
@@ -49,7 +49,7 @@ jobs:
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
       - name: Checkout pool helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
@@ -59,6 +59,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       # The macOS pool the walk runs on (scripts/ci/ios_runner_pool.py, the
@@ -68,6 +69,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
@@ -110,40 +113,45 @@ jobs:
     steps:
       - name: Result paths
         run: |
-          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "DERIVED=${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd}" >> "$GITHUB_ENV"
           echo "RAW=$RUNNER_TEMP/raw" >> "$GITHUB_ENV"
           echo "OUT=$RUNNER_TEMP/first-user-journey-ios" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/raw" "$RUNNER_TEMP/first-user-journey-ios"
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
-      # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
-      # about 3 minutes of a Mac (run 43652999096). A pull request only
-      # reads the cache; other events save what they built.
+      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes. The key is the one
+      # cmux-next-ios-kit.yml uses (scripts/ci/ios_link_ffi_key.py: the packages the FFI library compiles, the lock,
+      # the toolchain, the build script and the checked-in bindings, plus the selected Xcode), so the entry a
+      # feat-cmux-next kit run saves is this job's hit too. The older key (.github/scripts/ios_link_ffi_key.py) hashed
+      # the whole cmux-next-ios/rust tree, cmux-mobile-host and every tests/ included, so most Rust merges moved it and
+      # the build (150-275 s of a Mac) ran on 13 of 19 reliability-matrix runs (2026-11-24). A pull request only reads
+      # the cache; other events save what they built when its bindings match the checked-in ones (the kit's drift
+      # check). A key that cannot be read (no Python 3.11 tomllib, a ref from before the script) builds, as before.
       - name: The framework's inputs
         id: ffi-key
+        continue-on-error: true
         run: |
           set -euo pipefail
-          # A ref from before the key script, or a key that fails, builds as before.
-          if [ -f .github/scripts/ios_link_ffi_key.py ]; then
-            python3 -I .github/scripts/ios_link_ffi_key.py --repo . --explain \
-              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
-              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          if [ -f scripts/ci/ios_link_ffi_key.py ]; then
+            inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+            xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+            echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
           fi
       - name: Restore the framework built from the same inputs
         id: ffi
         if: steps.ffi-key.outputs.key != ''
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
-          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.ffi-key.outputs.key }}
       - name: Set up pinned Rust
         if: steps.ffi.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -151,24 +159,34 @@ jobs:
         if: steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: first-user-journey-ios
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the
+          # first save was restored forever and its stale third-party crates rebuilt on every run (2026-11-24).
+          key: first-user-journey-ios-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
       - name: Build CmuxMobileLinkFFI.xcframework
         if: steps.ffi.outputs.cache-hit != 'true'
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
-      - name: Save the framework for later runs
+      - name: Do the built bindings match the checked-in ones
+        id: ffi-drift
         if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        run: |
+          # The build rewrites the bindings and restores Cargo.lock: a tracked change is drift, and the kit's
+          # entries promise none, so a drifted build is used here but not saved.
+          if git diff --quiet -- cmux-next-ios/; then echo "clean=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the framework for later runs
+        if: steps.ffi-drift.outputs.clean == 'true'
         # Another job saving the same key first is not a failure.
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
-          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.ffi-key.outputs.key }}
       - name: Install xcodegen
         run: |
           set -euo pipefail
@@ -200,7 +218,8 @@ jobs:
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
           # The smallest current iPhone the image has, so layout breaks show
           # first; the review gate covers the Pro Max and iPad.
-          runtime="$(xcrun simctl list runtimes available -j | python3 -I -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("platform")=="iOS" and x.get("isAvailable")]; r.sort(key=lambda x: [int(p) for p in x["version"].split(".")]); print(r[-1]["identifier"] if r else "")')"
+          # The fleet's pinned runtime when the host has it, else the newest.
+          runtime="$(xcrun simctl list runtimes available -j | python3 -I scripts/ci/ios_sim_runtime.py --prefer-pin --runtime-only 2>/dev/null || true)"
           udid=""
           for model in "iPhone 17e" "iPhone 16e" "iPhone 17" "iPhone 16"; do
             type_id="$(xcrun simctl list devicetypes -j | python3 -I -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']==sys.argv[1]]; print(t[0] if t else '')" "$model")"
@@ -249,6 +268,19 @@ jobs:
             --build "$BUILD" --run-url "$RUN_URL" --out "$OUT"
           cp "$RAW/journey.log" "$OUT/journey.log" 2>/dev/null || true
           cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      # Leo, 2026-11-24: "this on reviving had tons of layout shifts." journey.mp4 read frame by frame for blocks
+      # that jump (move in one frame and stay), blinks and staggered settles: the table in this run's summary and
+      # journey.mp4.shifts.json in the artifact. A report, never a failure (the seeded recordings gate the detector).
+      - name: Layout shifts in the journey recording
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          [ -s "$OUT/journey.mp4" ] || { echo "no journey.mp4"; exit 0; }
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          command -v ffmpeg >/dev/null || { echo "no ffmpeg on this host: no layout-shift report" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          python3 -I scripts/cmux-next/recording-shifts-report.py "$OUT/journey.mp4" \
+            --title "Layout shifts in journey.mp4" --summary "$GITHUB_STEP_SUMMARY"
       - name: Upload first-user-journey-ios
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

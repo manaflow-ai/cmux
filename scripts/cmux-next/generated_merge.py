@@ -59,8 +59,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GUARD = "scripts/ci/generated_files_guard.py"
 SDK_MANIFEST = ".cmux-sdk-manifest.json"
-# Written beside the manifest by the same SDK run (sync-resource-api.py), never listed in it.
-SDK_SIDECARS = {SDK_MANIFEST, ".cmux-resource-api.json"}
+# The manifest itself, written beside the files it lists, never listed in it.
+SDK_SIDECARS = {SDK_MANIFEST}
 GENERATED_DRIVER = "cmux-generated-v1"
 # The Mac-only exports (`autofix`): a three-way merge or a conflict, never one side.
 EXPORT_DRIVER = "cmux-export-v1"
@@ -107,7 +107,6 @@ def in_dir(directory: str, *command: str) -> tuple[str, ...]:
 PY = "python3"
 SDK = (
     (PY, "cmux-tui/bindings/codegen/generate.py", "--write"),
-    (PY, "cmux-tui/bindings/rust/scripts/sync-resource-api.py"),
 )
 CLOUD = (in_dir("backend/packages/protocol", "bun", "scripts/export-client.ts"),
          in_dir("backend/packages/protocol", "bun", "scripts/export-rust-client.ts"))
@@ -118,7 +117,6 @@ PANE_GO = "cmux-tui/bindings/codegen/pane/generate.py"
 # OUTPUTS row's first pattern, or a baseline path. The audit fails on a family missing here.
 REGENERATE: dict[str, Regen] = {
     # generated-files.json "committed" generators.
-    "settings-sources": here((PY, "scripts/cmux-next/gen-settings-sources.py")),
     "motion-scale": here((PY, "scripts/cmux-next/gen-motion-scale.py")),
     "type-scale": here((PY, "scripts/cmux-next/gen-type-scale.py")),
     "status-glyphs": here((PY, "scripts/cmux-next/gen-status-glyphs.py")),
@@ -127,8 +125,6 @@ REGENERATE: dict[str, Regen] = {
     "chrome-styles": here((PY, "scripts/cmux-next/gen-chrome-styles.py")),
     "agent-icons": here((PY, "scripts/agent-icons/generate.py")),
     "icon-pack": here((PY, "scripts/icons/build_pack.py")),
-    "pane-protocol": here(("bun", "webviews/scripts/pane-protocol-codegen.ts")),
-    "acpmux-protocol": here(("bun", "webviews/scripts/acpmux-protocol-codegen.ts")),
     "pane-protocol-go": here(
         (PY, PANE_GO, "--write", "--ir", "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol.json",
          "--out", "cmux-tui/bindings/go-pane/examples/hello/hellopane", "--package", "hellopane",
@@ -150,7 +146,10 @@ REGENERATE: dict[str, Regen] = {
     "schemas/defaults/cmux-next.json": here((PY, "scripts/ci/defaults_guard.py", "snapshot")),
     "web/data/cmux-shortcuts.generated.json": here(("bun", "web/scripts/export-docs-shortcuts.ts")),
     "cmux-tui/crates/cmux-app-host/generated/*": here(("bun", "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts")),
-    "cmux-tui/bindings/*/.cmux-resource-api.json": here(*SDK),
+    "cmux-tui/spec/api-compat.surface.json": line(
+        "compatibility comparison evidence: preserve conflicts; base autofix runs api-compat-check --write "
+        "against the surviving baseline and refuses uncovered breaks"),
+    "cmux-tui/bindings/*.cmux-sdk-manifest.json": here(*SDK),
     "clients/ts/cloud/src/generated.ts": here(*CLOUD),
     "scripts/ghosttykit-checksums.txt": autofix("the base autofix's GhosttyKit pin"),
     "scripts/lint-namespace-types-ratchet.txt": autofix("base-autofix.sh's namespace ratchet step; merges entry by entry",
@@ -169,6 +168,9 @@ REGENERATE: dict[str, Regen] = {
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift": here(
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
+    # A host cargo build of cmux-mobile-link-ffi (rustup reads cmux-next-ios/rust/rust-toolchain.toml).
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift": here(
+        ("bash", "scripts/ios-ffi-bindings.sh")),
     "Resources/markdown-viewer/ondine.min.js": line("a vendored upstream release (vendor-ondine.mjs)"),
     "THIRD_PARTY_LICENSES.md": line("written by the release build's license collector"),
     "cmux-tui/build-support/notices/REVIEW.md": line("written by pin-cmux-tui.sh when the cmux-tui pin moves"),

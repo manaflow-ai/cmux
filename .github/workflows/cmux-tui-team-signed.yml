@@ -68,7 +68,7 @@ jobs:
     # one-job VMs), never behind PR CI on the shared pool: the NEXT nightly's nightly-next-one job waits on
     # this workflow's tree-commit marker and gives up after 3000 s (run 44686907065's publish sat queued on
     # linux_4 behind ~3,244 PR jobs, 2026-11-20). A re-run takes the pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -78,36 +78,56 @@ jobs:
       helper_key: ${{ steps.helper.outputs.helper_key }}
       helper_needed: ${{ steps.helper.outputs.helper_needed }}
     steps:
-      - name: Check the commit
+      - name: Check the commit is a full sha
         env:
           COMMIT: ${{ inputs.commit }}
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
           [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
-          # On feat-cmux-next: the commit is feat-cmux-next's head or behind it.
-          status="$(gh api "repos/$REPO/compare/$COMMIT...feat-cmux-next" --jq .status)"
-          case "$status" in
-            identical|ahead) echo "$COMMIT is on feat-cmux-next ($status)" ;;
-            *) echo "::error::$COMMIT is not on feat-cmux-next (compare: $status); only a merged commit's tree is Team-signed"; exit 1 ;;
-          esac
-
-      - name: Checkout the commit (its tree key script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.commit }}
-          path: source
-          fetch-depth: 1
 
       - name: Checkout this workflow's tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: tools
           sparse-checkout: scripts/ci
+
+      # On feat-cmux-next: the commit is feat-cmux-next's head or behind it. Read from git, not the REST
+      # compare API: the installation's rate limit refused that call for 5 minutes and failed the plan, so the
+      # helper was never signed and the Mac live file went out without one (runs 45646188220 and 45645935931,
+      # 2026-11-25; cmux-tui/965f1485.../mac-live.json carries no screen_sharing_helper). A treeless fetch of
+      # the branch's last 60 days of commits needs no token; the commits dispatched here are minutes old.
+      - name: Check the commit
+        env:
+          COMMIT: ${{ inputs.commit }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git init -q --bare onbranch
+          fetched=""
+          for try in 1 2 3; do
+            if timeout 180 git -C onbranch fetch -q --no-tags --filter=tree:0 --shallow-since="60 days ago" \
+                "https://github.com/$REPO.git" "+refs/heads/feat-cmux-next:refs/heads/feat-cmux-next"; then
+              fetched=1; break
+            fi
+            echo "::notice::fetch of feat-cmux-next failed (try $try of 3)"
+            sleep $((try * 10))
+          done
+          [[ -n "$fetched" ]] && commits="$(git -C onbranch rev-list feat-cmux-next)" && [[ -n "$commits" ]] \
+            || { echo "::error::could not read feat-cmux-next's history to check $COMMIT"; exit 1; }
+          if grep -qx "$COMMIT" <<<"$commits"; then
+            echo "$COMMIT is on feat-cmux-next"
+          else
+            echo "::error::$COMMIT is not on feat-cmux-next (or is older than 60 days); only a merged commit's tree is Team-signed"; exit 1
+          fi
+
+      - name: Checkout the commit (its tree key script)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          path: source
+          fetch-depth: 1
 
       - name: Read the tree key and whether its Team-signed set is published
         id: plan
@@ -143,23 +163,28 @@ jobs:
     name: build the Screen Sharing helper
     needs: plan
     if: needs.plan.outputs.helper_needed == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
     steps:
       - name: Checkout the commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.commit }}
           fetch-depth: 1
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # build-screen-sharing-helper.sh (arm64: the NEXT app is arm64 only), wrapped as the nightly wraps it
       # (bundle-screen-sharing-helper.sh --app) in a stub app with the nightly's id and name, signed ad hoc.
+      # The bundle is "cmux NIGHTLY Helper.app" (SUFFIX, since 5167d1f0); a commit from before the rename
+      # makes "cmux NIGHTLY Screen Sharing.app" (screen_sharing_helper_release.py HELPER_NAMES, in this order).
       - name: Build and bundle the helper
         env:
           KEY: ${{ needs.plan.outputs.helper_key }}
@@ -174,9 +199,13 @@ jobs:
           app="$(python3 scripts/ci/screen_sharing_helper_release.py stub-app "$stub")"
           CMUX_NEXT_SCREEN_HELPER_BIN="$bin" CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 \
             scripts/cmux-next/bundle-screen-sharing-helper.sh --app "$app"
+          helper=""
+          for name in "cmux NIGHTLY Helper.app" "cmux NIGHTLY Screen Sharing.app"; do
+            if [[ -d "$app/Contents/Library/$name" ]]; then helper="$app/Contents/Library/$name"; break; fi
+          done
+          [[ -n "$helper" ]] || { echo "::error::the bundle script made no cmux NIGHTLY Helper.app"; ls -la "$app/Contents/Library"; exit 1; }
           mkdir -p helper-unsigned
-          /usr/bin/ditto -c -k --norsrc --keepParent "$app/Contents/Library/cmux NIGHTLY Screen Sharing.app" \
-            helper-unsigned/helper.zip
+          /usr/bin/ditto -c -k --norsrc --keepParent "$helper" helper-unsigned/helper.zip
 
       - name: Upload the unsigned helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -198,29 +227,39 @@ jobs:
       contents: read
     steps:
       - name: Checkout this workflow's signing tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           sparse-checkout: scripts
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
       - name: Claim the whole Mac for signing
         run: ./scripts/ci/signing-runner-claim.sh
 
       - name: Download the unsigned helper
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: screen-sharing-helper-unsigned-${{ needs.plan.outputs.helper_key }}
           path: helper-unsigned
 
+      # One bundle, by either name build-helper zips (screen_sharing_helper_release.py HELPER_NAMES).
       - name: Unpack the helper
+        id: unpacked
         run: |
           set -euo pipefail
           mkdir helper
           /usr/bin/ditto -x -k --norsrc --noqtn helper-unsigned/helper.zip helper
-          [[ -d "helper/cmux NIGHTLY Screen Sharing.app" && "$(ls -A helper | wc -l)" -eq 1 ]] \
-            || { echo "::error::the artifact is not one cmux NIGHTLY Screen Sharing.app"; ls -la helper; exit 1; }
+          helper=""
+          for name in "cmux NIGHTLY Helper.app" "cmux NIGHTLY Screen Sharing.app"; do
+            if [[ -d "helper/$name" ]]; then helper="helper/$name"; break; fi
+          done
+          [[ -n "$helper" && "$(ls -A helper | wc -l)" -eq 1 ]] \
+            || { echo "::error::the artifact is not one cmux NIGHTLY Helper.app"; ls -la helper; exit 1; }
+          echo "helper=$helper" >> "$GITHUB_OUTPUT"
 
       - name: Import the Developer ID certificate
         env:
@@ -236,10 +275,11 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          HELPER: ${{ steps.unpacked.outputs.helper }}
         run: |
           set -euo pipefail
           [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "::error::release-next has no APPLE_SIGNING_IDENTITY"; exit 1; }
-          helper="helper/cmux NIGHTLY Screen Sharing.app"
+          helper="$HELPER"
           ./scripts/codesign-retry.sh --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$helper"
           /usr/bin/codesign --verify --strict --deep --verbose=2 "$helper"
           team="$(/usr/bin/codesign -dv "$helper" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
@@ -258,12 +298,13 @@ jobs:
           KEY: ${{ needs.plan.outputs.helper_key }}
           TEAM: ${{ steps.signed.outputs.team }}
           COMMIT: ${{ inputs.commit }}
+          HELPER: ${{ steps.unpacked.outputs.helper }}
         run: |
           set -euo pipefail
           mkdir helper-signed
-          /usr/bin/ditto -c -k --norsrc --keepParent "helper/cmux NIGHTLY Screen Sharing.app" helper-signed/helper.zip
+          /usr/bin/ditto -c -k --norsrc --keepParent "$HELPER" helper-signed/helper.zip
           python3 scripts/ci/screen_sharing_helper_release.py record --zip helper-signed/helper.zip \
-            --helper "helper/cmux NIGHTLY Screen Sharing.app" --team "$TEAM" --key "$KEY" --commit "$COMMIT" \
+            --helper "$HELPER" --team "$TEAM" --key "$KEY" --commit "$COMMIT" \
             --out helper-signed/helper.json
 
       - name: Upload the signed helper
@@ -280,20 +321,20 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - name: Checkout this workflow's tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
 
       - name: Download the signed helper
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: screen-sharing-helper-signed-${{ needs.plan.outputs.helper_key }}
           path: helper-signed
@@ -343,13 +384,14 @@ jobs:
       contents: read
     steps:
       - name: Checkout this workflow's signing tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           sparse-checkout: |
             scripts
             cmux-helper.entitlements
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
@@ -420,20 +462,20 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - name: Checkout this workflow's tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
 
       - name: Download the signed set
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-team-signed-${{ needs.plan.outputs.key }}
           path: team-signed

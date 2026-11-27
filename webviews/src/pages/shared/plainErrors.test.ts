@@ -82,6 +82,21 @@ const ALLOWED: readonly { file: string; line: string; why: string }[] = [
     line: "MARKDOWN_UNAVAILABLE ? error.message",
     why: "the machine-offline reason; the editor and markdown failure states are their own fix",
   },
+  {
+    file: "home-channels/store.ts",
+    line: 'error.message.includes("unknown_attachment")',
+    why: "matches a code",
+  },
+  {
+    file: "settings/components/IntegrationsHubCard.tsx",
+    line: 'overview.error.message || t("settingsWindow.hub.problem.failed")',
+    why: "the hub's own sentence, shown as is (ops.ts HubState, #51341)",
+  },
+  {
+    file: "settings/components/IntegrationsHubCard.tsx",
+    line: 'state.error.message || t("settingsWindow.hub.error.notFinished")',
+    why: "the hub's or the CLI's own refusal, shown as is (ops.ts HubState, #51341)",
+  },
 ];
 
 function* sources(dir: string): Generator<string> {

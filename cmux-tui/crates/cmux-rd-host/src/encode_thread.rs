@@ -39,6 +39,10 @@ pub struct Done {
 pub struct Frame {
     pub access_unit: Vec<u8>,
     pub idr: bool,
+    /// When the capture started, on the protocol clock in µs: from here to `t_capture_us` is
+    /// the frame's capture cost (Linux: the XShm readback and the I420 conversion; macOS:
+    /// taking ScreenCaptureKit's newest frame).
+    pub capture_start_us: u64,
     /// Why the encoder made this IDR on its own (`None` when asked for, or a delta frame).
     pub idr_cause: Option<&'static str>,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
@@ -54,6 +58,7 @@ pub struct Frame {
     pub encode_ms: f64,
     /// The encoder's bitrate after this frame.
     pub kbps: u32,
+    pub ltr_token: Option<u64>,
     /// The profile this frame was encoded with, when the encoder applies one (None when it has
     /// no ultra mode and kept its settings).
     pub profile: Option<EncodeProfile>,
@@ -231,7 +236,11 @@ fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
 
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
+    source.set_picture(req.picture);
+    let capture_start_us = now_ns() / 1000;
     source.capture(req.damage)?;
+    source.set_acknowledged_ltr_tokens(&req.acknowledged_ltr_tokens);
+    source.set_force_ltr_refresh(req.force_ltr_refresh);
     let t_capture_us = now_ns() / 1000;
     source.set_profile(req.profile, req.refine);
     source.set_changed_pixels(u64::from(req.damage.width) * u64::from(req.damage.height));
@@ -243,6 +252,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     Ok(Frame {
         access_unit,
         idr,
+        capture_start_us,
         idr_cause: if idr { source.idr_cause() } else { None },
         t_capture_us,
         released_us: job.released_us,
@@ -251,105 +261,11 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
+        ltr_token: source.ltr_token(),
         profile: source.applies_profile().then_some(req.profile),
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_rd_core::flow::Rect;
-
-    /// Records every bitrate it is given.
-    struct Recorder {
-        kbps: u32,
-        set: Vec<u32>,
-    }
-
-    impl FrameSource for Recorder {
-        fn capture(&mut self, _damage: Rect) -> Res<()> {
-            Ok(())
-        }
-        fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
-            out.extend_from_slice(&[0, 0, 0, 1, 0x65]);
-            Ok(true)
-        }
-        fn set_bitrate(&mut self, kbps: u32) {
-            self.kbps = kbps;
-            self.set.push(kbps);
-        }
-        fn kbps(&self) -> u32 {
-            self.kbps
-        }
-        fn encoder_name(&self) -> String {
-            "recorder".into()
-        }
-    }
-
-    fn job(target_kbps: u32, halve_first: bool) -> Job {
-        let damage = Rect { x: 0, y: 0, width: 16, height: 16 };
-        let req = EncodeRequest {
-            stream: 0,
-            frame: 1,
-            damage,
-            force_idr: true,
-            idr_reason: None,
-            target_kbps,
-            profile: Default::default(),
-            refine: false,
-        };
-        Job { req, released_us: 0, halve_first }
-    }
-
-    #[test]
-    fn the_frame_after_a_drop_encodes_at_half_the_rate() {
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
-        let frame = encode_one(&mut source, &job(8_000, true)).expect("encode");
-        assert_eq!(frame.kbps, 4_000, "the halve holds for this frame: {:?}", source.set);
-        assert_eq!(source.set.last(), Some(&4_000));
-        // A target already under half wins.
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
-        encode_one(&mut source, &job(3_000, true)).expect("encode");
-        assert_eq!(source.kbps, 3_000);
-        // Without a drop the engine's target applies.
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
-        encode_one(&mut source, &job(9_000, false)).expect("encode");
-        assert_eq!(source.kbps, 9_000);
-    }
-
-    /// The stats line names only a profile the encoder applied: one without an ultra mode
-    /// (the Linux X11 source) reports none even for an ultra request.
-    #[test]
-    fn a_frame_names_only_the_profile_its_encoder_applied() {
-        struct Ultra(Recorder);
-        impl FrameSource for Ultra {
-            fn capture(&mut self, damage: Rect) -> Res<()> {
-                self.0.capture(damage)
-            }
-            fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
-                self.0.encode(force_idr, pts_us, out)
-            }
-            fn set_bitrate(&mut self, kbps: u32) {
-                self.0.set_bitrate(kbps);
-            }
-            fn applies_profile(&self) -> bool {
-                true
-            }
-            fn kbps(&self) -> u32 {
-                self.0.kbps()
-            }
-            fn encoder_name(&self) -> String {
-                "ultra".into()
-            }
-        }
-        let mut ultra_job = job(8_000, false);
-        ultra_job.req.profile = EncodeProfile::Ultra;
-        let mut plain = Recorder { kbps: 8_000, set: Vec::new() };
-        assert_eq!(encode_one(&mut plain, &ultra_job).expect("encode").profile, None);
-        let mut able = Ultra(Recorder { kbps: 8_000, set: Vec::new() });
-        assert_eq!(
-            encode_one(&mut able, &ultra_job).expect("encode").profile,
-            Some(EncodeProfile::Ultra)
-        );
-    }
-}
+#[path = "encode_thread_tests.rs"]
+mod tests;

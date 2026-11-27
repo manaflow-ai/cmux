@@ -229,8 +229,8 @@ import Testing
         }
     }
 
-    /// An archived link the opened Archive lists at the bottom is no stop before a Done row above it: from the
-    /// selected Done row, Previous and Next are the rows drawn around it.
+    /// An archived link the sidebar does not draw (cmux#51635) is no stop: from the selected Done row, Previous and
+    /// Next are the rows drawn around it.
     @Test func anArchivedItemIsNoAnchorForADoneRowAboveIt() {
         Self.withFolds {
             var link = SidebarListItem(id: "old-link", ref: .url("https://example.com"), title: "Example")
@@ -239,7 +239,6 @@ import Testing
             let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
                 .workspace(Self.row("first")), .item(link), .workspace(Self.done("finished")), .workspace(Self.row("second")),
             ])])
-            model.openDoneFolds = [.archive]
             let all = SidebarNavigationSettings(numbering: .allItems, stepping: .allItems)
             let selected = SidebarItem.workspace(WorkspaceID("finished"))
             #expect(model.step(from: selected, by: -1, all) == .workspace(WorkspaceID("first")))

@@ -35,7 +35,9 @@ struct HomeTurnFailure: Equatable, Sendable {
             || (text.contains("limit") && has("hit your", "reached your", "weekly", "monthly", "resets")) {
             return CmuxStrings.turnFailureLimit
         }
-        if has("not logged in", "log in", "/login", "unauthorized", "invalid api key", "authentication") {
+        // "not signed in": acpmux's own words ("Claude is not signed in here. This agent found no
+        // sign-in …", claude_auth.rs), which replace Claude's "Not logged in" and arrive cut before it.
+        if has("not logged in", "not signed in", "log in", "/login", "unauthorized", "invalid api key", "authentication") {
             return CmuxStrings.turnFailureSignedOut
         }
         if has("fetch failed", "econn", "enotfound", "etimedout", "network", "timed out", "socket hang up", "connection") {

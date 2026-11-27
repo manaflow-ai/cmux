@@ -20,6 +20,14 @@
 /// terminal output in #43851.
 pub const DAEMON_ARENAS: i32 = 2;
 
+/// Arenas for acpmux. Its peer links, notice shards and client feeds allocate on
+/// many threads at once, so two arenas serialize them on the arena lock: on the
+/// coord-sim fan-in ramp at 2,000 attached sessions, fan-in p95 read 6.8 ms with
+/// two and 1.28 ms with sixteen on the same head (cmux#49864), resident memory
+/// 663 vs 792 MB on that pair and 823 vs 798 MB on another. Sixteen bounds what
+/// freed pages the arenas can keep, well under glibc's eight per core.
+pub const ACPMUX_ARENAS: i32 = 16;
+
 /// Caps glibc's arenas at `max` unless the environment names its own limit.
 ///
 /// # Safety
@@ -49,19 +57,5 @@ fn env_leaves_default(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::env_leaves_default;
-    use std::ffi::OsStr;
-
-    #[test]
-    fn an_environment_limit_wins_over_the_cap() {
-        assert!(env_leaves_default(None, None));
-        assert!(env_leaves_default(None, Some(OsStr::new("glibc.malloc.tcache_count=0"))));
-        assert!(!env_leaves_default(Some(OsStr::new("4")), None));
-        assert!(!env_leaves_default(None, Some(OsStr::new("glibc.malloc.arena_max=8"))));
-        assert!(!env_leaves_default(
-            None,
-            Some(OsStr::new("glibc.malloc.tcache_count=0:glibc.malloc.arena_max=1"))
-        ));
-    }
-}
+#[path = "malloc_arenas_tests.rs"]
+mod tests;

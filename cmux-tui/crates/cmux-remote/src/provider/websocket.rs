@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
 use bytes::Bytes;
-use cmux_tui_core::net_keepalive::WebSocketKeepalive;
+use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -200,7 +200,8 @@ pub async fn connect_websocket_within(
             DisplaySeconds(timeout)
         ))
     };
-    let stream = tokio::time::timeout_at(deadline, dialer.dial(host, port))
+    let secure = endpoint.scheme() == "wss";
+    let stream = tokio::time::timeout_at(deadline, dialer.dial_secure(host, port, secure))
         .await
         .map_err(|_| stage_timed_out(&format!("{} connect to", dialer.name())))??;
     let upgrade_stage = if endpoint.scheme() == "wss" {
@@ -509,6 +510,7 @@ impl LinkGroup for WebSocketLinkGroup {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             carrier_encryption: self.endpoint.scheme() == "wss",
+            parallel_links: self.dialer.parallel_links(),
             ..ProviderCapabilities::WEBSOCKET
         }
     }
@@ -525,6 +527,7 @@ impl LinkGroup for WebSocketLinkGroup {
                 kind: TransportPathKind::Direct,
                 remote: self.endpoint.host_str().map(str::to_owned),
                 rtt_micros: None,
+                outer: None,
             }),
         }
     }
