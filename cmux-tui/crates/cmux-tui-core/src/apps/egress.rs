@@ -179,3 +179,8 @@ impl Fetcher for HttpFetcher {
 #[cfg(test)]
 #[path = "egress_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "egress_seeded_tests.rs"]
+mod seeded_tests;

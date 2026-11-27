@@ -119,7 +119,9 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
    never frontmost), signed in to the `personal` account.
-3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
+3. On every connected, paired iPhone of this Mac's person (a new phone plugged in by USB is
+   registered; a phone this Mac does not know that it reaches only over Wi-Fi, such as a
+   teammate's test phone, is skipped and reported; `--device-id` names one): signs a copy with this Mac's
    Apple Development identity and a development profile that names the phone, installs it through
    the sanctioned install, and launches it signed in with the `personal` profile and the
    tagged Mac named to focus (`CMUX_MOBILE_FOCUS_MAC`, a device id). The tagged Mac's dev auto-approve
@@ -143,10 +145,10 @@ Never install the app with raw `devicectl`, skip a phone, or replace the phone w
 What it needs:
 
 - iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
-  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux-next/cmux-next.json`
   that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
   on; when it is off, `review.sh` reports that as the blocker.
-- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
+- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux-next/dev-account` naming
   it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
 - A development profile on this Mac for each bundle (the app and its two notification
   extensions) that names each phone; the team wildcard profile covers all three. A phone no

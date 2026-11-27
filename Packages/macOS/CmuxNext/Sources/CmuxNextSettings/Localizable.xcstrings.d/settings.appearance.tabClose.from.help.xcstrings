@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.tabClose.from.help" : {
+      "comment" : "Settings row help for the tab close button color.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The color of a tab's close button. Unset, the text color."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لون زر الإغلاق في علامة التبويب. إذا لم يُحدَّد، يُستخدم لون النص."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boja dugmeta za zatvaranje kartice. Ako nije postavljeno, boja teksta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Farven på en fanes lukkeknap. Hvis den ikke er angivet, bruges tekstfarven."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Farbe der Schließtaste eines Tabs. Nicht gesetzt: die Textfarbe."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El color del botón de cerrar de una pestaña. Sin definir, el color del texto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La couleur du bouton de fermeture d'un onglet. Non définie : la couleur du texte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il colore del pulsante di chiusura di una scheda. Se non impostato, il colore del testo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タブの閉じるボタンの色です。未設定なら文字の色を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពណ៌នៃប៊ូតុងបិទរបស់ផ្ទាំងមួយ។ ពេលមិនបានកំណត់ ប្រើពណ៌អត្ថបទ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "탭 닫기 버튼의 색상입니다. 설정하지 않으면 글자 색상을 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fargen på en fanes lukkeknapp. Hvis den ikke er angitt, brukes tekstfargen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolor przycisku zamykania karty. Gdy nie ustawiono, kolor tekstu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A cor do botão de fechar de uma aba. Se não definido, a cor do texto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет кнопки закрытия вкладки. Если не задано, цвет текста."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สีของปุ่มปิดของแท็บ หากไม่ได้ตั้งค่า จะใช้สีข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir sekmenin kapatma düğmesinin rengi. Ayarlanmazsa metin rengi kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Колір кнопки закриття вкладки. Якщо не задано, колір тексту."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Màu của nút đóng trên tab. Khi chưa đặt, dùng màu chữ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标签页关闭按钮的颜色。未设置时使用文字颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分頁關閉按鈕的顏色。未設定時使用文字顏色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

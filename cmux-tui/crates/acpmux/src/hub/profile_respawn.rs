@@ -78,7 +78,10 @@ impl Hub {
         // So does a restart that waited for its agent to be quiet (`idle.rs` `quiet_respawn`).
         let quiet_was = session.respawn_when_quiet.swap(false, Ordering::SeqCst);
         session.respawn_required.store(false, Ordering::SeqCst);
-        if quiet_was || session.profile_respawn.swap(false, Ordering::SeqCst) {
+        // Clear both marks independently: a quiet restart can be set alongside the profile mark,
+        // and short-circuiting the second swap leaves `profile_respawn` stuck until a later spawn.
+        let profile_was = session.profile_respawn.swap(false, Ordering::SeqCst);
+        if quiet_was || profile_was {
             // The next list is built anew; the start's own records follow.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
             self.events.row_changed(session);

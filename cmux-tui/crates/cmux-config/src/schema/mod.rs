@@ -172,6 +172,10 @@ pub enum DomainKind {
     /// background, a listed choice or `system:` / `file:` with an absolute
     /// path (Swift `BackdropSelectionSetting.acceptsPicture`).
     BackdropPicture,
+    /// `appearance.paneArt.dark` / `.light`: a list of fixed backgrounds,
+    /// each one a [`DomainKind::BackdropPicture`] (Swift
+    /// `ThemeFlourishSetting.acceptsPictures`).
+    BackdropPictures,
     /// `appearance.backgroundSchedule`: an object of times (`HH:MM`, or a sun
     /// event with an offset) to fixed backgrounds (Swift
     /// `BackdropSelectionSetting.acceptsSchedule`).
@@ -536,6 +540,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
+        "domain:backdrop_pictures" => Validation::Domain(DomainKind::BackdropPictures),
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),

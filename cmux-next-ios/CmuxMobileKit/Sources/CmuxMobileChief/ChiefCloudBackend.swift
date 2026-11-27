@@ -205,6 +205,7 @@ public final class ChiefCloudBackend: ConversationBackend, ConversationFileBacke
                     // 412: a retried presigned PUT whose first attempt landed (`if-none-match: *`).
                     guard (200..<300).contains(put.status) || (presigned && put.status == 412) else {
                         // The status stays out of the person's text (the upload's own log has it).
+                        // retry-prompt-ok: a send the person made; the composer keeps it for them to send again
                         throw ConversationBackendError(code: -32000, message: String(localized: "The attachment couldn't upload. Try again."))
                     }
                     if presigned {
@@ -390,6 +391,7 @@ public final class ChiefCloudBackend: ConversationBackend, ConversationFileBacke
             // A photo the message names that this connection did not upload: never sent without it.
             var parts: [[String: Any]] = try draft.attachmentIDs.map { id in
                 guard let part = uploadedParts[id] else {
+                    // retry-prompt-ok: a send the person made; the composer keeps it for them to send again
                     throw ConversationBackendError(code: -4, message: String(localized: "The photo didn't finish uploading. Try again."))
                 }
                 return part

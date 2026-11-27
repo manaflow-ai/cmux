@@ -171,7 +171,7 @@ pub fn split_for_sample() -> Option<DiskSplit> {
 
 /// Takes the walk lock: false when a live walk holds it.
 fn take_lock(lock: &Path) -> bool {
-    let open = || std::fs::OpenOptions::new().write(true).create_new(true).open(lock);
+    let open = || crate::home_fs::OpenOptions::new().write(true).create_new(true).open(lock);
     if open().is_ok() {
         return true;
     }
@@ -180,20 +180,20 @@ fn take_lock(lock: &Path) -> bool {
         .ok()
         .and_then(|t| t.elapsed().ok())
         .is_some_and(|age| age >= LOCK_STALE);
-    stale && std::fs::remove_file(lock).is_ok() && open().is_ok()
+    stale && crate::home_fs::remove_file(lock).is_ok() && open().is_ok()
 }
 
 #[cfg(unix)]
 fn start_walk() {
     let lock = lock_path();
     if let Some(dir) = lock.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
     if !take_lock(&lock) {
         return;
     }
     let Ok(exe) = std::env::current_exe() else {
-        let _ = std::fs::remove_file(&lock);
+        let _ = crate::home_fs::remove_file(&lock);
         return;
     };
     let started = cmux_process::Command::new(exe)
@@ -209,7 +209,7 @@ fn start_walk() {
             child.detach("the disk walk outlives the one-shot `host load` that started it");
         }
         Err(_) => {
-            let _ = std::fs::remove_file(&lock);
+            let _ = crate::home_fs::remove_file(&lock);
         }
     }
 }
@@ -245,11 +245,11 @@ pub fn walk_and_store() -> anyhow::Result<()> {
         let mut split = split_of(&home, root, same_disk, walked, now);
         split.evicted = evicted.or_else(|| read_cached(&path, now).0.and_then(|s| s.evicted));
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec(&split)?)?;
-        std::fs::rename(&tmp, &path)?;
+        crate::home_fs::write(&tmp, serde_json::to_vec(&split)?)?;
+        crate::home_fs::rename(&tmp, &path)?;
         Ok(())
     })();
-    let _ = std::fs::remove_file(lock_path());
+    let _ = crate::home_fs::remove_file(lock_path());
     result
 }
 

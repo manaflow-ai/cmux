@@ -283,7 +283,8 @@ FORK_PULL_REQUEST_CONDITIONS = frozenset(
 # sends every pull request, fork or not, to the label.
 PULL_REQUEST_CONDITION = ("==", "github.event_name", "'pull_request'")
 FORK_PULL_REQUEST_LABEL = re.compile(
-    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
+    # Blacksmith's ARM Linux labels end in -arm (blacksmith-4vcpu-ubuntu-2404-arm): a Blacksmith VM like the rest.
+    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+(?:-arm)?|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
 )
 # Values that can resolve to an owned self-hosted label. A variable counts on
 # any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with runs-on); a

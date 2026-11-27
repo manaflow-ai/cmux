@@ -109,7 +109,9 @@ async fn handoff_chat() -> (Arc<Hub>, Arc<Session>, tempfile::TempDir) {
 async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_environment() {
     let (hub, s, dir) = handoff_chat().await;
     *s.work_below_since.lock().unwrap() = 1;
-    prompt(&hub, &s, "revoked-once: hello", "handoff").await.unwrap_err();
+    let error = prompt(&hub, &s, "revoked-once: hello", "handoff").await.unwrap_err();
+    assert!(error.message.contains(REVOKED), "{error:?}");
+    assert_eq!(records(&hub, &s, "first_send_retry").len(), 1);
     let old = s.child.lock().await.clone().unwrap();
     hub.config
         .write()
@@ -119,7 +121,8 @@ async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_enviro
         .unwrap()
         .env
         .insert("TEST_RETRY_ROUTE".into(), "replacement".into());
-    hub.respawn_when_quiet(&s);
+    // The replacement route is required before this retry, not an optional stale-host refresh.
+    hub.respawn_when_quiet_required(&s);
     until("first send claims its retry", || {
         matches!(s.auto_resume.lock().as_ref(), Some(super::super::Mark::Firing(..)))
     })
@@ -142,9 +145,12 @@ async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_enviro
 async fn automatic_restart_first_send_stop_fences_a_busy_handoff() {
     let (hub, s, _dir) = handoff_chat().await;
     *s.work_below_since.lock().unwrap() = 1;
-    prompt(&hub, &s, "revoked-once: hello", "handoff-stop").await.unwrap_err();
+    let error = prompt(&hub, &s, "revoked-once: hello", "handoff-stop").await.unwrap_err();
+    assert!(error.message.contains(REVOKED), "{error:?}");
+    assert_eq!(records(&hub, &s, "first_send_retry").len(), 1);
     let old = s.child.lock().await.clone().unwrap();
-    hub.respawn_when_quiet(&s);
+    // The replacement route is required before this retry, not an optional stale-host refresh.
+    hub.respawn_when_quiet_required(&s);
     until("first send claims its retry", || {
         matches!(s.auto_resume.lock().as_ref(), Some(super::super::Mark::Firing(..)))
     })
@@ -260,4 +266,14 @@ async fn a_prompt_during_the_wait_takes_the_chat_instead() {
         skipped.iter().any(|m| m["firstSend"] == true && m["skipped"] == "superseded"),
         "{skipped:?}"
     );
+}
+
+/// A first send whose agent restarts on a model route that was only late goes again, logged as
+/// `model_route`; the plain sign-in explanation does not.
+#[test]
+fn a_late_route_retries_the_first_send() {
+    let text = crate::claude_auth::route_arrived_text("Not logged in · Please run /login");
+    assert!(super::retried_error(&text));
+    assert_eq!(super::retry_reason(&text), "model_route");
+    assert!(!super::retried_error("Not logged in · Please run /login"));
 }

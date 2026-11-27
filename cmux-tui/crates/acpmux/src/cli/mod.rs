@@ -18,8 +18,10 @@ pub mod ci_wait;
 pub mod cli_agent;
 pub mod cloud_join;
 pub mod command;
+pub mod command_harness;
 pub mod command_host;
 pub mod command_new;
+pub mod command_session;
 pub(crate) mod consent_admin;
 pub mod daemon_felt;
 pub mod daemon_placement;
@@ -42,6 +44,7 @@ pub mod harness_run;
 pub mod harness_secret;
 pub(crate) mod help_examples;
 pub(crate) mod hold_line;
+pub mod hook_register;
 pub mod host_agents;
 pub mod host_approvals;
 #[cfg(unix)]

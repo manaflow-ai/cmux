@@ -2447,12 +2447,13 @@ class Workflow(unittest.TestCase):
             set(triggers["workflow_run"]["workflows"]),
             {"iOS App Store screenshots", "Nightly macOS build", "CI", "iOS simulator tests", "Iroh release gate",
              "Agent brand icons", "Auth and session lifecycle", "cmux-next base autofix", "cmux-next batch queue",
-             "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
+             "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix (advisory)", "cmux-next CEF shim C++ tests",
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily", "cmux-next-ios kit tests",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
              "cmux-next car guards", "cmux-rd Windows host", "macOS cross-compile parity",
-             "nightly-next launch smoke", "cmux NEXT Stable"},
+             "nightly-next launch smoke", "cmux NEXT Stable",
+             "Cloud chat proof (staging and production, tagged DEV app)"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(

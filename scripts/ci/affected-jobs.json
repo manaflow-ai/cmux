@@ -41,7 +41,8 @@
             "scripts/ci/apt-ensure.sh", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
             "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
             "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
-            "scripts/ci/acpmux-tests-pr-deferred.txt"
+            "scripts/ci/acpmux-tests-pr-deferred.txt",
+            "scripts/ci/cargo_target_strip.py"
           ]
         },
         "acpmux-sim": {
@@ -60,7 +61,13 @@
         "acpmux-protocol-ir": {
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
-          "inputs": ["scripts/cmux-next/cargo-locks.py"]
+          "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/cache-restore/"]
+        },
+        "remote-web-wasm": {
+          "name": "cmux remote web wasm",
+          "compile_only": true,
+          "crates": ["cmux-tui/crates/cmux-remote-web"],
+          "inputs": ["scripts/ci/apt-ensure.sh"]
         }
       }
     },
@@ -70,7 +77,10 @@
         "windows-gnu-check": {
           "name": "cargo check (x86_64-pc-windows-gnu)",
           "compile_only": true,
-          "crates": ["cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux"],
+          "crates": [
+            "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
+            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host"
+          ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
             "scripts/cmux-next/cargo-locks.py"
@@ -108,6 +118,9 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/job_input_fingerprint.py",
+            "scripts/ci/job_reuse.py",
+            "scripts/ci/github_fetch_auth.py",
             "ghostty-next", "workers/cmux-vm/cli/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
             "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
@@ -182,7 +195,6 @@
       ".github/workflows/cmux-tui-spec.yml": {
         "acpmux-tests": "9 runs on 28 merged pull requests (their check runs, 11-15 to 11-23; the router skipped it on 20 more), 0 with a red, 0 of them the pull request's own; the timing feed for 11-13Z on 2026-11-23 has 111 runs on 96 open pull requests, 2,611 job-minutes (1,288 success, 554 failure, 769 cancelled, many at the 40 min cap), and of 14 reds sampled about 3 were the pull request's own (#52025, #52008, #47706): Tier B, fixed forward on the push; the post-merge batch (suite cmux-tui-spec) runs it. Off: repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on",
         "acpmux-sim": "9 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 98 job-minutes",
-        "acpmux-protocol-ir": "8 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 63 job-minutes",
         "clippy": "19 runs on 52 merged pull requests, 3 with a red, 3 of them the pull request's own (#45801, #46459, #46676): Tier B, fixed forward on the push; 414 job-minutes",
         "inventory": "18 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 62 job-minutes",
         "api-compat": "16 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 28 job-minutes",

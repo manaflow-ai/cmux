@@ -656,13 +656,29 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
 }
 
 impl TurnInfo {
-    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq,
+    /// showing its prompt's own line (`prompt_line.rs`, no provenance).
     pub(super) fn prompted(
         client: &str,
         text: &str,
         turn_id: &str,
         prompt_id: &str,
         control: Control,
+    ) -> Self {
+        let line = super::prompt_line::prompt_line(text, client, None);
+        Self::prompted_as(client, text, turn_id, prompt_id, control, &line)
+    }
+
+    /// [`TurnInfo::prompted`] showing `line` instead: masked once, here. A secret scan is the
+    /// costliest step of a prompt's start at scale, so a caller that knows its line passes it
+    /// rather than masking a default line and then its own.
+    pub(super) fn prompted_as(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+        line: &str,
     ) -> Self {
         TurnInfo {
             trigger: false,
@@ -680,7 +696,7 @@ impl TurnInfo {
             accepted: true,
             device: None,
         }
-        .shown_as(&super::prompt_line::prompt_line(text, client, None))
+        .shown_as(line)
     }
 
     /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
@@ -765,11 +781,22 @@ impl Hub {
                 return session.auto_resume.current(fired_gen) && !self.shutting_down();
             }
             if !announced_wait && delay >= Duration::from_secs(5) {
+                let reason = if session.turn().is_some() {
+                    "turn"
+                } else if session.queue().iter().any(|queued| !queued.aside()) {
+                    "queued-prompt"
+                } else if session.child.lock().await.is_none() {
+                    "no-child"
+                } else {
+                    // The remaining refusal is a lock or process-census gate. Keep this
+                    // distinct from background work: the census logger records Busy/Unknown.
+                    "quiet-gate"
+                };
                 self.append(
                     session,
                     "mux",
                     "auto_resume_waiting_restart",
-                    json!({"turnId": cut_turn, "reason": "background-work", "required": true}),
+                    json!({"turnId": cut_turn, "reason": reason, "required": true}),
                 );
                 announced_wait = true;
             }
@@ -1031,9 +1058,6 @@ impl Hub {
                 // takes the new deadline.
                 hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
-                // Its wait over, a background capacity continuation waits its turn at the
-                // host's gate; the permit lives as long as its attempt.
-                let _permit = hub.capacity_gate_admit(&session, &turn_id, reason, &wake).await;
                 let cut = CutTurn {
                     from: from.as_deref(),
                     prompt_id: &root,
@@ -1044,7 +1068,7 @@ impl Hub {
                     not_before: None,
                     slash: slash.as_deref(),
                 };
-                hub.resume_or_compact(&session, cut, attempt).await;
+                hub.resume_or_compact(&session, cut, attempt, Some((wake, reason))).await;
                 return;
             }
             let cut = CutTurn {
@@ -1057,7 +1081,7 @@ impl Hub {
                 not_before: None,
                 slash: slash.as_deref(),
             };
-            hub.resume_or_compact(&session, cut, attempt).await;
+            hub.resume_or_compact(&session, cut, attempt, Some((wake, reason))).await;
         });
     }
 
@@ -1801,6 +1825,7 @@ impl Hub {
         session: &Arc<Session>,
         cut: CutTurn<'_>,
         attempt: usize,
+        gate: Option<(Arc<Notify>, RetryReason)>,
     ) {
         // Transfer replacement can leave this old task alive after the returning journal
         // takes its id. It must neither fire nor record a skip in that new journal.
@@ -1910,6 +1935,27 @@ impl Hub {
             );
             return;
         }
+        // A capacity continuation waits at the family gate only after the quiet handoff. Holding
+        // its probe permit while `prepare_retry_handoff` waits would block every other chat in
+        // that harness family from probing a recovered provider.
+        let _permit = if let Some((wake, gate_reason)) = gate.as_ref() {
+            let Some(permit) =
+                self.capacity_gate_admit(session, cut_turn, *gate_reason, wake).await
+            else {
+                self.finish_auto_resume(
+                    session,
+                    &cut,
+                    attempt,
+                    &held,
+                    (Err(superseded()), fired_gen),
+                    false,
+                );
+                return;
+            };
+            Some(permit)
+        } else {
+            None
+        };
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.finish_auto_resume(
             session,

@@ -78,6 +78,14 @@ impl Hub {
         true
     }
 
+    /// Restarts `session`'s agent once both its turn and background work are quiet, so its next
+    /// spawn reads a Cloud machine's model route that resolved after the last spawn
+    /// (`turns/finish.rs`). This automatic change takes the same process census as the gateway
+    /// fallback above; an explicit route switch would miss unreported descendants.
+    pub(crate) fn restart_agent_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
+        self.respawn_when_quiet_required(session);
+    }
+
     /// Whether the creation marker says cmux created this machine as one
     /// owner's VM (module docs). Guest-writable: for display, never trust.
     pub fn cmux_vm(&self) -> bool {
