@@ -165,7 +165,8 @@ pub(crate) fn table_path(dir: &Path, input: &Value) -> Option<PathBuf> {
     use sha2::Digest as _;
     let session = input.get("session_id")?.as_str().filter(|s| !s.is_empty())?;
     let name = format!("{:x}", sha2::Sha256::digest(session.as_bytes()));
-    Some(dir.join(format!("{}.json", &name[..32])))
+    // A SHA-256 hex digest is 64 ASCII characters, so the first 32 always exist.
+    Some(dir.join(format!("{}.json", name.get(..32)?)))
 }
 
 /// Runs `edit` on the table at `path` under an exclusive lock (parallel calls never lose an
