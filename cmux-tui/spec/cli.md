@@ -782,7 +782,7 @@ agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
-agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook emit --source <provider> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
 agent hook install|uninstall|status [provider...]
 
 agent ls [--all] [--json]
