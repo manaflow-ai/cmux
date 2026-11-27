@@ -9,7 +9,8 @@ step on the same worker had already built.
 
     ios_ffi_cache.py key     ROOT INPUTS       print the key of ROOT's FFI inputs and write them to
                                                INPUTS (exit 3: no key, build as before)
-    ios_ffi_cache.py restore ROOT KEY          install the cached build for KEY (exit 0 hit, 1 miss)
+    ios_ffi_cache.py restore ROOT KEY          install the cached build for KEY from this worker's cache, else
+                                               the fleet's component store (exit 0 hit, 1 miss)
     ios_ffi_cache.py probe   INPUTS TIP        write the same paths' trees on feat-cmux-next's tip to
                                                TIP (run beside the build on a miss)
     ios_ffi_cache.py store   ROOT INPUTS TIP   publish ROOT's fresh build under its key
@@ -65,6 +66,11 @@ toolchain, and a miss rebuilds just the path crates. Every step's checkout is a 
 the build `build` removes the path crates' artifacts the build superseded (their names, older than
 the build), and empties a slot past TARGET_CAP_BYTES.
 
+The fleet tier (2026-11-27, cmux#13742): a local miss reads the fleet's component store, and a step's fresh build is
+left in $CI_JOB_DIR/component-outputs/ios-ffi/<key>/ for the worker to publish (see "The fleet tier" below). The key
+is the sha256 of the canonical manifest (`v`, `name`, trees, toolchain, env), which the store checks on write and this
+reader checks on read, and every file is checked against its sha256 and size.
+
 Exit codes: 0 done (restore: hit), 1 restore: miss (probe: no tip), 2 usage, 3 no key for an
 expected reason (no cache, inputs differ from HEAD), 4 no key because a command it needs failed,
 5 any other error, 6 restore: an entry that did not verify, removed; build exits with CMD's code
@@ -89,7 +95,16 @@ import sys
 import tempfile
 import time
 
-SCHEMA = "ios-ffi-v1"
+SCHEMA = "ios-ffi-v2"  # v2: the key is the sha256 of a component manifest the fleet store accepts
+COMPONENT = "ios-ffi"  # the fleet store's name for this entry (hq build-fleet components.go)
+FLEET_NAMESPACE = "dev"
+DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
+EXPORT_DIR = "component-outputs"  # under $CI_JOB_DIR: the worker publishes what a step leaves here
+XCF_TAR = "CmuxMobileLinkFFI.xcframework.tar"
+SWIFT_FILE = "CmuxMobileLinkFFI.swift"
+FLEET_FILES = (XCF_TAR, SWIFT_FILE)
+FLEET_MAX_MANIFEST = 16 << 10  # the controller's limit
+FLEET_MAX_FILE = 2 << 30
 WORKSPACE = "cmux-next-ios/rust"
 XCFRAMEWORK = "cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
 SWIFT = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift"
@@ -258,9 +273,11 @@ def inputs(root):
 
 
 def compute_key(root):
-    data = {"schema": SCHEMA, "trees": inputs(root), "toolchain": toolchain(root), "env": build_env()}
-    blob = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(blob).hexdigest(), data
+    """The key and its manifest: canonical JSON of every input, whose sha256 is the key. The manifest names its
+    component ("name") and key version ("v"), so the fleet store can check sha256(manifest) == key itself."""
+    data = {"v": SCHEMA, "name": COMPONENT, "trees": inputs(root), "toolchain": toolchain(root), "env": build_env()}
+    blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest(), data, blob
 
 
 def sha256(path):
@@ -352,9 +369,12 @@ def restore(root, key):
         print("ios-ffi cache: off (no CMUX_CI_CACHE_DIR)" if cache is None else "ios-ffi cache: bad key")
         return 1
     entry = cache / key
+    fleet = ""
     if not entry.is_dir():
-        print("ios-ffi cache: miss %s" % key[:12])
-        return 1
+        fleet = fleet_fetch(cache, key)
+        if not fleet:
+            print("ios-ffi cache: miss %s" % key[:12])
+            return 1
     with cache_lock(cache, exclusive=False):
         if not entry.is_dir():
             print("ios-ffi cache: miss %s" % key[:12])
@@ -365,7 +385,7 @@ def restore(root, key):
             (entry / "used").write_text(str(int(time.time())) + "\n")
             for out in OUTPUTS:
                 install(entry / "payload" / out, root / out)
-            print("ios-ffi cache: hit %s" % key[:12])
+            print("ios-ffi cache: hit %s%s" % (key[:12], " (" + fleet + ")" if fleet else ""))
             return 0
     print("ios-ffi cache: dropped %s (%s)" % (key[:12], why))
     with cache_lock(cache, exclusive=True):
@@ -395,6 +415,209 @@ def probe(inputs_file, out_file):
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# The fleet tier. The local cache is per worker: in 15 h (2026-11-26 21:45Z..11-27 12:30Z) 44 simulator steps missed
+# and paid 31,407 s of FFI builds, and 13 of those misses were keys another worker had already built (a2b7b418 missed
+# on 5 hosts). So a local miss asks the fleet's component store (the controller's /v1/components index, objects in its
+# artifact store), and a fresh build goes there through the worker:
+#   - the key is the sha256 of the manifest (every input tree, the toolchain, the build settings), the controller
+#     accepts an entry only when sha256(manifest) == key, and this reader checks it again: an entry serves exactly the
+#     inputs it names, never others;
+#   - every file is named by its sha256 and size in the index; the download must match both, and the local entry it
+#     becomes is verified file by file (verify) before anything is installed;
+#   - the step never writes the store. It leaves its build in $CI_JOB_DIR/component-outputs/ios-ffi/<key>/ and the
+#     worker uploads it after the step with its worker token, from its own tailnet node; the controller takes ios-ffi
+#     entries only from a fleet worker's simulator step it ran (cmux#13742: fleet-wide sharing, all workers ours).
+#     Entries are write-once (the first build of a key wins).
+# CMUX_CI_COMPONENT_REMOTE=0 turns the tier off (no read, no export), as for the build's components.
+
+def remote_off():
+    return os.environ.get("CMUX_CI_COMPONENT_REMOTE", "1") == "0"
+
+
+def controller_base():
+    return (os.environ.get("CMUX_CI_CONTROLLER") or DEFAULT_CONTROLLER).rstrip("/")
+
+
+def _open(url, timeout):
+    """GET. Inside a step the host's tailnet identity authorizes the read; no token is sent or needed."""
+    import urllib.request
+    # The artifact edge refuses urllib's default User-Agent.
+    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ios-ffi-cache"}),
+                                  timeout=timeout)
+
+
+def fleet_entry(key):
+    """The store's entry for KEY, checked (its manifest hashes to KEY, its files are exactly FLEET_FILES), or None."""
+    import urllib.error
+    url = "%s/v1/components/%s/%s/%s" % (controller_base(), FLEET_NAMESPACE, COMPONENT, key)
+    try:
+        with _open(url, 10) as res:
+            entry = json.loads(res.read(1 << 20))
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print("ios-ffi cache: fleet store answered %d for %s" % (e.code, key[:12]))
+        return None
+    except (OSError, ValueError) as e:
+        print("ios-ffi cache: fleet store unavailable (%s)" % e)
+        return None
+    manifest = entry.get("manifest") if isinstance(entry, dict) else None
+    if not isinstance(manifest, str) or hashlib.sha256(manifest.encode()).hexdigest() != key:
+        print("ios-ffi cache: fleet entry %s does not hash to its key; ignored" % key[:12])
+        return None
+    files = entry.get("files")
+    rows = {}
+    for f in files if isinstance(files, list) else []:
+        name, digest, size = (f.get("name"), f.get("sha256"), f.get("size")) if isinstance(f, dict) else (None,) * 3
+        if (name in FLEET_FILES and name not in rows and isinstance(digest, str) and digest.startswith("sha256:")
+                and valid_key(digest[7:]) and type(size) is int and 0 < size <= FLEET_MAX_FILE):
+            rows[name] = (digest, size)
+    if sorted(rows) != sorted(FLEET_FILES) or len(files) != len(FLEET_FILES):
+        print("ios-ffi cache: fleet entry %s has an unexpected file list; ignored" % key[:12])
+        return None
+    try:
+        data = json.loads(manifest)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("v") != SCHEMA or data.get("name") != COMPONENT:
+        print("ios-ffi cache: fleet entry %s is another schema; ignored" % key[:12])
+        return None
+    return {"manifest": data, "files": rows, "worker": str(entry.get("worker", ""))[:64]}
+
+
+def download(name, digest, size, target):
+    """One object through the controller's signed URL; its bytes must match DIGEST and SIZE."""
+    with _open("%s/v1/artifacts/%s/url" % (controller_base(), digest), 30) as res:
+        url = json.loads(res.read(64 << 10)).get("url", "")
+    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+        raise OSError("no download URL for " + name)
+    h, total = hashlib.sha256(), 0
+    with _open(url, 600) as res, open(target, "wb") as out:
+        while True:
+            chunk = res.read(1 << 20)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > size:
+                raise ValueError("%s is larger than its index entry" % name)
+            h.update(chunk)
+            out.write(chunk)
+    if total != size or "sha256:" + h.hexdigest() != digest:
+        raise ValueError("%s does not match its sha256 and size" % name)
+
+
+def unpack(tar_path, dest):
+    """The xcframework archive into DEST: regular files and directories only, every name inside the xcframework."""
+    import tarfile
+    top = pathlib.PurePosixPath(XCFRAMEWORK).name
+    with tarfile.open(tar_path, "r:") as tar:
+        members = tar.getmembers()
+        for m in members:
+            parts = pathlib.PurePosixPath(m.name).parts
+            if (not parts or parts[0] != top or ".." in parts or m.name.startswith("/")
+                    or not (m.isreg() or m.isdir())):
+                raise ValueError("archive member %r is not a file or directory of the xcframework" % m.name)
+        for m in members:
+            target = dest / m.name
+            if m.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tar.extractfile(m) as src, open(target, "wb") as out:
+                shutil.copyfileobj(src, out)
+            os.chmod(target, 0o755 if m.mode & 0o111 else 0o644)
+
+
+def fleet_fetch(cache, key):
+    """Install the fleet store's entry for KEY as a local entry; a description of it on success, else ""."""
+    if remote_off():
+        return ""
+    entry = fleet_entry(key)
+    if entry is None:
+        return ""
+    started = time.monotonic()
+    cache.mkdir(parents=True, exist_ok=True)
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix=".tmp.", dir=cache))
+    try:
+        total = 0
+        for name, (digest, size) in sorted(entry["files"].items()):
+            download(name, digest, size, tmp / name)
+            total += size
+        payload = tmp / "payload"
+        unpack(tmp / XCF_TAR, payload / pathlib.PurePosixPath(XCFRAMEWORK).parent)
+        swift = payload / SWIFT
+        swift.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(tmp / SWIFT_FILE, swift)
+        (tmp / XCF_TAR).unlink()
+        for out in OUTPUTS:
+            if not (payload / out).exists():
+                raise ValueError("the fleet entry lacks " + out)
+        trees = entry["manifest"].get("trees")
+        manifest = {"schema": SCHEMA, "key": key, "inputs": trees if isinstance(trees, dict) else {},
+                    "landed": False, "trusted": None, "fleet": {"worker": entry["worker"]},
+                    "files": listing(payload), "created_at": int(time.time())}
+        (tmp / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+        try:
+            os.rename(tmp, cache / key)
+        except OSError:
+            shutil.rmtree(tmp, ignore_errors=True)  # another step installed the key first; restore verifies it
+    except Exception as e:  # never fatal: a miss builds
+        shutil.rmtree(tmp, ignore_errors=True)
+        print("ios-ffi cache: fleet entry %s not used (%s: %s)" % (key[:12], type(e).__name__, e))
+        return ""
+    built = " built on " + entry["worker"] if entry["worker"] else ""
+    return "fleet store%s, %d MiB in %.1f s" % (built, total >> 20, time.monotonic() - started)
+
+
+def write_tar(src, target):
+    """SRC (a directory) as an uncompressed archive whose bytes depend only on the files: sorted, no owner, mtime 0."""
+    import tarfile
+
+    def clean(info):
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        info.mtime = 0
+        info.mode = 0o755 if info.isdir() or info.mode & 0o111 else 0o644
+        return info
+
+    with tarfile.open(target, "w", format=tarfile.PAX_FORMAT) as tar:
+        tar.add(src, arcname=src.name, recursive=False, filter=clean)
+        for dirpath, dirnames, filenames in os.walk(src):
+            dirnames.sort()
+            for name in dirnames + sorted(filenames):
+                p = pathlib.Path(dirpath) / name
+                if p.is_symlink():
+                    raise ValueError("link in the xcframework: %s" % p)
+                tar.add(p, arcname=str(pathlib.PurePosixPath(src.name) / p.relative_to(src).as_posix()),
+                        recursive=False, filter=clean)
+
+
+def export(entry, key, manifest):
+    """Leave ENTRY (a build this step published locally) for the worker to publish to the fleet store. Never fatal."""
+    job = os.environ.get("CI_JOB_DIR", "")
+    if not job or remote_off() or not isinstance(manifest, str):
+        return
+    if hashlib.sha256(manifest.encode()).hexdigest() != key or len(manifest.encode()) > FLEET_MAX_MANIFEST:
+        print("ios-ffi cache: %s not exported for the fleet store (manifest is not its key or too large)" % key[:12])
+        return
+    out = pathlib.Path(job) / EXPORT_DIR / COMPONENT / key
+    if out.exists():
+        return
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        staging = pathlib.Path(tempfile.mkdtemp(prefix=".incoming.", dir=out.parent))
+        try:
+            write_tar(entry / "payload" / XCFRAMEWORK, staging / XCF_TAR)
+            shutil.copyfile(entry / "payload" / SWIFT, staging / SWIFT_FILE)
+            (staging / "manifest.json").write_bytes(manifest.encode())
+            os.rename(staging, out)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    except (OSError, ValueError) as e:
+        print("ios-ffi cache: %s not exported for the fleet store (%s)" % (key[:12], e))
+        return
+    print("ios-ffi cache: %s left for the fleet store" % key[:12])
 
 
 def last_use(entry):
@@ -489,6 +712,7 @@ def store(root, inputs_file, tip_file):
         shutil.rmtree(tmp, ignore_errors=True)
         raise
     print("ios-ffi cache: stored %s (%s)" % (key[:12], how))
+    export(cache / key, key, recorded.get("manifest"))
     removed = prune(cache)
     if removed:
         print("ios-ffi cache: pruned %d old entries (%s)" % (len(removed), ", ".join(k[:12] for k in removed)))
@@ -649,8 +873,9 @@ def main(argv):
             if cache_root() is None:
                 print("ios-ffi cache: off (no CMUX_CI_CACHE_DIR)", file=sys.stderr)
                 return 3
-            key, data = compute_key(pathlib.Path(argv[1]).resolve())
-            pathlib.Path(argv[2]).write_text(json.dumps({"key": key, "trees": data["trees"]}, sort_keys=True) + "\n")
+            key, data, blob = compute_key(pathlib.Path(argv[1]).resolve())
+            pathlib.Path(argv[2]).write_text(
+                json.dumps({"key": key, "trees": data["trees"], "manifest": blob}, sort_keys=True) + "\n")
             print(key)
             return 0
         if argv[0] == "restore":
