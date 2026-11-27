@@ -39,12 +39,12 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "verify", on: super::verify::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
+    Feature { name: super::best_of_n::FEATURE, on: super::best_of_n::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
-    Feature { name: super::best_of_n::FEATURE, on: super::best_of_n::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 
