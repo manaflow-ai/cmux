@@ -33,7 +33,6 @@ GATEWAY_MAC = frozenset({
     "cmux-next-stress-bench.yml#measure",
     "cmux-next-tab-switch.yml#frames",
     "fleet-compile-check.yml#compile-check",
-    "fleet-test-compile.yml#mac-fallback",
     "ios-base-bisect.yml#bisect",
     "ios-sim-linux-build.yml#build-fleet",
     "screen-stream-eval.yml#eval",
