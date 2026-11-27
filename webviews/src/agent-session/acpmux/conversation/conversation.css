@@ -6725,10 +6725,15 @@ a.cv-sha:focus-visible {
    response ... i think we go with claude code here. idk when we decided to always show all buttons
    always. let's not"). Its line is kept, so showing it moves nothing. A failed turn's row (its
    Retry) and a stopped turn's Continue stay shown. Replaces 2026-11-03's rule
-   (cmux#34939) that every finished turn's row showed at rest. */
+   (cmux#34939) that every finished turn's row showed at rest.
+   The chat's last reply keeps its buttons shown at rest (model.ts finalFooterId,
+   `acpmux-row--final-footer`), so the reply you act on next needs no hover (Lucas, 2026-11-26). Its
+   age still shows on hover only. A turn held for capacity (TurnRows.tsx `--waiting`) keeps its
+   calm wait card alone at rest. */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
+.acpmux-turnSummary.acpmux-row--final-footer .cv-turn-actions:not(.cv-turn-actions--waiting),
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
