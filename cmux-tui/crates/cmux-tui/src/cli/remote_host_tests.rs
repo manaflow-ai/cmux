@@ -1,6 +1,9 @@
 use serde_json::json;
 
-use super::{HELP, LowerChange, VERB_USAGE, not_bundled_note, refusal, routes_to_app, still_open};
+use super::{
+    HELP, LowerChange, VERB_USAGE, not_bundled_note, refusal, routes_to_app, share_off_result,
+    still_open,
+};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_string()).collect()
@@ -98,4 +101,22 @@ fn a_confirmation_past_its_wait_says_the_dialog_still_counts() {
 fn share_confirmation_waits_for_the_person_past_the_old_timeout() {
     assert_eq!(super::CONFIRM_TIMEOUT, std::time::Duration::from_secs(600));
     assert!(super::CONFIRM_TIMEOUT > std::time::Duration::from_secs(130));
+}
+
+/// On a joined Mac, share off is the share host's: the hub's answer, or its failure with the
+/// next step; a machine with no share host keeps cmux Remote's worker or the app.
+#[test]
+fn share_off_on_a_joined_mac_is_the_share_hosts() {
+    use acpmux::share_host::OffHere;
+    assert_eq!(share_off_result(OffHere::NoHost), None);
+    let answer = json!({"device": {"id": "d1", "macScreenShared": false}});
+    assert_eq!(
+        share_off_result(OffHere::Off(answer)),
+        Some(Ok(json!({"sharing": false, "via": "share-host",
+            "device": {"id": "d1", "macScreenShared": false}})))
+    );
+    assert_eq!(
+        share_off_result(OffHere::Failed("why; what to do".into())),
+        Some(Err(json!({"code": "share_host.off_failed", "message": "why; what to do"})))
+    );
 }
