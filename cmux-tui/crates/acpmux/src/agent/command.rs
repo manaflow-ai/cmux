@@ -209,6 +209,11 @@ fn build_harness_command(
     let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
+    // The person's `agents.envExclude` (agent_env.rs): removed last, below.
+    let env_exclude = env
+        .remove(crate::agent_env::EXCLUDE_MARKER)
+        .map(|marker| crate::agent_env::patterns(&marker))
+        .unwrap_or_default();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -360,6 +365,21 @@ fn build_harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     let launch =
         crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env)));
+    // `agents.sandbox.network` `allow` (agent_sandbox.rs): a chat's Codex sandbox reaches the
+    // network. A remote chain's launch runs only what its plan checked.
+    let launch = if codex_launch && session.is_some() && !remote_environment {
+        let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
+        crate::agent_sandbox::codex_args(crate::agent_sandbox::Sandbox::current(), launch, || {
+            crate::harness_limits::codex_sets(
+                args,
+                cwd,
+                home,
+                crate::agent_sandbox::CODEX_NETWORK_KEY,
+            )
+        })
+    } else {
+        launch
+    };
     // A remote chain's sandboxed launch runs only what its plan checked: no hook.
     let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
     let (launch, codex) = match codex {
@@ -491,22 +511,36 @@ fn build_harness_command(
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
+    // `agents.envExclude`, last: whoever set a name (the daemon, the login shell, a profile,
+    // `agents.env`, acpmux above), the agent never gets it; acpmux's session wiring stays.
+    if !env_exclude.is_empty() {
+        for (key, _) in command_env_with(&cmd, !remote_environment) {
+            if crate::agent_env::excluded(&key, &env_exclude) {
+                cmd.env_remove(&key);
+            }
+        }
+    }
     // The hosted and direct translators take the hook home from this launch. Only the
     // selected local plugin enables its callbacks, regardless of inherited or profile env.
     cmd.env_remove(crate::bg_hook::HOME_ENV);
     if plugin_hooks && !remote_environment {
         cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
+    cmd.env_remove(crate::local_sandbox::FLAG_ORIGIN);
     // Derive the local boundary only after login, machine, profile, session and secret env
     // have been applied. The settings and API route must be the ones the child receives.
     // Do this before stdio, process-group and CwdPin setup so no spawn hooks are lost.
     if claude_session && !remote_environment {
         let final_env = command_env(&cmd);
-        let final_env_map = final_env.iter().cloned().collect();
+        let mut final_env_map: std::collections::BTreeMap<_, _> =
+            final_env.iter().cloned().collect();
+        if let Some(origin) = profile.env.get(crate::local_sandbox::FLAG_ORIGIN) {
+            final_env_map.insert(crate::local_sandbox::FLAG_ORIGIN.into(), origin.clone());
+        }
         let final_args: Vec<String> =
             cmd.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         if let Some((sandbox_program, sandbox_args)) =
-            crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)
+            crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)?
         {
             cmd = wrap_local_sandbox_command(
                 cmd,
@@ -626,6 +660,8 @@ pub(crate) fn resolved_profile_env(
     profile: &HarnessProfile,
 ) -> Result<std::collections::BTreeMap<String, String>> {
     let mut env = profile.env.clone();
+    // This file name is private launch metadata, never a secret reference or a child variable.
+    env.remove(crate::local_sandbox::FLAG_ORIGIN);
     if !crate::config::profiles::has_env_refs(&env) {
         return Ok(env);
     }
@@ -772,6 +808,26 @@ mod tests {
     }
 
     use super::*;
+
+    /// `agents.envExclude` (agent_env.rs) removes its names from the agent's whole env, the
+    /// profile's and the inherited ones, last; acpmux's own session wiring and the marker stay out.
+    #[test]
+    fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {"SECRET_TOKEN": "x", "SECRET_OTHER": "y", "KEEP": "1", "PATH": "/usr/bin",
+                (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
+        }))
+        .unwrap();
+        let cmd =
+            harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+        let env = command_env(&cmd);
+        let has = |k: &str| env.iter().any(|(n, _)| n == k);
+        assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
+        assert!(has("KEEP"));
+        assert!(has("ACPMUX_SESSION_ID") && has("ACPMUX_SOCKET"));
+        assert!(!has(crate::agent_env::EXCLUDE_MARKER));
+    }
 
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.

@@ -23,7 +23,7 @@ use acpmux::hub::Hub;
 use acpmux::rpc::Message;
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{
-    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with,
+    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with, serve_unix,
     serve_ws_with,
 };
 use serde_json::{Value, json};
@@ -65,6 +65,11 @@ fn hub_with(d: &Path, vm_host: Option<bool>) -> Arc<Hub> {
                          "--settings", "{\"sandbox\":{\"enabled\":false}}"],
                 "kind": "claude-stdio",
                 "env": {"HOME": d.join("agent-home")}
+            },
+            "fakeclaudemanagedsettings": {
+                "argv": ["python3", FAKE_CLAUDE, "--settings", r#"{"sandbox":{"enabled":true}}"#],
+                "kind": "claude-stdio",
+                "env": {"HOME": d.join("agent-home"), "CLAUDE_CONFIG_DIR": d.join("managed-home")}
             },
             "fakeacp": {
                 "argv": ["python3", FAKE_AGENT],
@@ -771,16 +776,26 @@ async fn a_local_chat_enforces_settings_credentials_and_hard_link_boundaries() {
     );
     let hub = hub(&d);
     let mut local = Client::new(&hub, Origin::Local);
-    let seen = local.run_harness(&d, Some("fakeclaudelastsettings"), &probe).await;
-    let _ = std::fs::remove_file(&outside);
-    let _ = std::fs::remove_file(&link_target);
-    let seen: Value = serde_json::from_str(&seen.unwrap_or_else(|e| panic!("{e}"))).unwrap();
-    assert_eq!(
-        seen,
-        json!({"config_write": "denied", "gh_hosts": "denied", "hard_link": "denied",
-               "outside": "denied", "cwd": "allowed"})
-    );
-    assert_eq!(std::fs::read_to_string(&config).unwrap(), "synthetic");
+    // The cached managed setting lives under CLAUDE_CONFIG_DIR, outside both the project and
+    // the default Claude home. It overrides an explicit request for Claude's own sandbox.
+    let managed = d.join("managed-home");
+    std::fs::create_dir_all(&managed).unwrap();
+    std::fs::write(managed.join("remote-settings.json"), r#"{"sandbox":{"enabled":false}}"#)
+        .unwrap();
+    for harness in ["fakeclaudelastsettings", "fakeclaudemanagedsettings"] {
+        let response = local.run_harness(&d, Some(harness), &probe).await;
+        let seen: Value =
+            serde_json::from_str(&response.unwrap_or_else(|e| panic!("{e}"))).unwrap();
+        assert_eq!(
+            seen,
+            json!({"config_write": "denied", "gh_hosts": "denied", "hard_link": "denied",
+                   "outside": "denied", "cwd": "allowed"}),
+            "{harness}"
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "synthetic");
+        assert!(!link_target.exists());
+        assert!(!outside.exists());
+    }
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -914,3 +929,195 @@ async fn linux_unavailable_bwrap_refuses_the_spawn_with_its_reason() {
 #[cfg(target_os = "linux")]
 #[path = "support/remote_sandbox_linux_stack.rs"]
 mod linux_stack;
+
+/// An owner peer's explicit approve-all start is the same trusted full-access
+/// choice as a VM-boundary lease, even when the request has no client-supplied
+/// `vmBoundary` marker. This is the remote product path: the receiver must use
+/// its real host profile, so a missing bwrap probe cannot reject the chat.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_peer_approve_all_without_a_boundary_marker_uses_the_host_profile() {
+    let d = dir("peer-approve-all-host-profile");
+    let hub = hub_with(&d, None);
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = peer.call("session/new", vm_boundary_new(&d, None, Some("approve-all"))).await;
+    let id = r["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("approve-all start was refused: {r}"))
+        .to_owned();
+    let prompt = peer
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}),
+        )
+        .await;
+    assert!(prompt["error"].is_null(), "host profile still entered the sandbox: {prompt}");
+    let events = peer.call("_acpmux/events", json!({"sessionId": id, "limit": 1000})).await;
+    let marked = events["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["kind"] == "remote_sandbox" && e["msg"]["vmBoundary"] == true);
+    assert!(marked, "approve-all host profile was not recorded: {events}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A host-profile start must retain the concrete capabilities that made the
+/// remote chat useful: repository metadata, its HOME state, and a Unix socket.
+/// The fixture process probes each capability before delegating to fake Claude;
+/// the sandboxed path fails before the probe can run.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_peer_approve_all_retains_repository_home_and_socket_capabilities() {
+    use tokio::net::{TcpListener, UnixListener};
+
+    let d = dir("peer-approve-all-capabilities");
+    std::fs::create_dir_all(d.join("home")).unwrap();
+    let socket_path = d.join("probe.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let tcp = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let tcp_port = tcp.local_addr().unwrap().port();
+    let output = d.join("work/probe.json");
+    let hub = hub_with(&d, None);
+    {
+        let mut config = hub.config.write().await;
+        let profile = config.harnesses.get_mut("fakeclaude").unwrap();
+        profile.argv = vec![
+            "python3".into(),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/remote_host_probe.py").into(),
+            FAKE_CLAUDE.into(),
+        ];
+        profile.env.insert("HOME".into(), d.join("home").to_string_lossy().into_owned());
+        profile.env.insert(
+            "ACPMUX_REMOTE_PROBE_SOCKET".into(),
+            socket_path.to_string_lossy().into_owned(),
+        );
+        profile
+            .env
+            .insert("ACPMUX_REMOTE_PROBE_OUTPUT".into(), output.to_string_lossy().into_owned());
+        profile.env.insert("ACPMUX_REMOTE_PROBE_TCP".into(), tcp_port.to_string());
+    }
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = peer.call("session/new", vm_boundary_new(&d, None, Some("approve-all"))).await;
+    let id = r["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("approve-all capability start was refused: {r}"))
+        .to_owned();
+    let prompt = peer
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}),
+        )
+        .await;
+    assert!(prompt["error"].is_null(), "host capability probe entered the sandbox: {prompt}");
+    tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+        .await
+        .expect("socket probe timed out")
+        .expect("socket probe failed");
+    tokio::time::timeout(std::time::Duration::from_secs(5), tcp.accept())
+        .await
+        .expect("network probe timed out")
+        .expect("network probe failed");
+    let probe: Value = serde_json::from_str(
+        &tokio::fs::read_to_string(&output).await.expect("host probe did not write output"),
+    )
+    .unwrap();
+    assert_eq!(probe["git"], true, "repository metadata was not writable: {probe}");
+    assert_eq!(probe["home"], true, "HOME state was not writable: {probe}");
+    assert_eq!(probe["socket"], true, "Unix socket was not reachable: {probe}");
+    assert_eq!(probe["network"], true, "network was not reachable: {probe}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The host-profile path still has to use the real CLI transport. The probe
+/// invokes `acpmux send --no-wait` against this hub's Unix socket while it is
+/// running as the owner peer's harness, and the starter's inbox records it.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_peer_host_profile_can_send_to_the_fixture_starter() {
+    let d = dir("peer-approve-all-cli-send");
+    std::fs::create_dir_all(d.join("home")).unwrap();
+    std::fs::write(d.join("home/config.json"), "{}").unwrap();
+    let socket = d.join("acpmux.sock");
+    let output = d.join("work/send-probe.json");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let hub = hub_with(&d, None);
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let server = tokio::spawn({
+        let hub = hub.clone();
+        async move {
+            let _ = serve_unix(hub, listener).await;
+        }
+    });
+    let app = acpmux::client::Client::connect_without_caller(&socket).await.unwrap();
+    let starter =
+        app.request("session/new", json!({"cwd": d.join("work"), "mcpServers": []})).await.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    app.request(
+        "session/prompt",
+        json!({"sessionId": starter, "prompt": [{"type": "text", "text": "warm starter"}]}),
+    )
+    .await
+    .unwrap();
+    // Prime the event connection before the asynchronous no-wait delivery.
+    let mut events = hub.subscribe();
+    {
+        let mut config = hub.config.write().await;
+        let profile = config.harnesses.get_mut("fakeclaude").unwrap();
+        profile.argv = vec![
+            "python3".into(),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/remote_host_probe.py").into(),
+            FAKE_CLAUDE.into(),
+        ];
+        profile.env.insert("HOME".into(), d.join("home").display().to_string());
+        profile
+            .env
+            .insert("ACPMUX_REMOTE_SEND_BIN".into(), daemon_env::bin().display().to_string());
+        profile.env.insert("ACPMUX_REMOTE_SEND_TARGET".into(), starter.clone());
+        profile.env.insert("ACPMUX_REMOTE_SEND_SOCKET".into(), socket.display().to_string());
+        profile.env.insert("ACPMUX_REMOTE_SEND_HOME".into(), d.join("home").display().to_string());
+        profile.env.insert("ACPMUX_REMOTE_PROBE_OUTPUT".into(), output.display().to_string());
+    }
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let created = peer.call("session/new", vm_boundary_new(&d, None, Some("approve-all"))).await;
+    let id = created["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("approve-all CLI-send start was refused: {created}"))
+        .to_owned();
+    let prompt = peer
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "send"}]}),
+        )
+        .await;
+    assert!(prompt["error"].is_null(), "host profile CLI-send prompt failed: {prompt}");
+    let probe: Value = serde_json::from_str(&tokio::fs::read_to_string(&output).await.unwrap())
+        .unwrap_or_else(|e| panic!("invalid host probe output: {e}"));
+    assert_eq!(probe["send"]["success"], true, "acpmux send failed: {probe}");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.session_id == starter
+                && event.record.kind == "inbox"
+                && event.record.msg["text"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("remote host probe reached starter"))
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("CLI send did not reach the fixture starter");
+    hub.shutdown_all().await;
+    server.abort();
+    let _ = server.await;
+    let _ = std::fs::remove_dir_all(&d);
+}
