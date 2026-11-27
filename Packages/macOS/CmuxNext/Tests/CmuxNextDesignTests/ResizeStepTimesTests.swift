@@ -114,4 +114,34 @@ import Testing
         }
         #expect(report["pane_layout"] == nil, "a divider step's parts are not the window's")
     }
+
+    /// The bench's lean log (`CMUX_NEXT_STEP_LOG=lean`): a step writes the lines of a lean phase (its set_frame, its
+    /// commit) and none of a pane's part, whose detail is never built; the full log writes both. Counted on the step's
+    /// own line count (`lines=` on its `step_commit`).
+    @Test func aLeanLogWritesOnlyTheStepsOwnLines() {
+        ResizeStepTimes.live.reset()
+        ResizeStepLog.reset()
+        defer { ResizeStepTimes.recordingOverride = nil; ResizeStepLog.reset(); ResizeStepTimes.live.reset() }
+        ResizeStepTimes.recordingOverride = true
+        ResizeStepLog.streamingOverride = true
+        func linesOfAStep(lean: Bool) -> (lines: Int, detailsBuilt: Int) {
+            ResizeStepLog.leanOverride = lean
+            var built = 0
+            let start = ResizeStepTimes.beginStep(.window)
+            let before = ResizeStepLog.step?.lines ?? 0
+            ResizeStepTimes.recordLive("pane_layout", since: ResizeStepTimes.start(), detail: { built += 1; return "" }())
+            ResizeStepTimes.note("page_window_geometry", ms: 0, detail: { built += 1; return " what=resize" }())
+            ResizeStepTimes.recordLive("set_frame", since: start, detail: { built += 1; return " w=800" }())
+            let lines = (ResizeStepLog.step?.lines ?? 0) - before
+            ResizeStepLog.precommit()
+            ResizeStepLog.committed(.beforeWaiting)
+            return (lines, built)
+        }
+        let full = linesOfAStep(lean: false)
+        #expect(full.lines == 3, "the full log writes the pane's part, the page window's note and the set_frame")
+        #expect(full.detailsBuilt == 3)
+        let lean = linesOfAStep(lean: true)
+        #expect(lean.lines == 1, "a lean log writes only the step's set_frame, not \(lean.lines) lines")
+        #expect(lean.detailsBuilt == 1, "a lean log built the detail of a line it does not write")
+    }
 }
