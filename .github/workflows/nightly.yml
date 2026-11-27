@@ -7605,7 +7605,9 @@ jobs:
   # 17 s after the feed; ask-c0123d25e8). The same steps as before, so hq#13299 stays satisfied: the deltas follow
   # the feed minutes later, only while this build is still the feed's newest. Optional: a missing delta never fails
   # the run, and a Mac without one downloads the full DMG. Never cancelled (no concurrency group).
-  # The signer label, a literal, as nightly-next-one takes it (the release-next Sparkle and R2 keys). Nothing from
+  # The signer label, a literal, as nightly-next-one takes it (the release-next Sparkle and R2 keys).
+  # Under vars.CI_NIGHTLY_MINI too: no runner carries both glaeda-trusted-next-signing and glaeda-nightly-mini
+  # (hq build-fleet/mini-fleet.json), so an array of the two would queue with no runner to take it. Nothing from
   # the bundle runs here: the delta build mounts DMGs and runs Sparkle's tools, behind its own stray-process check
   # (tests/test_nightly_next_one_job.py). It checks out under .nightly-next-deltas, so the kept build workspace
   # stays as nightly-next-one left it. Why: docs/ci/nightly-workflow-notes.md#note-31
@@ -7614,7 +7616,7 @@ jobs:
     if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && fromJSON('["glaeda-trusted-next-signing","glaeda-nightly-mini"]') || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
     timeout-minutes: 45
     permissions:
       contents: read
