@@ -523,6 +523,31 @@ fn a_store_cmux_off_the_path_is_the_github_path() {
 }
 
 #[cfg(unix)]
+/// The person's own GitHub login carried from their Mac (`~/.config/cmux/git-hosts/github.com`)
+/// makes the cmux helper the clone's first path, even with no Cloud agent socket: `cmux github
+/// credential` answers that login first. The checkout keeps the helper for push.
+#[test]
+fn a_carried_github_login_is_the_first_github_path() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let own = machine.0.join("home/.config/cmux/git-hosts");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("github.com"), "gho_carried\n").unwrap();
+    let (code, record) = machine.run();
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("cmux-github"))
+    );
+    assert!(
+        machine
+            .git(&["config", "--local", "--get-all", "credential.https://github.com.helper"])
+            .ends_with("github credential"),
+        "the checkout keeps the cmux helper for push"
+    );
+}
+
+#[cfg(unix)]
 /// Where the platform edge's name resolves, the machine's git reaches github.com through the
 /// platform (cmux-platform GitHubEgress.ts), which adds the repository token: the step clones by
 /// the rewrite alone, with no helper, and the checkout keeps the rewrite (a URL) for push and pull.
@@ -698,8 +723,10 @@ fn behind_the_edge_no_github_token_reaches_the_machine() {
 fn the_edge_path_is_offered_on_github_only_and_before_the_cmux_helper() {
     let step = Repo::new("o", "r").step();
     let edge = step.find(r#"if [ "$github" = 1 ] && getent hosts platform.cmux.internal"#).unwrap();
-    let helper = step.find(r#"creds="$creds cmux-github""#).unwrap();
+    let own = step.find(r#"if [ "$github" = 1 ] && [ -f "$own" ]"#).unwrap();
+    let helper = step.find(r#"[ -S /run/cmux-vm-agent/agent.sock ]"#).unwrap();
     assert!(edge < helper, "the edge is tried before a helper that mints in the machine");
+    assert!(own < edge, "the person's carried GitHub login is tried before the edge");
     assert!(step.contains(r#"if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi"#));
 }
 
