@@ -161,7 +161,7 @@ START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) 
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
-# ~/.config/cmux/cmux-next.json a person's other apps read.
+# ~/.config/cmux-next/cmux-next.json a person's other apps read.
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 CONFIG_DIR = None
 CONFIG_FILE = None

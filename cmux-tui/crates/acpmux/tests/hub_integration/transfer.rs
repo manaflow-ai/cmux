@@ -88,6 +88,39 @@ fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
 }
 
+/// The hybrid driver moves between turns. A model rejecting the very first prompt
+/// leaves no live turn to cut and no reply to resume on the destination.
+#[tokio::test]
+async fn transfer_begin_after_a_failed_first_prompt_with_no_output() {
+    let (_hub, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let session =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = session["sessionId"].as_str().unwrap();
+    let error = src
+        .request(method::SESSION_PROMPT, prompt(id, "p-first", "fail: HTTP 403 Forbidden"))
+        .await
+        .unwrap_err();
+    assert!(error.contains("403"), "{error}");
+    let results = records(&mut src, id, "turn_result").await;
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0]["status"], "failed", "{results:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(info["turn"].is_null(), "{info}");
+
+    let begin = src
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    assert_eq!(begin["sessionId"], id, "{begin}");
+    assert!(records(&mut src, id, "auto_resume_scheduled").await.is_empty());
+    src.request(
+        "_acpmux/transfer_abort",
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_runs_once_there() {
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
