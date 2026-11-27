@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest as _, Sha256};
 
 use super::*;
 
@@ -327,6 +328,39 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
     );
     settled(&engine, first["id"].as_str().unwrap(), "destroyed");
     assert_eq!(fake.ran.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_legacy_run_without_connection_accepts_a_retry_after_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("cloud-runs.json");
+    let first = Engine::open(
+        Some(store.clone()),
+        Fake::new(Some(Outcome::Replied { reply: "ok".into(), machine: None }), vec![]),
+        quick(),
+    );
+    let created = create(&first, "legacy");
+    let id = created["id"].as_str().unwrap().to_owned();
+    settled(&first, &id, "destroyed");
+
+    // Reproduce the on-disk shape from before `connection` was added. The old digest is the
+    // three-element body, so a retry must keep returning this Run after an upgrade.
+    let mut saved: Value = serde_json::from_str(&std::fs::read_to_string(&store).unwrap()).unwrap();
+    let run = saved["runs"].as_array_mut().unwrap().first_mut().unwrap();
+    run.as_object_mut().unwrap().remove("connection");
+    run["digest"] = Value::String(hex(&Sha256::digest(
+        serde_json::to_vec(&json!(["say hi", "claude", 30_000])).unwrap(),
+    )));
+    std::fs::write(&store, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+    let second = Engine::open(
+        Some(store),
+        Fake::new(Some(Outcome::Replied { reply: "new".into(), machine: None }), vec![]),
+        quick(),
+    );
+    let retry = create(&second, "legacy");
+    assert_eq!(retry["id"], id);
+    assert_eq!(retry["connection"], Value::Null);
 }
 
 /// Codex's BLOCK at 1bf18b3d (F1): a create made under account A whose answer was lost, retried

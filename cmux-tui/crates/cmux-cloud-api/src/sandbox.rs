@@ -561,9 +561,14 @@ impl Engine {
                 "connection: a valid Cloud connection id",
             ));
         }
-        let digest = hex(&Sha256::digest(
-            serde_json::to_vec(&json!([task, agent, connection, timeout_ms])).unwrap_or_default(),
-        ));
+        // Keep the pre-connection digest for callers that do not select a connection. Runs
+        // persisted before this field existed must still accept an idempotent retry after an
+        // upgrade. A selected connection is part of the key's body and gets the new format.
+        let digest_input = match connection.as_deref() {
+            Some(connection) => json!([task, agent, connection, timeout_ms]),
+            None => json!([task, agent, timeout_ms]),
+        };
+        let digest = hex(&Sha256::digest(serde_json::to_vec(&digest_input).unwrap_or_default()));
         let mut state = self.lock();
         // The key made a Run under another account (its answer lost, then a switch before the
         // retry): never a second Run under this one, which would take the first account's task.
