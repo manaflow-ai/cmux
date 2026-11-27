@@ -4,6 +4,7 @@
 // only when `notYet.ts` names it or a difference below is named with its fixture row; a listed
 // field that no longer differs anywhere fails too, so both lists only shrink.
 import { expect, test } from "bun:test";
+import { isDeepStrictEqual } from "node:util";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { harnessModeName } from "../harnessModes";
@@ -30,20 +31,14 @@ const SID = "rows.1";
 const NAMED: readonly { field: string; row: string; why: string; view: "same" | "differs" }[] = [
   {
     field: "user.turnId",
-    row: "parity:1",
-    why: "a turn is named by its prompt's rowId (`row.turn`), not acpmux's turn id; the view compares turn ids only with each other",
+    row: "r1-reply-1:1",
+    why: "a turn with no recorded id is named by its prompt rowId in the store",
     view: "differs",
   },
   {
     field: "turnSummary.turnId",
-    row: "parity:6",
+    row: "r1-reply-1:8",
     why: "as user.turnId",
-    view: "differs",
-  },
-  {
-    field: "permissionRecord.at",
-    row: "parity:16",
-    why: "the ask row is written when asked and patched with its answer; v1's receipt is a row at the answer",
     view: "differs",
   },
   {
@@ -83,21 +78,6 @@ const UNCOMPARED_KEYS = new Set(UNCOMPARED.map((entry) => entry.field));
 /// Each leaves with the field it is made from; one that no longer differs fails, as on the lists.
 const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string }[] = [
   {
-    field: "worked.at",
-    from: ["user.at"],
-    why: "a turn's fold is dated by its prompt",
-  },
-  {
-    field: "turnSummary.turnWork",
-    from: ["tool.startedAt", "tool.endedAt"],
-    why: "the turn's waterfall holds the calls that have both times",
-  },
-  {
-    field: "turnSummary.turnCopy",
-    from: ["tool.startedAt", "tool.endedAt", "tool.provenance"],
-    why: "the turn's copy holds its calls whole",
-  },
-  {
     field: "turnSummary.answerId",
     from: ["id"],
     why: "the turn's answer is named by its row's id",
@@ -111,21 +91,6 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     field: "worked.workedRun",
     from: ["id"],
     why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",
-  },
-  {
-    field: "worked.foldedPrompt",
-    from: ["id"],
-    why: "a turn's fold carries the prompt row it folds whole (conversation/turns.ts), named by its id",
-  },
-  {
-    field: "row:worked",
-    from: ["row:permissionRecord"],
-    why: "v1's receipt is the work of its turn, which the turn folds",
-  },
-  {
-    field: "turnSummary.folded",
-    from: ["row:permissionRecord"],
-    why: "as row:worked",
   },
 ];
 
@@ -229,7 +194,8 @@ const drawn = (value: unknown) =>
       ? undefined
       : field;
   });
-const same = (a: unknown, b: unknown) => drawn(a) === drawn(b);
+const same = (a: unknown, b: unknown) =>
+  a === undefined || b === undefined ? a === b : isDeepStrictEqual(JSON.parse(drawn(a)), JSON.parse(drawn(b)));
 
 /// Every field key that differs between v1's units and the adapter's, with one example each.
 function differences(want: Unit[], got: Unit[]): Map<string, string> {
@@ -404,6 +370,22 @@ test("an answered option and a mode are named from the ask row's request", async
     kind: "fullAccess",
     mode: harnessModeName(undefined, undefined, "full-access"),
   });
+});
+
+test("two late grants patch the settled tool once and keep its output", async () => {
+  const snapshot = await v2("parity");
+  const row = snapshot.rows
+    .flatMap((entry) => entry.row ?? [])
+    .find((row) => row.kind === "tool" && (row.body as { callId?: string }).callId === "late-call")!;
+  expect(row.rev).toBe(2);
+  expect(row.approvedAfterSettle).toBe(true);
+  const views = adaptChat(snapshot, { sessionId: SESSION }).rows;
+  const item = views.flatMap((view) => view.items ?? []).find((item) => item.tool?.id === "late-call");
+  expect(item?.tool?.approved).toBe(true);
+  expect(item?.tool?.output).toContain("timed out pulling image");
+  for (const permissionId of ["late-1", "late-2"]) {
+    expect(views.some((view) => view.permission?.permissionId === permissionId)).toBe(false);
+  }
 });
 
 test("options with no kind: the translator's decision is the one the card's reading gives", async () => {

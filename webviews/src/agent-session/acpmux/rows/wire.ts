@@ -22,6 +22,7 @@ export type ChatRow = {
   body: unknown;
   /// Lines, for the height estimate.
   est: number;
+  approvedAfterSettle?: boolean;
   blob?: { bytes: number; preview: string };
 };
 
