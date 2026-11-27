@@ -40,6 +40,7 @@ const ACPMUX_KINDS: &[&str] = &[
     "auto_resume",
     "offer_result",
     crate::lane_death_watch::KIND,
+    crate::exit_record::KIND,
 ];
 
 /// The provenance kinds of other agents' messages and acpmux's notices or digests of them.

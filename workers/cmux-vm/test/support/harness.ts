@@ -22,7 +22,7 @@ import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
-import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { makeUpstreamClient, upstreamConfigOf } from "../../src/upstream/live.ts";
 import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
@@ -132,7 +132,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
   // The Worker names its provider resources with the same environment its policy runs in.
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) });
+  const upstreamClient = makeUpstreamClient(upstreamConfigOf({ baseUrl: UPSTREAM_URL, apiKey: UPSTREAM_KEY, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) }));
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -455,7 +455,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) }));
+      Object.assign(upstreamClient, makeUpstreamClient(upstreamConfigOf({ baseUrl, apiKey, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) })));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,

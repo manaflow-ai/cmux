@@ -4,8 +4,9 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 // mimalloc on Linux, as the shipped acpmux-standalone (see that crate's main.rs), so the tests
-// measure the daemon's memory with the allocator it ships with.
-#[cfg(all(target_os = "linux", not(feature = "dhat-heap")))]
+// measure the daemon's memory with the allocator it ships with. `system-alloc` (bench only) leaves
+// the system's malloc in place, for the allocator A/B.
+#[cfg(all(target_os = "linux", not(feature = "dhat-heap"), not(feature = "system-alloc")))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
@@ -20,8 +21,8 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// (`generic_collect`, default 10000), and arenas reserve 64 MiB at a time (`arena_reserve`, in KiB;
 /// default 1 GiB). A thread heap reads `page_full_retain` when it starts: the runtime's workers start
 /// after this. Ids from mimalloc.h's `mi_option_e` (libmimalloc-sys 0.1.49, v3). Not in a `dhat-heap`
-/// build: its allocator is dhat's and mimalloc is not linked.
-#[cfg(all(target_os = "linux", not(feature = "dhat-heap")))]
+/// build: its allocator is dhat's and mimalloc is not linked. Nor in a `system-alloc` one.
+#[cfg(all(target_os = "linux", not(feature = "dhat-heap"), not(feature = "system-alloc")))]
 fn tune_allocator() {
     const MI_OPTION_ARENA_EAGER_COMMIT: std::ffi::c_int = 4;
     const MI_OPTION_PURGE_DELAY: std::ffi::c_int = 15;
@@ -43,7 +44,7 @@ fn tune_allocator() {
 }
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(all(target_os = "linux", not(feature = "dhat-heap")))]
+    #[cfg(all(target_os = "linux", not(feature = "dhat-heap"), not(feature = "system-alloc")))]
     tune_allocator();
     // SAFETY: the first statement of main; no other thread runs yet.
     unsafe { acpmux::cli::entry::process_main() }
