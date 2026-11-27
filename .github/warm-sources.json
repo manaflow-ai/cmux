@@ -342,7 +342,7 @@
     "cmux-tui-team-signed.yml:plan": {"class": "linux-build", "warm": [], "exempt": "compiles nothing: reads the tree key and the helper key and whether each signed set is published"},
     "cmux-tui-team-signed.yml:sign-helper": {"class": "mac-sign", "warm": [], "exempt": "compiles nothing: codesigns the downloaded helper"},
     "executor-journey.yml:journey": {"class": "linux-js", "warm": [], "exempt": "compiles nothing: bun runs the executor journey's script and its unit tests directly"},
-    "ios-internal-submit.yml:submit": {"class": "ios", "warm": [], "exempt": "compiles nothing: asc submits an already uploaded build for review"},
+    "ios-internal-submit.yml:submit": {"class": "linux", "warm": [], "exempt": "compiles nothing: asc submits an already uploaded build for review"},
     "mobile-worker-prod-deploy.yml:deploy-prod": {"class": "linux-js", "warm": [], "exempt": "cold: a frozen-lockfile bun install, typecheck and vitest for one production deploy; no warm source wired yet"},
     "nightly.yml:early-nightly-webviews": {"class": "mac-sign", "warm": [], "exempt": "cold: the tip's webview checks (fast_gate_webviews_checks.py), advisory; no warm source wired yet"},
     "nightly.yml:fixit-handoff": {"class": "mac-sign", "warm": [], "exempt": "compiles nothing: dispatches fixit-handoff on feat-cmux-next (a Mac only when the nightly runs on one)"},
