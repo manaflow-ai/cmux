@@ -264,8 +264,22 @@ export const PLAN_UNREAD = "could not read your plan";
  * A session's relay answer as its ends see it: `unread` (with the note) when billing failed,
  * so a viewer that gets no relay can say why instead of reading the failure as a free plan.
  */
-function relayFields(e: "paid" | "free" | "error"): { relay: "paid" | "free" | "unread"; relayNote?: string } {
-  return e === "error" ? { relay: "unread", relayNote: PLAN_UNREAD } : { relay: e };
+function relayFields(e: "paid" | "free" | "error", ice: IceServer[]): { relay: "paid" | "free" | "unread"; relayNote?: string } {
+  if (e === "error") return { relay: "unread", relayNote: PLAN_UNREAD };
+  if (e === "paid" && !hasTurn(ice)) return { relay: "paid", relayNote: RELAY_UNMINTED };
+  return { relay: e };
+}
+
+/**
+ * What a ticket and `/ice` say when the plan pays for the cmux relay but no TURN server could be
+ * minted (the platform minter and the hub's own both answered nothing): without it the ends saw
+ * `relay: "paid"` with no relay in `ice` and no word why.
+ */
+export const RELAY_UNMINTED = "the cmux relay could not be issued for this session";
+
+/** Whether `ice` holds a relay (a `turn:` or `turns:` URL), not only STUN. */
+function hasTurn(ice: IceServer[]): boolean {
+  return ice.some((s) => s.urls.some((u) => /^turns?:/i.test(u)));
 }
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
@@ -1346,7 +1360,7 @@ export class UserDO extends DurableObject<Env> {
     for (const s of approved) {
       try {
         const answer = await this.sessionEntitlement(s, c);
-        const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, TICKET_TTL_S, false);
+        const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, TICKET_TTL_S, false);
         const host = tickets?.find((t) => t.role === "host");
         if (host) this.send(hostId, { type: "session.ticket", ...host });
       } catch (err) {
@@ -1405,7 +1419,7 @@ export class UserDO extends DurableObject<Env> {
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
     const answer = await entitled;
-    const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, TICKET_TTL_S, false, pushed);
+    const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, TICKET_TTL_S, false, pushed);
     if (!tickets) return;
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
   }
@@ -1421,7 +1435,7 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, ...relayFields(answer), peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
+      result.push({ sessionId: s.id, ticket, signalURL, ice, ...relayFields(answer, ice), peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
     }
     return result as [WireTicket, WireTicket];
   }
@@ -1438,7 +1452,7 @@ export class UserDO extends DurableObject<Env> {
     // None refuses its reattach.
     if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
     const answer = await this.sessionEntitlement(s, c);
-    const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, REATTACH_TTL_S, true);
+    const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
     this.audit("reattached", { viewerId: me.id, hostId: host.id, scope: s.scope, sessionId: id, detail: "viewer" });
@@ -1515,8 +1529,8 @@ export class UserDO extends DurableObject<Env> {
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
     const answer = await this.sessionEntitlement(s, c);
-    const ice = answer === "paid" ? await mintTurn(this.env) : [];
-    return json({ ice, ...relayFields(answer) });
+    const ice = await this.relayIce(s.id, answer);
+    return json({ ice, ...relayFields(answer, ice) });
   }
 
   // ---- relays ----
@@ -1646,7 +1660,9 @@ export class UserDO extends DurableObject<Env> {
    * asks billing and the answer is kept on the session. A host or machine caller has no Stack
    * token: it gets the relay while its session holds a paid answer read in the last
    * ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its own (a host anchor's `rel`; a
-   * machine session's none). A move carries the answer and its read time, never refreshes them.
+   * machine session's none). A session no full caller ever read (a machine pushing its screen
+   * to the person's Mac) takes the account's newest answer in that bound (accountPaid). A move
+   * carries the answer and its read time, never refreshes them.
    *
    * A failed read is not a free plan: it is recorded (`relay_unread_at`), never stored as free,
    * and leaves the last answer as it was, so a paid answer read within that bound still covers
@@ -1664,11 +1680,35 @@ export class UserDO extends DurableObject<Env> {
       return answer;
     }
     if (this.heldPaid(s.id)) return "paid";
+    // A session no full caller read (a machine's push): the account's newest answer.
+    const held0 = this.sql.exec("SELECT relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    if (held0 && held0.relay_read_at == null && this.accountPaid()) return "paid";
     // Its own right (a host anchor's `rel`); a machine session has no Stack token, so its own
     // read always fails and says nothing about the plan: only the viewer's recorded read does.
     if ((await this.entitlement(c).catch(() => "error" as const)) === "paid") return "paid";
     const held = this.sql.exec("SELECT relay_unread_at FROM sessions WHERE id = ?", s.id).toArray()[0];
     return held && held.relay_unread_at != null ? "error" : "free";
+  }
+
+  /** The cmux relay ICE for a session's answer: minted only when paid, and an empty mint is logged. */
+  private async relayIce(sessionId: string, answer: "paid" | "free" | "error"): Promise<IceServer[]> {
+    if (answer !== "paid") return [];
+    const ice = await mintTurn(this.env);
+    if (!hasTurn(ice)) console.error(`device-hub: relay mint empty for paid session ${sessionId} (source ${this.env.TURN_SOURCE ?? "local"})`);
+    return ice;
+  }
+
+  /**
+   * Whether the account's newest billing answer, read within ANCHOR_RELAY_TTL_MS, is paid: the
+   * newest read any session stored (paid or free) or a newer paid anchor. One UserDO is one
+   * account, so this covers a session no full caller ever read, such as a machine pushing its
+   * screen to the person's Mac.
+   */
+  private accountPaid(): boolean {
+    const read = this.sql.exec("SELECT relay_paid AS paid, relay_read_at AS at FROM sessions WHERE relay_read_at IS NOT NULL ORDER BY relay_read_at DESC LIMIT 1").toArray()[0];
+    const anchor = this.sql.exec("SELECT 1 AS paid, anchored_at AS at FROM anchors WHERE relay_paid = 1 ORDER BY anchored_at DESC LIMIT 1").toArray()[0];
+    const newest = [read, anchor].filter((r) => r !== undefined).sort((a, b) => (b!.at as number) - (a!.at as number))[0];
+    return !!newest && (newest.paid as number) === 1 && (newest.at as number) + ANCHOR_RELAY_TTL_MS > Date.now();
   }
 
   /** Whether the session holds a paid billing answer read within ANCHOR_RELAY_TTL_MS. */
