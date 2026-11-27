@@ -2,104 +2,36 @@
   "cmuxLooks": 1,
   "looks": [
     {
-      "id": "manaflow-ai/studio-look",
-      "name": "Studio",
-      "tagline": "A dense, near-black workbench for agent chats: quiet chrome, compact rows, a boxed prompt.",
-      "repo": "github.com/manaflow-ai/cmux-studio-look",
+      "id": "manaflow-ai/codex-profile",
+      "name": "Codex",
+      "tagline": "Like the Codex app.",
+      "traits": ["Light", "Round corners"],
+      "repo": "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
+      "tags": ["chat", "sidebar", "new-tab"]
+    },
+    {
+      "id": "manaflow-ai/claude-code-profile",
+      "name": "Claude Code",
+      "tagline": "Like Claude Code.",
+      "traits": ["Dark", "Warm"],
+      "repo": "github.com/manaflow-ai/cmux/examples/looks/claude-code/profile@feat-cmux-next",
+      "tags": ["chat", "sidebar", "new-tab"]
+    },
+    {
+      "id": "manaflow-ai/t3code-profile",
+      "name": "T3 Code",
+      "tagline": "Like T3 Code.",
+      "traits": ["Black", "Compact"],
+      "repo": "github.com/manaflow-ai/cmux/examples/looks/t3code/profile@feat-cmux-next",
       "tags": ["chat", "dark", "sidebar"]
     },
     {
       "id": "manaflow-ai/paper-look",
       "name": "Paper",
-      "tagline": "A warm, roomy reading look for agent chats: serif replies on paper, soft rounded prompts.",
+      "tagline": "Warm, roomy, serif replies.",
+      "traits": ["Light", "Roomy"],
       "repo": "github.com/manaflow-ai/cmux-paper-look",
       "tags": ["chat", "light", "sidebar"]
-    },
-    {
-      "id": "manaflow-ai/newtab-cards-look",
-      "name": "Cards New Tab",
-      "tagline": "One rounded field, the project and agent under it, and your three most recent chats as cards.",
-      "repo": "github.com/manaflow-ai/cmux-newtab-cards-look",
-      "tags": ["new-tab"],
-      "previews": { "light": "screenshots/after-few-light.png", "dark": "screenshots/after-few-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/newtab-threads-look",
-      "name": "Threads New Tab",
-      "tagline": "A New Tab page with the field on top, Recently Closed, and every chat as a quiet list.",
-      "repo": "github.com/manaflow-ai/cmux-newtab-threads-look",
-      "tags": ["new-tab"],
-      "previews": { "light": "screenshots/after-few-light.png", "dark": "screenshots/after-few-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/tachyon-look",
-      "name": "Tachyon",
-      "tagline": "A modern terminal look: command output as cards, two-tone graphite, a vivid teal, the prompt at the bottom.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/tachyon@feat-cmux-next",
-      "previews": { "light": "screenshots/tachyon-light.png", "dark": "screenshots/tachyon-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/kerf-look",
-      "name": "Kerf",
-      "tagline": "A fast editor look: tight, flat, one-pixel chrome, One-like slate, a dense project panel beside the agent panel.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/kerf@feat-cmux-next",
-      "previews": { "light": "screenshots/kerf-light.png", "dark": "screenshots/kerf-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/prism-look",
-      "name": "Prism",
-      "tagline": "A browser-as-sidebar look: a space-colored frame holding the rows, a borderless card inset in it, playful soft menus.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/prism@feat-cmux-next",
-      "previews": { "light": "screenshots/prism-light.png", "dark": "screenshots/prism-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/hush-look",
-      "name": "Hush",
-      "tagline": "A calm assistant-browser look: warm near-white, a large rounded card on a soft shadow, a quiet chat panel.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/hush@feat-cmux-next",
-      "previews": { "light": "screenshots/hush-light.png", "dark": "screenshots/hush-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/basalt-look",
-      "name": "Basalt",
-      "tagline": "A quiet, near-black agent-editor look: a cool sidebar of repositories, a bordered prompt, steel-blue Run.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/basalt@feat-cmux-next",
-      "previews": { "light": "screenshots/basalt-light.png", "dark": "screenshots/basalt-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/linen-look",
-      "name": "Linen",
-      "tagline": "A soft consumer chat look: one centered column, a pill composer, a gray history sidebar, almost no chrome.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/linen@feat-cmux-next",
-      "previews": { "light": "screenshots/linen-light.png", "dark": "screenshots/linen-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/docket-look",
-      "name": "Docket",
-      "tagline": "A dense, calm issue-tracker look: a near-black sidebar, one outlined panel, gray text steps and a single indigo.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/docket@feat-cmux-next",
-      "previews": { "light": "screenshots/docket-light.png", "dark": "screenshots/docket-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/ember-look",
-      "name": "Ember",
-      "tagline": "A floating command-surface look: dark glass, compact rows, neutral gray selection and one coral red.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/ember@feat-cmux-next",
-      "previews": { "light": "screenshots/ember-light.png", "dark": "screenshots/ember-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/folio-look",
-      "name": "Folio",
-      "tagline": "cmux as a document workspace: a warm off-white page, a quiet tree of pages in the sidebar, slash-menu menus.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/folio@feat-cmux-next",
-      "previews": { "light": "screenshots/folio-light.png", "dark": "screenshots/folio-dark.png" }
-    },
-    {
-      "id": "manaflow-ai/tandem-look",
-      "name": "Tandem",
-      "tagline": "cmux as an agent workspace: chats and tabs in one sidebar, a gray workspace card, the approval policy in orange.",
-      "repo": "github.com/manaflow-ai/cmux/examples/looks/tandem@feat-cmux-next",
-      "previews": { "light": "screenshots/tandem-light.png", "dark": "screenshots/tandem-dark.png" }
     }
   ]
 }

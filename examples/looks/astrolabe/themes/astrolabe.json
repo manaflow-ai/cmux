@@ -3,7 +3,7 @@
 // flat chrome with a sidebar line, and a slow, soft glow for work in progress.
 {
   "name": "Astrolabe",
-  "description": "Deep navy, ivory text, old-gold hairlines and a soft gold glow.",
+  "description": "Deep navy with gold lines.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

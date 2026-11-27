@@ -5,7 +5,7 @@
 // large soft corners, quick spring motion.
 {
   "name": "Ember",
-  "description": "A floating command-surface look, Dark: dark glass, a lighter inset sidebar, neutral gray selection, one coral red.",
+  "description": "Dark glass with a coral accent.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

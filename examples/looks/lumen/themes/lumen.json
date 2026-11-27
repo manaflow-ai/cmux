@@ -3,7 +3,7 @@
 // near-solid plane framed by it. No painted rims, sheens or glows: depth is the only hierarchy.
 {
   "name": "Lumen",
-  "description": "Dark: neutral window glass over your wallpaper, a calm 0.96 content plane, one soft blue.",
+  "description": "Dark glass, soft blue accent.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

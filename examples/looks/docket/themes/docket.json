@@ -5,7 +5,7 @@
 // a 220 px sidebar, quick ease-out motion.
 {
   "name": "Docket",
-  "description": "A dense, calm issue-tracker look, Dark: a near-black sidebar, one outlined panel, gray text steps, one indigo.",
+  "description": "Dark, dense, one indigo accent.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

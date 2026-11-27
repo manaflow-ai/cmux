@@ -2,7 +2,7 @@
 // carry (docs/cmux-next/theme-recipes.md); a key it leaves out stays what you had.
 {
   "name": "Starter Dusk",
-  "description": "Dark: a dusk-blue page, a warm amber accent, a calm terminal palette.",
+  "description": "Dark dusk blue, amber accent.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

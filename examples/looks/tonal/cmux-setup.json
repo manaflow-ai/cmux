@@ -2,8 +2,8 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/tonal-look",
   "name": "Tonal",
-  "tagline": "One seed color, tonal surfaces, no glass: a calm, opaque redesign of the whole window.",
-  "description": "A whole cmux look in which every color comes from one seed through tonal palettes: the page, the chrome a few tone steps off it, selection and Send in the primary. Opaque surfaces instead of glass, tone instead of shadows and hairlines, the work in one rounded card, a filled primary Send. Three seeds ship: Tonal (sage-teal, airy, the default), Tonal Ink (indigo-violet, vivid containers) and Tonal Clay (terracotta, warm and dense), each in Light and Dark. Remove it and everything you had comes back.",
+  "tagline": "One color in soft shades.",
+  "description": "One color in soft shades.",
   "version": "1.0.0",
   "license": "MIT",
 

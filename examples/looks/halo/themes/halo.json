@@ -2,7 +2,7 @@
 // ink (#0d0d0d), a neutral gray selection, and black as the accent: no color but the content's.
 {
   "name": "Halo",
-  "description": "Near-monochrome white: a white page, a whisper-gray sidebar, near-black ink, no accent color.",
+  "description": "White, no accent color.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
