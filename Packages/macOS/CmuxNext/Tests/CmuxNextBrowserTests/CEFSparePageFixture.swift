@@ -75,7 +75,7 @@ extension CEFSparePageSuites.CEFSparePageTests {
     /// The warmup's idle moments: the spare window (placeholder browser 20, window 2), then the
     /// spare page in it. Returns the spare page's browser (-1 when none was made); the spy's
     /// records start empty after it.
-    static func spareWithPage(_ runtime: CEFRuntime) throws -> Int32 {
+    static func spareWithPage(_ runtime: CEFRuntime, settlePlaceholder: Bool = true) throws -> Int32 {
         #expect(runtime.spareWindow.prepare(runtime: runtime), "the spare window starts")
         let spare = try #require(runtime.spareWindow.host)
         let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
@@ -84,8 +84,11 @@ extension CEFSparePageSuites.CEFSparePageTests {
         #expect(spare.isLive && spare.placeholder?.browserID == 20)
         // CEF reports the spare placeholder's about:blank load asynchronously. Keep the fixture honest
         // so tests cover the settled lifecycle freeze rather than an attach-time fallback.
-        runtime.handle(.loadingState(browser: 20, loading: true, canGoBack: false, canGoForward: false))
-        runtime.handle(.loadingState(browser: 20, loading: false, canGoBack: false, canGoForward: false))
+        if !settlePlaceholder { spare.endOfTurn = { _ in } }
+        if settlePlaceholder {
+            runtime.handle(.loadingState(browser: 20, loading: true, canGoBack: false, canGoForward: false))
+            runtime.handle(.loadingState(browser: 20, loading: false, canGoBack: false, canGoForward: false))
+        }
         SpareSpy.clearRecords()
 
         runtime.spareWindow.prepare(runtime: runtime)
