@@ -9208,13 +9208,15 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
             self.judge()
 
-    def discounted_red(self, description, *, base_failed=True, own_unit="test_b.py"):
+    def discounted_red(self, description, *, base_failed=True, own_unit="test_b.py", flaky_unit=None):
         """HEAD red on DEPLOY's units test_a.py (main's red too: its own base pass failed it on main) and OWN_UNIT, main
         red on test_a.py's test_a: the run's WS_CHECK_RESULT lists DEPLOY, its status DESCRIPTION (tools/ws-check
         discount_base_reds counted only OWN_UNIT)."""
         self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a")}})
-        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
-                                                own_unit: self.ws_deploy("test_b")}}, description=description)
+        units = {"test_a.py": self.ws_deploy("test_a"), own_unit: self.ws_deploy("test_b")}
+        if flaky_unit:  # a third head-only unit: ws-check's flake (passed on main and again on the PR's tree)
+            units[flaky_unit] = self.ws_deploy("test_c")
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: units}, description=description)
         log = self.gh.logs[11].split("\n")
         at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
         stamp = "2026-11-05T04:39:27.9954759Z "
@@ -9270,6 +9272,31 @@ class WsCheckPerTest(unittest.TestCase):
                     self.judge()
                 self.assertNotIn("does not match", str(caught.exception))
                 self.assertNotIn("names no failed steps", str(caught.exception))
+
+    def test_a_discounted_status_counting_flakes_apart_is_read(self):
+        # 2026-11-27: lw#12864 at 19dbd9c7, "1 failed after discounting 9 on main 67c96e79, 7 flaky:
+        # test_timing_asserts.py", was refused "names no failed steps": since lw#12687 ws-check counts flakes apart.
+        main8 = self.gh.TIP[:8]
+        for description in (f"1 failed after discounting 1 on main {main8}, 1 flaky: test_b.py",
+                            f"1 failed after discounting 1 on main {main8}, 1 flaky: test_c.py",  # the flake sorts first
+                            f"1 of 77 steps failed: {self.DEPLOY} [test_b.py] (+1 base red discounted, 1 flaky, "
+                            f"main {main8})",
+                            f"1 of 77 steps failed: {self.DEPLOY} [test_c.py] (+1 base red discounted, 1 flaky, "
+                            f"main {main8})"):
+            with self.subTest(description=description):
+                self.discounted_red(description, flaky_unit="test_c.py")
+                with self.assertRaisesRegex(excuse.Refused, "test_[bc]") as caught:  # read: a head-only red stays
+                    self.judge()
+                self.assertNotIn("does not match", str(caught.exception))
+                self.assertNotIn("names no failed steps", str(caught.exception))
+        for description in (f"1 failed after discounting 1 on main {main8}, 2 flaky: test_b.py",  # the counts
+                            f"1 failed after discounting 1 on main {main8}, 1 flaky: test_d.py",  # no such unit
+                            f"1 of 77 steps failed: {self.DEPLOY} [test_d.py] (+1 base red discounted, 1 flaky, "
+                            f"main {main8})"):
+            with self.subTest(description=description):
+                self.discounted_red(description, flaky_unit="test_c.py")
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
 
     def test_a_long_discounted_status_is_excused_only_when_main_fails_its_unit_too(self):
         main8 = self.gh.TIP[:8]
