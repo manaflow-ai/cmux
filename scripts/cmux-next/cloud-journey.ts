@@ -5308,6 +5308,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
   let runJourneyOnly: (() => Promise<void>) | null = null;
+  // The Cloud scroll-stress probe (SCROLL_PROBE_STEP), once the machine runs: after the carrier dial, or after the
+  // failure that cut the chat off, so a red chat still measures the Cloud terminal surface.
+  let runScrollProbe: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
   J.warm = () => spareTaken(probeExtra);
@@ -5876,6 +5879,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: r.stdout.trim() || "clean" };
       });
     }
+    // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
+    // instead of turning the chat journey red. `--skip scroll` leaves it out. The production journeys pass no --cmux
+    // (the carrier dial stays off there) but do pass the shipped cmux-tui as --preclaim-login, which serves the probe.
+    // Every production run from 11-27 04:16Z to 06:24Z failed at "reply" (no inference gateway online, Codex not
+    // signed in), and the probe sat after it behind --cmux, so the Cloud surface never got a reading.
+    const scrollCmux = cmux ?? preclaimLoginCmux;
+    let scrollProbeStarted = false;
+    const scrollProbe = async () => {
+      if (scrollProbeStarted) return;
+      scrollProbeStarted = true;
+      if (only.has("scroll")) return J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+      if (!scrollCmux) return J.skip(SCROLL_PROBE_STEP, "not measured: no cmux-tui (--cmux or --preclaim-login)");
+      const t0 = Date.now();
+      try {
+        const t = await carrierScrollProbe(scrollCmux, api, created.id);
+        probeExtra.terminal_scroll = t;
+        J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+      } catch (e) {
+        J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
+      }
+    };
+    runScrollProbe = scrollProbe;
     // The checks only the journey makes (JOURNEY_ONLY_STEPS): none is part of what a person's chat waits on, so they
     // run after the reply, outside J.firstText's create-to-first-text window (they cost about 6 s at p50 inside it).
     // A run cut off before the reply runs them after the failure, before cleanup, so each still passes or fails.
@@ -6832,19 +6857,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
-      // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
-      // instead of turning the chat journey red. `--skip scroll` leaves it out.
-      if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
-      else {
-        const t0 = Date.now();
-        try {
-          const t = await carrierScrollProbe(cmux, api, created.id);
-          probeExtra.terminal_scroll = t;
-          J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
-        } catch (e) {
-          J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
-        }
-      }
+      await scrollProbe();
       if (autocloudTui) {
         await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
       }
@@ -6858,6 +6871,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
       });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+      await scrollProbe();
     }
     if (createAnsweredAt !== null) {
       await J.step("guest carrier timeline", async () => {
@@ -7159,6 +7173,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
+    await runScrollProbe?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }
