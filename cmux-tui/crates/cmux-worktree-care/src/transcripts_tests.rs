@@ -2,8 +2,15 @@ use super::*;
 use crate::caches::{Options, run};
 use crate::never_delete::NeverDelete;
 use crate::policy::Pressure;
+use crate::procs::parse_lsof;
 use crate::procs::{Open, Process, Uses};
 use crate::store::care_tests::scratch;
+
+/// Writes `bytes` to `file`.
+fn write(file: &Path, bytes: &[u8]) {
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::File::create(file).unwrap().write_all(bytes).unwrap();
+}
 
 const DAY: Duration = Duration::from_secs(86_400);
 

@@ -226,47 +226,9 @@ pub fn forget_open() {
     }
 }
 
-/// `lsof +D root`: every file under it some other program has open.
-#[cfg(unix)]
+/// Every file under `root` some other program has open (one bounded lsof).
 pub fn lsof_tree(root: &Path) -> Result<HashSet<PathBuf>, String> {
-    let mut dirs: Vec<PathBuf> = vec!["/usr/sbin".into(), "/usr/bin".into()];
-    dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
-    let path = std::env::join_paths(dirs).map_err(|e| e.to_string())?;
-    let mut command = std::process::Command::new("lsof");
-    command
-        .env("PATH", path)
-        .args(["-w", "-F", "pn", "+D"])
-        .arg(root)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let output = crate::git::run_within(command, LSOF_LIMIT).map_err(|e| format!("lsof: {e}"))?;
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !(output.status.success() || (output.status.code() == Some(1) && stderr.is_empty())) {
-        return Err(if stderr.is_empty() { format!("lsof: {}", output.status) } else { stderr });
-    }
-    Ok(parse_lsof(&String::from_utf8_lossy(&output.stdout), std::process::id()))
-}
-
-#[cfg(not(unix))]
-pub fn lsof_tree(_root: &Path) -> Result<HashSet<PathBuf>, String> {
-    Ok(HashSet::new())
-}
-
-/// `lsof -F pn` output: the files of every process but `own`.
-fn parse_lsof(text: &str, own: u32) -> HashSet<PathBuf> {
-    let mut set = HashSet::new();
-    let mut mine = false;
-    for line in text.lines() {
-        if let Some(pid) = line.strip_prefix('p') {
-            mine = pid.trim().parse::<u32>().ok() == Some(own);
-        } else if let Some(name) = line.strip_prefix('n')
-            && !mine
-        {
-            set.insert(PathBuf::from(name));
-        }
-    }
-    set
+    crate::procs::open_files_under(root, LSOF_LIMIT)
 }
 
 /// Gzips `path` to a new file next to `dest`, reads it back against the
@@ -396,13 +358,6 @@ pub(crate) fn remove(
         Ok(()) => Outcome { ok: true, freed: before.0, archive: Some(id), error: None },
         Err(e) => Outcome { ok: false, freed: 0, archive: Some(id), error: Some(e.to_string()) },
     }))
-}
-
-/// Writes `bytes` to `file` (tests).
-#[cfg(test)]
-pub(crate) fn write(file: &Path, bytes: &[u8]) {
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    std::fs::File::create(file).unwrap().write_all(bytes).unwrap();
 }
 
 #[cfg(test)]
