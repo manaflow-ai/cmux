@@ -240,13 +240,23 @@ pub fn launch_agent(exe: &Path) -> String {
 
 /// Writes `content` to `path` unless it already holds it; whether it wrote.
 fn write_if_changed(path: &Path, content: &str) -> Result<bool, String> {
-    if std::fs::read_to_string(path).is_ok_and(|old| old == content) {
+    let same = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .ok()
+        .and_then(|mut file| {
+            use std::io::Read as _;
+            let mut old = String::new();
+            file.read_to_string(&mut old).ok().map(|_| old == content)
+        })
+        .unwrap_or(false);
+    if same {
         return Ok(false);
     }
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::home_fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(true)
 }
 

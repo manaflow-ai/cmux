@@ -404,3 +404,47 @@ fn pane_round_trip() {
         cmux_screenshots_pane_free(std::ptr::null_mut());
     }
 }
+
+#[test]
+fn walk_round_trip() {
+    let json = r#"{"depth":1,"folderPrefix":"NSIRD_"}"#;
+    // SAFETY: valid bytes.
+    let rule = unsafe { cmux_screenshots_rule_new(json.as_ptr(), json.len()) };
+    // SAFETY: live rule, valid bytes.
+    let walk = unsafe { cmux_screenshots_walk_new(rule, b"/s".as_ptr(), 2) };
+    // SAFETY: freed once; the walk holds its own copy.
+    unsafe { cmux_screenshots_rule_free(rule) };
+    let raw = |name: &'static [u8], kind: u32, system_kind: u32| CmuxScreenshotsEntry {
+        kind,
+        hidden: false,
+        name: name.as_ptr(),
+        name_len: name.len(),
+        system_kind,
+        modified: 0.0,
+    };
+    // SAFETY: live walk.
+    assert_eq!(take(unsafe { cmux_screenshots_walk_next(walk) }).as_deref(), Some("/s"));
+    let top = [raw(b"NSIRD_a", 2, 3), raw(b"top.png", 1, 1), raw(b"notes.txt", 1, 3)];
+    let mut kinds = [9u32; 3];
+    // SAFETY: live walk, 3 entries, 3 slots.
+    unsafe {
+        cmux_screenshots_walk_listed(walk, true, top.as_ptr(), top.len(), kinds.as_mut_ptr())
+    };
+    assert_eq!(kinds, [0, 1, 0]);
+    // SAFETY: live walk.
+    assert_eq!(take(unsafe { cmux_screenshots_walk_next(walk) }).as_deref(), Some("/s/NSIRD_a"));
+    // SAFETY: live walk; an unreadable subfolder has no entries.
+    unsafe { cmux_screenshots_walk_listed(walk, false, std::ptr::null(), 0, std::ptr::null_mut()) };
+    // SAFETY: live walk.
+    assert!(unsafe { cmux_screenshots_walk_next(walk) }.is_null());
+    // SAFETY: live walk.
+    assert_eq!(
+        take(unsafe { cmux_screenshots_walk_result(walk) }).as_deref(),
+        Some(r#"{"folders":["/s"],"readable":true}"#)
+    );
+    // SAFETY: live walk, freed once; null does nothing.
+    unsafe {
+        cmux_screenshots_walk_free(walk);
+        cmux_screenshots_walk_free(std::ptr::null_mut());
+    }
+}

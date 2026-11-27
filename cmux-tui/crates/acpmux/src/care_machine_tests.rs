@@ -38,3 +38,36 @@ fn writing_a_file_twice_changes_nothing_the_second_time() {
     assert!(write_if_changed(&path, "y").unwrap());
     let _ = std::fs::remove_file(&path);
 }
+
+#[cfg(unix)]
+#[test]
+fn writing_a_timer_stays_in_the_held_home_after_replacement() {
+    crate::lost_home_race_tests::isolated(
+        module_path!(),
+        "writing_a_timer_stays_in_the_held_home_after_replacement",
+        |home| {
+            let path = home.join(".config/systemd/user/cmux-care.timer");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "old").unwrap();
+            crate::config::hold_home();
+            crate::lost_home_race_tests::replace(home);
+
+            assert!(!write_if_changed(&path, "old").unwrap());
+            assert!(
+                home.with_extension("old").join(".config/systemd/user/cmux-care.timer").exists()
+            );
+            assert!(!path.exists(), "the replacement home stays untouched");
+
+            assert!(write_if_changed(&path, "new").unwrap());
+            assert_eq!(
+                std::fs::read_to_string(
+                    home.with_extension("old").join(".config/systemd/user/cmux-care.timer")
+                )
+                .unwrap(),
+                "new"
+            );
+            assert!(!path.exists(), "the replacement home stays untouched");
+        },
+        |_, _| {},
+    );
+}

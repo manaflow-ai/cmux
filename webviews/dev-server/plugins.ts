@@ -80,6 +80,7 @@ import {
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
 import { refreshNow } from "./refreshNow";
+import { deferDirRescan } from "./deferDirRescan";
 import { tailwindOnNewClasses } from "./tailwindOnNewClasses";
 import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
@@ -111,6 +112,7 @@ export function cmuxDevServer(): Plugin[] {
     { ...galleryModules(), apply: "serve" },
     tailwindOnNewClasses(),
     refreshNow(),
+    deferDirRescan(),
     perfLintOnSave(),
   ];
 }

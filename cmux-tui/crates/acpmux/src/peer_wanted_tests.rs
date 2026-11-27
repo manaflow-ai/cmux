@@ -18,6 +18,9 @@ fn a_new_chat_waits_on_a_young_outage_only() {
     assert!(peer.reconnects_soon(), "a 150 s outage still reconnects within a second");
     peer.login_refused.store(true, std::sync::atomic::Ordering::SeqCst);
     assert!(!peer.reconnects_soon(), "a refused login holds its attempts back");
+    peer.login_refused.store(false, std::sync::atomic::Ordering::SeqCst);
+    peer.host_key_refused.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(!peer.reconnects_soon(), "a refused host key holds its attempts back");
     let gone = self::peer();
     gone.with_link(|l| {
         l.down(now - 2 * WANTED_OUTAGE_FOR.as_millis() as u64, Duration::from_secs(60));

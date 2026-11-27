@@ -38,8 +38,8 @@ pub struct LinkTimings {
     pub rtt_adaptive: bool,
     /// `ACPMUX_PEER_REPLACE_SECS`: a silent link dials its replacement (while it still reads)
     /// after this much silence, when that is under the silence budget. Off (`None`) by
-    /// default: the replacement dials when the budget runs out. The link is still dropped at
-    /// twice the budget, as without it.
+    /// default: the replacement dials when the budget runs out. The link is still dropped when
+    /// a probe's wait past the budget passes with no replacement open (`dial_replacement!`).
     pub replace_after: Option<Duration>,
     /// The link is dropped when one send cannot go out for this long (a peer that stops
     /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
@@ -72,11 +72,17 @@ impl Default for LinkTimings {
         Self {
             connect: Duration::from_secs(30),
             handshake: Duration::from_secs(90),
-            // A dead link (a dropped network, a computer that slept) is found within 6 to 8 s,
-            // not 80, so its redial starts while the person still waits. A ping is a few bytes
-            // over the tunnel each 2 s, answered by the peer's connection reader.
-            ping_every: Duration::from_secs(2),
-            ping_misses: 3,
+            // A dead link (a dropped network, a computer that slept, a host that died) is found
+            // within 2 to 2.5 s, not 80, so its redial starts while the person still waits and a
+            // dead host's chats move from their copies (`session move --from-snapshot`) at once.
+            // A ping is a few bytes over the tunnel each 500 ms, answered by the peer's
+            // connection reader. 2 s is the same silence a request's probe already allows
+            // (`NETWORK_PROBE`); a peer that answers late raises its own budget (`SilenceBudget`).
+            // Leo, 2026-11-24: "I thought we literally measured stuff within, like, you know,
+            // sub-second type things". At 6 s, detection was 93% of a dead host's recovery
+            // (scripts/measure/fleet-recovery-bench.py, N=20: detect 6256 of 6761 ms p50).
+            ping_every: Duration::from_millis(500),
+            ping_misses: 4,
             fixed_silence: false,
             rtt_adaptive: true,
             replace_after: None,
@@ -139,7 +145,7 @@ impl LinkTimings {
 }
 
 /// How long one peer's links may stay silent before they are dropped. It starts at
-/// `LinkTimings::silence_budget` (6 s), so a dead link is found in seconds, and grows for a peer
+/// `LinkTimings::silence_budget` (2 s), so a dead link is found in seconds, and grows for a peer
 /// that answers late but answers (a loaded host): an answer that came after more than half the
 /// budget raises it to twice that gap, and a link dropped for silence that opens again within a
 /// connect deadline (the peer was slow, not gone) doubles it. Never past `CAP`, the 80 s of
@@ -182,6 +188,10 @@ pub struct SilenceBudget {
 impl SilenceBudget {
     /// The old fixed budget: 4 pings 20 s apart.
     pub const CAP: Duration = Duration::from_secs(80);
+    /// The least a link gets once it opened straight back after a drop: the peer is live and
+    /// slow. The 2 s floor finds a dead host fast; a live one that answers 7 s late gets the 12 s
+    /// it had after its first drop when the floor was 6 s, so it flaps once, not three times.
+    pub const SLOW_PEER: Duration = Duration::from_secs(12);
 
     pub fn new(timings: &LinkTimings) -> Self {
         let floor = timings.silence_budget();
@@ -302,9 +312,9 @@ impl SilenceBudget {
         }
         if probed {
             self.slow_proven = true;
-            self.raise(self.current * 2, now);
+            self.raise((self.current * 2).max(Self::SLOW_PEER), now);
         } else if dropped.is_some_and(|at| now.saturating_duration_since(at) <= self.reopen) {
-            self.raise(self.current * 2, now);
+            self.raise((self.current * 2).max(Self::SLOW_PEER), now);
         }
     }
 
@@ -382,6 +392,25 @@ impl Backoff {
         let doublings = refusals.saturating_sub(1).min(8);
         let step =
             Self::LOGIN_REFUSED_BASE.saturating_mul(1u32 << doublings).min(Self::LOGIN_REFUSED_CAP);
+        step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
+    }
+
+    /// The first wait after ssh refused the machine's host key.
+    pub const HOST_KEY_REFUSED_BASE: Duration = Duration::from_secs(15);
+    /// The longest wait between refused host keys.
+    pub const HOST_KEY_REFUSED_CAP: Duration = Duration::from_secs(2 * 60);
+
+    /// The least wait after the `refusals`-th refused host key in a row (1 for the first):
+    /// doubling from `HOST_KEY_REFUSED_BASE` to `HOST_KEY_REFUSED_CAP`, plus up to a fifth more
+    /// with `jitter`. ssh stops before it logs in, so no attempt counts against a ban tool, and
+    /// the cause is often brief: a peer whose ssh works again links within minutes. Under the
+    /// refused login's hour a host-key error held cosmic-gray's link down for about 2 h after
+    /// ssh worked again (Air-Blue, 2026-11-26).
+    pub fn host_key_refused(refusals: u32, jitter: f64) -> Duration {
+        let doublings = refusals.saturating_sub(1).min(8);
+        let step = Self::HOST_KEY_REFUSED_BASE
+            .saturating_mul(1u32 << doublings)
+            .min(Self::HOST_KEY_REFUSED_CAP);
         step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
     }
 
