@@ -251,3 +251,52 @@ fn a_clone_only_seed_without_a_usable_mirror_clones() {
         assert!(!folder.join(".git/objects/info/alternates").exists(), "{name}");
     }
 }
+
+/// `git.seed.borrowable` (`git-seed-borrow-v1`): the machine says a fresh folder would borrow
+/// its mirror exactly when the seed would, so the sender packs nothing only then.
+#[test]
+fn borrowable_answers_as_the_seed_would_borrow() {
+    let world = World::new("borrowable");
+    let service = world.service();
+    let mirror = mirror(&world, "mirror.git", "git@github.com:o/n.git");
+    let other = mirror(&world, "other.git", "https://github.com/o/other.git");
+    let folder = world.home.join("work/project");
+    let ask = |mirror: &Path, base: &str| {
+        json!({
+            "folder": folder, "url": URL, "repo": "o/n", "base": base, "mirror": mirror,
+        })
+    };
+    let answer = |params: Value| service.call("git.seed.borrowable", &params).unwrap();
+    assert_eq!(answer(ask(&mirror, &world.base)), json!({ "borrow": true }));
+    assert_eq!(answer(ask(&other, &world.base))["why"], "other_repo");
+    assert_eq!(answer(ask(&world.home.join("absent.git"), &world.base))["why"], "no_mirror");
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(answer(ask(&mirror, missing))["why"], "no_base");
+    // A folder that is a repository already takes no carry and no borrow.
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    assert_eq!(answer(ask(&mirror, &world.base))["why"], "folder");
+    // The seed itself borrows where the answer was true.
+    std::fs::remove_dir_all(folder.join(".git")).unwrap();
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let mut params = world.start_params(&folder, &snapshot);
+    params["mirror"] = json!(mirror);
+    let status = seed(&world, &params);
+    assert!(notes(&status).contains(&"borrowed".to_owned()), "{status}");
+}
+
+#[test]
+fn borrowable_refuses_what_a_seed_would_refuse() {
+    let world = World::new("borrowable-refused");
+    let service = world.service();
+    let folder = world.home.join("project");
+    let base = world.base.clone();
+    for params in [
+        json!({ "folder": folder, "url": "https://example.com/o/n.git", "repo": "o/n", "base": base }),
+        json!({ "folder": folder, "url": URL, "repo": "o/n", "base": "nope" }),
+        json!({ "folder": folder, "url": URL, "repo": "o/n", "base": base, "mirror": "relative" }),
+        json!({ "folder": "relative", "url": URL, "repo": "o/n", "base": base }),
+    ] {
+        let refused = service.call("git.seed.borrowable", &params).unwrap_err();
+        assert_eq!(refused.code, "seed.bad_request", "{params}");
+    }
+}
