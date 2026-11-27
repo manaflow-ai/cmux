@@ -314,6 +314,12 @@ test("retained message cards ignore structural agent contexts and reveal the lat
   function Card() {
     return <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={message} />;
   }
+  let plainReads = 0;
+  function Plain() {
+    plainReads++;
+    return <p>Unrelated transcript text</p>;
+  }
+  const plain = line("plain");
   const row = line("message");
   const noop = () => {};
   const render = (active: boolean, name: string) =>
@@ -325,12 +331,18 @@ test("retained message cards ignore structural agent contexts and reveal the lat
           >
             <AgentTonesContext.Provider value={new Map([["a39e817af38ddf5e7", name.length]])}>
               <RowContent Component={Card} row={row} expanded={false} onToggleActivity={noop} />
+              <RowContent Component={Plain} row={plain} expanded={false} onToggleActivity={noop} />
             </AgentTonesContext.Provider>
           </AgentOpenContext.Provider>
         </AgentNamesContext.Provider>
       </LiveUpdatesContext.Provider>,
     );
   try {
+    await act(async () => render(true, "First"));
+    const plainBefore = plainReads;
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(true, `Visible ${tick}`));
+    expect(plainReads).toBe(plainBefore);
+    expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Visible 19");
     await act(async () => render(true, "Original"));
     await act(async () => render(false, "Hidden"));
     const before = messageReads;
