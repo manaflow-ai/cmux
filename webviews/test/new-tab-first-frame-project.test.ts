@@ -154,6 +154,10 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     const page = await context.newPage();
     const observed: string[] = [];
     page.on("pageerror", (error) => observed.push(`pageerror: ${error.message}`));
+    page.on("console", (message) => {
+      if (message.type() === "error" || message.text().startsWith("fixture host:"))
+        observed.push(message.text().slice(0, 500));
+    });
     page.on("websocket", (socket) => {
       socket.on("framesent", (frame) => observed.push(`sent: ${String(frame.payload).slice(0, 200)}`));
       socket.on("framereceived", (frame) => observed.push(`received: ${String(frame.payload).slice(0, 200)}`));
@@ -167,6 +171,9 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
             timer = setTimeout(() => reject(new Error(`${name} timed out: ${observed.join("\n")}`)), 30_000);
           }),
         ]);
+      } catch (error) {
+        console.error(`stage ${name}: ${await page.locator("body").innerText()}`);
+        throw error;
       } finally {
         clearTimeout(timer);
       }
@@ -218,6 +225,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
             });
         };
         const answer = (method: string): unknown => {
+          console.info(`fixture host: ${method}`);
           switch (method) {
             case "ready":
               return later(handshakeDelay, {
