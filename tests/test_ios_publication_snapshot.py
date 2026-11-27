@@ -156,5 +156,18 @@ class ReaderTests(unittest.TestCase):
                 reader.source("a" * 12)
 
 
+class WorkflowTests(unittest.TestCase):
+    def test_secret_job_executes_only_protected_code(self):
+        workflow = (ROOT / ".github/workflows/ios-publication-snapshot.yml").read_text()
+        self.assertIn("github.ref == 'refs/heads/rc/cnx-ios-builder'", workflow)
+        self.assertIn("environment: release", workflow)
+        self.assertIn("ref: ${{ github.sha }}", workflow)
+        self.assertNotIn("ref: ${{ inputs.head_sha }}", workflow)
+        self.assertIn("--head-sha \"$HEAD_SHA\" --request-id \"$REQUEST_ID\"", workflow)
+        self.assertIn("scripts/ci/ios_publication_snapshot.py", workflow)
+        self.assertIn("if-no-files-found: error", workflow)
+        self.assertIn("${REQUEST_ID/:/-}", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
