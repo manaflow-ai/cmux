@@ -1,0 +1,79 @@
+name: iOS reliability matrix
+
+# The iOS connectivity and reliability matrix runs from feat-cmux-next's
+# ios-reliability-matrix.yml (#40289): Linux protocol cells, iOS simulator
+# cells and one report. GitHub runs a schedule, and registers a dispatch, only
+# from the default branch, so this file is on main too. Here the nightly cron
+# (08:17 UTC) runs job start, which dispatches the workflow on feat-cmux-next.
+# That dispatch runs feat-cmux-next's own file (event workflow_dispatch, branch
+# feat-cmux-next), never this one, so this file holds no matrix jobs to drift
+# from it. A dispatch on main does nothing.
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+# At most one queued run: a newer schedule run replaces a pending one.
+concurrency:
+  group: ios-reliability-matrix
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  # No secrets: it only dispatches this workflow on feat-cmux-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    permissions:
+      actions: write # dispatch ios-reliability-matrix.yml
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
+    # Room for one full wait through github.token's hour (below) when the App token cannot be minted.
+    timeout-minutes: 70
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh). An hour:
+      # the 11-25 dispatch was refused with the reset 1610 s away, past the old 900 s, and no nightly ran.
+      GH_BUDGET_WAIT_MAX_SECONDS: "3600"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      # The job token shares the repository's per-hour Actions budget with every other workflow: the
+      # 2026-11-23 and 2026-11-25 nightlies ended "HTTP 403: API rate limit exceeded for installation"
+      # (runs 45138996666, 45576360618), so no matrix ran and the ios-app-store-live probe's matrix part
+      # went stale. The cmux bot App's token has its own hour (cmux#55829 does the same for the post-merge
+      # batch); the job token stays the fallback when the App cannot be minted.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+      - name: Dispatch the full matrix on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: gh workflow run ios-reliability-matrix.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next

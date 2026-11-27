@@ -1,97 +1,115 @@
 import os
 
+/// Self-retained by its task until completion clears the handle.
+///
+/// Non-generic on purpose: store teardown runs on whichever thread releases
+/// the store (usually main), and must not instantiate per-`Key` generic
+/// metadata or key paths there.
+///
+/// Safety: every handle access is serialized by `taskState`, so cancellation
+/// from a nonisolated store deinitializer cannot race task completion.
+final class MainActorTaskStoreOwner: @unchecked Sendable {
+    private struct State: Sendable {
+        var task: Task<Void, Never>?
+        var isCancelled = false
+        var isFinished = false
+    }
+
+    private let taskState = OSAllocatedUnfairLock(initialState: State())
+
+    func install(_ newTask: Task<Void, Never>) {
+        let shouldCancel = taskState.withLock { state in
+            guard !state.isFinished else { return false }
+            state.task = newTask
+            return state.isCancelled
+        }
+        if shouldCancel { newTask.cancel() }
+    }
+
+    func cancel() {
+        let currentTask = taskState.withLock { state in
+            state.isCancelled = true
+            return state.task
+        }
+        currentTask?.cancel()
+    }
+
+    func releaseTask() {
+        taskState.withLock { state in
+            state.isFinished = true
+            state.task = nil
+        }
+    }
+}
+
+/// Nonisolated weak-owner index used solely for cancellation.
+///
+/// The lock guards only dictionary mutation: weak loads, owner releases and
+/// `Task.cancel()` (which takes the runtime's task-status lock and runs
+/// cancellation handlers synchronously) all happen after it is released, so
+/// teardown never waits on this lock behind other work.
+///
+/// Safety: `owners` serializes every mutation and snapshot. The registry
+/// never owns a task or operation strongly.
+final class MainActorTaskStoreOwnerRegistry: @unchecked Sendable {
+    /// Safety: weak-reference loads are runtime synchronized, and instances
+    /// of this wrapper are otherwise accessed only inside the registry lock
+    /// or in a snapshot no other thread can reach.
+    struct WeakOwner: @unchecked Sendable {
+        weak var value: MainActorTaskStoreOwner?
+    }
+
+    let owners = OSAllocatedUnfairLock(
+        initialState: [UInt64: WeakOwner]()
+    )
+
+    func install(_ owner: MainActorTaskStoreOwner, generation: UInt64) {
+        let weakOwner = WeakOwner(value: owner)
+        owners.withLock { $0[generation] = weakOwner }
+    }
+
+    func cancelAndRemove(generation: UInt64) {
+        let removed = owners.withLock { $0.removeValue(forKey: generation) }
+        removed?.value?.cancel()
+    }
+
+    func remove(generation: UInt64) {
+        let removed = owners.withLock { $0.removeValue(forKey: generation) }
+        _ = removed
+    }
+
+    func cancelAll() {
+        let drained = owners.withLock { owners in
+            var drained: [UInt64: WeakOwner] = [:]
+            swap(&drained, &owners)
+            return drained
+        }
+        for weakOwner in drained.values {
+            weakOwner.value?.cancel()
+        }
+    }
+}
+
 /// Coordinates keyed tasks without strongly retaining their task handles.
 ///
 /// A private owner keeps each handle alive until its task completes, while the
 /// store holds that owner weakly for cancellation. The task captures this store
 /// weakly for completion cleanup. A value snapshot can therefore retain the
 /// store, but the store cannot retain the snapshot through the task.
+///
+/// The cancellation registry is created with the first task. SwiftUI builds a
+/// throwaway `@State` default value on every view initialization, so a store
+/// that never started a task must allocate nothing and tear down without
+/// taking a lock.
 @MainActor
 public final class MainActorTaskStore<Key: Hashable & Sendable> {
-    /// Self-retained by its task until completion clears the handle.
-    ///
-    /// Safety: every handle access is serialized by `taskState`, so cancellation
-    /// from a nonisolated store deinitializer cannot race task completion.
-    private final class TaskOwner: @unchecked Sendable {
-        private struct State: Sendable {
-            var task: Task<Void, Never>?
-            var isCancelled = false
-            var isFinished = false
-        }
-
-        private let taskState = OSAllocatedUnfairLock(initialState: State())
-
-        func install(_ newTask: Task<Void, Never>) {
-            let shouldCancel = taskState.withLock { state in
-                guard !state.isFinished else { return false }
-                state.task = newTask
-                return state.isCancelled
-            }
-            if shouldCancel { newTask.cancel() }
-        }
-
-        func cancel() {
-            let currentTask = taskState.withLock { state in
-                state.isCancelled = true
-                return state.task
-            }
-            currentTask?.cancel()
-        }
-
-        func releaseTask() {
-            taskState.withLock { state in
-                state.isFinished = true
-                state.task = nil
-            }
-        }
-    }
-
-    /// Safety: weak-reference loads are runtime synchronized, and instances of
-    /// this wrapper are otherwise accessed only inside `TaskOwnerRegistry`'s
-    /// lock.
-    private struct WeakTaskOwner: @unchecked Sendable {
-        weak var value: TaskOwner?
-    }
-
-    /// Nonisolated weak-owner index used solely for cancellation.
-    ///
-    /// Safety: `owners` serializes every mutation and snapshot. The registry
-    /// never owns a task or operation strongly.
-    private final class TaskOwnerRegistry: @unchecked Sendable {
-        private let owners = OSAllocatedUnfairLock(
-            initialState: [UInt64: WeakTaskOwner]()
-        )
-
-        func install(_ owner: TaskOwner, generation: UInt64) {
-            owners.withLock { $0[generation] = WeakTaskOwner(value: owner) }
-        }
-
-        func cancelAndRemove(generation: UInt64) {
-            let owner = owners.withLock { $0.removeValue(forKey: generation)?.value }
-            owner?.cancel()
-        }
-
-        func remove(generation: UInt64) {
-            _ = owners.withLock { $0.removeValue(forKey: generation) }
-        }
-
-        func cancelAll() {
-            let liveOwners = owners.withLock { owners in
-                let liveOwners = owners.values.compactMap(\.value)
-                owners.removeAll()
-                return liveOwners
-            }
-            for owner in liveOwners {
-                owner.cancel()
-            }
-        }
-    }
-
     private struct Entry: Sendable {
         let generation: UInt64
     }
 
-    private nonisolated let taskOwners = TaskOwnerRegistry()
+    /// Created with the first task. Read by the nonisolated deinitializer,
+    /// which has exclusive access.
+    private(set) var taskOwners: MainActorTaskStoreOwnerRegistry?
     private var entries: [Key: Entry] = [:]
     private var nextGeneration: UInt64 = 0
 
@@ -154,7 +172,7 @@ public final class MainActorTaskStore<Key: Hashable & Sendable> {
     /// - Parameter key: The task slot to cancel.
     public func cancel(_ key: Key) {
         guard let entry = entries.removeValue(forKey: key) else { return }
-        taskOwners.cancelAndRemove(generation: entry.generation)
+        taskOwners?.cancelAndRemove(generation: entry.generation)
     }
 
     /// Cancels every operation whose key matches `predicate`.
@@ -167,23 +185,30 @@ public final class MainActorTaskStore<Key: Hashable & Sendable> {
         }
     }
 
-    private func prepareReplacement(_ key: Key) -> (UInt64, TaskOwner) {
+    private func prepareReplacement(_ key: Key) -> (UInt64, MainActorTaskStoreOwner) {
         cancel(key)
         nextGeneration &+= 1
         let generation = nextGeneration
-        let owner = TaskOwner()
+        let owner = MainActorTaskStoreOwner()
         entries[key] = Entry(generation: generation)
-        taskOwners.install(owner, generation: generation)
+        let registry: MainActorTaskStoreOwnerRegistry
+        if let taskOwners {
+            registry = taskOwners
+        } else {
+            registry = MainActorTaskStoreOwnerRegistry()
+            taskOwners = registry
+        }
+        registry.install(owner, generation: generation)
         return (generation, owner)
     }
 
     private func finish(_ key: Key, generation: UInt64) {
-        taskOwners.remove(generation: generation)
+        taskOwners?.remove(generation: generation)
         guard entries[key]?.generation == generation else { return }
         entries.removeValue(forKey: key)
     }
 
     deinit {
-        taskOwners.cancelAll()
+        taskOwners?.cancelAll()
     }
 }

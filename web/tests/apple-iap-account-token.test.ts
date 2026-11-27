@@ -26,24 +26,40 @@ describe("account token eligibility", () => {
     ({ bundleId, storeKitEnvironment });
   const user = { id: "user-a", clientReadOnlyMetadata: {}, update: async () => undefined };
 
-  test("lists the products for the requested app, Go only when its flag is on", async () => {
+  test("the cmux-next apps list the NEXT plans, monthly only, whatever the Go flag says", async () => {
+    const nextProducts = (bundleId: string) => [
+      { productId: `${bundleId}.next_plus.monthly`, planId: "next_plus", billingPeriod: "monthly" },
+      { productId: `${bundleId}.next_pro.monthly`, planId: "next_pro", billingPeriod: "monthly" },
+      { productId: `${bundleId}.next_max.monthly`, planId: "next_max", billingPeriod: "monthly" },
+    ];
     const response = await appleAccountTokenResponse(user, app("com.cmux.app"), deps());
     expect(response).toMatchObject({ eligible: true, reason: null, currentPlan: { planId: "free", source: "none" } });
+    expect(response.products).toEqual(nextProducts("com.cmux.app"));
+    // NEXT plans are monthly only, as on the web, even when the app asks for yearly.
+    const periods = accountToken.requestedBillingPeriods("monthly,yearly");
+    const both = await appleAccountTokenResponse(user, { ...app("com.cmux.app"), billingPeriods: periods }, deps());
+    expect(both.products).toEqual(nextProducts("com.cmux.app"));
+    const noGo = await appleAccountTokenResponse(user, app("com.cmux.app"), deps({ goPlanEnabled: async () => false }));
+    expect(noGo.products).toEqual(nextProducts("com.cmux.app"));
+  });
+
+  test("the classic beta lists the classic plans, Go only when its flag is on", async () => {
+    const response = await appleAccountTokenResponse(user, app("dev.cmux.app.beta"), deps());
     expect(response.products).toEqual([
-      { productId: "com.cmux.app.go.monthly", planId: "go", billingPeriod: "monthly" },
-      { productId: "com.cmux.app.pro.monthly", planId: "pro", billingPeriod: "monthly" },
-      { productId: "com.cmux.app.max.monthly", planId: "max", billingPeriod: "monthly" },
+      { productId: "dev.cmux.app.beta.go.monthly", planId: "go", billingPeriod: "monthly" },
+      { productId: "dev.cmux.app.beta.pro.monthly", planId: "pro", billingPeriod: "monthly" },
+      { productId: "dev.cmux.app.beta.max.monthly", planId: "max", billingPeriod: "monthly" },
     ]);
     // An app that sends `x-cmux-billing-periods: monthly,yearly` also gets the
     // yearly Pro and Max products; Go stays monthly like the web.
     const periods = accountToken.requestedBillingPeriods("monthly,yearly");
-    const both = await appleAccountTokenResponse(user, { ...app("com.cmux.app"), billingPeriods: periods }, deps());
+    const both = await appleAccountTokenResponse(user, { ...app("dev.cmux.app.beta"), billingPeriods: periods }, deps());
     expect(both.products).toEqual([
-      { productId: "com.cmux.app.go.monthly", planId: "go", billingPeriod: "monthly" },
-      { productId: "com.cmux.app.pro.monthly", planId: "pro", billingPeriod: "monthly" },
-      { productId: "com.cmux.app.pro.yearly", planId: "pro", billingPeriod: "yearly" },
-      { productId: "com.cmux.app.max.monthly", planId: "max", billingPeriod: "monthly" },
-      { productId: "com.cmux.app.max.yearly", planId: "max", billingPeriod: "yearly" },
+      { productId: "dev.cmux.app.beta.go.monthly", planId: "go", billingPeriod: "monthly" },
+      { productId: "dev.cmux.app.beta.pro.monthly", planId: "pro", billingPeriod: "monthly" },
+      { productId: "dev.cmux.app.beta.pro.yearly", planId: "pro", billingPeriod: "yearly" },
+      { productId: "dev.cmux.app.beta.max.monthly", planId: "max", billingPeriod: "monthly" },
+      { productId: "dev.cmux.app.beta.max.yearly", planId: "max", billingPeriod: "yearly" },
     ]);
     expect(accountToken.requestedBillingPeriods(null)).toEqual(["monthly"]);
     const noGo = await appleAccountTokenResponse(user, app("dev.cmux.app.beta"), deps({ goPlanEnabled: async () => false }));
@@ -108,6 +124,22 @@ describe("account token eligibility", () => {
         .toMatchObject(unavailable);
     });
 
+    test("production hides products from cmux INTERNAL (the cmux-next TestFlight build)", async () => {
+      for (const environment of ["Sandbox", null] as const) {
+        expect(await appleAccountTokenResponse(user, app("dev.cmux.app.internal", environment), deps({ env: production })))
+          .toMatchObject(unavailable);
+      }
+      const named = await appleAccountTokenResponse(user, app("dev.cmux.app.internal", "Sandbox"), deps({
+        env: { ...production, APPLE_IAP_SANDBOX_ENTITLEMENTS: "dev.cmux.app.internal" },
+      }));
+      expect(named).toMatchObject({ eligible: true, reason: null });
+      expect(named.products.map((product) => product.productId)).toEqual([
+        "dev.cmux.app.internal.next_plus.monthly",
+        "dev.cmux.app.internal.next_pro.monthly",
+        "dev.cmux.app.internal.next_max.monthly",
+      ]);
+    });
+
     test("other deployments sell to every Sandbox build", async () => {
       const response = await appleAccountTokenResponse(user, app("dev.cmux.app.beta", "Sandbox"), deps({ env: {} }));
       expect(response.eligible).toBe(true);
@@ -132,5 +164,14 @@ describe("account token eligibility", () => {
   test("unknown bundle IDs get no products; a missing header means the App Store app", () => {
     expect(requestedAppleBundleId("com.example.other")).toBeNull();
     expect(requestedAppleBundleId(null)).toBe("com.cmux.app");
+  });
+
+  test("the default bundle list accepts cmux INTERNAL and keeps the App Store app first", async () => {
+    const { appleBundleIds, isAcceptedAppleBundleId } = await import("../services/billing/apple/config");
+    expect(appleBundleIds({})).toEqual(["com.cmux.app", "dev.cmux.app.beta", "dev.cmux.app.internal"]);
+    expect(isAcceptedAppleBundleId("dev.cmux.app.internal", {})).toBe(true);
+    expect(isAcceptedAppleBundleId("dev.cmux.app.classic", {})).toBe(false);
+    // A deployment that sets the list replaces the default entirely.
+    expect(isAcceptedAppleBundleId("dev.cmux.app.internal", { APPLE_IAP_BUNDLE_IDS: "com.cmux.app,dev.cmux.app.beta" })).toBe(false);
   });
 });

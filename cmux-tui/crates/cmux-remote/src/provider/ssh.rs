@@ -333,17 +333,14 @@ mod tests {
     /// Runs `open` with a fake `ssh` that records its argv, and returns it.
     #[cfg(unix)]
     async fn carrier_argv(extra_args: &[&str]) -> Vec<String> {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let log = directory.path().join("argv");
         let script = directory.path().join("ssh");
-        std::fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", log.display()),
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let group = SshLinkGroup {
             description: "ssh://example.com:2222".into(),
             destination: "alice@example.com".into(),

@@ -154,6 +154,15 @@ The header also states the API call count. Nothing is cached, and a rate limit
 or API error degrades the report to partial data (announced in a banner)
 instead of failing the run.
 
+Reads go on an App token from `.github/actions/app-token-spread` (whichever of
+the two Apps has more of its hourly budget left), passed as
+`CI_HEALTH_READ_TOKEN`; the issue comment stays on `github.token`. On
+`github.token` alone every run listing was refused 403 for a whole day
+(2026-11-26: three runs fetched 0 runs), because every workflow in the
+repository spends that one budget. Once a call is refused on a spent limit,
+the remaining run-listing slices are skipped instead of each spending another
+refused call.
+
 Caps are repository variables, all optional:
 
 | Variable | Default | What it bounds |

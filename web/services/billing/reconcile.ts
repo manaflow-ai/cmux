@@ -131,7 +131,7 @@ async function applySubscriptionUpdateAndRevokeRoutes(
   subscription: Stripe.Subscription,
 ) {
   const result = await applySubscriptionUpdate(subscription);
-  if (!("skipped" in result) && !result.isActive) {
+  if (!("skipped" in result) && !result.isActive && !("retainsAccess" in result && result.retainsAccess)) {
     if (result.scope === "user") {
       await revokeRouteTokensForUser(result.stackUserId);
     } else {

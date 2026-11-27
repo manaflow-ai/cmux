@@ -698,6 +698,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-test-exec",
  "cmux-tui-core",
  "cmux-tui-source-watch",
  "cmux-wg",
@@ -786,6 +787,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-test-exec"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-tui"
 version = "0.1.0"
 dependencies = [
@@ -796,6 +804,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-test-exec",
  "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",

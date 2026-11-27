@@ -1,5 +1,9 @@
 import CmuxTerminalSizing
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Where a pane draws the shared grid's bounds.
 ///

@@ -103,11 +103,14 @@ def rerun_path(run_id):
 
 
 class Tests(unittest.TestCase):
-    def sweep(self, fake, dry=False, now=NOW, slept=None, code=0):
+    def sweep(self, fake, dry=False, now=NOW, slept=None, code=0, workflow=None):
+        # `workflow`: a separate fake for the workflow token (RATE_TOKEN); by default both tokens share `fake`.
         env = {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "app", "RATE_TOKEN": "workflow"}
         out = io.StringIO()
         slept = [] if slept is None else slept
-        with mock.patch.object(rerun, "GitHub", lambda token, repo: fake), mock.patch.dict("os.environ", env), \
+        pick = (lambda token, repo: fake) if workflow is None else \
+            (lambda token, repo: fake if token == "app" else workflow)
+        with mock.patch.object(rerun, "GitHub", pick), mock.patch.dict("os.environ", env), \
                 redirect_stdout(out):
             self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now, sleep=slept.append), code)
         return out.getvalue()
@@ -277,6 +280,19 @@ class Tests(unittest.TestCase):
         self.sweep(fake)
         self.assertEqual(fake.posts, [])
 
+    def test_a_rerun_that_failed_again_backs_off_before_the_next(self):
+        # 2026-11-13: the workflow token's rate_limit read showed 4133 of 5000 left while CLA
+        # Assistant was refused for the installation budget, so each failed re-run started a pass
+        # that re-ran it at once: #42487 went from attempt 1 to MAX_ATTEMPT in 8 minutes, all red,
+        # and stayed red after the reset with no attempt left.
+        head = "a" * 40
+        for attempt, age, due in ((1, 0, True), (2, 0, False), (2, 2, True), (5, 5, False), (5, 9, True),
+                                  (12, 15, False), (12, 31, True)):
+            updated = (NOW - dt.timedelta(minutes=age)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            fake = FakeGitHub([run(1, head, attempt=attempt, updated=updated)], [], {1: LIMITED_LOG})
+            self.sweep(fake)
+            self.assertEqual(fake.posts, [rerun_path(1)] if due else [], (attempt, age))
+
     def test_a_head_rerun_since_is_not_replayed(self):
         head = "a" * 40
         fake = FakeGitHub([run(1, head), run(6, head, conclusion="success")],
@@ -360,32 +376,75 @@ class Tests(unittest.TestCase):
         # 2026-10-26: a pass logged only "HTTP Error 403: Forbidden" and ended green, CLA red.
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
         reset = NOW + dt.timedelta(minutes=6)
-        fake.fail("POST", rerun_path(1), 403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        # Refused on the App and then on the workflow token too (the fake serves both).
+        for _ in range(2):
+            fake.fail("POST", rerun_path(1), 403, X_RateLimit_Remaining="0",
+                      X_RateLimit_Reset=str(int(reset.timestamp())))
         slept = []
         out = self.sweep(fake, slept=slept)
         self.assertIn("HTTP 403", out)
         self.assertEqual(slept, [6 * 60 + 20])
         self.assertEqual(fake.posts, [rerun_path(1)])
 
-    def test_a_spent_app_budget_is_named_waited_out_and_its_guard_rejects_rerun(self):
+    def test_a_spent_app_budget_is_named_and_its_guard_rejects_rerun_on_the_workflow_token(self):
         # 2026-10-28 06:44Z: the glaeda-route App budget, which the guard reads on, ran out and
         # the guard rejected every pull request into main until the reset, policy changes included.
+        # 2026-11-26 07:54Z: the workflow token had just reset while the App was spent until 08:04Z;
+        # the pass reads and re-runs on the workflow token rather than waiting for the App.
         reset = NOW + dt.timedelta(minutes=6)
         inside, before = "b" * 40, "c" * 40
-        fake = FakeGitHub([], [run(2, inside, number=2, name=GUARD), run(3, before, number=3, name=GUARD)],
-                          {2: GUARD_LOG, 3: GUARD_LOG},
-                          finished={2: "2026-10-26T04:25:00Z", 3: "2026-10-26T03:30:00Z"})
-        fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 403,
-                  X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        runs = ([], [run(2, inside, number=2, name=GUARD), run(3, before, number=3, name=GUARD)],
+                {2: GUARD_LOG, 3: GUARD_LOG})
+        finished = {2: "2026-10-26T04:25:00Z", 3: "2026-10-26T03:30:00Z"}
+        app, workflow = FakeGitHub(*runs, finished=finished), FakeGitHub(*runs, finished=finished)
+        app.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 403,
+                 X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
         slept = []
-        out = self.sweep(fake, slept=slept)
+        out = self.sweep(app, slept=slept, workflow=workflow)
         self.assertIn("::warning title=glaeda-route App budget spent::the glaeda-route App budget is spent until "
                       f"{reset + rerun.RESET_GRACE:%H:%M:%SZ}", out)
-        self.assertIn("the glaeda-route App budget is spent; the pass runs again in 380 s", out)
-        self.assertEqual(slept, [6 * 60 + 20])
-        # Both change CLA policy; only the reject inside the App's spent hour is re-run.
-        self.assertEqual(fake.posts, [rerun_path(2)])
+        self.assertIn("so this pass reads and re-runs on it", out)
+        self.assertEqual(slept, [])
+        # Both change CLA policy; only the reject inside the App's spent hour is re-run, on the workflow token.
+        self.assertEqual(app.posts, [])
+        self.assertEqual(workflow.posts, [rerun_path(2)])
         self.assertIn("reject left alone::run 3", out)
+
+    def test_both_budgets_spent_waits_for_the_reset_and_reruns(self):
+        # The App's hour is spent and the workflow token is refused too: the pass waits for the reset.
+        reset = NOW + dt.timedelta(minutes=6)
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        pulls = "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1"
+        for _ in range(2):
+            fake.fail("GET", pulls, 403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        slept = []
+        out = self.sweep(fake, slept=slept)
+        self.assertEqual(out.count("glaeda-route App budget spent::"), 1)
+        self.assertIn("the budget is spent; the pass runs again in 380 s", out)
+        self.assertEqual(slept, [6 * 60 + 20])
+        self.assertEqual(fake.posts, [rerun_path(1)])
+
+    def test_a_spent_app_budget_mid_pass_finishes_on_the_workflow_token_without_rerunning_twice(self):
+        reset = NOW + dt.timedelta(minutes=6)
+        runs = ([run(1, "a" * 40), run(2, "b" * 40, number=2)], [], {1: LIMITED_LOG, 2: LIMITED_LOG})
+        app, workflow = FakeGitHub(*runs), FakeGitHub(*runs)
+        # Newest first: run 2 goes on the App, which is then spent before run 1.
+        app.fail("POST", rerun_path(1), 403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        out = self.sweep(app, workflow=workflow)
+        self.assertEqual(app.posts, [rerun_path(2)])
+        self.assertEqual(workflow.posts, [rerun_path(1)])
+        self.assertIn("1 re-run(s) on the workflow token", out)
+
+    def test_a_secondary_limit_on_the_app_does_not_switch_tokens(self):
+        # Only the App's exhausted hour (X-RateLimit-Remaining 0) moves the pass to the workflow token.
+        fake, workflow = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}), FakeGitHub([], [], {})
+        fake.fail("POST", rerun_path(1), 429, Retry_After="30")
+        slept = []
+        self.sweep(fake, slept=slept, workflow=workflow)
+        self.assertEqual(slept, [30])
+        self.assertNotIn(("POST", rerun_path(1)), workflow.calls)
+        self.assertEqual(workflow.posts, [])
+        self.assertEqual(fake.posts, [rerun_path(1)])
 
     def test_only_a_guard_reject_inside_the_app_hour_is_evidence(self):
         # A guard run that failed for another reason (runner, checkout) in that hour is not re-run.

@@ -608,6 +608,78 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
 });
 
+function resolveIrohV2Environment(prodAuth, explicit = "") {
+  return run("bash", [
+    "-c",
+    'source "$1"; CMUX_IROH_V2_ENVIRONMENT="$3" cmux_attach_resolve_iroh_v2_environment "$2"',
+    "mobile-attach-test",
+    validator,
+    prodAuth,
+    explicit,
+  ]);
+}
+
+// A --prod-auth build signs in with a production account; the development v2
+// Worker refuses that token with HTTP 403, so pairing fails (#38747).
+test("--prod-auth builds use the production Iroh v2 control plane unless set explicitly", () => {
+  for (const [prodAuth, explicit, expected] of [
+    ["1", "", "production"],
+    ["0", "", "development"],
+    ["1", "staging", "staging"],
+    ["0", "production", "production"],
+  ]) {
+    const result = resolveIrohV2Environment(prodAuth, explicit);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected, `PROD_AUTH=${prodAuth} explicit=${explicit || "unset"}`);
+  }
+});
+
+function resolveIrohV2BaseURL(environment, explicit = "") {
+  return run("bash", [
+    "-c",
+    'source "$1"; CMUX_IROH_V2_BASE_URL="$3" cmux_attach_resolve_iroh_v2_base_url "$2"',
+    "mobile-attach-test",
+    validator,
+    environment,
+    explicit,
+  ]);
+}
+
+// The macOS app keeps the last non-empty v2 URL in its defaults and never clears
+// it, so a tag rebuilt with --prod-auth must bake the matching Worker URL.
+test("macOS reload bakes the Worker URL of the resolved Iroh v2 environment", () => {
+  for (const [environment, explicit, expected] of [
+    ["production", "", "https://cmux-v2.debussy.workers.dev"],
+    ["staging", "", "https://cmux-v2-staging.debussy.workers.dev"],
+    ["development", "", "https://cmux-v2-development.debussy.workers.dev"],
+    ["production", "https://v2.example.test", "https://v2.example.test"],
+    ["produciton", "", ""],
+  ]) {
+    const result = resolveIrohV2BaseURL(environment, explicit);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected, `${environment} explicit=${explicit || "unset"}`);
+  }
+});
+
+test("macOS and iOS reloads resolve the Iroh v2 environment from --prod-auth", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  for (const [script, source] of [["scripts/reload.sh", macReload], ["ios/scripts/reload.sh", iosReload]]) {
+    assert.match(
+      source,
+      /CMUX_IROH_V2_ENVIRONMENT_VALUE="\$\(cmux_attach_resolve_iroh_v2_environment "\$PROD_AUTH"\)"/,
+      script,
+    );
+    assert.doesNotMatch(source, /CMUX_IROH_V2_ENVIRONMENT:-development/, script);
+  }
+  assert.match(
+    macReload,
+    /CMUX_IROH_V2_BASE_URL_VALUE="\$\(cmux_attach_resolve_iroh_v2_base_url "\$CMUX_IROH_V2_ENVIRONMENT_VALUE"\)"/,
+  );
+  // The iOS app derives the URL from the environment and clears a stale stored one.
+  assert.match(iosReload, /CMUX_IROH_V2_BASE_URL_VALUE="\$\{CMUX_IROH_V2_BASE_URL:-\}"/);
+});
+
 test("tagged macOS launches require a personal credential file by default", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
 

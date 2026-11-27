@@ -25,7 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     setSpanAttributes(span, { "cmux.vm.id": id, "cmux.transfer.transport": "wireguard-scp" });
     const run = await runVmRoute(prepareScpEndpoint({
       userId: user.id, billingTeamId: account.entitlements.billingTeamId,
-      callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms,
+      callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, entitlementOverride: account.entitlements.entitlementOverride,
       teamIds: user.teamIds, providerVmId: id, publicKey,
       // Measured from the request's start: the Mac client's clock started when it sent the request.
       answerWithinMs: scpAnswerBudgetMs(performance.now() - routeStartedAtMs),

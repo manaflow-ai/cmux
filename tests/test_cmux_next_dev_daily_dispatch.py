@@ -193,6 +193,8 @@ if resolve_script and shutil.which("bash") and shutil.which("jq"):
 
 def script_body():
     text = WORKFLOW.read_text()
+    # The dispatch step's script, not the App budget reads around it.
+    text = text[text.index("      - name: Dispatch the current feat-cmux-next tip when needed\n"):]
     match = re.search(r"^        with:\n          script: \|\n((?:^            .*\n|^\s*\n)+)", text, re.MULTILINE)
     if not match:
         sys.exit("FAIL: could not find the dispatcher's github-script")
@@ -203,7 +205,12 @@ HARNESS = r"""
 const fixture = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
 const calls = [];
 const github = { rest: {
-  git: { getRef: async () => ({ data: { object: { sha: fixture.tip } } }) },
+  // fixture.tips: successive answers (the tip moving during the tick); the last one repeats.
+  git: { getRef: async () => {
+    calls.push(['getRef']);
+    const sha = fixture.tips ? (fixture.tips.length > 1 ? fixture.tips.shift() : fixture.tips[0]) : fixture.tip;
+    return { data: { object: { sha } } };
+  } },
   actions: {
     listWorkflowRuns: async ({ workflow_id }) => ({ data: { workflow_runs:
       workflow_id === 'cmux-next.yml' ? fixture.sourceRuns : fixture.publishRuns } }),
@@ -258,8 +265,8 @@ def app_job(conclusion):
             {"name": "cmux-next path routing", "conclusion": "success"}]
 
 
-def run(source_runs, jobs, publish_runs=(), app=None, expect_failure=False):
-    fixture = {"tip": TIP, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs),
+def run(source_runs, jobs, publish_runs=(), app=None, expect_failure=False, tips=None):
+    fixture = {"tip": TIP, "tips": tips, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs),
                "jobs": {str(k): v for k, v in jobs.items()}, "app": app}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
@@ -333,6 +340,18 @@ calls = run([finished], {22: app_job("failure")})
 check(built(calls) == [TIP], f"a finished DEV build must not space the next one, got {built(calls)}")
 check(run([], {}) and built(run([], {})) == [TIP], "with no DEV build running the tip is built")
 
+# 2026-11-27: the reads before the dispatch took about 20 s (tick 45958399125), a
+# merge landed meanwhile, and the run was superseded (dev_daily_sha != github.sha)
+# and built nothing; about half that day's DEV runs were. The tip is read again
+# right before the dispatch, and the run asks for the new one.
+moved = "4" * 40
+calls = run([], {}, tips=[TIP, moved])
+check(built(calls) == [moved], f"a tip that moved during the tick must be the one asked for, got {built(calls)}")
+check([c for c in calls if c[0] in ("getRef", "dispatch")][-2][0] == "getRef",
+      f"the last read before the dispatch must be the tip, got {calls}")
+calls = run([], {}, tips=[TIP, TIP])
+check(built(calls) == [TIP], f"an unmoved tip is asked for as before, got {built(calls)}")
+
 # The App token reads and hands over the publisher when its budget lasts.
 calls = run([dev_run(9, "9" * 40, "success")], {9: app_job("success")}, app="ok")
 check(published(calls) == ["9"] and ["app", "getRef"] in calls,
@@ -350,6 +369,31 @@ check([c for c in calls if c[0] == "app"] == [["app", "getRef"]],
 # A 403 that is not a rate limit (a permission problem) still fails the tick.
 check(run([], {}, app="broken", expect_failure=True) is True,
       "a non-rate-limit App error must fail the dispatcher, not fall back silently")
+
+# The newest finished source run's publish run was cancelled by a newer publish
+# run's supersede job (scripts/ci/cmux_next_dev_publish_supersede.py): that newer
+# run's source (cmux-next.yml hands it over from inside the run, before the run
+# finishes) is in flight or published. Publish and the tip feed never roll back,
+# so handing the older source over again would only queue a run that can never
+# publish, holding a Mac slot (2026-11-09: seven open publish runs).
+def publish_run(source, status, conclusion=None):
+    return {"name": "x", "display_title": f"cmux NEXT DEV daily · publish {source}",
+            "status": status, "conclusion": conclusion}
+
+
+for status, conclusion in (("in_progress", None), ("queued", None), ("completed", "success")):
+    calls = run([dev_run(12, "c" * 40, "success")], {12: app_job("success")},
+                [publish_run(12, "completed", "cancelled"), publish_run(13, status, conclusion)])
+    check(published(calls) == [],
+          f"a newer {status} {conclusion or ''} publish run must stop the older source's handoff, got {published(calls)}")
+# A newer publish run that failed or was cancelled supersedes nothing: the built app is handed over again.
+for conclusion in ("failure", "cancelled"):
+    calls = run([dev_run(12, "c" * 40, "success")], {12: app_job("success")},
+                [publish_run(12, "completed", "cancelled"), publish_run(13, "completed", conclusion)])
+    check(published(calls) == ["12"], f"a {conclusion} newer publish run must not stop the handoff, got {published(calls)}")
+# An older source's publish run in flight never stops a newer source's handoff.
+calls = run([dev_run(12, "c" * 40, "success")], {12: app_job("success")}, [publish_run(11, "in_progress")])
+check(published(calls) == ["12"], f"an older publish run must not stop a newer handoff, got {published(calls)}")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],

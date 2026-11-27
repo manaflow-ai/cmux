@@ -774,6 +774,10 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
             !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
             "hook regex must contain 1 to 1024 UTF-8 bytes"
         );
+        // `terminal_output` stays valid here: a hook stored before output
+        // left the journal keeps matching the records of older registries,
+        // and a retried put of one returns its receipt. `put_journal_hook`
+        // refuses a new one.
         anyhow::ensure!(
             matches!(
                 regex.field.as_str(),
@@ -1715,6 +1719,19 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<JournalAppendCommit> {
+        self.put_journal_hook_admitting(manifest, origin, idempotency_key, false)
+    }
+
+    /// [`Self::put_journal_hook`]; `admit_retired_fields` stores a hook on
+    /// the retired `terminal_output` field, as a daemon that still journaled
+    /// output did (tests of the retry of such a put).
+    fn put_journal_hook_admitting(
+        &mut self,
+        manifest: &JournalHookManifest,
+        origin: &str,
+        idempotency_key: &str,
+        admit_retired_fields: bool,
+    ) -> anyhow::Result<JournalAppendCommit> {
         validate_journal_hook_manifest(manifest)?;
         validate_identifier("journal hook origin", origin)?;
         validate_identifier("journal hook idempotency key", idempotency_key)?;
@@ -1730,6 +1747,19 @@ impl WorkspaceRegistry {
         )? {
             return Ok(commit);
         }
+        // A new hook on terminal output would never fire: output is not in
+        // the session journal (output_store.rs). A retry of one stored before
+        // returned its receipt above.
+        anyhow::ensure!(
+            admit_retired_fields
+                || manifest
+                    .filter
+                    .regex
+                    .as_ref()
+                    .is_none_or(|regex| regex.field != "terminal_output"),
+            "hook regex field terminal_output is retired: terminal output is not in the session \
+             journal; wait with terminal.wait or read with terminal.output_read"
+        );
         let latest = tx
             .query_row(
                 "SELECT manifest_version, manifest_json
@@ -2258,32 +2288,21 @@ impl WorkspaceRegistry {
 
     /// Store the exit snapshot for one terminal generation, best-effort and
     /// idempotent. The exit latch is first-writer-wins, so at most one row
-    /// exists per terminal; a replayed store is a no-op. Returns whether a
-    /// snapshot row was written.
+    /// exists per terminal; a replayed store is a no-op. `covered_through` is
+    /// the output-store offset the snapshot covers (output_store.rs). Returns
+    /// whether a snapshot row was written.
     pub(crate) fn put_terminal_exit_snapshot(
         &mut self,
         terminal_id: &str,
         generation: &str,
+        covered_through: u64,
         blob: &JournalContentBlob,
     ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
-        let covered_through = tx
-            .query_row(
-                "SELECT next_offset FROM journal_terminal_streams
-                 WHERE terminal_id = ?1 AND generation = ?2",
-                params![terminal_id, generation],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .map(u64::try_from)
-            .transpose()
-            .context("terminal journal offset is negative")?
-            .unwrap_or(0);
         if covered_through == 0 {
-            // The generation journaled no output; there is nothing for the
-            // snapshot to cover and record reads stay exact without it.
+            // The generation printed nothing; there is nothing to cover.
             return Ok(false);
         }
+        let tx = self.connection.transaction()?;
         let now = unix_epoch_ms()?;
         insert_journal_content_blob(&tx, blob, now)?;
         let inserted = tx.execute(
@@ -3314,6 +3333,34 @@ mod tests {
             },
             permissions: vec!["journal.read".into()],
         }
+    }
+
+    /// A put of a `terminal_output` hook committed before output left the
+    /// journal still replays its receipt; a new one is refused.
+    #[test]
+    fn a_retired_terminal_output_hook_replays_its_receipt_and_new_ones_are_refused() {
+        let mut registry = WorkspaceRegistry::in_memory("retired-hook-field").unwrap();
+        let mut manifest = hook(1);
+        manifest.permissions.push("journal.read.sensitive".into());
+        manifest.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
+        manifest.filter.regex = Some(JournalHookRegex {
+            pattern: "error-[0-9]+".into(),
+            field: "terminal_output".into(),
+            case_sensitive: true,
+        });
+        let stored = registry
+            .put_journal_hook_admitting(&manifest, "client_test", "hook_before_upgrade", true)
+            .unwrap();
+        assert!(!stored.replayed);
+
+        let retried = registry.put_journal_hook(&manifest, "client_test", "hook_before_upgrade");
+        let retried = retried.expect("a retried put replays its receipt");
+        assert!(retried.replayed);
+        assert_eq!((retried.sequence, retried.event_id), (stored.sequence, stored.event_id));
+
+        let error =
+            registry.put_journal_hook(&manifest, "client_test", "hook_after_upgrade").unwrap_err();
+        assert!(error.to_string().contains("terminal_output is retired"), "{error:#}");
     }
 
     #[test]

@@ -430,6 +430,42 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(livePID == 707)
     }
 
+    /// A Claude turn interrupted with Esc gets no Stop; the program-status fallback settles the
+    /// built-in pill to Idle and must settle agents[].status too (#39157). A turn that started
+    /// after the idle edge, or another agent on the terminal, stays as it is.
+    @MainActor
+    @Test func programStatusIdleSettlesTheTerminalsWorkingClaudeSession() throws {
+        let registry = AgentChatSessionRegistry()
+        let surfaceID = UUID().uuidString
+        let other = UUID().uuidString
+        func prompt(_ sessionID: String, _ surface: String, _ source: String, _ at: TimeInterval) {
+            registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .userPromptSubmit,
+                source: source,
+                surfaceId: surface,
+                receivedAt: Date(timeIntervalSince1970: at)
+            ))
+        }
+        prompt("39157000-0000-4000-8000-000000000001", surfaceID, "claude", 10)
+        prompt("39157000-0000-4000-8000-000000000002", other, "claude", 10)
+        prompt("39157000-0000-4000-8000-000000000003", surfaceID, "codex", 10)
+
+        #expect(registry.noteProgramStatusIdle(
+            surfaceID: surfaceID, source: "claude", at: Date(timeIntervalSince1970: 20)) == 1)
+        #expect(try #require(registry.record(sessionID: "39157000-0000-4000-8000-000000000001")).state == .idle)
+        #expect(try #require(registry.record(sessionID: "39157000-0000-4000-8000-000000000002")).state
+            == .working(since: Date(timeIntervalSince1970: 10)))
+        #expect(try #require(registry.record(sessionID: "39157000-0000-4000-8000-000000000003")).state
+            == .working(since: Date(timeIntervalSince1970: 10)))
+
+        prompt("39157000-0000-4000-8000-000000000001", surfaceID, "claude", 30)
+        #expect(registry.noteProgramStatusIdle(
+            surfaceID: surfaceID, source: "claude", at: Date(timeIntervalSince1970: 25)) == 0)
+        #expect(try #require(registry.record(sessionID: "39157000-0000-4000-8000-000000000001")).state
+            == .working(since: Date(timeIntervalSince1970: 30)))
+    }
+
     @Test func endedLifecycleIgnoresDelayedNonStartEvents() {
         let delayed = WorkstreamEvent(
             sessionId: "session",

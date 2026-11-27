@@ -788,6 +788,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
     },
+    "FocusAttention": {
+        "classification": "presentation-only",
+        "route": "frontend attention list + client focus",
+    },
     "DeleteManagedWorkspace": {
         "classification": "external-protocol",
         "route": "machine-provider delete_workspace",

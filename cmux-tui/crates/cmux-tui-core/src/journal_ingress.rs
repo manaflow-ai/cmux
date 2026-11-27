@@ -733,9 +733,8 @@ impl JournalIngressSender {
     }
 
     /// Queue a terminal output gap without waiting for queue space or a
-    /// durability receipt. This is used after the bounded capture deadline has
-    /// elapsed: a free slot should still preserve the gap marker, but the
-    /// reader must not incur a second durability wait on a stalled writer.
+    /// durability receipt: the hosted reader records gaps and must never wait
+    /// for a stalled writer. Fails when the terminal lane is full.
     pub(crate) fn try_send_terminal_gap(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
         debug_assert!(matches!(&event, JournalIngressEvent::TerminalOutputGap { .. }));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
@@ -1023,14 +1022,6 @@ impl JournalIngressSender {
         self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
     }
 
-    pub(crate) fn wait_for_queue_space_until(
-        &self,
-        observed: u64,
-        deadline: Instant,
-    ) -> Result<(), String> {
-        self.state.wait_for_queue_space_until(observed, deadline)
-    }
-
     fn wait_for_commit_result<T>(
         &self,
         result: Receiver<Result<T, String>>,
@@ -1090,9 +1081,32 @@ pub(crate) fn start(
     mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))
 }
 
+/// Debug builds: the first batch that holds a terminal-lane record (a resize
+/// or a gap marker; output is not journaled, and a flush barrier does not
+/// count) waits until a test opens the FIFO named by
+/// `CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL`, as a writer stuck behind a slow
+/// disk would.
+#[cfg(debug_assertions)]
+fn hold_terminal_journal_for_test(batch: &[QueuedJournalEvent]) {
+    static HELD: AtomicBool = AtomicBool::new(false);
+    if !batch.iter().any(|queued| {
+        queued.event.lane() == JournalLane::Terminal
+            && !matches!(queued.event, JournalIngressEvent::TerminalBarrier)
+    }) {
+        return;
+    }
+    if let Some(path) = std::env::var_os("CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL")
+        && !HELD.swap(true, Ordering::AcqRel)
+    {
+        let _ = std::fs::read(path);
+    }
+}
+
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
+        #[cfg(debug_assertions)]
+        hold_terminal_journal_for_test(&batch);
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
             let mut delay = JOURNAL_RETRY_INITIAL_DELAY;

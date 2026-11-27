@@ -406,7 +406,7 @@ describe("Iroh route boundary", () => {
     for (const operation of operations) {
       const base = authedPost("/api/devices/iroh", {});
       const headers = new Headers(base.headers);
-      headers.set("x-cmux-app-namespace", "dev.cmux.app.demo");
+      headers.set("x-cmux-app-namespace", "dev.cmux.app.classic");
       headers.set(
         "x-cmux-iroh-binding-id",
         "123e4567-e89b-42d3-a456-426614174000",
@@ -420,7 +420,7 @@ describe("Iroh route boundary", () => {
       );
       expect(response.status).toBe(operation === "revoke" ? 200 : 201);
     }
-    expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
+    expect(received).toEqual(Array(4).fill("dev.cmux.app.classic"));
     expect(receivedBindingIDs).toEqual(
       Array(4).fill("123e4567-e89b-42d3-a456-426614174000"),
     );

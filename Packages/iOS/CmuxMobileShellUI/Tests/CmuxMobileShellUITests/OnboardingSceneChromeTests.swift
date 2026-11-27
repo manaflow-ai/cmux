@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 @testable import CmuxMobileShellUI
 import Foundation
 import SwiftUI
@@ -109,6 +110,29 @@ import UIKit
         #expect(tailscaleFallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
+    }
+
+    /// App Review, iPad, 2026-11-07: with no reachable Mac the connect page
+    /// offered only Check Again and the scanner, so a signed-in user could not
+    /// reach the app at all. Until a Mac connects, Skip continues without one.
+    @Test func connectPageLetsSignedInUsersContinueWithoutAMac() {
+        for phase in [OnboardingConnectionPhase.searching, .idle, .fallback] {
+            for method in [MobileConnectionMethod.automatic, .tailscale] {
+                let chrome = OnboardingSceneChrome(
+                    stage: .connect,
+                    isAuthenticated: true,
+                    connectionPhase: phase,
+                    connectionMethod: method
+                )
+                #expect(chrome.showsSkip, "phase \(phase), method \(method)")
+            }
+        }
+        let ready = OnboardingSceneChrome(
+            stage: .connect,
+            isAuthenticated: true,
+            connectionPhase: .ready
+        )
+        #expect(!ready.showsSkip)
     }
 
     @Test func screenshotLanguageMatchesTheSupportedLocale() {

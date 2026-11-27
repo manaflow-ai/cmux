@@ -117,6 +117,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_left_sidebar.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_right_sidebar_aliases.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -245,6 +250,10 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cmux_cua_drag_cursor_harness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_cua_helper_run_check.py"
 lane = "linux-guard"
 
 [[test]]
@@ -650,6 +659,10 @@ path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secret_jobs_secret_jit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
@@ -663,6 +676,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fetch_complexity_base.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_red_autofix.py"
 lane = "linux-guard"
 
 [[test]]
@@ -698,6 +715,14 @@ path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_dispatch_targets_on_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_blacksmith_macos_switch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
@@ -707,6 +732,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_classic_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_release_compile_script.py"
 lane = "linux-guard"
 
 [[test]]
@@ -731,10 +760,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_promotion_admission.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -786,6 +811,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_mac_grants.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -810,6 +839,10 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_side_lane_capability_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_cache_public_url.py"
 lane = "linux-guard"
 
@@ -823,6 +856,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_drift.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_quota_reads_bot_token.py"
 lane = "linux-guard"
 
 [[test]]
@@ -874,6 +911,11 @@ path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_mac_archive_manifest.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cas_mac_archive_manifest.py"
+
+[[test]]
 path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
@@ -902,6 +944,10 @@ path = "tests/test_token_budget_sampler.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cloud_probe_team_grant.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_vm_skill_coverage.py"
 lane = "linux-guard"
 
@@ -926,6 +972,14 @@ path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_token_spread_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_continuation_jobs_wait_through_rate_limits.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_publish_app_token_workflow.py"
 lane = "linux-guard"
 
@@ -934,8 +988,25 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_precheck_scan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_request_bound.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_rolling.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_fast_pass.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_push_slot_holder.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that the tick counts a nightly-next loop run as holding the push slot only until its nightly-next-one ends (queued or pending always holds; the post-feed tail holds nothing; a skipped nightly-next-one keeps the old rule); run python3 tests/test_nightly_next_push_slot_holder.py yourself after changing run_holds_group or nightly_next_rolling.py (under 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_unsigned_resume.py"
@@ -947,6 +1018,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_appstore_lane_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_asc_ops.py"
 lane = "linux-guard"
 
 [[test]]
@@ -962,15 +1037,11 @@ path = "tests/test_ios_testflight_external_distribution.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_testflight_main_push_filter.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ios_testflight_notes.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_testflight_pro_distribution.py"
+path = "tests/test_gh_api_error_capture.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1238,6 +1309,10 @@ path = "tests/test_nightly_next_canary_feed_origin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_canary_harness_worktree.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_canary_runs_installed_app.py"
 lane = "linux-guard"
 
@@ -1423,14 +1498,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_archive_log.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_assignment_after_upload.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1639,6 +1706,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_docs_localization.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_workflow_catalog_translation.py"
 lane = "macos-cli-no-socket"
 
@@ -1735,6 +1807,11 @@ path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_install_axe_ci.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/install-axe-ci.sh (the sha256 refusal) and ios-e2e.yml's and iroh-release-gate.yml's use of it instead of the Homebrew tap; run python3 tests/test_install_axe_ci.py yourself after changing any of them (under a second, no build)."
+
+[[test]]
 path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
@@ -1775,6 +1852,10 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_scheduled_workflow_gh_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
@@ -1784,6 +1865,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_token_budget.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cron_dispatch_token_lint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1815,7 +1900,19 @@ path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_overflow_switch_routes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_runner_pools.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_spend_mark.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_job_token_floor.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1823,7 +1920,23 @@ path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_submit_fleet_test.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_download_artifact_stall.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_own_login.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_oidc_sign_in.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2001,7 +2114,23 @@ path = "tests/test_ci_workflow_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cron_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_namespace_autofix_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publication_guard_release_read.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_bare_urlopen.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2208,6 +2337,10 @@ path = "tests/test_ci_warm_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fix_cause_labels_start_no_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
@@ -2222,6 +2355,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_cargo_workspace.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2241,6 +2382,10 @@ path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_classic_deploy_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
@@ -2255,4 +2400,168 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_recovery_app_archive.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_cef_sums.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_risk_tier_history_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_cmux_tui_hosted.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_cache_runner_cargo_home.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_publish_supersede.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_test_deadline.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_resource_lifetimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_billing_lane.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_billing_nightly.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_paid_queue_pin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_upload_artifact_requires_retention.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_dev_daily_drops_signed_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_warnings_policy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_runs_cancel_superseded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_gate_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_write_token_jit_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_language_boundaries_spends_no_rest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_prt_raw_base_files.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_takeback_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_blind_spots.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_bootstrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_select_ios_simulator.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_retired_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_schedule_rows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_gate_never_skips_into_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_superseded_runs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_fill.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_red_fix_mine.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_nightly_pr_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_checkout_branch_ref_exact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_rate_limit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_checkout_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ghostty_zig_packages_fetched.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_warm_checkout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_duplicate_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_debug_labs_keys_dispatch.py"
 lane = "linux-guard"

@@ -37,7 +37,7 @@ mock.module("../db/client", () => ({
   }),
 }));
 
-const { createSubscriptionAnalyticsHandlers } = await import("../app/api/admin/subscriptions/analytics/handlers");
+const { createSubscriptionAnalyticsHandlers, cachedProductionApiProbe } = await import("../app/api/admin/subscriptions/analytics/handlers");
 
 const NOW = new Date("2026-10-02T00:00:00.000Z");
 const load = mock(async (query: AnalyticsQuery) => ({ marker: "report", filters: query }) as unknown as SubscriptionAnalyticsReport);
@@ -88,6 +88,39 @@ describe("GET /api/admin/subscriptions/analytics", () => {
     expect(now).toBe(NOW);
   });
 
+  test("reports whether the App Store Server API key is configured", async () => {
+    currentUser = { id: "admin", primaryEmail: "ops@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };
+    const missing = createSubscriptionAnalyticsHandlers({ load, now: () => NOW, env: { VERCEL_ENV: "production" } });
+    const body = await (await missing.GET(request("?source=apple"))).json() as { marker: string; billingHealth?: unknown };
+    expect(body.marker).toBe("report");
+    expect(body.billingHealth).toEqual({
+      appleServerApi: "missing",
+      required: true,
+      missingEnv: ["APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY"],
+      appleServerApiProduction: "not_configured",
+    });
+    const configured = createSubscriptionAnalyticsHandlers({
+      load,
+      now: () => NOW,
+      env: { VERCEL_ENV: "production", APPLE_IAP_KEY_ID: "K", APPLE_IAP_ISSUER_ID: "I", APPLE_IAP_PRIVATE_KEY: "P" },
+      productionApiAccess: async () => "locked_until_release",
+    } as Parameters<typeof createSubscriptionAnalyticsHandlers>[0]);
+    expect((await (await configured.GET(request())).json() as { billingHealth?: unknown }).billingHealth)
+      .toEqual({ appleServerApi: "configured", required: true, missingEnv: [], appleServerApiProduction: "locked_until_release" });
+    const probeFails = createSubscriptionAnalyticsHandlers({
+      load,
+      now: () => NOW,
+      env: { VERCEL_ENV: "production", APPLE_IAP_KEY_ID: "K", APPLE_IAP_ISSUER_ID: "I", APPLE_IAP_PRIVATE_KEY: "P" },
+      productionApiAccess: async () => {
+        throw new Error("network down");
+      },
+    } as Parameters<typeof createSubscriptionAnalyticsHandlers>[0]);
+    const failed = await probeFails.GET(request());
+    expect(failed.status).toBe(200);
+    expect((await failed.json() as { billingHealth?: { appleServerApiProduction?: unknown } }).billingHealth?.appleServerApiProduction)
+      .toBe("unknown");
+  });
+
   test("400 for an invalid filter from an admin", async () => {
     currentUser = { id: "admin", primaryEmail: "ops@cmux.com", primaryEmailVerified: true, isAnonymous: false };
     expect((await GET(request("?environment=staging"))).status).toBe(400);
@@ -103,5 +136,22 @@ describe("GET /api/admin/subscriptions/analytics", () => {
       now: () => NOW,
     });
     expect((await failing.GET(request())).status).toBe(503);
+  });
+});
+
+describe("billingHealth probe cache", () => {
+  test("caches a settled answer, never caches unknown, and stops waiting after the timeout", async () => {
+    let clock = 0;
+    let answers: (() => Promise<"ok" | "unknown" | "locked_until_release">)[] = [async () => "unknown", async () => "locked_until_release"];
+    let calls = 0;
+    const read = cachedProductionApiProbe(() => answers[Math.min(calls++, answers.length - 1)]!(), () => clock, 50);
+    expect(await read()).toBe("unknown");
+    expect(await read()).toBe("locked_until_release");
+    expect(await read()).toBe("locked_until_release");
+    expect(calls).toBe(2);
+    clock += 6 * 60 * 1000;
+    answers = [async () => new Promise<never>(() => undefined)];
+    calls = 0;
+    expect(await read()).toBe("unknown");
   });
 });

@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Resolves executable regular files for shell-free restore planning.
 public struct AgentRestoreExecutableFileResolver: Sendable {

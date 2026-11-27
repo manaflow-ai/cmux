@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// Re-probes Codex's writer lock while Codex is changing its lock namespace.
@@ -42,6 +46,7 @@ public struct CodexWriterLockSettle: Sendable {
     /// re-probe bound rather than a guess at when the writer finishes.
     public static func awaitNamespaceChange(_ inspection: CodexWriterLockInspection, timeout: TimeInterval) {
         let directory = URL(fileURLWithPath: inspection.lockPath).deletingLastPathComponent().path
+        #if canImport(Darwin)
         let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
         // `.changing` implies the directory exists; without an event source
         // the bound alone paces the next probe.
@@ -58,5 +63,30 @@ public struct CodexWriterLockSettle: Sendable {
         source.resume()
         defer { source.cancel() }
         _ = changed.wait(timeout: .now() + timeout)
+        #else
+        // Linux: inotify on the lock directory stands in for the vnode source.
+        let descriptor = inotify_init1(Int32(IN_CLOEXEC | IN_NONBLOCK))
+        guard descriptor >= 0 else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+        let mask = UInt32(IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF | IN_MODIFY)
+        guard inotify_add_watch(descriptor, directory, mask) >= 0 else {
+            close(descriptor)
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
+        }
+        let changed = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: .global(qos: .utility))
+        source.setEventHandler {
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            _ = read(descriptor, &buffer, buffer.count)
+            changed.signal()
+        }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        defer { source.cancel() }
+        _ = changed.wait(timeout: .now() + timeout)
+        #endif
     }
 }

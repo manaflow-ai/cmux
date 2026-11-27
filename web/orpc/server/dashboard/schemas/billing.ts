@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   DashboardBillingResponse,
+  NextCloudBillingJson,
   PersonalBillingJson,
   TeamBillingViewJson,
 } from "@/services/billing/dashboardBilling";
@@ -33,6 +34,15 @@ export const teamBillingViewSchema = z.discriminatedUnion("status", [
     memberCount: z.number().nullable(),
     overSeat: z.boolean(),
     paymentPastDue: z.boolean(),
+    enterprise: z.object({
+      label: z.string(),
+      monthlyPriceUsd: z.number().nullable(),
+      maxActiveVms: z.number().nullable(),
+      poolVcpus: z.number().nullable(),
+      poolMemoryMb: z.number().nullable(),
+      maxMemoryMb: z.number(),
+      maxVcpus: z.number(),
+    }).nullable(),
   }),
   z.object({ status: z.literal("personal") }),
   z.object({ status: z.literal("not_found"), teamId: z.string() }),
@@ -67,9 +77,18 @@ const billingTeamSummarySchema = z.object({
   planId: z.string().nullable(),
 }) satisfies z.ZodType<BillingTeamSummary>;
 
+const nextPlanIdSchema = z.enum(["next_plus", "next_pro", "next_max"]);
+
+const nextCloudBillingSchema = z.object({
+  planId: nextPlanIdSchema.nullable(),
+  source: z.enum(["subscription", "grant"]).nullable(),
+  checkoutAvailable: z.object({ next_plus: z.boolean(), next_pro: z.boolean(), next_max: z.boolean() }),
+}) satisfies z.ZodType<NextCloudBillingJson>;
+
 export const dashboardBillingSchema = z.object({
   selectedTeamId: z.string(),
   personal: personalBillingSchema.nullable(),
   team: teamBillingViewSchema.nullable(),
   teams: z.array(billingTeamSummarySchema).readonly(),
+  next: nextCloudBillingSchema.optional(),
 }) satisfies z.ZodType<DashboardBillingResponse>;
