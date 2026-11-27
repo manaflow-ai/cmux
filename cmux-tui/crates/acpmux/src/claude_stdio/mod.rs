@@ -343,6 +343,7 @@ pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prom
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
+pub mod cache_faults;
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
