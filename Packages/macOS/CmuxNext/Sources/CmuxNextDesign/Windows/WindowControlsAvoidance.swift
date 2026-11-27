@@ -113,6 +113,21 @@ public final class WindowControlsAvoiders {
     }
 }
 
+extension NSView {
+    /// A view above this one, up to its window's content view, still waits for its layout. An avoider asked to re-check
+    /// then only marks itself: that layout places it once, at its final frame (laid out at once, it laid out at its old
+    /// frame first). With none, as at the end of the window's layout pass, a mark alone waits for the next pass.
+    public var anAncestorAwaitsLayout: Bool {
+        var view = superview
+        while let ancestor = view {
+            if ancestor.needsLayout { return true }
+            if ancestor === window?.contentView { return false }
+            view = ancestor.superview
+        }
+        return false
+    }
+}
+
 extension WindowTitlebar {
     /// The rightmost edge of the traffic lights or `accessory` where they lie over the `shown`
     /// part of `rect`, all in window coordinates; nil when neither does (pure).

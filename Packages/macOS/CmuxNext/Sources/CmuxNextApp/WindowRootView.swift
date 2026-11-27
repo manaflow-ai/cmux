@@ -255,8 +255,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// The toolbar band at its fully open width in window coordinates, at the last layout
     /// (`titlebarAccessoryReserve`): where a hover opens it to, also while it is closed.
     var toolbarBandReserve: CGRect?
-    /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
-    var onMainPaneMove: (() -> Void)?
+    /// The main pane card moved or resized (every frame of a sidebar slide, its last included): Home rides it with no layout of its own, so the window's avoiders re-check (no change, no work).
+    lazy var onMainPaneMove: (() -> Void)? = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a

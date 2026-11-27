@@ -9,7 +9,7 @@ import Testing
 
 /// A window resize re-checks the views that keep clear of the traffic lights once, after the layout it causes.
 /// Each step of a window corner drag moved the main pane card before the panes in it: the card's move re-checked every
-/// avoider (`WindowRootView.onMainPaneMove`, as `WindowController.observeSidebarHidden` wires it) while the views in the
+/// avoider (`WindowRootView.onMainPaneMove`, which the root wires to the window's avoiders) while the views in the
 /// card still had their old frames. Home's chat column read the lights as moved on every height change and laid out
 /// itself and its glass Chats and compose buttons (a SwiftUI render) at its old frame, then again at its new one: about
 /// 2 ms of each corner drag step in NIGHTLY's build and in tree (2026-11-27 `sample` of the main thread: 9% of the
@@ -75,7 +75,6 @@ struct WindowResizeAvoidersOnceTests {
         window.contentView = root
         root.sidebar.isHidden = true
         root.sidebarHidden = true
-        root.refreshesAvoidersOnMainPaneMove() // as WindowController.observeSidebarHidden wires it
         let column = HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: "New Message"))
         column.showsCompose = true
         root.show(Workspace(page: column))
