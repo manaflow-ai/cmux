@@ -413,7 +413,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                         );
                     }
                 };
-            if result["reloaded"].as_bool() != Some(true) {
+            if result.get("reloaded").and_then(Value::as_bool) != Some(true) {
                 return local_error(
                     "server.invalid_response",
                     crate::localization::catalog().local_server.invalid_response,
@@ -425,7 +425,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 json!({
                     "reloaded":true,
                     "session":actual_session,
-                    "warnings":result["warnings"].as_array().cloned().unwrap_or_default(),
+                    "warnings":result.get("warnings").and_then(Value::as_array).cloned().unwrap_or_default(),
                     "message":crate::localization::catalog().local_server.reloaded,
                 }),
                 global.output,
@@ -435,7 +435,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // An owner without `if_idle` ignores the field and stops however
             // busy it is: it keeps running instead (the Rex docs' exit 4).
             if if_idle
-                && !identity["capabilities"].as_array().is_some_and(|values| {
+                && !identity.get("capabilities").and_then(Value::as_array).is_some_and(|values| {
                     values.iter().any(|value| value == "daemon-stop-if-idle-v1")
                 })
             {
@@ -470,7 +470,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             let deadline =
                 if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
             if force
-                && !identity["capabilities"].as_array().is_some_and(|values| {
+                && !identity.get("capabilities").and_then(Value::as_array).is_some_and(|values| {
                     values.iter().any(|value| value == "daemon-handoff-force-v1")
                 })
             {
@@ -499,15 +499,22 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 "restart":restart,
             });
             if if_idle {
-                request["if_idle"] = json!(true);
+                request.set("if_idle", json!(true));
             }
             let reply = match exchange_reply(&mut connection, request, deadline) {
                 // A busy daemon refused the stop and keeps serving: say
                 // what uses it (exit 1, as the Rex docs' `--if-idle`).
-                Ok(reply) if reply["ok"] != true && reply["error_code"] == "daemon_busy" => {
+                Ok(reply)
+                    if reply.get("ok") != Some(&Value::Bool(true))
+                        && reply.get("error_code").and_then(Value::as_str)
+                            == Some("daemon_busy") =>
+                {
                     return local_error_with_details(
                         "server.in_use",
-                        reply["error"].as_str().unwrap_or("the daemon is in use"),
+                        reply
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("the daemon is in use"),
                         reply.get("error_details").cloned().unwrap_or(Value::Null),
                         global.output,
                         1,
@@ -1161,7 +1168,10 @@ fn exchange_reply(
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
-        if response.get("event").is_some() || response["id"] != request["id"] {
+        if response.get("event").is_some()
+            || response.get("id").unwrap_or(&Value::Null)
+                != request.get("id").unwrap_or(&Value::Null)
+        {
             continue;
         }
         return Ok(response);
@@ -1170,7 +1180,7 @@ fn exchange_reply(
 
 /// A reply's `data`, or its refusal as [`ExchangeError::Rejected`].
 fn reply_result(response: Value) -> Result<Value, ExchangeError> {
-    if response["ok"] == true {
+    if response.get("ok") == Some(&Value::Bool(true)) {
         return Ok(response.get("data").cloned().unwrap_or(Value::Null));
     }
     let error =

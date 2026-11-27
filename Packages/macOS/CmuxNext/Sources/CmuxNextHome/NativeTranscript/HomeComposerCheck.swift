@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextHomeModel
 import Foundation
 import UniformTypeIdentifiers
 
@@ -18,25 +19,45 @@ nonisolated enum HomeComposerCheck {
     /// pasted item). A file costs a stat (folder, size), so the composer runs this off the main
     /// actor (`HomeNativeTranscriptView.attach`).
     static func problem(for input: HomeDraftInput) -> (error: HomeAttachmentError, name: String?)? {
-        let name: String?, accepted: Bool, size: Int, typeName: String
+        let checked: Input
         switch input {
         case .file(let url):
             // A stat for the size only; the bytes are read by the data side.
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-            name = url.lastPathComponent
-            guard accepts(url) else { return (.folder(name: url.lastPathComponent), name) }
-            accepted = true
-            size = values?.fileSize ?? 0
-            typeName = url.pathExtension
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            checked = Input(kind: "file", name: url.lastPathComponent, identifier: nil, accepted: accepts(url), size: size)
         case .data(let data, let identifier):
-            name = nil
-            accepted = HomeAttachmentPolicy.accepts(typeIdentifier: identifier)
-            size = data.count
-            typeName = identifier
+            checked = Input(kind: "data", name: nil, identifier: identifier,
+                            accepted: HomeAttachmentPolicy.accepts(typeIdentifier: identifier), size: data.count)
         }
-        guard accepted else { return (.typeRefused(mimeType: typeName, name: name ?? ""), name) }
-        if size == 0 { return (.empty(name: name ?? ""), name) }
-        return nil
+        let found: Problem? = HomeComposeRules().call("composerCheck.problem", Request(input: checked), fallback: nil)
+        guard let found else { return nil }
+        let error: HomeAttachmentError = switch found.kind {
+        case "folder": .folder(name: found.name)
+        case "typeRefused": .typeRefused(mimeType: found.mimeType ?? "", name: found.name)
+        default: .empty(name: found.name)
+        }
+        return (error, found.shown)
+    }
+
+    /// `compose.composerCheck.problem`'s input: a file (its name) or pasted data (its type).
+    private struct Input: Encodable {
+        var kind: String
+        var name: String?
+        var identifier: String?
+        var accepted: Bool
+        var size: Int
+    }
+
+    private struct Request: Encodable {
+        var input: Input
+    }
+
+    /// Why the input is refused (`folder`, `typeRefused`, `empty`) and the name the notice shows.
+    private struct Problem: Decodable {
+        var kind: String
+        var name: String
+        var shown: String?
+        var mimeType: String?
     }
 
     /// The notice for a problem `problem(for:)` found.

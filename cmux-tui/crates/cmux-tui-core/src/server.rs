@@ -3370,6 +3370,9 @@ mod starter_exit_tests;
 mod terminal_resume_tests;
 
 #[cfg(test)]
+#[path = "server/new_workspace_room_pin_tests.rs"]
+mod new_workspace_room_pin_tests;
+#[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
