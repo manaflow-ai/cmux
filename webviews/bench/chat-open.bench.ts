@@ -119,6 +119,7 @@ type Chat = {
   events: Fixture["events"];
   session: Fixture["session"];
   latest: string;
+  latestRow: string;
   perfRow: (row: PerfRow) => void;
   attachBytes: number;
   attachEvents: number;
@@ -129,16 +130,27 @@ const chatAt = (scale: Scale): Chat => {
       ? godChat(PAPERCUT_CHAT, remoteFields)
       : papercutEvents({ turns: TURNS, running: false, session: remoteFields });
   const latest = scale === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
-  return { scale, events, session, latest, perfRow: scaledPerfRow(printRow, scale), attachBytes: 0, attachEvents: 0 };
+  const latestEvent = [...events].reverse().find((event) => event.kind === "agent_message_chunk");
+  if (!latestEvent) throw new Error(`${scale} fixture has no final assistant message`);
+  return {
+    scale,
+    events,
+    session,
+    latest,
+    latestRow: `assistant-${latestEvent.seq}`,
+    perfRow: scaledPerfRow(printRow, scale),
+    attachBytes: 0,
+    attachEvents: 0,
+  };
 };
 /// The chats this run opens: FIXTURE's, or with PAIRED=1 the small chat and the god one. The stand-in serves `current`,
 /// one load at a time, so both share its port and the page's URL.
 const chats = ((PAIRED ? ["small", "god"] : [FIXTURE]) as Scale[]).map(chatAt);
 let current = chats.at(-1)!;
-let { events, session, latest: LATEST } = current;
+let { events, session, latest: LATEST, latestRow: LATEST_ROW } = current;
 const use = (chat: Chat) => {
   current = chat;
-  ({ events, session, latest: LATEST } = chat);
+  ({ events, session, latest: LATEST, latestRow: LATEST_ROW } = chat);
 };
 if (REVEAL) {
   const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
@@ -377,7 +389,7 @@ try {
         [COMPOSER_FIELD, COMPOSER_KEY] as const,
       );
     await page.addInitScript(
-      ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
+      ([latestRow, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
           (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
             // fixed-wait: the stand-in host's answer latency is what this run measures.
@@ -641,7 +653,7 @@ try {
           const now = performance.now();
           if (!state.firstRow && document.querySelector("[data-row-id]"))
             nextFrame(() => (state.firstRow ||= performance.now()));
-          if (!state.latest && document.body.textContent?.includes(latestText)) {
+          if (!state.latest && document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`)) {
             // TRACE=1: how much the first frame with the newest message drew.
             if (instrument === "trace") {
               const count = (selector: string) => document.querySelectorAll(selector).length;
@@ -668,7 +680,7 @@ try {
               !remote.reconciled &&
               remote.attachReceived &&
               !document.querySelector(".acpmux-peer-copy") &&
-              document.body.textContent?.includes(latestText)
+              document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`)
             )
               afterPaint(() => (remote.reconciled ||= performance.now()));
           }
@@ -683,7 +695,7 @@ try {
         requestAnimationFrame(tick);
       },
       [
-        LATEST,
+        LATEST_ROW,
         process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1",
         HOST_LATENCY,
         REMOTE_TAIL,
@@ -890,14 +902,14 @@ try {
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
     // When the newest message was first in the page (epoch ms), so the profile can be cut to the stretch
     // between the attach's answer and it: the page's own parse, replay and first render.
-    await page.addInitScript((latestText) => {
+    await page.addInitScript((latestRow) => {
       const tick = () => {
-        if (document.body?.textContent?.includes(latestText))
+        if (document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`))
           (window as unknown as { __latestAt: number }).__latestAt = performance.timeOrigin + performance.now();
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    }, LATEST);
+    }, LATEST_ROW);
     attachedAt = 0;
     await cdp.send("Profiler.start");
     const profileStart = Date.now();
