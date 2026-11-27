@@ -27,7 +27,14 @@ const base: ChatShare = {
 afterEach(forgetShareLinks);
 
 test("a chat shared with nobody reads Restricted with only the owner", () => {
-  expect(shareView([])).toEqual({ people: [], general: "restricted", links: [], inviteUrl: null, guestsNow: 0 });
+  expect(shareView([])).toEqual({
+    people: [],
+    general: "restricted",
+    links: [],
+    inviteUrl: null,
+    guestsNow: 0,
+    requests: [],
+  });
 });
 
 test("invitees across live shares are one row each; removed and ended ones are not", () => {
@@ -96,6 +103,7 @@ test("Invite on someone with access says so, or changes their role", () => {
     links: [],
     inviteUrl: null,
     guestsNow: 0,
+    requests: [],
   };
   expect(inviteStep(view, " Ana@Example.com", "view")).toEqual({ kind: "already", account: "ana@example.com" });
   expect(inviteStep(view, "ana@example.com", "talk")).toEqual({ kind: "role", account: "ana@example.com" });
@@ -224,4 +232,38 @@ test("Copy link asks the daemon once, for a view link (the host's gesture gate a
   });
   await client.viewerLink(shareView([]));
   expect(calls).toEqual([["link", { role: "view", session: "chat" }]]);
+});
+
+// Access requests (RFD 0077 D2, D5): the daemon lists pending ones only; the dialog shows one row per
+// account across the chat's live shares, oldest first, none for an ended share or an account that
+// has access by now.
+test("access requests are one row per account, oldest first, none once the account has access", () => {
+  const ask = (account: string, requestedAt: number) => ({ account, name: account, avatarUrl: null, requestedAt });
+  const view = shareView([
+    {
+      ...base,
+      shareId: "a",
+      invitees: [{ account: "@in", role: "view", state: "invited", joined: false }],
+      requests: [ask("@late", 9), ask("@in", 1), ask("@early", 2)],
+    },
+    { ...base, shareId: "b", requests: [ask("@early", 5)] },
+    { ...base, shareId: "c", state: "revoked", requests: [ask("@gone", 1)] },
+  ]);
+  expect(view.requests.map((request) => request.account)).toEqual(["@early", "@late"]);
+  // A host older than requests sends none.
+  expect(shareView([base]).requests).toEqual([]);
+});
+
+test("approve and decline name the chat, the account and, for approve, the role", async () => {
+  const calls: unknown[] = [];
+  const client = shareClient("chat-1", async (op, params) => {
+    calls.push({ op, ...params });
+    return {};
+  });
+  await client.approve("mei@example.com", "view");
+  await client.decline("@jordan");
+  expect(calls).toEqual([
+    { op: "approve", account: "mei@example.com", role: "view", session: "chat-1" },
+    { op: "decline", account: "@jordan", session: "chat-1" },
+  ]);
 });
