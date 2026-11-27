@@ -45,7 +45,7 @@
 .acs-spaces i[data-on] { background: var(--acs-ink); opacity: 0.85; }
 
 .acs-btn, .acs-pill, .acs-people { all: unset; box-sizing: border-box; cursor: default; }
-.acs-btn { position: relative; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--acs-ink-2); }
+.acs-btn { position: relative; width: 28px; height: 28px; border-radius: 8px; /* radius-allow: gallery-only icon control keeps the mark's intentional corner. */ display: grid; place-items: center; color: var(--acs-ink-2); }
 .acs-btn:hover, .acs-btn[data-open], .acs-people:hover, .acs-people[data-open] { background: var(--acs-hover); color: var(--acs-ink); }
 .acs-btn:focus-visible, .acs-pill:focus-visible, .acs-people:focus-visible { outline: 2px solid var(--cmux-accent, var(--acs-ink)); outline-offset: 1px; }
 
@@ -95,7 +95,7 @@
 .acs-split-count[data-tone="attention"] { color: var(--acs-amber); }
 
 /* D: the strip over the footer, only when something is going on. */
-.acs-strip { all: unset; box-sizing: border-box; cursor: default; display: flex; align-items: center; gap: 8px; margin: 0 6px 2px; padding: 4px 8px 4px 2px; border-radius: 9px; background: color-mix(in srgb, var(--acs-ink) 6%, transparent); }
+.acs-strip { all: unset; box-sizing: border-box; cursor: default; display: flex; align-items: center; gap: 8px; margin: 0 6px 2px; padding: 4px 8px 4px 2px; border-radius: 9px; /* concentric-allow: gallery-only strip wraps the icon and copy as one status surface. */ background: color-mix(in srgb, var(--acs-ink) 6%, transparent); }
 .acs-strip:hover { background: var(--acs-hover); }
 .acs-strip[data-tone="attention"] { background: color-mix(in srgb, var(--acs-amber) 14%, transparent); }
 .acs-strip-mark { display: grid; place-items: center; width: 28px; height: 28px; color: var(--acs-ink-2); }
@@ -128,7 +128,7 @@
 
 /* The gallery's simulate bar (not part of the design). */
 .acs-sim { display: flex; flex-wrap: wrap; gap: 4px; width: 248px; }
-.acs-sim button { all: unset; cursor: default; box-sizing: border-box; padding: 3px 7px; border-radius: 6px; font-size: 11px; color: var(--acs-ink-2); background: color-mix(in srgb, var(--acs-ink) 6%, transparent); }
+.acs-sim button { all: unset; cursor: default; box-sizing: border-box; padding: 3px 7px; border-radius: 6px; /* radius-allow: gallery-only state picker uses a smaller nested chip corner. */ font-size: 11px; color: var(--acs-ink-2); background: color-mix(in srgb, var(--acs-ink) 6%, transparent); }
 .acs-sim button[data-on] { color: var(--acs-ink); background: color-mix(in srgb, var(--acs-ink) 16%, transparent); }
 
 @keyframes acs-spin { to { transform: rotate(360deg); } }
