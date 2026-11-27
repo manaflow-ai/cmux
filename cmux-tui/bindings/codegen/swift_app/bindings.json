@@ -184,6 +184,129 @@
       }
     },
     "Bookmarks": {
+      "requests": {
+        "list-bookmarks": {
+          "name": "ListBookmarksRequest",
+          "doc": [
+            "`list-bookmarks`: one profile's nodes, ordered by parent then index."
+          ],
+          "response": "BookmarkList"
+        },
+        "create-bookmark": {
+          "name": "CreateBookmarkRequest",
+          "doc": [
+            "`create-bookmark`: an existing `bookmark` id returns the stored node."
+          ],
+          "mutation": true,
+          "order": [
+            "bookmark",
+            "browser_profile_id",
+            "parent",
+            "index",
+            "kind",
+            "title",
+            "url",
+            "favicon_key",
+            "source_key",
+            "created_ms",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "created_ms": {
+              "type": "Int64"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "update-bookmark": {
+          "name": "UpdateBookmarkRequest",
+          "doc": [
+            "`update-bookmark`: absent keeps; `.clear` sends null. `icon` is for folders only."
+          ],
+          "mutation": true,
+          "order": [
+            "bookmark",
+            "title",
+            "url",
+            "favicon_key",
+            "last_used_ms",
+            "icon",
+            "mutation"
+          ],
+          "fields": {
+            "favicon_key": {
+              "update": true
+            },
+            "last_used_ms": {
+              "type": "Int64",
+              "update": true
+            },
+            "icon": {
+              "update": true
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "move-bookmark": {
+          "name": "MoveBookmarkRequest",
+          "doc": [
+            "`move-bookmark`: `index` is the final position among the new siblings."
+          ],
+          "mutation": true,
+          "order": [
+            "bookmark",
+            "parent",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "BookmarkResult"
+        },
+        "delete-bookmark": {
+          "name": "DeleteBookmarkRequest",
+          "doc": [
+            "`delete-bookmark`: removes the node and its subtree."
+          ],
+          "mutation": true,
+          "order": [
+            "bookmark",
+            "mutation"
+          ],
+          "response": "BookmarkDeletion"
+        },
+        "import-bookmarks": {
+          "name": "ImportBookmarksRequest",
+          "doc": [
+            "`import-bookmarks`: one transaction. With `sourceKey` and `replace`, the folder carrying `sourceKey` keeps its id and position and takes `nodes[0]`'s title and children."
+          ],
+          "mutation": true,
+          "order": [
+            "browser_profile_id",
+            "parent",
+            "index",
+            "source_key",
+            "replace",
+            "nodes",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            },
+            "nodes": {
+              "type": "[BookmarkImportNode]"
+            }
+          },
+          "response": "BookmarkImportResult"
+        }
+      },
       "objects": {
         "BookmarkRecord": {
           "type": "Bookmark",
