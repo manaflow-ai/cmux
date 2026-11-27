@@ -81,6 +81,7 @@ FIRST_PARTY_GPL = {
     "cmux-terminal-prediction",
     "cmux-url-input",
     "cmux-window-rules",
+    "cmux-workspace-naming",
 }
 
 BANNED = [
