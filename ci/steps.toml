@@ -3792,7 +3792,15 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
           "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
           "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
           "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
-          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**",
+          # A Rust crate's tests/, benches/ and examples/ sources are their own Cargo targets: the FFI's release build
+          # (ios_link_ffi.sh) never compiles them and this step runs no cargo test. Each took a 12-15 min kit and app
+          # build on a Mac (cmux-mobile-link/tests/roaming.rs alone, 2026-11-27). Fixtures stay in: the kit's Swift
+          # tests read rust/crates/*/tests/fixtures/*.json. tests/test_ios_kit_rust_test_sources.py guards src/ reaches.
+          "cmux-tui/crates/*/tests/**/*.rs", "cmux-tui/crates/*/benches/**/*.rs", "cmux-tui/crates/*/examples/**/*.rs",
+          "cmux-tui/vendor/*/tests/**/*.rs", "cmux-tui/vendor/*/benches/**/*.rs", "cmux-tui/vendor/*/examples/**/*.rs",
+          "cmux-next-ios/rust/crates/*/tests/**/*.rs", "cmux-next-ios/rust/crates/*/benches/**/*.rs",
+          "cmux-next-ios/rust/crates/*/examples/**/*.rs"]
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
@@ -3925,7 +3933,15 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
           "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
           "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
           "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
-          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**",
+          # A Rust crate's tests/, benches/ and examples/ sources are their own Cargo targets: the FFI's release build
+          # (ios_link_ffi.sh) never compiles them and this step runs no cargo test. Each took a 12-15 min kit and app
+          # build on a Mac (cmux-mobile-link/tests/roaming.rs alone, 2026-11-27). Fixtures stay in: the kit's Swift
+          # tests read rust/crates/*/tests/fixtures/*.json. tests/test_ios_kit_rust_test_sources.py guards src/ reaches.
+          "cmux-tui/crates/*/tests/**/*.rs", "cmux-tui/crates/*/benches/**/*.rs", "cmux-tui/crates/*/examples/**/*.rs",
+          "cmux-tui/vendor/*/tests/**/*.rs", "cmux-tui/vendor/*/benches/**/*.rs", "cmux-tui/vendor/*/examples/**/*.rs",
+          "cmux-next-ios/rust/crates/*/tests/**/*.rs", "cmux-next-ios/rust/crates/*/benches/**/*.rs",
+          "cmux-next-ios/rust/crates/*/examples/**/*.rs"]
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
