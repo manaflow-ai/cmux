@@ -39,7 +39,7 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -361,6 +361,27 @@ struct Counting {
     up_turns: AtomicU64,
     /// Which way the last chunk went (1 up, 2 down), across every connection.
     last: AtomicU64,
+    /// [`Shaper::trace_wire`]: each connection's open and every read, into the run's trace.
+    wire: Mutex<Option<Trace>>,
+    /// Lines `wire` may still take (a bulk run reads thousands of chunks).
+    wire_left: AtomicU64,
+    /// [`Shaper::trace_wire_text`]: each read's line also carries its first bytes, printable.
+    wire_text: AtomicBool,
+}
+
+impl Counting {
+    /// One wire line, while the budget lasts; nothing when the wire trace is off.
+    fn wire(&self, line: impl FnOnce() -> String) {
+        let trace = lock(&self.wire);
+        let Some(trace) = trace.as_ref() else { return };
+        if self
+            .wire_left
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            trace.note(line());
+        }
+    }
 }
 
 pub struct Shaper {
@@ -480,6 +501,21 @@ impl Shaper {
         }
     }
 
+    /// Notes every connection's open and every read (`c3 up 517B, lands +35ms`) in the trace
+    /// this shaper was started with, up to `lines` lines: the round trips a dial takes, one by
+    /// one. Off unless called; a read costs one mutex check while it is off.
+    pub fn trace_wire(&self, lines: u64) {
+        self.counting.wire_left.store(lines, Ordering::SeqCst);
+        *lock(&self.counting.wire) = Some(self.trace.clone());
+    }
+
+    /// [`Self::trace_wire`], each read's line ending in its first [`WIRE_TEXT_BYTES`] bytes
+    /// (printable ASCII, others `.`): a relay's control frames read as their JSON.
+    pub fn trace_wire_text(&self, lines: u64) {
+        self.counting.wire_text.store(true, Ordering::SeqCst);
+        self.trace_wire(lines);
+    }
+
     pub fn reset_counters(&self) {
         for counter in [
             &self.counting.up_bytes,
@@ -582,6 +618,7 @@ async fn connection(
     if lock(&link).silent(index, path) {
         return;
     }
+    counting.wire(|| format!("c{index} open (connect landed)"));
     let Ok(far) = TcpStream::connect(upstream).await else { return };
     let _ = near.set_nodelay(true);
     let _ = far.set_nodelay(true);
@@ -605,6 +642,19 @@ async fn connection(
     );
     let down = direction(far_read, near_write, true, path, index, down_rng, link, counting, epoch);
     tokio::select! { () = up => {}, () = down => {} }
+}
+
+/// How many of a read's bytes [`Shaper::trace_wire_text`] shows.
+pub const WIRE_TEXT_BYTES: usize = 96;
+
+/// A read's first bytes for the wire trace: printable ASCII as is, anything else `.`.
+fn wire_text(chunk: &[u8]) -> String {
+    let text: String = chunk
+        .iter()
+        .take(WIRE_TEXT_BYTES)
+        .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+        .collect();
+    format!("|{text}|")
 }
 
 #[allow(
@@ -656,6 +706,8 @@ async fn direction(
             if counting.last.swap(way, Ordering::SeqCst) != way && !down {
                 counting.up_turns.fetch_add(1, Ordering::SeqCst);
             }
+            let read_at = Instant::now();
+            let mut lands = None;
             for segment in chunk.chunks(SEGMENT) {
                 let at = {
                     let mut link = lock(&link);
@@ -668,11 +720,28 @@ async fn direction(
                 // An orphaned connection's bytes go to an address that is gone, a dead path's
                 // nowhere.
                 let Some(at) = at else { continue };
+                lands = Some(at);
                 floor = at;
                 if send.send((at, segment.to_vec())).await.is_err() {
                     return;
                 }
             }
+            counting.wire(|| {
+                let way = if down { "down" } else { "up" };
+                let line = match lands {
+                    Some(at) => format!(
+                        "c{index} {way} {}B, lands +{}ms",
+                        chunk.len(),
+                        at.saturating_duration_since(read_at).as_millis()
+                    ),
+                    None => format!("c{index} {way} {}B, dropped (link silent)", chunk.len()),
+                };
+                if counting.wire_text.load(Ordering::Relaxed) {
+                    format!("{line} {}", wire_text(chunk))
+                } else {
+                    line
+                }
+            });
         }
     };
     tokio::select! { () = writer => {}, () = reader => {} }

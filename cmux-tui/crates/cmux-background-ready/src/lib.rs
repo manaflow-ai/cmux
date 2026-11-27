@@ -5,7 +5,8 @@
 //! of a cold launch ("how can we improve those? startup in background maybe?",
 //! Leo, 2026-11-17). Every rule of that copy lives here: whether a quit stays
 //! hidden, how the hidden copy holds its windows, whether the login item is
-//! registered, what a launch does, when the hidden copy exits for an update
+//! registered, whether the login-time pre-read agent is registered, what a
+//! launch does, when the hidden copy exits for an update
 //! and whether Chromium warms up. Swift is only the window and AppKit glue: it
 //! reads its inputs, calls these rules through the C ABI in [`ffi`]
 //! (cmux-app-ffi/include/cmux_background_ready.h, module CCmuxBackgroundReadyFFI in the app
@@ -24,6 +25,11 @@ pub enum Mode {
     AfterQuit = 1,
     /// As AfterQuit, and a login item starts a hidden copy at login.
     AfterQuitAndLogin = 2,
+    /// Nothing stays running: a quit quits, and at login a LaunchAgent runs
+    /// a small reader (cmux-launch-preread) that reads the app's code into
+    /// the page cache and exits, so the first open after a reboot reads it
+    /// from memory instead of disk. It never starts the app.
+    WarmAtLogin = 3,
 }
 
 impl Mode {
@@ -33,6 +39,7 @@ impl Mode {
         match value {
             Some(b"afterQuit") => Mode::AfterQuit,
             Some(b"afterQuitAndLogin") => Mode::AfterQuitAndLogin,
+            Some(b"warmAtLogin") => Mode::WarmAtLogin,
             _ => Mode::Off,
         }
     }
@@ -42,8 +49,15 @@ impl Mode {
         match value {
             1 => Mode::AfterQuit,
             2 => Mode::AfterQuitAndLogin,
+            3 => Mode::WarmAtLogin,
             _ => Mode::Off,
         }
+    }
+
+    /// The two modes that keep a hidden copy after a Cmd-Q. Off and
+    /// WarmAtLogin quit as before the setting.
+    pub fn stays_after_quit(self) -> bool {
+        matches!(self, Mode::AfterQuit | Mode::AfterQuitAndLogin)
     }
 }
 
@@ -86,7 +100,8 @@ pub enum QuitAction {
     StayHidden = 1,
 }
 
-/// Stay hidden only for a plain Cmd-Q with the setting on and nothing that
+/// Stay hidden only for a plain Cmd-Q with a mode that keeps a copy
+/// ([`Mode::stays_after_quit`]: not Off, not WarmAtLogin) and nothing that
 /// needs the process gone. Every other origin is a request to end this
 /// process: Quit Completely and Restart to Update (explicit) say so by name,
 /// a script that quits the app expects it gone (scripted), the system cannot
@@ -100,7 +115,7 @@ pub fn on_quit(
     update_installs_on_quit: bool,
     quit_completely: bool,
 ) -> QuitAction {
-    if mode != Mode::Off
+    if mode.stays_after_quit()
         && origin == Some(QuitOrigin::Interactive)
         && !update_installs_on_quit
         && !quit_completely
@@ -161,6 +176,32 @@ pub fn registers_login_item(mode: Mode) -> bool {
     mode == Mode::AfterQuitAndLogin
 }
 
+/// Only WarmAtLogin registers the pre-read LaunchAgent (the bundle's
+/// `Contents/Library/LaunchAgents/com.cmux.launch-preread.plist`, label
+/// [`preread_agent_label`]); every other mode unregisters it, so switching
+/// to any other value, Off included, takes the agent away. AfterQuitAndLogin
+/// needs no pre-read: its login item starts the app itself, which reads the
+/// same pages; AfterQuit starts nothing at login.
+pub fn registers_preread_agent(mode: Mode) -> bool {
+    mode == Mode::WarmAtLogin
+}
+
+/// The pre-read agent's launchd label for the app whose bundle id is
+/// `bundle_id`: one per build, so two channels installed side by side
+/// (stable, NIGHTLY, a tagged DEV build) each register their own agent and
+/// unregistering one leaves the other. scripts/cmux-next/bundle-server-helper.sh
+/// stamps the same label into the bundle's plist.
+pub fn preread_agent_label(bundle_id: &str) -> String {
+    format!("{bundle_id}.launch-preread")
+}
+
+/// Quit Completely (the menu row that ends a hidden copy) is offered only
+/// while a mode keeps one: WarmAtLogin keeps nothing running, so a quit is
+/// already complete.
+pub fn offers_quit_completely(mode: Mode) -> bool {
+    mode.stays_after_quit()
+}
+
 /// What a launch does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -170,7 +211,8 @@ pub enum LaunchAction {
     /// The login item's launch: no window and no Chromium warm-up, so login
     /// pays for the native process only.
     StartHidden = 1,
-    /// A login launch while the mode is no longer AfterQuitAndLogin: the
+    /// A login launch while the mode is not AfterQuitAndLogin (WarmAtLogin
+    /// included: it never starts the app, only the reader): the
     /// registration is stale (the setting changed while the app was not
     /// running to unregister it). Unregister and exit, so a user who turned it
     /// off never gets a process at login again.

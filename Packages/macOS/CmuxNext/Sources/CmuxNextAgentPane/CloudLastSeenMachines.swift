@@ -15,17 +15,21 @@ public final class CloudLastSeenMachines {
 
     private let dir: String?
     private let defaults: UserDefaults
-    /// The rows and account last written and when, so a picker reading every few seconds writes only on a change,
-    /// or once an hour to keep an app left running from aging out its own list.
-    private var written: (account: [String?], machines: [AgentPaneCloudMachines.Machine], at: Date)?
+    private let now: @MainActor () -> Date
     /// The last write: each write waits for the one before, so the newest list is the one on disk.
+    /// Whether an unchanged list is written again is Rust's (`last_seen::unchanged`, read off the file a write that succeeded left).
     private var saving: Task<Void, Never>?
-    /// The fresh read a kept list's answer started; one at a time, cancelled at sign-out.
-    private var refreshing: Task<Void, Never>?
+    /// The fresh read a kept list's answer started (true: it landed); one at a time, cancelled at sign-out.
+    private var refreshing: Task<Bool, Never>?
+    /// Failed refreshes in a row and when the last one started: Rust spaces background refreshes by them
+    /// (`last_seen::refresh_due`), so a control plane that stays down is not asked every few seconds.
+    private var failures: UInt32 = 0
+    private var lastAttempt: Date?
 
-    public init(stateDirectory: URL?, defaults: UserDefaults = .standard) {
+    public init(stateDirectory: URL?, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { .now }) {
         dir = stateDirectory?.path
         self.defaults = defaults
+        self.now = now
     }
 
     public var shows: Bool { defaults.bool(forKey: Self.showKey) }
@@ -33,33 +37,59 @@ public final class CloudLastSeenMachines {
     /// The kept list for `account` (`[user id, team id]`) when it may be shown now; nil otherwise.
     public func shown(for account: [String?]) -> (at: Date, machines: [AgentPaneCloudMachines.Machine])? {
         guard shows, let dir, let user = account.first ?? nil, !user.isEmpty else { return nil }
-        let request = Load(dir: dir, user: user, team: account.count > 1 ? account[1] : nil, now: Self.ms(.now))
+        let request = Load(dir: dir, user: user, team: account.count > 1 ? account[1] : nil, now: Self.ms(now()))
         guard let snapshot = CloudMachineRules().call("cloud_machine_last_seen_load", request, as: LoadReply.self)?.snapshot else { return nil }
         return (Date(timeIntervalSince1970: Double(snapshot.at) / 1000), snapshot.machines.map(Self.machine))
     }
 
     /// A cold start's answer to the picker: the kept list for `account` marked last seen (never
-    /// complete), with `refresh` (the fresh read) started behind it; nil when no kept list may be shown.
-    public func inventory(for account: [String?], team: AgentPaneCloudMachines.Team?, teams: [AgentPaneCloudMachines.Team],
-                          refresh: @escaping @MainActor () async -> Void) -> AgentPaneCloudMachines.Inventory? {
+    /// complete); nil when no kept list may be shown. `refresh` is the fresh read (true: it landed).
+    /// A plain read (`fresh` false) answers at once and starts `refresh` behind it when Rust's backoff
+    /// says one is due. A fresh read (`fresh`: Retry, a pick of a kept row) waits for `refresh`, the
+    /// one in flight or a new one at once, and answers nil when it landed (the caller then answers the
+    /// fresh list), the kept list again when it did not.
+    public func inventory(for account: [String?], team: AgentPaneCloudMachines.Team?, teams: [AgentPaneCloudMachines.Team], fresh: Bool = false,
+                          refresh: @escaping @MainActor () async -> Bool) async -> AgentPaneCloudMachines.Inventory? {
         guard let kept = shown(for: account) else { return nil }
-        if refreshing == nil {
-            refreshing = Task { [weak self] in
-                await refresh()
-                self?.refreshing = nil
-            }
+        if fresh {
+            if await refreshNow(refresh) { return nil }
+        } else if refreshing == nil, refreshDue {
+            _ = start(refresh)
         }
         return .init(signedIn: true, loaded: true, machines: kept.machines, account: account, complete: false,
                      team: team, teams: teams, lastSeenAt: kept.at)
     }
 
+    /// Whether a background refresh may start now (`cloud_machine_last_seen_refresh_due`); when Rust does not answer, it may.
+    private var refreshDue: Bool {
+        let since = lastAttempt.map { Self.ms(now()) - Self.ms($0) }
+        return CloudMachineRules().call("cloud_machine_last_seen_refresh_due", RefreshDue(failures: failures, sinceLastMs: since), as: RefreshDueReply.self)?.due ?? true
+    }
+
+    /// The refresh in flight, else a new one started now; true when it landed.
+    private func refreshNow(_ refresh: @escaping @MainActor () async -> Bool) async -> Bool {
+        await (refreshing ?? start(refresh)).value
+    }
+
+    private func start(_ refresh: @escaping @MainActor () async -> Bool) -> Task<Bool, Never> {
+        lastAttempt = now()
+        let task = Task { [weak self] in
+            let landed = await refresh()
+            if let self, !Task.isCancelled {
+                self.failures = landed ? 0 : self.failures &+ 1
+                self.refreshing = nil
+            }
+            return landed
+        }
+        refreshing = task
+        return task
+    }
+
     /// Keeps `machines`, a list the server answered for `account` just now. Off the main thread.
     public func keep(_ machines: [AgentPaneCloudMachines.Machine], for account: [String?]) {
         guard let dir, let user = account.first ?? nil, !user.isEmpty else { return }
-        let now = Date.now
-        if let written, written.account == account, written.machines == machines, now.timeIntervalSince(written.at) < 3600 { return }
-        written = (account, machines, now)
-        let request = Save(dir: dir, user: user, team: account.count > 1 ? account[1] : nil, at: Self.ms(now), machines: machines.map(Self.row))
+        failures = 0
+        let request = Save(dir: dir, user: user, team: account.count > 1 ? account[1] : nil, at: Self.ms(now()), machines: machines.map(Self.row))
         let previous = saving
         saving = Task.detached(priority: .utility) {
             await previous?.value
@@ -67,17 +97,24 @@ public final class CloudLastSeenMachines {
         }
     }
 
-    /// Removes every kept list (sign-out), after any write still on its way.
+    /// Removes every kept list and any write's leftover temporary file (sign-out), after any write still on its way.
     public func forget() {
-        written = nil
         refreshing?.cancel()
         refreshing = nil
+        failures = 0
+        lastAttempt = nil
         guard let dir else { return }
         let previous = saving
         saving = Task.detached(priority: .utility) {
             await previous?.value
             _ = CloudMachineRules().call("cloud_machine_last_seen_forget", ["dir": dir], as: [String: Int].self)
         }
+    }
+
+    /// Waits for the refresh in flight and every write and removal asked so far (tests).
+    public func settled() async {
+        _ = await refreshing?.value
+        await saving?.value
     }
 
     private nonisolated static func ms(_ date: Date) -> Int64 { Int64((date.timeIntervalSince1970 * 1000).rounded()) }
@@ -100,8 +137,10 @@ public final class CloudLastSeenMachines {
 
     private nonisolated struct Size: Codable, Sendable { var cpu: Int?, memoryMb: Int?, diskMb: Int? }
     private nonisolated struct Save: Encodable, Sendable { var dir: String, user: String, team: String?, at: Int64, machines: [Row] }
-    private nonisolated struct SaveReply: Decodable { var ok: Bool }
+    private nonisolated struct SaveReply: Decodable { var ok: Bool, written: Bool? }
     private nonisolated struct Load: Encodable { var dir: String, user: String, team: String?, now: Int64 }
     private nonisolated struct LoadReply: Decodable { var snapshot: Snapshot? }
     private nonisolated struct Snapshot: Decodable { var at: Int64, machines: [Row] }
+    private nonisolated struct RefreshDue: Encodable { var failures: UInt32, sinceLastMs: Int64? }
+    private nonisolated struct RefreshDueReply: Decodable { var due: Bool }
 }

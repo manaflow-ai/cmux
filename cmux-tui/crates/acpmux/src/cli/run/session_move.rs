@@ -1171,8 +1171,9 @@ async fn prepare(
         base = Some((commit, *dirty, c.top.clone()));
     }
     if let Some((commit, dirty, top)) = base {
-        if dirty && args.carry_changes {
-            // Read after the freeze and the push: what the agent left, against what was pushed.
+        if args.carry_changes {
+            // Read after the freeze and push even when display status looks clean:
+            // submodule.<name>.ignore can hide work the carry must refuse.
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
@@ -1229,7 +1230,9 @@ async fn prepare(
         .await;
     }
     let there = there??;
-    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+    if let Some(carry) = carry.filter(|c| {
+        !c.patch.is_empty() || !c.staged_patch.is_empty() || !c.intent_to_add.is_empty()
+    }) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
             move || apply_carry(&host, &there, &carry)
@@ -1381,7 +1384,7 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when
 /// empty), through [`carry::APPLY_SCRIPT`].
 fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
-    let input = carry::apply_input(there, carry);
+    let input = carry::apply_input(there, carry)?;
     let out = if host.is_empty() {
         run_here(carry::APPLY_SCRIPT, &input)?
     } else {

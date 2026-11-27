@@ -3444,6 +3444,10 @@ mod creation_burst_tests;
 mod run_public_ids_tests;
 
 #[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
+
+#[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]
 mod open_persistent_bench_tests;
 
