@@ -7779,9 +7779,13 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
             return False
         if own + discounted != len(found["on_main"]) + len(found["head_only"]):
             return False
+        def names(first: str) -> bool:
+            # the unit, maybe cut at the status's room, or the unit with more after it (more units, a lane run's tag:
+            # cmux#58085's "test_b.py, test_c.py" and "test_b.py cmux-cp-1; log x")
+            return first.startswith(named[4]) or named[4].startswith((first + ", ", first + " "))
         if discounted == len(found["on_main"]):
-            return firsts[0].startswith(named[4])
-        return any(first.startswith(named[4]) for first in firsts)
+            return names(firsts[0])
+        return any(names(first) for first in firsts)
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
