@@ -20,8 +20,9 @@ capability references:
   refusal sites   `needsDaemonCapability(X)` (an action bound unavailable or
                   refused with "not available in this version" or "restart to
                   update")
-  the list        every case of `enum DaemonCapability` (DaemonEndpoint.swift), read with
-                  check-daemon-capabilities-fresh.py's parser, which also gives the lists
+  the list        every case of `enum DaemonCapability` (cmux-tui/spec/gui-capabilities.json, which the
+                  build turns into the enum; DaemonEndpoint.swift at a revision before it), read
+                  with check-daemon-capabilities-fresh.py's parser, which also gives the lists
 X resolves when it is a string literal, `DaemonCapability.NAME.rawValue` (or
 `DaemonCapability.NAME`), `Self.NAME`, `Type.NAME` or a bare constant of the
 enclosing type; other expressions forward a value from elsewhere and are not
@@ -264,17 +265,30 @@ def collect(repo: Path):
         for _, name, value, owner in f.constants:
             if owner:
                 by_type.setdefault((owner, name), value)
-    endpoint = next((f for f in files if f.rel == ENDPOINT), None)
-    if endpoint is None:
-        sys.exit(f"check-app-capability-references: {ENDPOINT} is missing")
-    cases, lists = fresh.swift_catalog(endpoint.text)
-    lists = {name: lists[name] for name in ("required", "optional", "unservedByBundledDaemon")}
-
+    catalog = fresh.gen.read_text(repo, None)
     refs: list[Ref] = []
-    for name, value in cases.items():
-        by_type.setdefault((CATALOG, name), value)
-        found = re.search(r"\bcase\s+" + re.escape(name) + r"\b", endpoint.masked)
-        refs.append(Ref(value, LISTED, f"{ENDPOINT}:{endpoint.line(found.start()) if found else 1}"))
+    if catalog is not None:
+        # The build writes the enum from the catalog JSON; a case's site is its line there.
+        try:
+            source = fresh.gen.render(fresh.gen.parse(catalog))
+        except fresh.gen.CatalogError as error:
+            sys.exit(f"check-app-capability-references: {error}")
+        cases, lists = fresh.swift_catalog(source)
+        json_lines = catalog.splitlines()
+        for name, value in cases.items():
+            by_type.setdefault((CATALOG, name), value)
+            line = next((i for i, text in enumerate(json_lines, 1) if f'"case": "{name}"' in text), 1)
+            refs.append(Ref(value, LISTED, f"{fresh.CATALOG_JSON}:{line}"))
+    else:
+        endpoint = next((f for f in files if f.rel == ENDPOINT), None)
+        if endpoint is None:
+            sys.exit(f"check-app-capability-references: {ENDPOINT} is missing")
+        cases, lists = fresh.swift_catalog(endpoint.text)
+        for name, value in cases.items():
+            by_type.setdefault((CATALOG, name), value)
+            found = re.search(r"\bcase\s+" + re.escape(name) + r"\b", endpoint.masked)
+            refs.append(Ref(value, LISTED, f"{ENDPOINT}:{endpoint.line(found.start()) if found else 1}"))
+    lists = {name: lists[name] for name in ("required", "optional", "unservedByBundledDaemon")}
     strays: list[str] = []
     for f in files:
         if CATALOG in f.text:
@@ -456,7 +470,7 @@ def main() -> int:
     problems: list[str] = []
     for stray in strays:
         problems.append(f"{stray}: a String static of the capability catalog is in no list, so no build checks "
-                        f"it; make it a `case` of {CATALOG} in {ENDPOINT} placed in an arm of `tier`, or give it "
+                        f"it; make it an entry of {fresh.CATALOG_JSON} with its tier, or give it "
                         "a non-String type.")
     stubs: dict[str, list[str]] = {}
     for capability in sorted({r.capability for r in refs}):
@@ -467,8 +481,9 @@ def main() -> int:
                 problems.append(
                     f"{capability}: the app references it ({', '.join(r.where for r in sites[:3])}) and the daemon "
                     f"defines it ({daemon[capability]}), but it is not in DaemonCapability.required or .optional, so "
-                    "no build proves the bundled daemon serves it. Add it to `optional` in " + ENDPOINT
-                    + " (a case in the `.optional` arm of `tier`) and regenerate plans/cmux-next/daemon-capabilities.json.")
+                    "no build proves the bundled daemon serves it. Add it to " + fresh.CATALOG_JSON
+                    + " with tier `optional` and regenerate plans/cmux-next/daemon-capabilities.json "
+                    "(check-daemon-capabilities-fresh.py --write).")
             if capability in unserved:
                 problems.append(f"{capability}: the daemon defines it ({daemon[capability]}); move it from "
                                 "DaemonCapability.unservedByBundledDaemon to optional.")

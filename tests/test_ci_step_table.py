@@ -349,7 +349,7 @@ class StepResultsTest(unittest.TestCase):
     def run_job(self, store, paths=None, env_extra=None) -> tuple[int, str, list[str]]:
         self.marker.unlink(missing_ok=True)
         out = io.StringIO()
-        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        env = self.job_env()
         env.update(env_extra or {})
         old = os.environ
         os.environ = env
@@ -360,9 +360,15 @@ class StepResultsTest(unittest.TestCase):
         ran = self.marker.read_text().split() if self.marker.exists() else []
         return code, out.getvalue(), ran
 
+    @staticmethod
+    def job_env() -> dict[str, str]:
+        return {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+
     def key(self, name: str, paths=None) -> str:
+        # The env run_job keys with: on a runner MACHINE_VARS (RUNNER_OS, ...) are set, and an empty env made another key.
         files = ci_steps.tracked_files(self.root)
-        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths, {})
+        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths,
+                                 self.job_env())
 
     def test_reusable_excludes_event_readers_advisory_labels_and_opt_out(self) -> None:
         t = table('''
@@ -527,6 +533,15 @@ class StepResultsTest(unittest.TestCase):
         same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
         self.assertTrue(same.write)
 
+    def test_from_env_off_actions_when_asked(self) -> None:
+        pool = {"CI_STEP_RESULTS": "on", "CI_STEP_RESULTS_REPO": "o/r", "CI_STEP_RESULTS_SHA": "abc",
+                "CI_STEP_RESULTS_RUN_URL": "http://controller/jobs/7", "CI_STEP_RESULTS_RUNNER": "pool-1"}
+        s = ci_steps.StepResults.from_env(pool)
+        self.assertTrue(s.write)
+        self.assertEqual(s.meta, {"repo": "o/r", "sha": "abc", "run_url": "http://controller/jobs/7", "runner": "pool-1"})
+        self.assertFalse(ci_steps.StepResults.from_env({**pool, "CI_STEP_RESULTS_WRITE": "0"}).write)
+        self.assertIsNone(ci_steps.StepResults.from_env({"CI_STEP_RESULTS": "auto"}), "off Actions: only on asks")
+
     def test_with_an_oidc_request_url_the_store_is_the_public_route_with_a_fresh_token(self) -> None:
         # The Linux pool is off the tailnet: its jobs reach the controller's public route with an Actions OIDC token.
         import http.server
@@ -598,6 +613,26 @@ class StepResultsTest(unittest.TestCase):
         if files and tree:
             keys = {ci_steps.step_key(real.steps[n], real, files, tree, None, {}) for n in names}
             self.assertEqual(len(keys), len(names), "every step has its own key")
+
+
+class StepEnvTest(unittest.TestCase):
+    """A GitHub Actions Linux job builds Rust into a fresh target: rustc's incremental state is never read again and
+    filled a pool VM's disk (run 45531606824), so steps there run with CARGO_INCREMENTAL=0."""
+
+    def test_a_linux_actions_runner_turns_incremental_off(self):
+        env = ci_steps.step_env({"GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux", "PATH": "/usr/bin"}, "/t")
+        self.assertEqual(env["CARGO_INCREMENTAL"], "0")
+        self.assertEqual(env["PATH"], f"/t/bin{os.pathsep}/usr/bin")
+        self.assertEqual(env["CI_TOOLS"], "/t")
+
+    def test_a_callers_own_setting_wins(self):
+        env = ci_steps.step_env({"GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux", "CARGO_INCREMENTAL": "1"}, "/t")
+        self.assertEqual(env["CARGO_INCREMENTAL"], "1")
+
+    def test_a_laptop_or_a_mac_runner_keeps_cargos_default(self):
+        self.assertNotIn("CARGO_INCREMENTAL", ci_steps.step_env({"PATH": "/usr/bin"}, "/t"))
+        self.assertNotIn("CARGO_INCREMENTAL",
+                         ci_steps.step_env({"GITHUB_ACTIONS": "true", "RUNNER_OS": "macOS"}, "/t"))
 
 
 class SetupTest(unittest.TestCase):
@@ -716,6 +751,31 @@ class SetupTest(unittest.TestCase):
         self.assertNotIn("made-node", out)
         code, out = self.run_job(t, "linux", ["docs/x.md"])
         self.assertNotIn("made-", out)
+
+    def test_tools_only_makes_every_routed_steps_tools_and_runs_no_step(self) -> None:
+        # A pool image bake warms the caches the tools keep (RUNNER_TOOL_CACHE, CARGO_HOME) without a step.
+        t = table('''
+            [setup]
+            linux = "echo setup-ran"
+            [tools]
+            bun = "echo made-bun"
+            node = "echo made-node"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            run = "echo step-a-ran"
+            [step.b]
+            job = "linux"
+            needs = ["node"]
+            run = "echo step-b-ran"
+        ''')
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
+            code = ci_steps.run_job(t, "linux", None, None, out, tools_only=True)
+        self.assertEqual(code, 0, out.getvalue())
+        for want in ("setup-ran", "made-bun", "made-node"):
+            self.assertIn(want, out.getvalue())
+        self.assertNotIn("-ran\n", out.getvalue().replace("setup-ran\n", ""), "no step ran")
 
     def test_a_failed_tool_fails_the_job_and_runs_no_step(self) -> None:
         t = table('''
@@ -877,6 +937,11 @@ class PipelineTest(unittest.TestCase):
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
         self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
+        # Under --pr-scope a whole-tree `**` routes nothing, so tt-ci-step-table runs on a pull request only through
+        # tooling-tests-5's named inputs: a change to the table or a workflow routes it.
+        for path in ("ci/steps.toml", ".github/workflows/pr-router.yml"):
+            with self.subTest(path=path):
+                self.assertIn("tooling-tests-5", ci_steps.route(ci_steps.load(ci_steps.TABLE), [path], pr_scope=True)["linux"])
         # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
         repo = {"full_name": "manaflow-ai/cmux"}
         web = ["web/app/lib/indexnow.ts"]
@@ -967,6 +1032,17 @@ class PipelineTest(unittest.TestCase):
                      "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
             start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
             self.assertIn("pr-pipeline.yml", start)
+            self.assertIn("react-apps-check", why["pr-pipeline.yml"])
+            # land-judge's lane-VM pulse: full-ci added and taken off 2 s later, so the `labeled` payload no longer
+            # lists it. It is the land handoff (the full tier starts) but routes no browser step.
+            pulse = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"draft": False, "labels": [{"name": "merge-train"}]}}
+            self.assertFalse(pr_router.full_ci_kept(pulse))
+            self.assertTrue(pr_router.full_ci_kept(event))
+            start, why = pr_router.route(pulse, callees, web, decided=("full", "full-ci"))
+            self.assertIn("pr-pipeline.yml", start)
+            self.assertFalse(browser & set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")))
+            self.assertTrue(set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")) - browser)
         # The repository variable turns it off.
         with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
             self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])
@@ -981,11 +1057,16 @@ class PipelineTest(unittest.TestCase):
         table_jobs = set(ci_steps.load().jobs) - {"advisory", "verdict"}
         # The ios job's picker (IosJobTest): it runs no step, only when the ios job runs, and places it.
         pickers = {"ios-runner": "ios"}
+        # A job that runs some of a table job's steps on a machine of its own (`--only`), beside that job: the kit's
+        # macOS swift test beside the ios job's simulator leg (IosJobTest).
+        splits = {"ios-macos": ("ios", ["ios-kit-macos"])}
         # No gateway head start for the ios job: its request key is per runner, so it never shared a build.
         self.assertNotIn("ios-ffi-fleet", wf["jobs"])
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
+            if name in ("ios-fast-runner", "ios-fast"):
+                continue  # tests/test_ci_ios_fast_verdict.py: the additive fast iOS verdict plans from the diff itself
             if name in pickers:
                 with self.subTest(picker=name):
                     routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}')"
@@ -994,6 +1075,21 @@ class PipelineTest(unittest.TestCase):
                     self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "")])
                     self.assertIn(name, wf["jobs"][pickers[name]]["needs"])
                 continue
+            if name in splits:
+                table_job, only = splits[name]
+                with self.subTest(split=name):
+                    self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{table_job}') }}}}")
+                    runs = [s["run"] for s in job["steps"] if f"ci/run run --job {table_job} " in s.get("run", "")]
+                    self.assertEqual(runs, [f'ci/run run --job {table_job} ${{PATHS_FILE:+--paths-file "$PATHS_FILE"}} '
+                                            f'--only {" ".join(only)}'])
+                    self.assertEqual(job["steps"][0]["with"]["fetch-depth"], 2)
+                    self.assertIs(job["steps"][0]["with"]["persist-credentials"], False)
+                    steps = [ci_steps.load().steps[n] for n in only]
+                    self.assertTrue(all(s.job == table_job and s.alone for s in steps))
+                    need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + sum(s.timeout for s in steps)
+                    self.assertGreaterEqual(job["timeout-minutes"] * 60, need)
+                continue
+            elsewhere = {n for split, only in splits.values() if split == name for n in only}
             with self.subTest(job=name):
                 self.assertIn(name, table_jobs, "a pr-pipeline.yml job is a job of ci/steps.toml")
                 routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}')"
@@ -1010,7 +1106,7 @@ class PipelineTest(unittest.TestCase):
                 # job on linux's.
                 if name not in ("mac", "ios"):
                     self.assertEqual(job["runs-on"], wf["jobs"]["linux"]["runs-on"])
-                steps = [s for s in ci_steps.load().steps.values() if s.job == name]
+                steps = [s for s in ci_steps.load().steps.values() if s.job == name and s.name not in elsewhere]
                 shared = [s for s in steps if not s.alone]
                 need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT
                         + -(-len(shared) // 2) * max((s.timeout for s in shared), default=0)
@@ -1020,7 +1116,8 @@ class PipelineTest(unittest.TestCase):
     def test_the_changed_paths_are_nul_separated(self) -> None:
         # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
-        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        runs = [s.get("run", "") for s in wf["jobs"]["linux"]["steps"]]
+        self.assertTrue(any("git diff --name-only --no-renames -z " in run for run in runs))
         with tempfile.TemporaryDirectory() as tmp:
             listed = Path(tmp) / "paths"
             listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())
@@ -1066,7 +1163,8 @@ class PipelineTest(unittest.TestCase):
 
     def test_the_replaced_workflows_are_gone(self) -> None:
         for name in ("indexnow-tests.yml", "vendored-agent-cursor.yml", "r2-upload-tests.yml",
-                     "cmux-skill-contract.yml", "ci-cache-receipts.yml"):
+                     "cmux-skill-contract.yml", "ci-cache-receipts.yml", "automation-bench.yml",
+                     "cloud-vm-image-lock.yml"):
             self.assertFalse((ROOT / ".github/workflows" / name).exists(), f"{name}: the step table runs it")
 
     def test_the_moved_pull_request_triggers_are_gone(self) -> None:
@@ -1078,7 +1176,8 @@ class PipelineTest(unittest.TestCase):
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",
                  "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast",
-                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging"}
+                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging",
+                 "risk-tier-tests.yml": "risk-tier-tests", "app-store-shelf.yml": "app-store-shelf"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -1093,13 +1192,32 @@ class PipelineTest(unittest.TestCase):
         wf = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text())
         self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
         self.assertEqual(steps["web-complexity"].job, "linux")
-        # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
-        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
+        # These keep their pull requests into other bases; each moved job skips only feat-cmux-next's.
         # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
-        self.assertTrue(wf["jobs"]["sdk"]["if"].startswith(
-            "${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && "), wf["jobs"]["sdk"]["if"])
-        self.assertNotIn("github.base_ref", wf["jobs"]["rust"].get("if", ""))
-        self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
+        for name, job, step in (("cmux-vm-clients.yml", "sdk", "cmux-vm-sdk"),
+                                ("cmux-vm-clients.yml", "rust", "cmux-vm-clients-rust"),
+                                ("cmux-next-crash-class.yml", "crash-class", "cmux-next-crash-class"),
+                                ("cmux-cloud-cli.yml", "test", "cmux-cloud-cli"),
+                                ("cmux-vm-cloud.yml", "check", "cmux-vm-cloud")):
+            with self.subTest(workflow=name, job=job):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertIn("pull_request", wf.get("on", wf.get(True)))
+                self.assertTrue(wf["jobs"][job]["if"].startswith(
+                    "${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && "),
+                    wf["jobs"][job]["if"])
+                self.assertEqual(steps[step].job, "linux")
+                on = wf.get("on", wf.get(True))
+                self.assertEqual(set(steps[step].inputs) - {".github/workflows/" + name},
+                                 set(on["pull_request"]["paths"]) - {".github/workflows/" + name})
+        # The cargo steps run alone, so their compile does not raise the shared wave bound.
+        for step in ("cmux-vm-clients-rust", "cmux-cloud-cli", "app-store-shelf"):
+            with self.subTest(step=step):
+                self.assertTrue(steps[step].alone)
+                self.assertIn("rust", steps[step].needs)
+        self.assertIn("zig", steps["app-store-shelf"].needs)
+        self.assertIn("bash scripts/ci/app-store-shelf-check.sh", steps["app-store-shelf"].run)
+        self.assertIn("python3 tests/test_risk_tier.py", steps["risk-tier-tests"].run)
+        self.assertIn("crash-class-gate.sh", steps["cmux-next-crash-class"].run)
         # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
@@ -1169,7 +1287,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(carried, [i for i in tt_ids if i not in staying])
         for step in tooling:
             with self.subTest(step=step.name):
-                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                # `**` routes it on every change; named inputs after it are what route it under --pr-scope.
+                self.assertEqual((step.job, step.inputs[0], step.alone), ("linux", "**", False))
+                self.assertTrue(all("**" not in g for g in step.inputs[1:]), step.inputs)
                 self.assertLessEqual(step.timeout, 360)
                 self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
                               step.run)
@@ -1289,8 +1409,9 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-pr-autofix.yml's generated-drift job keeps its docs-only fallback runs; a pull request into
         # feat-cmux-next runs the generated-drift step, judged by the base's generated_outputs.py.
         autofix = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())["jobs"]
-        self.assertTrue(autofix["generated-drift"]["if"].endswith(
-            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        self.assertIn(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')",
+            autofix["generated-drift"]["if"])
         drift = steps["generated-drift"]
         self.assertEqual((drift.job, drift.inputs), ("linux", ("**",)))
         self.assertLessEqual(drift.timeout, 360)
@@ -1322,6 +1443,30 @@ class PipelineTest(unittest.TestCase):
             for path in ("web/app/page.tsx", "cmux-tui/src/main.rs", "scripts/ci/pr_router.py"):
                 self.assertFalse(ci_steps.routed(step, [path]), (step.name, path))
 
+    def test_the_fleet_artifact_edge_tests_run_as_a_step_into_feat_cmux_next(self) -> None:
+        # Slice 16: fleet-artifact-cdn.yml's test job keeps its other pull requests, main pushes and the dispatch
+        # deploy; a pull request into feat-cmux-next runs its commands as the fleet-artifact-cdn-test step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/fleet-artifact-cdn.yml").read_text())
+        on = wf.get("on", wf.get(True))
+        self.assertEqual(on["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(on["push"]["branches"], ["main"])
+        self.assertIn("workflow_dispatch", on)
+        self.assertEqual(wf["jobs"]["deploy"]["needs"], "test")
+        job = wf["jobs"]["test"]
+        step = ci_steps.load().steps["fleet-artifact-cdn-test"]
+        self.assertEqual((step.job, step.needs), ("linux", ("node",)))
+        self.assertFalse(step.alone)
+        self.assertLessEqual(step.timeout, min(360, job["timeout-minutes"] * 60))
+        self.assertEqual(set(step.inputs), set(on["pull_request"]["paths"]))
+        for s in job["steps"]:
+            if "run" in s:
+                self.assertIn(f"cd {s['working-directory']}\n{s['run']}", step.run)
+        for path in ("workers/fleet-artifacts/src/index.mjs", "workers/fleet-artifacts/test/worker.test.mjs",
+                     ".github/workflows/fleet-artifact-cdn.yml"):
+            self.assertTrue(ci_steps.routed(step, [path]), path)
+        for path in ("workers/ci-artifacts/src/index.ts", "workers/device-hub/src/index.ts", "web/app/page.tsx"):
+            self.assertFalse(ci_steps.routed(step, [path]), path)
+
     def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
@@ -1329,8 +1474,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
-                     "web-tests-4", "web-production-build"}
-        wants_node = {"ci-artifact-worker", "web-complexity", "webviews-typecheck"}
+                     "web-tests-4", "web-production-build", "cmux-vm-cloud"}
+        wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
+                      "webviews-typecheck", "cmux-vm-cloud"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
@@ -1396,7 +1542,7 @@ class MacJobTest(unittest.TestCase):
             wf["jobs"]["mac"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+            "'cmux-mac' }}")
 
     def test_its_mac_setup_steps_keep_their_names(self) -> None:
         # owned_pool_rescue.py reads "Select Xcode"; the lease's holder lives as long as the workflow step.
@@ -1811,7 +1957,10 @@ class WebBrowserStepsTest(unittest.TestCase):
             + [p + "x.ts" for p in web_subareas.AGENT_PANE_PREFIXES + web_subareas.REACT_PREFIXES]
             + ["schemas/settings/x.json", "release-notes/next/highlights/x.md", "web/data/model-catalog/snapshot.json"],
         }
-        for name, subarea in self.STEPS.items():
+        # chat_flow is agent_pane less the acpmux build (web_subareas.classify_paths); the loop skips what it leaves out.
+        samples["chat_flow"] = samples["agent_pane"] + [p + "x.sh" for p in web_subareas.CHAT_FLOW_PREFIXES]
+        # chat-flow-shift-budget is not a ci-web.yml job, but its globs cover its subarea the same way.
+        for name, subarea in {**self.STEPS, "chat-flow-shift-budget": "chat_flow"}.items():
             self.assertEqual(steps[name].job, "web-browser")
             for path in samples[subarea] + sorted(web_subareas.ALL_SUBAREA_INPUTS):
                 if not getattr(web_subareas.classify_paths([path], ROOT), subarea):
@@ -1937,15 +2086,25 @@ class IosJobTest(unittest.TestCase):
 
     def test_it_runs_where_the_picker_places_it_and_a_fork_on_blacksmith(self) -> None:
         jobs = self.wf()["jobs"]
+        self.assertEqual(jobs["ios-macos"]["runs-on"], jobs["mac"]["runs-on"])
         self.assertEqual(jobs["ios"]["needs"], ["ios-runner"])
         self.assertEqual(
             jobs["ios"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || "
+            "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
+            "github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || "
             "needs.ios-runner.outputs.runs_on) }}")
-        pick = next(s["run"] for s in jobs["ios-runner"]["steps"] if "ios_runner_pool.py" in s.get("run", ""))
-        self.assertIn("--lane pipeline", pick)
+        # Only the rescue bot's re-run takes Blacksmith; a person's re-run keeps the pick (RFD 0165).
+        self.assertEqual(jobs["ios-fast"]["runs-on"], jobs["ios"]["runs-on"].replace("ios-runner", "ios-fast-runner"))
+        for picker in ("ios-runner", "ios-fast-runner"):
+            steps = jobs[picker]["steps"]
+            pick = next(s for s in steps if s.get("id") == "pool")
+            self.assertIn('--lane pipeline', pick["run"])
+            self.assertIn('--order "$POOL_ORDER"', pick["run"])
+            self.assertEqual(pick["env"]["POOL_ORDER"], "${{ vars.CI_PR_POOL_ORDER }}")
+            sparse = steps[0]["with"]["sparse-checkout"].splitlines()
+            self.assertTrue("scripts/ci/xcode-pins.txt" in sparse or "scripts/ci/" in sparse, picker)
         names = [s.get("name") for s in jobs["ios"]["steps"]]
         # owned_pool_rescue.py reads "Select Xcode"; it comes before the steps that need Xcode.
         self.assertLess(names.index("Select Xcode"), names.index("Run the routed ios steps (ci/steps.toml)"))
@@ -1958,7 +2117,7 @@ class IosJobTest(unittest.TestCase):
 
     def test_each_mac_step_runs_alone(self) -> None:
         steps = {s.name: s for s in ci_steps.load().steps.values() if s.job == "ios"}
-        self.assertEqual(sorted(steps), ["ios-kit", "ios-phone-cells"])
+        self.assertEqual(sorted(steps), ["ios-kit", "ios-kit-macos", "ios-phone-cells"])
         for step in steps.values():
             with self.subTest(step=step.name):
                 self.assertTrue(step.alone)
@@ -1970,17 +2129,124 @@ class IosJobTest(unittest.TestCase):
         self.assertNotIn("ios", ci_steps.route(t, ["cmux-next-ios/README.md"]))
         self.assertNotIn("ios", ci_steps.route(t, ["cmux-next-ios/verify/x.swift"]))
         self.assertEqual(ci_steps.route(t, ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md"])
-                         .get("ios"), ["ios-kit"])
+                         .get("ios"), ["ios-kit-macos", "ios-kit"])
         self.assertEqual(ci_steps.route(t, ["cmux-next-ios/CmuxKit/Sources/CmuxKit/A.swift"]).get("ios"),
-                         ["ios-kit"])
+                         ["ios-kit-macos", "ios-kit"])
 
-    def test_the_old_workflows_keep_every_trigger_but_the_pull_request(self) -> None:
+    def test_the_macos_swift_test_runs_beside_the_simulator_leg(self) -> None:
+        # Goal ios-ci-under-5min: the kit's macOS swift test ran before the simulator leg in one step on one Mac;
+        # now it is ios-kit-macos, which the `ios macos` job runs beside the `ios` job, and ios is the longer leg.
+        steps = ci_steps.load().steps
+        kit, macos = steps["ios-kit"], steps["ios-kit-macos"]
+        self.assertIn("swift test --package-path cmux-next-ios/CmuxMobileKit", macos.run)
+        self.assertNotIn("swift test --package-path", kit.run)
+        self.assertIn("xcodebuild test", kit.run)
+        self.assertNotIn("xcodebuild", macos.run)
+        for step in (kit, macos):
+            with self.subTest(step=step.name):
+                self.assertIn("bash scripts/ci/ios_link_ffi.sh 8", step.run)
+                self.assertIn("git diff --exit-code -- cmux-next-ios/", step.run)
+                # The run text names no event variable, so a pass is still reused.
+                self.assertFalse([v for v in ci_steps.EVENT_VARS if v in step.run])
+        # The same inputs, so the macOS leg routes exactly when the simulator leg does; ios-kit also reads the
+        # macOS leg's verdict through the helper.
+        self.assertEqual(set(kit.inputs) - set(macos.inputs), {"scripts/ci/ios_macos_leg.py"})
+        self.assertEqual(set(macos.inputs) - set(kit.inputs), set())
+        self.assertEqual(kit.ignore, macos.ignore)
+        # The ordering rule both legs had in one step: a red macOS leg skips the simulator and fails ios-kit.
+        self.assertEqual(kit.run.count("python3 -I scripts/ci/ios_macos_leg.py state"), 2)
+        self.assertLess(kit.run.index("ios_macos_leg.py state"), kit.run.index("xcodebuild test"))
+        jobs = self.wf()["jobs"]
+        leg = jobs["ios-macos"]
+        self.assertEqual(leg["name"], "ios macos")
+        self.assertNotIn("needs", leg)
+        self.assertEqual(jobs["ios"]["permissions"]["actions"], "read")
+        ios_run = next(s for s in jobs["ios"]["steps"] if s.get("name") == "Run the routed ios steps (ci/steps.toml)")
+        self.assertEqual(ios_run["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn('if n != "ios-kit-macos"', ios_run["run"])
+        self.assertIn('--only "$only"', ios_run["run"])
+
+    def test_the_ios_jobs_only_list_leaves_the_macos_leg_out(self) -> None:
+        jobs = self.wf()["jobs"]
+        run = next(s["run"] for s in jobs["ios"]["steps"] if s.get("name") == "Run the routed ios steps (ci/steps.toml)")
+        pick = run.split("python3 -I -c '", 1)[1].split("')\"", 1)[0]
+        for routed, want in ((["ios-kit-macos", "ios-kit", "ios-phone-cells"], "ios-kit ios-phone-cells"),
+                             (["ios-phone-cells"], "ios-phone-cells"), (["ios-kit-macos"], "none"), ([], "none")):
+            with self.subTest(routed=routed):
+                got = subprocess.run([sys.executable, "-I", "-c", pick], input=json.dumps({"ios": routed}),
+                                     capture_output=True, text=True, check=True).stdout.strip()
+                self.assertEqual(got, want)
+
+    def test_the_old_workflows_keep_only_the_nightly_and_the_dispatch(self) -> None:
+        # The pull request runs their checks as table steps, and so does the post-merge batch (suites
+        # pr-pipeline-ios and pr-pipeline-linux): only the nightly cron and a dispatch start them. The kit's push
+        # names its own file alone, which registers it so a dispatch does not answer 404.
         for name, kept in (("cmux-next-ios-kit.yml", {"push", "workflow_dispatch"}),
-                           ("ios-reliability-matrix.yml", {"push", "workflow_dispatch", "schedule"})):
+                           ("ios-reliability-matrix.yml", {"workflow_dispatch", "schedule"})):
             with self.subTest(workflow=name):
                 on = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())[True]
-                self.assertNotIn("pull_request", on)
-                self.assertLessEqual(kept, set(on))
+                self.assertEqual(kept, set(on))
+                if "push" in on:
+                    self.assertEqual(on["push"]["paths"], [f".github/workflows/{name}"])
+
+
+class IosMacosLegTest(unittest.TestCase):
+    """scripts/ci/ios_macos_leg.py: the `ios macos` job's verdict so far, which ios-kit reads before and after its
+    simulator leg; an unread one runs the simulator, as a green one does."""
+
+    ENV = {"GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t"}
+
+    def state(self, jobs, env=None) -> tuple[str, list[str]]:
+        import ios_macos_leg
+
+        asked: list[str] = []
+
+        def read(path: str) -> dict:
+            asked.append(path)
+            if isinstance(jobs, Exception):
+                raise jobs
+            return {"jobs": jobs}
+        return ios_macos_leg.state(dict(self.ENV if env is None else env), read), asked
+
+    def test_it_reads_the_leg_of_this_run_attempt(self) -> None:
+        def job(status, conclusion=None, name="pr pipeline / ios macos"):
+            return {"name": name, "status": status, "conclusion": conclusion}
+        other = job("completed", "failure", "pr pipeline / ios")
+        cases = (([other, job("completed", "failure")], "failure"), ([job("completed", "timed_out")], "failure"),
+                 ([job("completed", "cancelled")], "failure"), ([job("completed", "success")], "success"),
+                 ([job("completed", "skipped")], "unknown"), ([job("in_progress")], "pending"),
+                 ([job("queued", name="ios macos")], "pending"), ([other], "unknown"), ([], "unknown"))
+        for jobs, want in cases:
+            with self.subTest(jobs=jobs):
+                got, asked = self.state(jobs)
+                self.assertEqual(got, want)
+                self.assertEqual(asked[0], "/repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100&page=1")
+
+    def test_it_fails_open(self) -> None:
+        self.assertEqual(self.state(RuntimeError("HTTP 403"))[0], "unknown")
+        self.assertEqual(self.state([], {k: v for k, v in self.ENV.items() if k != "GITHUB_RUN_ID"}), ("unknown", []))
+        import ios_macos_leg
+
+        self.assertEqual(ios_macos_leg.state({k: v for k, v in self.ENV.items() if k != "GH_TOKEN"}), "unknown")
+
+    def test_it_turns_the_pages_until_it_finds_the_leg(self) -> None:
+        import ios_macos_leg
+
+        pages = {1: [{"name": f"j{i}", "status": "completed", "conclusion": "success"} for i in range(100)],
+                 2: [{"name": "pr pipeline / ios macos", "status": "completed", "conclusion": "failure"}]}
+        asked: list[str] = []
+
+        def read(path: str) -> dict:
+            asked.append(path)
+            return {"jobs": pages.get(int(path.rsplit("=", 1)[1]), [])}
+        self.assertEqual(ios_macos_leg.state(dict(self.ENV), read), "failure")
+        self.assertEqual(len(asked), 2)
+
+    def test_the_cli_prints_one_word_and_exits_zero(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        got = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/ci/ios_macos_leg.py"), "state"], env=env,
+                             capture_output=True, text=True)
+        self.assertEqual((got.returncode, got.stdout), (0, "unknown\n"))
 
 
 class CrateStore:

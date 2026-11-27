@@ -33,6 +33,7 @@ on:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
       - "docs/billing/**"
       - "web/services/billing/**"
@@ -101,6 +102,7 @@ on:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
       - "docs/billing/**"
       - "web/services/billing/**"
@@ -245,7 +247,7 @@ jobs:
           --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # HEAD^1 is the base the pull request merges onto.
           fetch-depth: 2
@@ -406,7 +408,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         if: ${{ steps.route.outputs.web == 'true' }}
@@ -499,7 +502,7 @@ jobs:
           printf '%s\n' "$rows" > "$RUNNER_TEMP/billing-linux-rows.txt"
           docker run --rm -v "$GITHUB_WORKSPACE:/w" -v "$RUNNER_TEMP:/rt" -w /w \
             -e CMUX_SWIFTPM_TARGET_LINUX=1 -e OWNER="$(id -u):$(id -g)" "$SWIFT_IMAGE" bash -c '
-              apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
+              bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
               status=0
               while read -r dir targets; do
                 echo "::group::$dir ($targets)"
@@ -531,13 +534,13 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       STOREKIT_ITERATIONS: ${{ inputs.storekit_iterations || '1' }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       IOS: ${{ needs.billing.outputs.ios }}
       STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}
       STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

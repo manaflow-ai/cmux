@@ -41,6 +41,19 @@ pub enum PeerCmd {
     /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
     /// and the registry, and changes nothing.
     Cells,
+    /// A transfer to a machine failed (a launcher's scp or ssh to its pick): `machine pick`
+    /// passes it over for 10 minutes, then tries it again. `--clear` forgets the failure once
+    /// it answers. A file in acpmux's home on this machine (`placement/reach.rs`).
+    Unreachable {
+        /// The machine the transfer could not reach.
+        name: String,
+        /// What failed, shown in the pick's reason.
+        #[arg(long)]
+        why: Option<String>,
+        /// It answers again: forget its failure.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -296,6 +309,16 @@ pub enum PeerCmd {
         /// it the newer installed build is kept.
         #[arg(long)]
         allow_downgrade: bool,
+        /// RFD 0060 fast-patch: update now (no wait for the timer or the
+        /// restart window), hand over by restart, health read with rollback,
+        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
+        /// (service acpmux-daemon).
+        #[arg(long)]
+        fast_patch: bool,
+        /// With --fast-patch: the commit expected live; refused when the
+        /// channel names another.
+        #[arg(long, requires = "fast_patch")]
+        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,

@@ -44,7 +44,7 @@ def hit(crate, file_name, line, lint="indexing_slicing"):
                                    "column_start": 1}]}}
 
 
-class BaseBrokenRatchet(unittest.TestCase):
+class RatchetCase(unittest.TestCase):
     def setUp(self):
         self.ratchet = load()
         self.ratchet.changed_files.cache_clear()
@@ -62,6 +62,8 @@ class BaseBrokenRatchet(unittest.TestCase):
         path.write_text("\n".join(json.dumps(i) for i in [*items, {"reason": "build-finished", "success": success}]))
         return str(path)
 
+
+class BaseBrokenRatchet(RatchetCase):
     def run_ratchet(self, head_items, changed, reasonless=()):
         head = self.write("head.jsonl", [artifact("alpha"), *head_items], True)
         base = self.write("base.jsonl", [artifact("alpha")], False)
@@ -109,6 +111,77 @@ class BaseBrokenRatchet(unittest.TestCase):
     def test_a_reasonless_allow_with_no_known_changed_files_still_fails(self):
         code, err = self.run_ratchet([], set(), [self.BAD])
         self.assertEqual(code, 1, err)
+
+
+class UntouchedIsBase(RatchetCase):
+    """--untouched-is-base: cmux-tui-clippy-changed.py asks this before it lints the base a second time (run
+    45929462416 spent ~5 min linting base 0a1088f4 only to excuse 20 crates the change never touched)."""
+
+    def judge(self, head_items, changed, *extra):
+        head = self.write("head.jsonl", [artifact("alpha"), *head_items], True)
+        err = io.StringIO()
+        with unittest.mock.patch.object(self.ratchet, "changed_files", lambda root: frozenset(changed)), \
+                unittest.mock.patch.object(sys, "argv", ["ratchet", "--clippy-json", head, "--repo", str(self.tmp),
+                                                         *extra]), \
+                unittest.mock.patch.object(self.ratchet, "allow_without_reason", lambda root: []), \
+                contextlib.redirect_stderr(err):
+            code = self.ratchet.main()
+        return code, err.getvalue()
+
+    def test_drift_in_untouched_files_needs_no_base_run(self):
+        code, err = self.judge([hit("alpha", "crates/alpha/src/drift.rs", 3)], {"crates/beta/src/x.rs"},
+                               "--untouched-is-base")
+        self.assertEqual(code, 0, err)
+        self.assertIn("the base was not linted, and no hit is in a file this change touched", err)
+
+    def test_a_hit_in_a_touched_file_still_needs_the_base_run(self):
+        code, err = self.judge([hit("alpha", "crates/alpha/src/own.rs", 3)], {"crates/alpha/src/own.rs"},
+                               "--untouched-is-base")
+        self.assertEqual(code, 1, err)
+
+    def test_without_the_flag_drift_is_still_red(self):
+        code, err = self.judge([hit("alpha", "crates/alpha/src/drift.rs", 3)], {"crates/beta/src/x.rs"})
+        self.assertEqual(code, 1, err)
+
+    def test_diff_base_names_the_files_git_diff_against_that_commit_names(self):
+        import subprocess
+        repo = self.tmp / "repo"
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        (repo / "cmux-tui/crates/alpha/src").mkdir(parents=True)
+        (repo / "cmux-tui/crates/alpha/src/old.rs").write_text("1\n")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+        base = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        (repo / "cmux-tui/crates/alpha/src/new.rs").write_text("2\n")
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "change"], check=True)
+        self.ratchet.DIFF_BASE = base
+        self.addCleanup(setattr, self.ratchet, "DIFF_BASE", None)
+        self.assertEqual(self.ratchet.changed_files(str(repo)), frozenset({"crates/alpha/src/new.rs"}))
+
+
+class RecordBase(RatchetCase):
+    def test_record_base_writes_the_runs_counts_up_and_down_and_keeps_unchecked_rows(self):
+        baseline = Path(self.ratchet.BASELINE)
+        rows = {"alpha": {lint: 0 for lint in self.ratchet.LINTS}, "gone": {"unwrap_used": 4}}
+        rows["alpha"]["unwrap_used"] = 9
+        baseline.write_text(json.dumps({"crates": rows}))
+        head = self.write("head.jsonl", [artifact("alpha"), artifact("fresh"),
+                                         hit("alpha", "crates/alpha/src/a.rs", 1),
+                                         hit("fresh", "crates/fresh/src/f.rs", 2, "string_slice")], True)
+        err = io.StringIO()
+        with unittest.mock.patch.object(sys, "argv", ["ratchet", "--clippy-json", head, "--repo", str(self.tmp),
+                                                      "--record-base"]), contextlib.redirect_stderr(err):
+            code = self.ratchet.main()
+        self.assertEqual(code, 0, err.getvalue())
+        crates = json.loads(baseline.read_text())["crates"]
+        self.assertEqual(crates["alpha"]["indexing_slicing"], 1)
+        self.assertEqual(crates["alpha"]["unwrap_used"], 0)
+        self.assertEqual(crates["fresh"]["string_slice"], 1)
+        self.assertEqual(crates["gone"]["unwrap_used"], 4)
+        self.assertIn("over the baseline before: 2 crates in a deny lint (alpha, fresh)", err.getvalue())
+        self.assertIn("after: 0", err.getvalue())
 
 
 if __name__ == "__main__":

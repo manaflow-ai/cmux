@@ -37,6 +37,7 @@ on:
       - scripts/cmux-next/rfd0135_gates.py
       - tests/test_rfd0135_gates.py
       - cmux-tui/crates/cmux-tui/tests/lid_close_gate.rs
+      - cmux-tui/crates/cmux-tui/tests/move_times.rs
       - .github/workflows/rfd0135-gates.yml
 
 permissions:
@@ -52,7 +53,7 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
           ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
@@ -65,7 +66,7 @@ jobs:
 
   gates:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.RUNNER_POOLS && fromJSON(vars.RUNNER_POOLS).linux_8 || 'cmux-linux' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A pull request runs one short lid (60 s) and no matrix; the nightly, 10 lids of 30 min at once and the matrix.
     timeout-minutes: 300
     strategy:
@@ -73,7 +74,7 @@ jobs:
       matrix:
         gate: [lid-close, move, phone]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
           ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
@@ -146,7 +147,7 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
           ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}

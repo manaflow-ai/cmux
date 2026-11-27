@@ -17,13 +17,12 @@ mock = ["dep:cmux-scope"]
 
 [dependencies]
 anyhow.workspace = true
-cmux-egress.workspace = true
 async-trait.workspace = true
 base64.workspace = true
+cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope = { workspace = true, optional = true }
 reqwest.workspace = true
-rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile = "3"
@@ -31,6 +30,7 @@ tokio.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: the gate sends each request to a local capture server.
 cmux-egress = { workspace = true, features = ["capture"] }
 tokio = { workspace = true, features = ["test-util"] }
 # The `mock` stand-in for this crate's own tests.
