@@ -937,6 +937,11 @@ class PipelineTest(unittest.TestCase):
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
         self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
+        # Under --pr-scope a whole-tree `**` routes nothing, so tt-ci-step-table runs on a pull request only through
+        # tooling-tests-5's named inputs: a change to the table or a workflow routes it.
+        for path in ("ci/steps.toml", ".github/workflows/pr-router.yml"):
+            with self.subTest(path=path):
+                self.assertIn("tooling-tests-5", ci_steps.route(ci_steps.load(ci_steps.TABLE), [path], pr_scope=True)["linux"])
         # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
         repo = {"full_name": "manaflow-ai/cmux"}
         web = ["web/app/lib/indexnow.ts"]
@@ -1027,6 +1032,17 @@ class PipelineTest(unittest.TestCase):
                      "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
             start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
             self.assertIn("pr-pipeline.yml", start)
+            self.assertIn("react-apps-check", why["pr-pipeline.yml"])
+            # land-judge's lane-VM pulse: full-ci added and taken off 2 s later, so the `labeled` payload no longer
+            # lists it. It is the land handoff (the full tier starts) but routes no browser step.
+            pulse = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"draft": False, "labels": [{"name": "merge-train"}]}}
+            self.assertFalse(pr_router.full_ci_kept(pulse))
+            self.assertTrue(pr_router.full_ci_kept(event))
+            start, why = pr_router.route(pulse, callees, web, decided=("full", "full-ci"))
+            self.assertIn("pr-pipeline.yml", start)
+            self.assertFalse(browser & set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")))
+            self.assertTrue(set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")) - browser)
         # The repository variable turns it off.
         with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
             self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])
@@ -1147,7 +1163,8 @@ class PipelineTest(unittest.TestCase):
 
     def test_the_replaced_workflows_are_gone(self) -> None:
         for name in ("indexnow-tests.yml", "vendored-agent-cursor.yml", "r2-upload-tests.yml",
-                     "cmux-skill-contract.yml", "ci-cache-receipts.yml"):
+                     "cmux-skill-contract.yml", "ci-cache-receipts.yml", "automation-bench.yml",
+                     "cloud-vm-image-lock.yml"):
             self.assertFalse((ROOT / ".github/workflows" / name).exists(), f"{name}: the step table runs it")
 
     def test_the_moved_pull_request_triggers_are_gone(self) -> None:
@@ -1270,7 +1287,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(carried, [i for i in tt_ids if i not in staying])
         for step in tooling:
             with self.subTest(step=step.name):
-                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                # `**` routes it on every change; named inputs after it are what route it under --pr-scope.
+                self.assertEqual((step.job, step.inputs[0], step.alone), ("linux", "**", False))
+                self.assertTrue(all("**" not in g for g in step.inputs[1:]), step.inputs)
                 self.assertLessEqual(step.timeout, 360)
                 self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
                               step.run)
@@ -2073,8 +2092,11 @@ class IosJobTest(unittest.TestCase):
             jobs["ios"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || "
+            "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
+            "github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || "
             "needs.ios-runner.outputs.runs_on) }}")
+        # Only the rescue bot's re-run takes Blacksmith; a person's re-run keeps the pick (RFD 0165).
+        self.assertEqual(jobs["ios-fast"]["runs-on"], jobs["ios"]["runs-on"].replace("ios-runner", "ios-fast-runner"))
         for picker in ("ios-runner", "ios-fast-runner"):
             steps = jobs[picker]["steps"]
             pick = next(s for s in steps if s.get("id") == "pool")
@@ -2155,13 +2177,17 @@ class IosJobTest(unittest.TestCase):
                                      capture_output=True, text=True, check=True).stdout.strip()
                 self.assertEqual(got, want)
 
-    def test_the_old_workflows_keep_every_trigger_but_the_pull_request(self) -> None:
+    def test_the_old_workflows_keep_only_the_nightly_and_the_dispatch(self) -> None:
+        # The pull request runs their checks as table steps, and so does the post-merge batch (suites
+        # pr-pipeline-ios and pr-pipeline-linux): only the nightly cron and a dispatch start them. The kit's push
+        # names its own file alone, which registers it so a dispatch does not answer 404.
         for name, kept in (("cmux-next-ios-kit.yml", {"push", "workflow_dispatch"}),
-                           ("ios-reliability-matrix.yml", {"push", "workflow_dispatch", "schedule"})):
+                           ("ios-reliability-matrix.yml", {"workflow_dispatch", "schedule"})):
             with self.subTest(workflow=name):
                 on = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())[True]
-                self.assertNotIn("pull_request", on)
-                self.assertLessEqual(kept, set(on))
+                self.assertEqual(kept, set(on))
+                if "push" in on:
+                    self.assertEqual(on["push"]["paths"], [f".github/workflows/{name}"])
 
 
 class IosMacosLegTest(unittest.TestCase):

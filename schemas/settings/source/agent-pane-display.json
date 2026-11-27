@@ -1903,6 +1903,57 @@
           ]
         },
         {
+          "key": "agentPane.display.streaming",
+          "note": "How an agent reply's text shows while it streams (webviews conversation/streamingStyle.ts). Words is today's whole-word reveal with its newest words fading in; Lines ends the reveal at a whole line; Instant shows text as it arrives with no fade, as Reduce Motion does. A theme or profile file may set it.",
+          "title": {
+            "key": "settings.agentPane.display.streaming",
+            "text": "Reply Streaming"
+          },
+          "help": {
+            "key": "settings.agentPane.display.streaming.help",
+            "text": "How an agent's reply text appears as it arrives."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "words",
+              "title": {
+                "key": "settings.choice.streamingWords",
+                "text": "Word by Word"
+              }
+            },
+            {
+              "value": "lines",
+              "title": {
+                "key": "settings.choice.streamingLines",
+                "text": "Line by Line"
+              }
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.streamingInstant",
+                "text": "Instant"
+              }
+            }
+          ],
+          "default": "words",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "streaming",
+            "reveal",
+            "fade",
+            "words",
+            "lines",
+            "instant",
+            "animation",
+            "typing"
+          ]
+        },
+        {
           "key": "agentPane.display.thinking.shimmer",
           "name": "thinkingShimmer",
           "note": "How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.",
