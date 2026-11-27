@@ -1248,7 +1248,7 @@ test("ordinary placement changes the open picker and resetting it restores the l
 
 // cmux#63167: with no route bound, the Account row named "CLI login" whatever the harness signs in
 // with (a chat on SR2). It names the sign-in acpmux reports; a bound route still names its account.
-for (const [why, routes, signIn, shown] of [
+const accountRowCases: ReadonlyArray<readonly [string, ChatAccountList, string | undefined, string]> = [
   ["a reported sign-in", { accounts: [] }, "SR2 token (sr2 claude)", "SR2 token"],
   ["no reported sign-in", { accounts: [] }, undefined, "CLI login"],
   [
@@ -1257,9 +1257,10 @@ for (const [why, routes, signIn, shown] of [
     "API key (ANTHROPIC_API_KEY, from route Max)",
     "Max",
   ],
-] as const) {
+];
+for (const [why, routes, signIn, shown] of accountRowCases) {
   test(`the Account row with ${why} names ${shown} (#63167)`, async () => {
-    await openMenu(false, { routes: routes as ChatAccountList, ...(signIn ? { signIn } : {}) });
+    await openMenu(false, { routes, ...(signIn ? { signIn } : {}) });
     await settle();
     const account = document.querySelector<HTMLElement>(".acpmux-quick-account")!;
     expect(account.textContent).toContain(shown);
