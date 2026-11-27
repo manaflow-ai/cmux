@@ -140,3 +140,47 @@ test("Find opens the Worked for that hides a wake turn's call", () => {
   const view = turnView(rows, new Set(folds), { now: 60_000, agentFamily: "claude" });
   expect(drawnIds(view)).toContain("review-read");
 });
+
+test("what comes between the wake turns stays in sight: a compaction, a command's card, the message that woke one", () => {
+  // From a replay of the report's chat: each of these sat between one wake turn's footer and the next
+  // turn's own rows, drew there before, and was lost in the next turn's fold.
+  const rows = chat();
+  const compaction = row("compaction", "compaction", { compaction: { state: "completed" } });
+  const card = row("card", "backgroundTask", {
+    backgroundTask: { toolCallId: "t-card", command: "Locate the schema fields", state: "stopped" },
+  });
+  // Another chat's message, steered into the turn it woke.
+  const message = row("message", "user", {
+    text: "not mine: I never wrote in that branch",
+    incoming: { kind: "message", message: { name: "fork-7", text: "not mine", raw: "not mine" } },
+    steer: "landed",
+  });
+  rows.splice(
+    rows.findIndex((entry) => entry.id === backgroundTurnRowId("build")),
+    0,
+    compaction,
+    card,
+  );
+  rows.splice(rows.findIndex((entry) => entry.id === backgroundTurnRowId("build")) + 1, 0, message);
+  const ids = drawnIds(turnView(rows, new Set(), { now: 60_000, agentFamily: "claude" }));
+  for (const id of ["compaction", "card", "message"]) expect(ids).toContain(id);
+  // The turn after them still folds its work.
+  for (const id of WORK) expect(ids).not.toContain(id);
+  expect(ids.indexOf("message")).toBeLessThan(ids.indexOf(`worked-${backgroundTurnRowId("build")}`));
+});
+
+test("a stopped wake turn's Worked for draws open, and a click closes it", () => {
+  // As a stopped turn the person started: its work stays in sight until a click folds it. From a
+  // replay of a recorded chat, where the click on a stopped wake turn's fold did nothing.
+  const rows = chat().map((entry) => (entry.id === "build-summary" ? { ...entry, status: "cancelled" } : entry));
+  const id = `worked-${backgroundTurnRowId("build")}`;
+  const view = (folds: ReadonlySet<string>) => turnView(rows, folds, { now: 60_000, agentFamily: "claude" });
+  const rest = view(new Set());
+  expect(rest.find((entry) => entry.id === id)).toMatchObject({ foldOpen: true });
+  expect(drawnIds(rest)).toContain("build-check");
+  const closed = toggleTurnFold(rows, new Set(), id);
+  expect(view(closed).find((entry) => entry.id === id)).toMatchObject({ foldOpen: false });
+  expect(drawnIds(view(closed))).not.toContain("build-check");
+  const reopened = toggleTurnFold(rows, closed, id);
+  expect(view(reopened).find((entry) => entry.id === id)).toMatchObject({ foldOpen: true });
+});

@@ -2973,10 +2973,16 @@ function foldTailTurn(
   const line = lineAt >= 0 ? stretch[lineAt] : undefined;
   const background = line?.background?.id ?? stretch.find((row) => row.inBackground !== undefined)?.inBackground;
   if (background === undefined || !endedBackground.has(background)) return endedTail(stretch);
-  // What came before its line (a late update of an earlier call) draws as it came.
-  const before = line ? stretch.slice(0, lineAt) : [];
-  const drawn = line ? stretch.slice(lineAt + 1) : stretch;
-  if (drawn.length === 0) return endedTail(stretch);
+  // What came before its line (a late update of an earlier call) draws as it came, and so does what
+  // came between the line and the turn's first row of its own: a compaction, a background command's
+  // card, a permission receipt or the message that woke it is the chat's, not this turn's work, and
+  // stays in sight as before (a replay of the report's chat drew each of them, then lost them in
+  // the fold).
+  const own = stretch.findIndex(
+    (row, at) => at > lineAt && (row.inBackground === background || row.kind === "turnSummary"),
+  );
+  if (own < 0) return endedTail(stretch);
+  const drawn = stretch.slice(own);
   // One that ended on no row of its own still folds, under a summary that draws nothing.
   const provisional: AcpmuxRow | undefined =
     drawn.at(-1)!.kind === "turnSummary"
@@ -3018,8 +3024,9 @@ function foldTailTurn(
   // A quiet turn has nothing to tell (acpmux's word): its wrap-up folds with its work, no card.
   const quiet = line?.background?.quiet === true;
   return [
-    ...endedTail(before),
+    ...endedTail(stretch.slice(0, Math.max(0, lineAt))),
     ...(line ? [line] : []),
+    ...endedTail(stretch.slice(lineAt + 1, own)),
     ...shaped.flatMap((row) =>
       (quiet && row.kind === NEXT_STEP) || row.id === provisional?.id
         ? []

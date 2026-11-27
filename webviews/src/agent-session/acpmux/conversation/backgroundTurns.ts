@@ -263,9 +263,11 @@ export function openBackgroundTurns(rows: readonly AcpmuxRow[], start: number, e
   for (let at = start; at < end; at += 1) {
     const row = rows[at]!;
     if (row.kind !== BACKGROUND_TURN) continue;
-    // Its own line, and the "Worked for" over its work once it ended (turns.ts `foldTailTurns`).
+    // Its own line, and the "Worked for" over its work once it ended (turns.ts `foldTailTurns`), which a
+    // stopped turn draws open until a click closes it: the closed mark keys the cache too.
     const worked = expanded.has(`worked-${row.id}`);
-    if (worked || expanded.has(row.id)) open += `${row.id}${worked ? "+" : ""} `;
+    const closed = expanded.has(`closed:worked-${row.id}`);
+    if (worked || closed || expanded.has(row.id)) open += `${row.id}${worked ? "+" : ""}${closed ? "-" : ""} `;
   }
   return open;
 }
