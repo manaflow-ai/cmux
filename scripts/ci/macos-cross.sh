@@ -295,6 +295,9 @@ cmd_bins() {
       # of cmd_bins up to the line above for its cmux-tui-only fast path.
       cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
+      if [[ -f crates/cmux-launch-preread/Cargo.toml ]]; then
+        cargo build -p cmux-launch-preread --bin cmux-launch-preread --release --locked --target "$t"
+      fi
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
       cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target "$t" \
@@ -308,6 +311,10 @@ cmd_bins() {
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    rm -f "$out/cmux-tui-launch-preread-$t"
+    if [[ -f "$repo_root/cmux-tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      cp "$r/cmux-launch-preread" "$out/cmux-tui-launch-preread-$t"
+    fi
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -334,7 +341,12 @@ cmd_all() {
     # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
     # the fat-LTO link of the "bin" unit). It changes no output.
     local build="cargo build --release --locked --timings --target $t"
+    local preread_group=()
+    if [[ -f "$tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      preread_group=("cmux-launch-preread" "cd $(q "$tui") && $build -p cmux-launch-preread --bin cmux-launch-preread")
+    fi
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
+      ${preread_group[@]+"${preread_group[@]}"} \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
@@ -360,6 +372,10 @@ cmd_all() {
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    rm -f "$out/cmux-tui-launch-preread-$t"
+    if [[ -f "$repo_root/cmux-tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      cp "$r/cmux-launch-preread" "$out/cmux-tui-launch-preread-$t"
+    fi
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"

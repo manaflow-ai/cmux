@@ -2,7 +2,9 @@
 //!
 //! The owner's panic hook (`owner_panic.rs`) writes `owner-panics-<session>.jsonl`.
 //! The cmux-next app sends those lines to Sentry for the cmux-tui it bundles;
-//! a Linux, npm or PyPI cmux-tui had nobody to send them. At owner start this
+//! a Linux, Windows, npm or PyPI cmux-tui had nobody to send them (Windows
+//! too since RFD 0157's crash upload piece; `crash_scrub` redacts its
+//! `C:\Users\<name>` paths). At owner start this
 //! sends the lines not sent yet (a main-thread panic ends the process, so its
 //! line goes on the next start) to the app's Sentry project, tagged
 //! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
@@ -318,16 +320,17 @@ pub(super) struct Forwarder {
 
 impl Forwarder {
     /// Sends `log`'s unsent lines (see ``forward_new``).
-    #[cfg(unix)]
     pub(super) fn forward(&self, log: &Path) -> Result<usize, String> {
         let _sending = self.sending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         send_all(log, &self.dsn, self.home.as_deref())
     }
+}
 
-    #[cfg(not(unix))]
-    pub(super) fn forward(&self, _log: &Path) -> Result<usize, String> {
-        Ok(0)
-    }
+/// The home `crash_scrub` turns into `~`: `HOME`, or on Windows (where `HOME` is usually unset)
+/// the profile, `USERPROFILE`.
+pub(super) fn home_dir(env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let set = |name: &str| env(name).filter(|value| !value.is_empty());
+    set("HOME").or_else(|| if cfg!(windows) { set("USERPROFILE") } else { None })
 }
 
 /// Decides consent once and, when it allows, sends the unsent lines of every
@@ -339,10 +342,6 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     let test_dsn = env(TEST_DSN_ENV).filter(|dsn| !dsn.is_empty());
     #[cfg(not(debug_assertions))]
     let test_dsn: Option<String> = None;
-    if cfg!(not(unix)) {
-        crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
-        return None;
-    }
     let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
     let managed = cmux_config::managed::default_reader(env).read();
     let settings = std::fs::read_to_string(cmux_config::config_path())
@@ -363,7 +362,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
         crate::client_log::warn(LOG_AREA, "crash-forward: off (bad DSN)");
         return None;
     };
-    let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
+    let forwarder = Forwarder { dsn, home: home_dir(&env), sending: Default::default() };
     let worker = forwarder.clone();
     let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
         let mut sent = 0;
@@ -384,10 +383,8 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     Some(forwarder)
 }
 
-#[cfg(unix)]
 fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> {
-    // reqwest's rustls-no-provider build needs the workspace's ring provider.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    // `cmux_egress::client_builder` installs the ring provider reqwest's rustls build needs.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

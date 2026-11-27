@@ -196,7 +196,7 @@ import Testing
         if #available(macOS 14.4, *) { #expect(header.subtitle == BrowserProfileStrings.reason(.workspace)) }
         #expect(header.image != nil)
         #expect(!header.isEnabled && ActionRegistry.menuRun(of: header) == nil)
-        #expect(BrowserProfileBadge(monogram: "D", color: nil, name: "Default").menuHeader(.builtIn).subtitle == nil)
+        #expect(BrowserProfileBadge(monogram: "D", color: nil, name: "Default").menuHeader(.builtIn).subtitle == BrowserProfileStrings.reason(.builtIn))
         #expect(menu.items.filter { $0.state == .on }.isEmpty, "the header names the tab's profile: no checked row repeats it")
 
         let runs = menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { (item, $0) } }
@@ -257,6 +257,7 @@ import Testing
         #expect(header.identifier == ActionRegistry.browserProfileHeaderID && !header.isEnabled)
         let card = try #require(header.view as? MenuProfileCardView)
         #expect(card.title == "Work" && card.subtitle == BrowserProfileStrings.reason(.workspace) && card.image != nil)
+        #expect(MenuProfileCardView.inset == MenuMetrics.highlightInset, "the card's plate lines up with a row's highlight")
 
         let account = try #require(menu.items.dropFirst().first)
         #expect(account.identifier == ActionRegistry.browserProfileAccountID && account.title.contains("leo@example.com"))
