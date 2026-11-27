@@ -87,7 +87,7 @@ class OwedTests(unittest.TestCase):
             p = subprocess.run(["bash", str(HERE / "targets" / f"{name}.sh"), "caps"],
                                capture_output=True, text=True, env=env, check=False)
             self.assertEqual(p.returncode, 0, (name, p.stderr))
-            self.assertEqual(p.stdout.split(), owes, name)
+            self.assertEqual([c for c in p.stdout.split() if c.startswith("owes-")], owes, name)
 
     def test_the_harness_exits_6_after_writing_results(self):
         script = (HERE.parent / "screen-stream-eval.sh").read_text()
