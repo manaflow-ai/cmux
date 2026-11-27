@@ -179,6 +179,90 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
 }
 
+#[test]
+fn headless_loads_catalog_exports_without_invoking_commands() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    std::fs::write(
+        dir.join("dist/main.js"),
+        r#"function hello() { throw new Error("command invoked"); }
+globalThis.__cmuxAppExports = Object.freeze({ hello });"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(
+        outcome.next.as_deref().is_some_and(|next| next.contains("loaded catalog command exports")),
+        "{:?}",
+        outcome.next
+    );
+}
+
+#[test]
+fn headless_rejects_catalog_commands_that_cannot_load() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let args = global(&root.path().join("no-daemon.sock"));
+    for (script, expected) in [
+        ("throw new Error('broken init')", "broken init"),
+        ("globalThis.__cmuxAppExports = {}", "missing catalog command function: hello"),
+        ("globalThis.__cmuxAppExports = { hello: 42 }", "missing catalog command function: hello"),
+        (
+            "globalThis.__cmuxAppExports = Object.create({ hello() {} })",
+            "missing catalog command function: hello",
+        ),
+    ] {
+        std::fs::write(dir.join("dist/main.js"), script).unwrap();
+        let outcome = dev::once(&args, &options, false);
+        assert_eq!(outcome.phase, Phase::Load, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors.iter().any(|e| e.message.contains(expected)),
+            "{:?}",
+            outcome.errors
+        );
+    }
+}
+
+#[test]
+fn headless_keeps_manifest_only_composer_extensions_load_free() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("composer");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("cmux-app.json"),
+        r#"{
+          "manifestVersion": 2,
+          "id": "local/composer",
+          "name": "Composer",
+          "version": "1.0.0",
+          "description": "A manifest-only composer extension.",
+          "engines": { "cmux": "^2.0" },
+          "implements": {
+            "cmux.composer.command/1": {
+              "title": "Composer",
+              "options": {
+                "commands": [
+                  { "name": "hello", "insert": "Say hello." }
+                ]
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.probe.is_none());
+}
+
 /// A folder outside a cmux checkout (a sample copied out, one a person
 /// installs) has no copy of `cmux-extension-sdk`: the packer gets the SDK the
 /// CLI carries, whole, so it builds with no install.

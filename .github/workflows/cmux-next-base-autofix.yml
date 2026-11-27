@@ -201,13 +201,24 @@ jobs:
           # The CI pool Apps' tokens (each its own installation hour), read after the job token is refused.
           BASE_AUTOFIX_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           NEXT_BASE_AUTOFIX_WINDOW_MINUTES: ${{ vars.NEXT_BASE_AUTOFIX_WINDOW_MINUTES }}
+          # A push that changes a Cargo manifest or lock repairs now: a stale sibling lock fails every --locked build
+          # (app-ffi-release.yml among them) until cargo-locks.py fix commits it (cmux#57132).
+          BASE_AUTOFIX_CARGO_CHANGED: ${{ github.event_name == 'push' && (contains(join(github.event.head_commit.modified, ' '), 'Cargo.toml') || contains(join(github.event.head_commit.modified, ' '), 'Cargo.lock') || contains(join(github.event.head_commit.added, ' '), 'Cargo.toml') || contains(join(github.event.head_commit.removed, ' '), 'Cargo.toml')) }}
         run: bash scripts/cmux-next/base-autofix-window.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
 
+      # The job token's hour is often spent (HTTP 403), so the pool tokens follow it, as the window read does. A cancel
+      # every token refuses leaves the run green; base-autofix-window.sh passes over such a short run (it repaired nothing).
       - name: Cancel the held run
         if: steps.window.outputs.run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" || echo "::warning::cancel failed; the repair jobs skip on this job's run=false"
+          BASE_AUTOFIX_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+        run: |
+          for token in "$GH_TOKEN" $BASE_AUTOFIX_POOL_TOKENS; do
+            [ -n "$token" ] || continue
+            GH_TOKEN="$token" gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" && exit 0
+          done
+          echo "::warning::cancel failed with every token; the repair jobs skip on this job's run=false"
 
   # Whether the Mac action-exports job runs: the paths changed since the last
   # successful run, as autofix's Changed areas step computes them.
@@ -441,7 +452,7 @@ jobs:
       # git before the checkout, or it downloads a tarball the script cannot move to the newest tip.
       - name: Install git, python3 and curl
         timeout-minutes: 5
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+        run: for try in 1 2 3; do apt-get update -qq -o Acquire::Retries=3 && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git python3 curl ca-certificates && break; [ "$try" = 3 ] && exit 1; echo "apt try $try failed (a mirror mid-sync?), updating again"; sleep 15; done
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -912,7 +923,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
@@ -1017,7 +1028,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ ((needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || needs.action-exports-linux.outputs.exports == 'true' || needs.settings-exports-linux.outputs.exports == 'true') && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
     timeout-minutes: 65
     permissions:
@@ -1026,6 +1037,11 @@ jobs:
       pull-requests: write # the Swift rewrites' pull request when the App's pull-request token can't be minted
       statuses: read # the compile gate reads fleet/compile-check on its candidate
     steps:
+      # The rounds on a moved tip (base-autofix-land.sh) end before timeout-minutes, not at it: a round
+      # cut off by the job's cancel made the run red (45994733335, 2026-11-27), though the move it chased
+      # started a run that repairs that tip.
+      - name: Note when this job started
+        run: echo "AUTOFIX_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -1386,6 +1402,10 @@ jobs:
           fi
           echo "::add-mask::$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
+          # timeout-minutes (65) less 8 for the last round's push and the steps after it.
+          if [[ -n "${AUTOFIX_JOB_STARTED:-}" ]]; then
+            export CMUX_BASE_AUTOFIX_AGAIN_DEADLINE=$((AUTOFIX_JOB_STARTED + (65 - 8) * 60))
+          fi
           # Lands the repair on the newest tip file by file (base-autofix-push.sh): a file whose input areas
           # the tip changed, or that a newer commit wrote, waits (with its export and what is built from it).
           # A held file this job makes itself (the CI target graph, say) is made again on the new tip and
@@ -1433,7 +1453,7 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs

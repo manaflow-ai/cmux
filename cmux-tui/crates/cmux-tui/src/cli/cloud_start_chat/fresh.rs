@@ -89,6 +89,10 @@ pub(super) struct Boot {
     booting: bool,
     /// Any read found it booting (the answer's `booted`).
     waited: bool,
+    /// What the last read saw of the machine (the answer's `stage`), so a give-up names where it stopped:
+    /// `creating` (its create still on its way), its listed status, `not listed`, `list unread`, or `start` when
+    /// no read was made (the start answered or stopped before its bound).
+    pub(super) stage: String,
 }
 
 /// What a read of the machine list says of the machine a start makes.
@@ -107,7 +111,15 @@ impl Boot {
         let began = runner.now();
         let until = began + deadline.bound(runner, START_BOUND);
         let cap = began + deadline.bound(runner, COLD_BOUND);
-        Self { name: name.to_owned(), began, until, cap, booting: false, waited: false }
+        Self {
+            name: name.to_owned(),
+            began,
+            until,
+            cap,
+            booting: false,
+            waited: false,
+            stage: "start".to_owned(),
+        }
     }
 
     /// The start's new end, asked when its `until` came with it still running: [`BOOT_EVERY`] on while the machine
@@ -139,19 +151,22 @@ impl Boot {
     }
 
     /// The machine named `name` in the app's list, read within [`BOOT_READ`].
-    fn read(&self, runner: &mut dyn Runner) -> Seen {
+    fn read(&mut self, runner: &mut dyn Runner) -> Seen {
         let until = (runner.now() + BOOT_READ).min(self.cap);
         let Ok(listed) =
             step_result(&runner.cmux_by(&words(&["cloud", "list-machines", "--json"]), until))
         else {
+            "list unread".clone_into(&mut self.stage);
             return Seen::Other;
         };
         if at(&listed, "loaded").as_bool() == Some(false) {
+            "list unread".clone_into(&mut self.stage);
             return Seen::Other;
         }
         let rows = |key: &str| at(&listed, key).as_array().cloned().unwrap_or_default();
         let named = |row: &Value, key: &str| at(row, key).as_str() == Some(self.name.as_str());
         if let Some(row) = rows("machines").iter().find(|row| named(row, "title")) {
+            at(row, "status").as_str().unwrap_or("no status").clone_into(&mut self.stage);
             return match at(row, "status").as_str() {
                 Some("running") => Seen::Running,
                 // The app lists a create's machine as provisioning until its daemon connects or the list
@@ -162,7 +177,13 @@ impl Boot {
         }
         let creating =
             rows("creating").iter().any(|row| named(row, "name") && at(row, "failed").is_null());
-        if creating { Seen::Booting } else { Seen::Other }
+        if creating {
+            "creating".clone_into(&mut self.stage);
+            Seen::Booting
+        } else {
+            "not listed".clone_into(&mut self.stage);
+            Seen::Other
+        }
     }
 
     /// How long the start was given before it stopped.
@@ -192,11 +213,12 @@ pub(super) fn stuck(
         return Some(failed(
             STUCK_CODE,
             format!(
-                "Machine `{name}` didn't connect or start its agent within {} s",
-                bound.as_secs()
+                "Machine `{name}` didn't connect or start its agent within {} s (last seen: {})",
+                bound.as_secs(),
+                boot.stage
             ),
             json!({"machine_name": name, "bound_ms": bound.as_millis(), "booted": boot.waited,
-                   "why": "bound"}),
+                   "why": "bound", "stage": boot.stage}),
             1,
         ));
     }
@@ -505,8 +527,15 @@ pub(super) fn replace_stuck(
         let details = at(error, "details");
         let Some(name) = at(details, "machine_name").as_str().map(str::to_owned) else { break };
         let why = at(details, "why").clone();
+        let stage = at(details, "stage").clone();
         let released = release(runner, &name, deadline, true);
-        replaced.push(released.json(&name, &why));
+        let mut row = released.json(&name, &why);
+        if !stage.is_null()
+            && let Some(fields) = row.as_object_mut()
+        {
+            fields.insert("stage".to_owned(), stage);
+        }
+        replaced.push(row);
         if !released.gone {
             // The very command `release` ran, so the person's retry of it is the same step.
             let delete = released.machine_id.as_ref().map_or_else(
@@ -552,6 +581,7 @@ pub(super) fn replace_stuck(
                 && let Some(message) = error.get("message").and_then(Value::as_str)
                 && !message.contains("could not be deleted")
             {
+                // retry-prompt-ok: another start makes a new machine, billed by the hour; the person chooses.
                 let message = format!(
                     "{message}. cmux deleted it and every machine it tried for this chat ({}); run the same \
                      command again to start on a new one",

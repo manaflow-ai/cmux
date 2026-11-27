@@ -120,6 +120,8 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/cmux-next-steps/daemon-test-give-the-generated-files-verdict.sh",
+            "scripts/ci/cmux-next-steps/daemon-test-replay-the-seed-s-input-times.sh",
             "scripts/ci/job_input_fingerprint.py",
             "scripts/ci/job_reuse.py",
             "scripts/ci/github_fetch_auth.py",
@@ -135,7 +137,7 @@
             "scripts/ci/macho_weaken.py", "scripts/ci/macos-stubs/", ".github/workflows/cmux-tui-build-package.yml",
             "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/ghostty-zig-version.sh",
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
-            "scripts/select-ci-xcode.sh",
+            "scripts/select-ci-xcode.sh", "skills/cmux-extension-author/",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
             "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
             "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
