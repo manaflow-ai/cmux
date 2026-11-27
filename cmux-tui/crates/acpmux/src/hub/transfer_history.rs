@@ -106,6 +106,11 @@ struct Prepacked {
     ms: u64,
 }
 
+/// The most records one scan of [`Hub::write_lines`] writes before it lets the store's
+/// fork-view lock go and scans on from the last one. Three in tests, so every export and pack
+/// test writes its lines in several passes and checks they are the bytes one pass wrote.
+const WRITE_LINES_PASS: usize = if cfg!(test) { 3 } else { 2_000 };
+
 /// The calling thread at the lowest CPU priority, and the threads it starts after: nice 19 on
 /// Linux (a thread's own, inherited by the threads it starts), the background band on macOS.
 /// Best effort: a refusal leaves it as it was.
@@ -426,6 +431,12 @@ impl Hub {
     /// Packs chat `session`'s log through seq `through` into `store` as the chat, from its lines
     /// as an export writes them (written in `work` and removed after). Returns the manifest,
     /// what the pack did, and the digest of the record at `through`.
+    ///
+    /// The pack's sealed segments through `through` that still hold the log are kept, and only
+    /// the lines after them are written and encoded ([`Self::pack_kept_through`]): a compaction's
+    /// outline or an export of a long chat costs about what changed since the last seal, not the
+    /// whole log. Before, every one wrote the whole log to `work` first (an 8.6 GB chat's outline
+    /// wrote 8 GB, and at each compaction again). A pack with nothing to keep packs whole.
     pub(in crate::hub) fn pack_through(
         &self,
         session: &Session,
@@ -434,6 +445,9 @@ impl Hub {
         work: &Path,
     ) -> anyhow::Result<(pack::Manifest, pack::PackStats, String)> {
         crate::home_fs::create_dirs(work)?;
+        if let Some(kept) = self.pack_kept_through(session, through, store, work)? {
+            return Ok(kept);
+        }
         let lines = work.join("history.ndjson");
         let written = self.write_lines(session, 0, through, &lines);
         let packed = written.and_then(|(last, digest)| {
@@ -446,6 +460,88 @@ impl Hub {
         let _ = crate::home_fs::remove_file(&lines);
         let ((manifest, stats), digest) = packed?;
         Ok((manifest, stats, digest))
+    }
+
+    /// [`Self::pack_through`] from the pack's sealed segments that end by `through`: those the
+    /// log still holds byte for byte are kept, the lines after them are written to `work` and
+    /// encoded. The segments are trusted unchecked while the log's stamp is the one a pack that
+    /// checked them recorded (`pack_checked`, as a seal trusts them, `pack_as_it_grows.rs`);
+    /// otherwise each is checked by hashing the log's lines as they are made, never written
+    /// ([`pack::SegmentCheck`]). `None` when no sealed segment is kept: the caller packs whole.
+    fn pack_kept_through(
+        &self,
+        session: &Session,
+        through: u64,
+        store: &pack::Store,
+        work: &Path,
+    ) -> anyhow::Result<Option<(pack::Manifest, pack::PackStats, String)>> {
+        let params = pack::Params::default();
+        let Some(manifest) = pack::Manifest::load(store, &session.id).map_err(pack_error)? else {
+            return Ok(None);
+        };
+        if manifest.params != params || manifest.turn_rule < pack::TURN_RULE {
+            return Ok(None);
+        }
+        let stamp = self.store.log_stamp(&session.id)?;
+        let candidates: Vec<&pack::Segment> = manifest
+            .segments
+            .iter()
+            .take_while(|s| s.sealed && s.seq.is_some_and(|(_, hi)| hi <= through))
+            .collect();
+        let Some(last) = candidates.last().and_then(|s| s.seq) else { return Ok(None) };
+        let trusted = self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id)
+            == Some(&stamp);
+        let keep = if trusted {
+            candidates.len()
+        } else {
+            let mut check = pack::SegmentCheck::new(&candidates);
+            let checked = {
+                let mut out = std::io::BufWriter::with_capacity(1 << 20, &mut check);
+                self.emit_lines(session, 0, last.1, &mut out).and_then(|_| {
+                    use std::io::Write as _;
+                    Ok(out.flush()?)
+                })
+            };
+            match checked {
+                Ok(_) => check.matched(),
+                Err(_) if check.diverged() => check.matched(),
+                Err(e) => return Err(e),
+            }
+        };
+        let Some(after) = keep.checked_sub(1).and_then(|i| candidates.get(i)).and_then(|s| s.seq)
+        else {
+            return Ok(None);
+        };
+        let after = after.1;
+        let lines = work.join("history.ndjson");
+        let written = self.write_lines(session, after, through, &lines);
+        let packed = written.and_then(|(last, digest)| {
+            anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
+            let digest = match digest.is_empty() {
+                // Nothing after the kept segments: the record at `through` ends the last of them.
+                true => self
+                    .digest_at(&session.id, through)
+                    .map_err(|e| anyhow::anyhow!("{}", e.message))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("the log here holds no record at seq {through}")
+                    })?,
+                false => digest,
+            };
+            let files = std::slice::from_ref(&lines);
+            let packed = pack::pack_kept(store, &session.id, keep, files, &params);
+            Ok(packed.map_err(pack_error)?.map(|(manifest, stats)| (manifest, stats, digest)))
+        });
+        let _ = crate::home_fs::remove_file(&lines);
+        let packed = packed?;
+        if packed.is_some() && self.store.log_stamp(&session.id)? == stamp {
+            // Every sealed segment the pack names now was checked against the log at `stamp`
+            // (kept ones by hash or by the same trust, the rest encoded from it here).
+            self.pack_checked
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(session.id.clone(), stamp);
+        }
+        Ok(packed)
     }
 
     /// Writes chat `session`'s records after seq `after` through seq `through` to `lines`, one a
@@ -462,31 +558,63 @@ impl Hub {
     ) -> anyhow::Result<(u64, String)> {
         use std::io::Write as _;
         let mut out = std::io::BufWriter::new(crate::home_fs::create_file(lines)?);
+        let written = self.emit_lines(session, after, through, &mut out)?;
+        out.flush()?;
+        Ok(written)
+    }
+
+    /// [`Self::write_lines`] into any writer: the same bytes, the same answer.
+    fn emit_lines(
+        &self,
+        session: &Session,
+        after: u64,
+        through: u64,
+        out: &mut dyn std::io::Write,
+    ) -> anyhow::Result<(u64, String)> {
         let (mut last, mut digest, mut failed) = (after, String::new(), None::<anyhow::Error>);
-        self.store.scan(&session.id, after, &mut |mut e: EventRecord| {
-            if e.seq > through {
-                return false;
-            }
-            let at_end = e.seq == through;
-            let step = (|| -> anyhow::Result<()> {
-                if at_end {
-                    digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+        // In passes of at most WRITE_LINES_PASS records, each a scan of its own: a scan holds the
+        // store's fork-view lock (`store/fork_view.rs` `dropping`, one for every chat) shared for
+        // its whole run, a cold archive commit waits for it exclusively, and every read of any
+        // chat queues behind that waiting commit. A whole 30 MB log written in one scan, on the
+        // pack worker's background-priority thread (`pack_as_it_grows.rs`) of a loaded host, held
+        // it for minutes (the coordinator Mac, 2026-11-27: every acpmux delivery there timed out).
+        loop {
+            let (mut seen, mut ended) = (0usize, true);
+            let from = last;
+            self.store.scan(&session.id, from, &mut |mut e: EventRecord| {
+                if e.seq > through {
+                    return false;
                 }
-                last = e.seq;
-                self.display_logged(Some(session), &mut e);
-                serde_json::to_writer(&mut out, &e)?;
-                out.write_all(b"\n")?;
-                Ok(())
-            })();
-            if let Err(e) = step {
-                failed = Some(e);
+                let at_end = e.seq == through;
+                let step = (|| -> anyhow::Result<()> {
+                    if at_end {
+                        digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                    }
+                    last = e.seq;
+                    self.display_logged(Some(session), &mut e);
+                    serde_json::to_writer(&mut *out, &e)?;
+                    out.write_all(b"\n")?;
+                    Ok(())
+                })();
+                if let Err(e) = step {
+                    failed = Some(e);
+                }
+                seen += 1;
+                let more = failed.is_none() && !at_end;
+                if more && seen >= WRITE_LINES_PASS {
+                    // This pass ends here; the next one starts after `last`.
+                    ended = false;
+                    return false;
+                }
+                more
+            })?;
+            if failed.is_some() || ended || last == from {
+                break;
             }
-            failed.is_none() && !at_end
-        })?;
+        }
         if let Some(e) = failed {
             return Err(e);
         }
-        out.flush()?;
         Ok((last, digest))
     }
 
@@ -516,7 +644,7 @@ impl Hub {
                 return;
             }
             let started = std::time::Instant::now();
-            let work = transfers_dir().join(format!("pre-{}", uuid::Uuid::now_v7()));
+            let work = super::transfer_out::scratch_dir("prepack");
             let packed = hub.pack_store(&session.id).and_then(|store| {
                 let stamp = hub.store.log_stamp(&session.id)?;
                 let (manifest, stats, digest) =
@@ -655,6 +783,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "pack_through_kept_tests.rs"]
+mod kept_tests;
 #[cfg(test)]
 #[path = "transfer_history_tests.rs"]
 mod tests;

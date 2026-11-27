@@ -584,8 +584,7 @@ pub(crate) fn live_socket(user_home: &Path) -> Option<PathBuf> {
 /// (`ScreenshotHandlers.swift`); while Swift live mode runs, the live-code build's window
 /// ([`live_socket`]). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
 fn window_shot(out: &Path) -> bool {
-    let binary =
-        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let binary = crate::login_env::cmux_cli();
     bounded_shot(binary.as_ref(), &["window", "screenshot", "--out"], out)
 }
 

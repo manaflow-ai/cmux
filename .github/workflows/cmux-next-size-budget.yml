@@ -24,6 +24,19 @@ on:
   # `affects`). Its check runs report as `cmux-next size budget / ...`; when the router does not start it,
   # one skipped `cmux-next size budget` check reports instead.
   workflow_call:
+    inputs:
+      web_bundle_key:
+        required: false
+        type: string
+        default: ""
+      web_bundle_transport:
+        required: false
+        type: string
+        default: ""
+      web_bundle_artifact:
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -70,6 +83,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &plan-sparse |
+            /.github/actions/cache-restore/
             /webviews/
             /schemas/
             /scripts/
@@ -97,11 +111,26 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
           # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
@@ -117,8 +146,12 @@ jobs:
             git config core.sparseCheckout true
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       - name: The base, and whether a web input changed
         id: plan
@@ -278,6 +311,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      id-token: write
     outputs:
       bytes: ${{ steps.measure.outputs.bytes }}
     steps:
@@ -295,7 +329,36 @@ jobs:
           CMUX_WEB_NODE_VERSION: "24.22.1"
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
+      - name: Validate the producer source key
+        env:
+          PRODUCER_KEY: ${{ inputs.web_bundle_key }}
+          SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: test -z "$PRODUCER_KEY" || test "$PRODUCER_KEY" = "$SOURCE_KEY"
+      - name: Restore this run's web bundles from R2
+        if: inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'r2'
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ inputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/web
+      - name: Restore this run's web bundles without a fleet identity
+        if: inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'github'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/web
+      - name: Verify this run's web bundles
+        id: web-bundle-run
+        if: inputs.web_bundle_key != ''
+        env:
+          KEY: ${{ steps.web-bundle-key.outputs.key }}
+          TRANSPORT: ${{ inputs.web_bundle_transport }}
+        run: |
+          test "$TRANSPORT" = r2 || test "$TRANSPORT" = github
+          python3 -I scripts/ci/compile_preflight.py web-artifact verify "$RUNNER_TEMP/web" "$KEY"
+          echo hit=true >> "$GITHUB_OUTPUT"
+
       - name: Restore the published web bundles
+        if: steps.web-bundle-run.outputs.hit != 'true'
         id: web-bundle-r2
         continue-on-error: true
         timeout-minutes: 4
@@ -311,7 +374,7 @@ jobs:
       - name: Restore the web bundles from the source-keyed cache
         timeout-minutes: 5
         id: web-bundle-cache
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true'
+        if: steps.web-bundle-run.outputs.hit != 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/web
@@ -319,31 +382,31 @@ jobs:
           enableCrossOsArchive: true
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-run.outputs.hit != 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-run.outputs.hit != 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-run.outputs.hit != 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - name: Setup Node
         timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-run.outputs.hit != 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
           node-version: "24.22.1"
       - name: Build and measure
         id: measure
         env:
-          WEB_BUNDLE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' }}
+          WEB_BUNDLE_HIT: ${{ steps.web-bundle-run.outputs.hit == 'true' || steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' }}
         run: |
           set -euo pipefail
           # The base's counter, written out before the head's code runs.
@@ -420,11 +483,26 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
           # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
@@ -440,8 +518,12 @@ jobs:
             git config core.sparseCheckout true
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       - name: Check the size budget
         env:
