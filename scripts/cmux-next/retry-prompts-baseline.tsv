@@ -328,7 +328,6 @@ cmux-tui/crates/chatmux-relay/src/workspace.rs	1
 cmux-tui/crates/cmux-automations/src/webhook.rs	2
 cmux-tui/crates/cmux-cloud-config/src/agent_key.rs	1
 cmux-tui/crates/cmux-cloud-machine/src/refusals.rs	1
-cmux-tui/crates/cmux-coderouter/src/free_tier.rs	1
 cmux-tui/crates/cmux-computer-use/src/engine.rs	1
 cmux-tui/crates/cmux-computer-use/src/menus.rs	2
 cmux-tui/crates/cmux-computer-use/src/observe/guards.rs	1
