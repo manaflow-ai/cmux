@@ -2431,6 +2431,10 @@ path = "tests/test_ci_dev_daily_drops_signed_handoff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_warnings_policy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
 lane = "linux-guard"
 
