@@ -60,6 +60,11 @@ on:
         type: choice
         options: [capture, production, production-team, production-control, journey, journey-production, journey-guest, platform-staging, platform-production]
         default: capture
+      plan_only:
+        description: "With target journey-production: only set that account's operator plan (pro or next_pro; next_pro = 32 machines running at once). No rotation, nothing sealed"
+        type: string
+        required: false
+        default: ""
       team_only:
         description: "With target production-team: only make the existing account a member of the company team (no rotation, no bundle)"
         type: boolean
@@ -101,7 +106,7 @@ jobs:
           sparse-checkout-cone-mode: true
 
       - name: libsodium
-        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
+        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0 && inputs.plan_only == ''
         run: |
           set -euo pipefail
           if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
@@ -127,6 +132,15 @@ jobs:
           TARGET: ${{ inputs.target || 'capture' }}
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --team-only
 
+      - name: Set the journey account's plan only
+        if: inputs.plan_only != '' && inputs.target == 'journey-production' && inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          PLAN: ${{ inputs.plan_only }}
+        run: python3 scripts/ci/cloud_capture_provision.py --target journey-production --plan-only "$PLAN"
+
       - name: Make the probe teams only
         if: inputs.probe_teams > 0 && inputs.grant_email == '' && !inputs.team_only
         env:
@@ -138,7 +152,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --probe-teams "$PROBE_TEAMS"
 
       - name: Provision and seal
-        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
+        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0 && inputs.plan_only == ''
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -147,7 +161,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets"
 
       - name: Upload the sealed bundle (ciphertext only)
-        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
+        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0 && inputs.plan_only == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets

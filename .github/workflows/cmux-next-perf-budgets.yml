@@ -353,8 +353,12 @@ jobs:
       job_minutes: ${{ steps.plan.outputs.job_minutes }}
       frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
       # The one place the Linux parts' runner label is computed: every linux leg runs on it, and its rows carry it as
-      # their host (rows are compared only within one runner class).
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+      # their host (rows are compared only within one runner class). A part measures the machine it runs on, so it
+      # takes a one-job VM of one machine type (cmuxterm-hq runner_pool.py PERF_JIT_LABEL: n2d-standard-8, on-demand,
+      # never a persistent pool runner), not cmux-linux: a pool VM runs four slots of whatever CI is queued, and run
+      # 45901305500's parts there read the bench's calibration canary at 102-191 ms across measurements against 55-58 ms
+      # on blacksmith-8vcpu. vars.CMUX_NEXT_PERF_CRON_LINUX_RUNNER names another label without a code change.
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CMUX_NEXT_PERF_CRON_LINUX_RUNNER || 'cmux-gcp-perf-jit-x64' }} # owned-pool-unfit: a bench needs its VM to itself
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
