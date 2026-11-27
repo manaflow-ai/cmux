@@ -17,4 +17,14 @@ import Testing
         content.layout()
         #expect(content.layoutContentInvocationCount == 2)
     }
+
+    @Test func doesNotSkipALaterLayoutInvalidation() {
+        let content = CEFTabContentView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+
+        content.resizeSubviews(withOldSize: .zero)
+        content.requestLayout()
+        content.layout()
+
+        #expect(content.layoutContentInvocationCount == 2)
+    }
 }
