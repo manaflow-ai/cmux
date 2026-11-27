@@ -293,6 +293,7 @@ def main() -> int:
     a = ap.parse_args()
 
     binary = Path(os.path.expanduser(a.bin)).resolve()
+    (Path.home() / ".cache").mkdir(parents=True, exist_ok=True)  # a fresh CI runner has none
     root = Path(a.root) if a.root else Path(tempfile.mkdtemp(prefix="fleet-recovery-", dir=Path.home() / ".cache"))
     root.mkdir(parents=True, exist_ok=True)
     root.chmod(0o700)
@@ -368,13 +369,30 @@ def main() -> int:
             if up is False:
                 detect = time.monotonic() - t_kill
                 break
-            time.sleep(0.25)
+            time.sleep(0.05)
         result["detect_s"] = round(detect, 2) if detect is not None else None
+
+        def ms(t: float) -> int:
+            return round(t * 1000)
 
         def recover(c: dict) -> dict:
             out = {"name": c["name"], "copy_records": c["copy_records"], "truth_turns": c["truth_turns"]}
+            # Phases, each from the end of the one before (ms): detect (t0 to the link reading
+            # down, shared), queue (waiting for a move slot), choose (the death router's
+            # `--dry-run`: read the copy, pick the target), restore (the move itself: bundle,
+            # import, start), first_turn (a probe prompt to its reply in the moved journal).
+            t = time.monotonic()
+            out["queue_ms"] = ms(t - t_kill - (detect or 0))
+            r = owner.cli("--json", "session", "move", f"host/{c['id']}", "--machine", "local", "--from-snapshot",
+                          "--dry-run", timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
+            out["choose_ms"] = ms(time.monotonic() - t)
+            if r.returncode != 0:
+                out["error"] = f"dry-run: {(r.stderr or r.stdout).strip()[-400:]}"
+                return out
+            t = time.monotonic()
             r = owner.cli("--json", "session", "move", f"host/{c['id']}", "--machine", "local", "--from-snapshot",
                           timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
+            out["restore_ms"] = ms(time.monotonic() - t)
             out["move_s"] = round(time.monotonic() - t_kill, 2)
             if r.returncode != 0:
                 out["error"] = f"move: {(r.stderr or r.stdout).strip()[-400:]}"
@@ -392,6 +410,7 @@ def main() -> int:
                 return out
             out["new"] = new
             probe = f"probe after kill of chat {c['i']}"
+            t = time.monotonic()
             try:
                 prompt(spare, new, probe, timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
             except (OSError, RuntimeError, EOFError) as e:
@@ -401,12 +420,14 @@ def main() -> int:
             while time.monotonic() - t_kill < a.deadline:
                 conv = conversation(all_events(spare, new))
                 if any(k == "agent" and probe in v for k, v in conv):
+                    out["first_turn_ms"] = ms(time.monotonic() - t)
                     out["resumed_s"] = round(time.monotonic() - t_kill, 2)
+                    out["resumed_ms"] = ms(time.monotonic() - t_kill)
                     out["transcript_intact"] = contains_in_order(conv, c["truth"])
                     if not out["transcript_intact"]:
                         out["transcript_missing"] = [x for x in c["truth"] if x not in conv][:4]
                     return out
-                time.sleep(0.2)
+                time.sleep(0.05)
             out["error"] = "probe: no reply before the deadline"
             return out
 
@@ -428,6 +449,24 @@ def main() -> int:
             failure_count=a.n - len(ok),
             wall_s=round(time.time() - t_start, 1),
         )
+
+        def pct(xs: list, q: float):
+            xs = sorted(xs)
+            return xs[min(len(xs) - 1, int(len(xs) * q))] if xs else None
+
+        # One report: the pass rate next to resume p50/p95/max in ms, and where the time goes.
+        resumed = [x["resumed_ms"] for x in rows if "resumed_ms" in x]
+        phases = {"detect": [ms(detect)] * len(rows) if detect is not None else []}
+        for k in ("queue", "choose", "restore", "first_turn"):
+            phases[k] = [x[f"{k}_ms"] for x in rows if f"{k}_ms" in x]
+        result["resume_ms"] = {"p50": pct(resumed, 0.5), "p95": pct(resumed, 0.95),
+                               "max": max(resumed) if resumed else None}
+        result["phase_ms"] = {k: {"p50": pct(v, 0.5), "p95": pct(v, 0.95), "max": max(v) if v else None}
+                              for k, v in phases.items()}
+        split = "  ".join(f"{k} {v['p50']}/{v['p95']}" for k, v in result["phase_ms"].items())
+        result["report"] = (f"N={a.n}: {result['resumed_within_30s_pct']}% resumed within {a.budget:g} s; "
+                            f"resume p50 {result['resume_ms']['p50']} ms, p95 {result['resume_ms']['p95']} ms, "
+                            f"max {result['resume_ms']['max']} ms; phases p50/p95 ms: {split}")
     finally:
         for m in (spare, host):
             try:
@@ -440,6 +479,8 @@ def main() -> int:
             result["root"] = str(root)
     text = json.dumps(result, indent=1)
     print(text)
+    if result.get("report"):
+        print(result["report"], file=sys.stderr)
     if a.json:
         Path(a.json).write_text(text + "\n")
     return 0 if result.get("resumed_within_30s_pct", 0) >= 99 else 1
