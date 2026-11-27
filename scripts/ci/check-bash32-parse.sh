@@ -55,6 +55,16 @@ while IFS= read -r script; do
     echo "::error file=$script::does not parse under $PARSE_BASH" >&2
     failed=1
   fi
+  # bash 4 builtins parse under 3.2 but fail when run (exit 127): the kit's simulator step died on mapfile from
+  # #60888 on. A script named for the Mac runs on its /bin/bash.
+  case "$script" in
+    *mac*|*Mac*)
+      if grep -nE '^[[:space:]]*(mapfile|readarray)[[:space:]]' "$script" >&2; then
+        echo "::error file=$script::uses mapfile/readarray, which macOS /bin/bash 3.2 does not have" >&2
+        failed=1
+      fi
+      ;;
+  esac
 done < <(LC_ALL=C sort -u "$list")
 
 echo "Parsed $checked script(s)"
