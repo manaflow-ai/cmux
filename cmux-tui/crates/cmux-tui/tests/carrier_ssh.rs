@@ -508,3 +508,129 @@ fn a_state_dir_ssh_would_expand_is_no_key_in_capabilities_and_the_dial() {
     assert!(log.contains("phase=connect ssh=no_key carrier=relay:0 outcome=ok"), "{log}");
     assert!(world.ssh.asked.lock().unwrap().is_empty(), "no key asked without a route");
 }
+
+/// One kill of the drill loop: which carrier the resume landed on, how long
+/// the switch took, and the round-trip ids before and after (the event gap:
+/// every line the device sent is answered, in order, on the same mux
+/// connection, or the round trip fails).
+struct Cycle {
+    cut: &'static str,
+    resumed_on: &'static str,
+    switch_ms: u128,
+    before_id: u32,
+    after_id: u32,
+}
+
+/// The failover drill on demand, 20 cycles in one go (shadow-leo on goal
+/// cloud-carrier-ssh-backup, 2026-11-27: "kill the relay on purpose in a
+/// loop, 20 times, and make cmux log which transport carried each resume
+/// plus the last event id before and after"): one dial, then 20 times the
+/// relay is cut (the session resumes over ssh through `wg dial`) and, with
+/// the relay back, ssh is cut (it resumes on the relay), on the same mux
+/// connection with no new dial. Each cycle's carrier, switch time and ids
+/// are printed as a table; a failed cycle's panic carries the connect log's
+/// tail, whose `why=` codes name the step. Target: 20/20, no gap, and the
+/// relay-to-ssh switch's p95 under 2 s.
+#[test]
+fn carrier_faults_ssh_row_twenty_relay_kills_in_a_row_each_resume_on_ssh_with_no_gap() {
+    const CYCLES: u32 = 20;
+    let world = world_ssh_via_hub();
+    let mut child = Command::new(BIN)
+        .args(["carrier", "dial", "--machine", MACHINE, "--deadline-ms", "30000"])
+        .args(["--cloud-api", &format!("http://{}", world.platform)])
+        .env_clear()
+        .env("HOME", world.dir.path())
+        .env("CMUX_CLOUD_ACCESS_TOKEN", TOKEN)
+        .env("CMUX_CARRIER_SSH_BINARY", &world.fake_ssh)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    std::thread::spawn(move || {
+        for line in stderr.lines().map_while(Result::ok) {
+            eprintln!("dial stderr: {line}");
+        }
+    });
+    let lines = lines(&mut child);
+    let mut stdin = child.stdin.take().unwrap();
+    let conn0 = "{\"event\":\"pushed\",\"conn\":0}\n";
+    let mut id = 1;
+    assert_eq!(row_round_trip(&world, &mut stdin, &lines, id), conn0);
+
+    let resumes = |on: &str| {
+        let want = format!("phase=resume carrier={on}:0 outcome=ok");
+        world.connect_log().lines().filter(|l| l.contains(&want)).count()
+    };
+    // The carrier a resume landed on: the one whose `phase=resume` count
+    // grew (the log line may land just after the answer), else `other`.
+    let landed = |on: &'static str, had: usize, other: &'static str| {
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < until {
+            if resumes(on) > had {
+                return on;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        other
+    };
+    let mut cycles = Vec::new();
+    for _ in 0..CYCLES {
+        // Cut the relay: the next line is answered over ssh.
+        let (before, on_ssh) = (id, resumes("ssh"));
+        let cut = std::time::Instant::now();
+        world.cut.send_replace(true);
+        id += 1;
+        assert_eq!(row_round_trip(&world, &mut stdin, &lines, id), conn0, "same mux connection");
+        let switch_ms = cut.elapsed().as_millis();
+        let resumed_on = landed("ssh", on_ssh, "relay");
+        cycles.push(Cycle { cut: "relay", resumed_on, switch_ms, before_id: before, after_id: id });
+
+        // The relay is back; cut ssh: the next line is answered on the relay.
+        world.cut.send_replace(false);
+        let (before, on_relay) = (id, resumes("relay"));
+        let cut = std::time::Instant::now();
+        world.hub_cut.store(true, std::sync::atomic::Ordering::SeqCst);
+        id += 1;
+        assert_eq!(row_round_trip(&world, &mut stdin, &lines, id), conn0, "same mux connection");
+        let switch_ms = cut.elapsed().as_millis();
+        let resumed_on = landed("relay", on_relay, "ssh");
+        cycles.push(Cycle { cut: "ssh", resumed_on, switch_ms, before_id: before, after_id: id });
+        world.hub_cut.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    eprintln!("carrier_faults drill cycle cut resumed_on switch_ms before_id after_id gap");
+    for (n, c) in cycles.iter().enumerate() {
+        eprintln!(
+            "carrier_faults drill {:>2} {:<5} {:<5} {:>6} {:>4} {:>4} {}",
+            n / 2 + 1,
+            c.cut,
+            c.resumed_on,
+            c.switch_ms,
+            c.before_id,
+            c.after_id,
+            c.after_id - c.before_id - 1
+        );
+    }
+    let mut to_ssh: Vec<u128> =
+        cycles.iter().filter(|c| c.cut == "relay").map(|c| c.switch_ms).collect();
+    to_ssh.sort_unstable();
+    let p95 = to_ssh[(to_ssh.len() * 95).div_ceil(100) - 1];
+    let on_ssh = cycles.iter().filter(|c| c.cut == "relay" && c.resumed_on == "ssh").count();
+    let log = world.connect_log();
+    let connects =
+        log.lines().filter(|l| l.starts_with("cloud.connect ") && l.contains(" phase=connect "));
+    assert_eq!(connects.count(), 1, "no new dial: {log}");
+    eprintln!(
+        "carrier_faults row=cloud-ssh-loop cycles={CYCLES} resumed_on_ssh={on_ssh} relay_to_ssh_p95_ms={p95} max_ms={}",
+        to_ssh.last().copied().unwrap_or(0)
+    );
+    assert_eq!(on_ssh, CYCLES as usize, "every relay kill resumed on ssh");
+    assert!(cycles.iter().all(|c| c.after_id == c.before_id + 1), "no gap");
+    assert!(p95 < 2000, "relay-to-ssh p95 {p95} ms, target under 2000");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
