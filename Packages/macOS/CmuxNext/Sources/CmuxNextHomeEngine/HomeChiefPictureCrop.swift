@@ -1,3 +1,4 @@
+import CmuxNextHomeModel
 public import CoreGraphics
 public import Foundation
 import ImageIO
@@ -27,7 +28,7 @@ public nonisolated struct HomeChiefPictureCrop: Hashable, Sendable {
     /// The upright picture's size in pixels.
     public let imageSize: CGSize
     /// 1 shows the largest square (the picture's shorter side); ``maximumZoom`` the smallest.
-    public var zoom: CGFloat { didSet { zoom = min(max(zoom, 1), Self.maximumZoom); clamp() } }
+    public var zoom: CGFloat { didSet { step(.init(kind: "zoom", zoom: zoom)) } }
     /// The square's center in picture pixels; kept so the square stays on the picture.
     public private(set) var center: CGPoint
 
@@ -48,28 +49,51 @@ public nonisolated struct HomeChiefPictureCrop: Hashable, Sendable {
     /// Moves the picture by a drag of `delta` points (AppKit's: y up) in an editor whose circle
     /// is `diameter` points across: the picture follows the pointer, so the square goes the other way.
     public mutating func pan(by delta: CGSize, diameter: CGFloat) {
-        guard diameter > 0 else { return }
-        let pixelsPerPoint = side / diameter
-        center.x -= delta.width * pixelsPerPoint
-        center.y += delta.height * pixelsPerPoint
-        clamp()
+        step(.init(kind: "pan", delta: .init(width: delta.width, height: delta.height), diameter: diameter))
     }
 
-    private mutating func clamp() {
-        let half = side / 2
-        center.x = min(max(center.x, half), max(imageSize.width - half, half))
-        center.y = min(max(center.y, half), max(imageSize.height - half, half))
+    /// Applies one change through Rust's `chief_settings.cropStep` (cmux-home-rules
+    /// `chief_settings/picture.rs`), which clamps the zoom and keeps the square on the picture.
+    /// Unreadable rules leave the crop as it was.
+    private mutating func step(_ event: Event) {
+        let state = State(imageSize: .init(width: imageSize.width, height: imageSize.height), zoom: zoom,
+                          center: .init(x: center.x, y: center.y))
+        guard let next: State = try? HomeRules.call("chief_settings.cropStep", StepRequest(state: state, event: event)) else { return }
+        if next.zoom != zoom { zoom = next.zoom }
+        center = CGPoint(x: next.center.x, y: next.center.y)
     }
+
+    private nonisolated struct Size: Codable { var width: CGFloat; var height: CGFloat }
+    private nonisolated struct Point: Codable { var x: CGFloat; var y: CGFloat }
+    private nonisolated struct Rect: Codable { var x: CGFloat; var y: CGFloat; var width: CGFloat; var height: CGFloat }
+    private nonisolated struct State: Codable { var imageSize: Size; var zoom: CGFloat; var center: Point }
+    private nonisolated struct Event: Encodable {
+        var kind: String
+        var zoom: CGFloat?
+        var delta: Size?
+        var diameter: CGFloat?
+    }
+    private nonisolated struct StepRequest: Encodable { var state: State; var event: Event }
+    private nonisolated struct RenderRequest: Encodable { var crop: State; var width: Int; var height: Int }
+    private nonisolated struct Render: Decodable { var source: Rect; var pixels: Int }
 
     /// The square of `image` (the upright picture this crop was made for) as a PNG of
     /// ``outputPixels`` a side, or smaller when the square is smaller.
     /// - Throws: when the picture cannot be drawn or encoded.
     public func render(_ image: CGImage) throws -> ChiefAvatarPicture {
-        let scaleX = CGFloat(image.width) / max(imageSize.width, 1)
-        let scaleY = CGFloat(image.height) / max(imageSize.height, 1)
-        let source = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY).integral
-        guard let square = image.cropping(to: source) else { throw CocoaError(.fileReadCorruptFile) }
-        let pixels = min(Self.outputPixels, max(square.width, 1))
+        // Which pixels and how many: Rust's `chief_settings.cropRender`.
+        let state = State(imageSize: .init(width: imageSize.width, height: imageSize.height), zoom: zoom,
+                          center: .init(x: center.x, y: center.y))
+        let plan: Render?
+        do {
+            plan = try HomeRules.call("chief_settings.cropRender", RenderRequest(crop: state, width: image.width, height: image.height))
+        } catch {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        guard let plan,
+              let square = image.cropping(to: CGRect(x: plan.source.x, y: plan.source.y, width: plan.source.width, height: plan.source.height))
+        else { throw CocoaError(.fileReadCorruptFile) }
+        let pixels = plan.pixels
         guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
