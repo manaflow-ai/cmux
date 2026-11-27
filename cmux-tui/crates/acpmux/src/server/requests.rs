@@ -4407,8 +4407,12 @@ async fn dispatch_request_with_identity(
                 (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
                     let side = std::path::PathBuf::from(side);
                     let home = crate::config::home();
+                    let conns = params
+                        .get(crate::daemon::listener_handover::PARAM_CONNS)
+                        .and_then(Value::as_bool)
+                        == Some(true);
                     match tokio::task::spawn_blocking(move || {
-                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                        crate::daemon::listener_handover::hand(&home, &side, asker, conns)
                     })
                     .await
                     {

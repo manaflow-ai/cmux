@@ -163,3 +163,83 @@ fn customizing_the_app_is_told_from_paths_and_commands() {
     let other = json!({"rawInput": {"command": "cargo test"}, "locations": [{"path": "/w/a.rs"}]});
     assert!(!customizes_app(&other));
 }
+
+#[test]
+fn driving_the_simulator_is_told_from_commands_and_ios_swift_paths() {
+    for command in [
+        "xcrun simctl launch booted dev.cmux.ios",
+        "xcodebuild -scheme App -sdk iphonesimulator build",
+        "xcodebuild test -destination 'platform=iOS Simulator,name=iPhone 17'",
+    ] {
+        assert!(drives_simulator(&json!({"rawInput": {"command": command}})), "{command}");
+    }
+    let edit = json!({"locations": [{"path": "/w/cmux-next-ios/App/RootView.swift"}]});
+    assert!(drives_simulator(&edit));
+    let ios = json!({"rawInput": {"file_path": "/w/ios/Sources/Feed.swift"}});
+    assert!(drives_simulator(&ios));
+    let mac = json!({"locations": [{"path": "/w/Packages/macOS/CmuxNext/Sources/Tabs/Bar.swift"}]});
+    assert!(!drives_simulator(&mac));
+    let web =
+        json!({"rawInput": {"command": "bun run build"}, "locations": [{"path": "/w/ios/x.tsx"}]});
+    assert!(!drives_simulator(&web));
+}
+
+/// A stand-in `xcrun` that copies a fixture PNG to its last argument (`simctl io booted screenshot
+/// --type=png OUT`), and one that fails as simctl does with no simulator booted.
+#[cfg(unix)]
+#[test]
+fn a_simulator_capture_reads_back_the_png_simctl_wrote_and_fails_without_one() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("acpmux-sim-shot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fixture = dir.join("screen.png");
+    std::fs::write(&fixture, encode(&split(1179, 2556, 600)).unwrap()).unwrap();
+    let booted = dir.join("xcrun-booted");
+    std::fs::write(
+        &booted,
+        format!(
+            "#!/bin/sh\n[ \"$1 $2 $3 $4 $5\" = 'simctl io booted screenshot --type=png' ] || exit 3\ncp '{}' \"$6\"\n",
+            fixture.display()
+        ),
+    )
+    .unwrap();
+    let none = dir.join("xcrun-none");
+    std::fs::write(&none, "#!/bin/sh\necho 'No devices are booted.' >&2\nexit 149\n").unwrap();
+    for script in [&booted, &none] {
+        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let (out, booted_c, none_c) = (dir.join("out.png"), booted.clone(), none.clone());
+    let (ok, missing) = runtime.block_on(async move {
+        tokio::task::spawn_blocking(move || {
+            let ok = simulator_shot_with(booted_c.as_os_str(), &out)
+                && decode(&std::fs::read(&out).unwrap())
+                    .is_some_and(|p| (p.width, p.height) == (1179, 2556));
+            let _ = std::fs::remove_file(&out);
+            (ok, simulator_shot_with(none_c.as_os_str(), &out))
+        })
+        .await
+        .unwrap()
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(ok, "the booted simulator's picture reads back");
+    assert!(!missing, "no simulator booted: no frame");
+}
+
+/// The duress number for a simulator frame: the daemon's own work on one 1179x2556 capture (decode,
+/// dHash, 1280 and 320 px encodes), what each frame costs beyond simctl itself.
+#[test]
+#[ignore = "measurement: cargo test -p acpmux --lib --release simulator_frame_cost -- --ignored --nocapture"]
+fn simulator_frame_cost() {
+    let bytes = encode(&split(1179, 2556, 600)).unwrap();
+    let rounds = 20;
+    let started = std::time::Instant::now();
+    for _ in 0..rounds {
+        let picture = decode(&bytes).unwrap();
+        let _ = dhash(&picture);
+        let _ = encode(&shrink(&picture, FULL_WIDTH, None)).unwrap();
+        let _ = encode(&shrink(&picture, THUMB_WIDTH, None)).unwrap();
+    }
+    let each = started.elapsed() / rounds;
+    println!("simulator frame: {} KB in, {each:?} of daemon CPU each", bytes.len() / 1024);
+}
