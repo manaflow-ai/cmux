@@ -420,8 +420,10 @@ jobs:
   # error when the verdict never ran (no Mac, the pipeline cancelled). A plan that builds nothing is success.
   ios-fast-status:
     name: ios fast verdict status
-    needs: [route, pipeline]
-    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && needs.pipeline.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: [route, fast-gates, pipeline]
+    # A pipeline the router started but its fast gates skipped posts error; one it never meant to start (a cheap head
+    # waiting for ready-to-land) keeps the router's pending.
+    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && (needs.pipeline.result != 'skipped' || contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml')) && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -443,20 +445,13 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIPELINE: ${{ needs.pipeline.result }}
+          FAST_GATES: ${{ needs.fast-gates.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
         run: |
-          if [ "$RUN" = false ]; then
-            state=success; desc="The plan builds nothing on this head"
-          elif [ "$VERDICT" = success ]; then
-            state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
-          elif [ "$VERDICT" = failure ]; then
-            state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
-          else
-            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
-          fi
-          python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
+          python3 -I scripts/ci/ios_fast_verdict.py verdict
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
