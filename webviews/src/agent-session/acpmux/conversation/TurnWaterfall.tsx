@@ -13,6 +13,7 @@ import {
   waterfall,
   waterfallCharts,
   waterfallLines,
+  MODEL_CALL,
   WATERFALL_FIRST,
   type WaterfallSpan,
   type WaterfallTone,
@@ -58,6 +59,8 @@ const LANE_NAMES = {
 } as const;
 
 function spanLabel(t: Translate, item: AcpmuxActivity): string {
+  // A model call that streamed no thinking still had the model reading and writing: "Model call".
+  if (item.kind === MODEL_CALL && !item.thought) return t("turn.timeline.modelCall");
   if (!item.tool) return t("turn.timeline.thought");
   return toolLabel(
     item.tool,
@@ -66,6 +69,14 @@ function spanLabel(t: Translate, item: AcpmuxActivity): string {
     undefined,
     t("tools.ranUnnamed"),
   );
+}
+
+/// How long a timed model call waited for its first byte; none for any other span, or a call whose
+/// request was not seen.
+function modelWait(item: AcpmuxActivity): number | undefined {
+  if (item.kind !== MODEL_CALL || item.firstTokenAt === undefined || item.startedAt === undefined) return undefined;
+  const wait = item.firstTokenAt - item.startedAt;
+  return wait > 0 ? wait : undefined;
 }
 
 /// The header corner's words: how many calls the turn timed (commands when every one was a shell
@@ -137,7 +148,15 @@ export function TurnWaterfall({
     ]
       .filter(Boolean)
       .join(" ");
-    const title = [label, time, span.failed && t("turn.timeline.failed"), isSlowest && t("turn.timeline.slowest")]
+    // A model call's wait for its first byte, of its time from request to last token.
+    const wait = modelWait(span.item);
+    const title = [
+      label,
+      time,
+      wait !== undefined && t("turn.timeline.firstToken", { time: spanTime(t, wait) }),
+      span.failed && t("turn.timeline.failed"),
+      isSlowest && t("turn.timeline.slowest"),
+    ]
       .filter(Boolean)
       .join(" · ");
     const body = (

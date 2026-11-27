@@ -1331,15 +1331,38 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
         return Err(refused("not an absolute, plain path"));
     }
     let parent = path.parent().ok_or_else(|| refused("no folder above it"))?;
-    std::fs::create_dir_all(parent).map_err(|error| refused(&error.to_string()))?;
-    let parent = std::fs::canonicalize(parent).map_err(|error| refused(&error.to_string()))?;
+    // Resolve the nearest existing ancestor first. This validates symlinked and existing
+    // components before creating anything, so a rejected request cannot leave an arbitrary tree
+    // outside the daemon's approved roots.
+    let mut existing = parent;
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| refused("no existing ancestor"))?;
+    }
+    let existing = std::fs::canonicalize(existing).map_err(|error| refused(&error.to_string()))?;
     let below = roots
         .iter()
-        .any(|root| std::fs::canonicalize(root).is_ok_and(|root| parent.starts_with(&root)));
+        .any(|root| std::fs::canonicalize(root).is_ok_and(|root| existing.starts_with(&root)));
     if !below {
         return Err(refused("outside this machine's file roots"));
     }
+    std::fs::create_dir_all(parent).map_err(|error| refused(&error.to_string()))?;
+    let parent = std::fs::canonicalize(parent).map_err(|error| refused(&error.to_string()))?;
+    if !parent.starts_with(&existing)
+        || !roots
+            .iter()
+            .any(|root| std::fs::canonicalize(root).is_ok_and(|root| parent.starts_with(&root)))
+    {
+        return Err(refused("mount point parent changed while creating it"));
+    }
     let path = parent.join(path.file_name().ok_or_else(|| refused("no name"))?);
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if meta.file_type().is_symlink() {
+            return Err(refused("mount point is a symlink"));
+        }
+        if !meta.is_dir() {
+            return Err(refused("mount point is not a folder"));
+        }
+    }
     #[cfg(target_os = "linux")]
     if !projections()
         .lock()
@@ -1491,8 +1514,12 @@ fn mount(
     }
     // RFD 0007, seed bundles: carry is on by default. The sender's live git probe adds a depth-1
     // pack and base to the manifest, and the machine switches from projection to that repository.
-    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch.
-    if cmux_projection::git_swap::enabled() {
+    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch. The swap's `.git` link names the
+    // state folder, and the machine's fs-v1 (rooted at HOME) follows only links that stay under its
+    // root: with the state outside HOME, Bring Back's `.git/cmux-sync.json` read would be refused
+    // (fs.permission_denied), so that folder keeps its projected `.git`.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if cmux_projection::git_swap::enabled() && swap_link_served(at, state, home.as_deref()) {
         let swapping = projected.clone();
         let (at, state) = (at.to_path_buf(), state.to_path_buf());
         let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {
@@ -1523,6 +1550,23 @@ fn mount(
         record.brought_back = None;
     });
     Ok(projected)
+}
+
+/// Whether fs-v1, rooted at `home`, follows a `.git` link from `at` into `state`: either the folder
+/// is not under `home` (fs-v1 does not serve it), or the state folder is under it too, as the
+/// default state folder (`~/.local/state`) is. fs-v1 matches its root as given and canonical.
+#[cfg(target_os = "linux")]
+pub(crate) fn swap_link_served(at: &Path, state: &Path, home: Option<&Path>) -> bool {
+    let Some(home) = home else { return true };
+    let spellings: Vec<PathBuf> = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let canonical = std::fs::canonicalize(at).ok();
+    let served = spellings.iter().any(|home| {
+        at.starts_with(home) || canonical.as_deref().is_some_and(|at| at.starts_with(home))
+    });
+    !served || spellings.iter().any(|home| state.starts_with(home))
 }
 
 #[cfg(not(target_os = "linux"))]
