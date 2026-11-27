@@ -158,7 +158,19 @@ fetch_checkout() {
 # Builds the checkout's bench app with tag ucab (both sides one bundle id; the second build recompiles only what the
 # two commits change) and copies it to OUT/SIDE/.
 build_app() {
-  local out="$1" side="$2" app started=$SECONDS
+  local out="$1" side="$2" app started=$SECONDS tick
+  # A cold build is silent for 30+ minutes (its output goes to build-SIDE.log), past the fleet's 45 min silent limit on an
+  # M4 Pro, which stopped the step as hung: say it is still building once a minute.
+  (while sleep 60; do echo "UCA building $side $((SECONDS - started)) s: $(tail -n 1 "$out/build-$side.log" 2>/dev/null | cut -c1-120)"; done) &
+  tick=$!
+  build_app_steps "$out" "$side" "$started"
+  local status=$?
+  kill "$tick" 2>/dev/null; wait "$tick" 2>/dev/null
+  return "$status"
+}
+
+build_app_steps() {
+  local out="$1" side="$2" started="$3" app
   for sub in ghostty ghostty-next; do
     git submodule update --init --depth 1 "$sub" >>"$out/build-$side.log" 2>&1 || { echo "UCA submodule $sub failed" >&2; return 3; }
   done
