@@ -97,3 +97,16 @@ export function restartSettled(
     goneFrames: gone.frames,
   };
 }
+
+/** ONLY= / ARMS= lists: unset or empty is every name; an unknown name throws, so a typo or an empty export can never
+ * run zero scenarios and print a passing score of 0. */
+export function pickNames<T extends string>(env: string | undefined, all: readonly T[], what: string): T[] {
+  const asked = (env ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!asked.length) return [...all];
+  const unknown = asked.filter((name) => !all.includes(name as T));
+  if (unknown.length) throw new Error(`unknown ${what} ${unknown.join(",")}; one of ${all.join(",")}`);
+  return all.filter((name) => asked.includes(name));
+}

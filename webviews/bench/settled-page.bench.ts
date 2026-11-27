@@ -41,7 +41,7 @@
 //
 //   bun bench/settled-page.bench.ts [rounds=3] [turns=120]
 //   ONLY=chat_switch,restart  ARMS=idle  TRACE=1 (each scenario's worst round frame by frame)
-//   PROFILE=1 (an unminified build and a CPU profile of each chat switch: its top functions)
+//   PROFILE=1 (an unminified build and a CPU profile of each chat and workspace switch: its top functions)
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -51,6 +51,7 @@ import { chromium } from "./browsers";
 import { papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, MOVE_TOLERANCE_PX, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 import { perfRow } from "./perfRow";
+import { pickNames } from "./restartSettled";
 import { segmenter } from "./replySegments";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
@@ -63,10 +64,10 @@ const SCENARIOS = ["chat_switch", "workspace_switch", "open_recent", "restart"] 
 type Scenario = (typeof SCENARIOS)[number];
 const ARMS = ["idle", "stream"] as const;
 type Arm = (typeof ARMS)[number];
-const only = process.env.ONLY?.split(",") as Scenario[] | undefined;
-const arms = (process.env.ARMS?.split(",") as Arm[] | undefined) ?? [...ARMS];
+const scenarios = pickNames<Scenario>(process.env.ONLY, SCENARIOS, "scenario");
+const arms = pickNames<Arm>(process.env.ARMS, ARMS, "arm");
 const TRACE = process.env.TRACE === "1";
-// PROFILE=1: an unminified build and a CPU profile of each chat switch, its top functions by self and total time.
+// PROFILE=1: an unminified build and a CPU profile of each chat and workspace switch, its top functions by self and total time.
 const PROFILE = process.env.PROFILE === "1";
 
 type CpuProfile = {
@@ -802,6 +803,12 @@ try {
         newTurn(target, arm === "stream");
         await settleIdle(page);
         if (arm === "stream") startStream();
+        if (PROFILE) {
+          profiler = await context.newCDPSession(page);
+          await profiler.send("Profiler.enable");
+          await profiler.send("Profiler.setSamplingInterval", { interval: 100 });
+          await profiler.send("Profiler.start");
+        }
         await page.evaluate(() => {
           (window as unknown as { __hidden: boolean }).__hidden = false;
           const w = window as unknown as { __settle: { start(t0: number): void } };
@@ -868,7 +875,7 @@ try {
   const report: Record<string, { rounds: Round[] }> = {};
   let score = 0;
   let worst = "";
-  for (const scenario of SCENARIOS.filter((name) => !only || only.includes(name)))
+  for (const scenario of scenarios)
     for (const arm of arms) {
       const rounds: Round[] = [];
       if (scenario === "open_recent" || scenario === "restart") rounds.push(...fromRestartBench(scenario, arm));
@@ -894,6 +901,7 @@ try {
       );
       if (TRACE) for (const r of rounds) console.log(`  round: ${JSON.stringify(r)}`);
     }
+  if (!Object.keys(report).length) throw new Error("settled_page: no scenario ran; refusing to print a score");
   perfRow({ name: "settled_page.score_max", p50: score, p95: score, unit: "x", target: 2, floor: 0.3 });
   console.log(`settled_page.score_max ${score.toFixed(2)} (worst ${worst}; target <= 2)`);
   console.log(`SETTLED_PAGE_JSON ${JSON.stringify({ score, worst, turns: TURNS, rounds: ROUNDS, report })}`);
