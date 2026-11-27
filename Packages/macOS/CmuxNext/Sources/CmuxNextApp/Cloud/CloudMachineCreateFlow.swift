@@ -146,8 +146,7 @@ struct CloudMachineCreateFlow {
                 do {
                     answer = try await run(op, args, key, .user); event = .answered
                 } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
-                    lastRunError = failure.lastRunError ?? lastRunError
-                    event = .pending(request: failure.approvalRequest, nowMs: nowMs())
+                    lastRunError = failure.lastRunError ?? lastRunError; event = .pending(request: failure.approvalRequest, nowMs: nowMs())
                 }
             case .done:
                 await besideDone
