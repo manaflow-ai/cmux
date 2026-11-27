@@ -190,6 +190,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runs_on_values.py
 
+      # GitHub rejects a workflow whose mapping repeats a key: zero jobs, no log.
+      - name: Validate no workflow repeats a key in one mapping
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_duplicate_keys.py
+
       - name: Validate every compile job declares its warm source
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_sources.py
