@@ -9,8 +9,8 @@ name: screen stream eval dispatcher
 # dispatches a workflow name the default branch registers: screen-stream-eval.yml here is that (inert).
 # Two runs a day, each skipped while a run with its title is pending: the default targets (rd,webrtc)
 # on the eval's worker, and the iPhone viewer (targets=iphone-sim, cmuxterm-hq goals/ss-ios-viewer.md)
-# pinned to cmux-austin-mini-0, the Mac with an iOS simulator runtime and the eval launcher's
-# Screen Recording and Accessibility grants (leo-workspace machines/fleet/screen_eval/launcher_grants.json).
+# pinned to vars.SCREEN_STREAM_EVAL_IPHONE_WORKER (a Mac with an iOS simulator runtime and the eval
+# launcher's Screen Recording and Accessibility grants), else to the eval's own worker variable.
 # HQ's fleet-reconciler-screen-share-fast.yml pulls the iphone-sim run for NOW's
 # screen_share_fast.iphone_present_p95_ms. One run's failed dispatch (GitHub answered 500 on
 # 2026-11-25 and 11-26, so no eval ran those days) never skips the other; the job fails after both tries.
@@ -60,6 +60,8 @@ jobs:
 
       - name: Start the screen stream evals on feat-cmux-next unless one is pending
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          IPHONE_WORKER: ${{ vars.SCREEN_STREAM_EVAL_IPHONE_WORKER || '' }}
         with:
           script: |
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
@@ -70,7 +72,7 @@ jobs:
             // in parentheses. Its baseline is the last daily run with the same title.
             const runs = [
               { title: 'screen stream eval', inputs: { targets: 'rd,webrtc' } },
-              { title: 'screen stream eval (iphone-sim)', inputs: { targets: 'iphone-sim', worker: 'cmux-austin-mini-0' } },
+              { title: 'screen stream eval (iphone-sim)', inputs: { targets: 'iphone-sim', worker: process.env.IPHONE_WORKER || '' } },
             ];
             const pending = new Map();
             for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
