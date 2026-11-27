@@ -177,7 +177,7 @@ def main():
                 first_at = out["at"] if first_at is None else first_at
                 lines.append(json.dumps(out, separators=(",", ":")))
                 if r["kind"] == "claude.system.compact_boundary":
-                    past_compact_boundary = True
+                    past_compact_boundary = True  # fleet-only-ok: local parse state of this scan, not a setting
     last_at = json.loads(lines[-1])["at"] if lines else EPOCH
     last_seq = json.loads(lines[-1])["seq"] if lines else 0
     d = os.path.join(a.out_home, "sessions", a.fixture_id)
