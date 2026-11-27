@@ -49,7 +49,7 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
     let after = look(&opts);
     // A new attachment counts as hidden first when its person is away, so it sees nothing.
     let count_new = |hub: &Hub| {
-        hub.attach_count(s, 1, after == Look::Attending);
+        hub.attach_count_from(s, 1, after == Look::Attending, a_person(conn));
         if after == Look::Idle {
             hub.look_changed(s, Look::Hidden, Look::Idle, None);
         }
@@ -99,6 +99,17 @@ pub(super) fn a_link(conn: &Conn) -> bool {
     conn.origin == Origin::Peer || *conn.name.lock_or_recover() == crate::peer::CLIENT_NAME
 }
 
+/// Whether `conn` is a person's client, whose showing a chat or letting go of it starts its idle
+/// period again (`hub/seen.rs` `attach_count_from`): not another daemon's link ([`a_link`]) and
+/// not an agent's CLI or tool, one that runs in an acpmux session (proven, named or declared,
+/// `cli_caller.rs`). An agent reading a chat (`acpmux last`, `wait`, `tail`) is no use of it.
+pub(super) fn a_person(conn: &Conn) -> bool {
+    !a_link(conn)
+        && conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && !matches!(conn.declared(), Some(crate::cli_caller::Declared::Agent))
+}
+
 /// Subscribe `conn` to a peer's chat `id` (`peer_forward.rs`), marked remote under the same lock
 /// so this daemon's presence for that raw id never reaches it (`hub/presence.rs`); it counts no
 /// attachment here. `opts` replaces the options (an attach); None keeps them (a prompt, load,
@@ -121,7 +132,7 @@ pub(super) fn subscribe_remote(
         if let Ok(s) = hub.resolve(id) {
             let mut local = local.clone();
             settle_idle(hub, &s, &mut local);
-            hub.attach_count(&s, -1, !local.hidden);
+            hub.attach_count_from(&s, -1, !local.hidden, a_person(conn));
         }
         hub.presence.leave(id, &conn.id);
         conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
@@ -151,7 +162,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             // later prompt keeps the cursor where its stream stands.
             conn.stream_cursors.start(&s.id, s.meta().last_seq);
             subs.insert(s.id.clone(), SubOpts::default());
-            hub.attach_count(s, 1, true);
+            hub.attach_count_from(s, 1, true, a_person(conn));
         }
         Some(opts) if opts.remote => {
             conn.outgoing_presence.detach(hub, &s.id);
@@ -162,7 +173,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             opts.remote = false;
             opts.remote_peer = None;
             opts.remote_presence = None;
-            hub.attach_count(s, 1, !opts.hidden);
+            hub.attach_count_from(s, 1, !opts.hidden, a_person(conn));
             conn.message_notices
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -199,7 +210,7 @@ pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {
             settle_idle(hub, s, &mut before);
-            hub.attach_count(s, -1, !before.hidden);
+            hub.attach_count_from(s, -1, !before.hidden, a_person(conn));
         }
     }
     hub.presence.leave(&s.id, &conn.id);
@@ -433,7 +444,7 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
         {
             let mut opts = opts;
             settle_idle(hub, &s, &mut opts);
-            hub.attach_count(&s, -1, !opts.hidden);
+            hub.attach_count_from(&s, -1, !opts.hidden, a_person(conn));
         }
     }
 }
