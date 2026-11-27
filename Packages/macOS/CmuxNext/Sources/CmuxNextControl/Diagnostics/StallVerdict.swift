@@ -68,7 +68,7 @@ public struct HostLoad: Sendable, Equatable {
     /// The busier of two reads (the higher one-minute load per core); either alone when the other is nil.
     /// A stall is judged by the most load seen while it ran, not the load when it ended: a 25-minute
     /// hang that began at load 501 on 10 cores ended at 6.9 and read as our code (cmuxterm-hq#8670,
-    /// Air-Blue 2026-11-27T01:25Z).
+    /// 2026-11-27T01:25Z).
     public static func peak(_ a: HostLoad?, _ b: HostLoad?) -> HostLoad? {
         guard let a else { return b }
         guard let b else { return a }

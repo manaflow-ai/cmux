@@ -26,7 +26,7 @@ struct StallVerdictTests {
         #expect(StallVerdict.classify(wall: .seconds(3), mainThreadCPU: .milliseconds(20), host: nil) == .blocked)
     }
 
-    /// A stall is judged by the most load seen while it ran: Air-Blue's 1517 s hang of
+    /// A stall is judged by the most load seen while it ran: a NIGHTLY's 1517 s hang of
     /// 2026-11-27T01:25Z began at load 501.7 on 10 cores and ended at 6.9, and read as our code
     /// (cmuxterm-hq#8670) when only the end was read.
     @Test func aStallIsJudgedByItsPeakLoadNotItsEnd() {
