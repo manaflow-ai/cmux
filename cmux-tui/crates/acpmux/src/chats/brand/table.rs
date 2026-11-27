@@ -4,11 +4,11 @@
 /// brand; `None` is an id known to have no mark.
 pub(super) const LOOKUP: &[(&str, Option<&str>)] = &[
     ("acli", Some("rovodev")),
-    ("agy", Some("antigravity")),
+    ("agy", Some("gemini")),
     ("aider", Some("aider")),
     ("amp", Some("amp")),
     ("anthropic", Some("anthropic")),
-    ("antigravity", Some("antigravity")),
+    ("antigravity", Some("gemini")),
     ("bedrock", None),
     ("campfire", None),
     ("chatgpt", Some("openai")),

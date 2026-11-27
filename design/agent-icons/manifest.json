@@ -1071,7 +1071,7 @@
     {
       "id": "antigravity",
       "name": "Antigravity",
-      "brand": "antigravity",
+      "brand": "gemini",
       "aliases": [
         "agy"
       ]
@@ -1282,7 +1282,7 @@
       "xai",
       "grok"
     ],
-    ["github-copilot-cli", "copilot"], ["Muse Code", "meta"], ["acp:muse", "meta"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "antigravity"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
+    ["github-copilot-cli", "copilot"], ["Muse Code", "meta"], ["acp:muse", "meta"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "gemini"], ["agy", "gemini"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
       "prime-agent",
       "prime"
     ], ["vercel-ai-gateway", "vercel"],

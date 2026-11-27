@@ -3,7 +3,7 @@
 schema = 1
 id = "antigravity"
 name = "Antigravity"
-icon = "antigravity"
+icon = "gemini"
 protocol = "acp"
 command = "agy"
 args = ["acp"]
