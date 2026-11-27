@@ -328,6 +328,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/ci_receipt.py
+            /scripts/ci/gh_http.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /.github/rust-workspaces.toml
