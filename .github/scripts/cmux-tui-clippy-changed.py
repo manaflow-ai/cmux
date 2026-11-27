@@ -24,6 +24,11 @@ judges the counts against the baseline at HEAD. Only cmux-tui.yml ran it before,
 #27935 landed two acpmux indexing_slicing hits that turned base red. A crate the run
 does not check keeps its baseline (the ratchet names it in a warning).
 
+The clippy step lints with the ratchet's flags as well (lint_args), so the ratchet step's own run of the same
+packages in the same target dir finds HEAD's production units fresh and cargo replays their diagnostics
+rather than linting them again. The ratchet still counts its own run, and the clippy step leaves out the
+hits those flags add, so neither step's verdict or annotations change.
+
 --compare-base (with --panic-ratchet and a base): when HEAD is over the baseline, it lints
 the same packages at the base too, then judges HEAD with the ratchet's --base-clippy-json:
 a crate the base already has over its row is red only for hits HEAD adds. A HEAD within the
@@ -92,7 +97,90 @@ WHOLE_WORKSPACE = frozenset({
 RATCHET = "scripts/cmux-next/rust_panic_ratchet.py"
 # Every lint is a warning, whatever level a crate or a Cargo [lints] table gives it; only compile errors fail.
 CAP_LINTS = ["--cap-lints", "warn"]
-LINT_ARGS = ["--all-targets", "--message-format=json", "--", *CAP_LINTS]
+
+def ratchet_flags(repo: Path) -> list[str]:
+    """The panic ratchet's lint flags (`-W clippy::unwrap_used ...`), or none on a tree without the ratchet."""
+    ratchet = repo / RATCHET
+    if not ratchet.is_file():
+        return []
+    return subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
+                          stdout=subprocess.PIPE, text=True).stdout.split()
+
+
+def lint_args(flags: list[str]) -> list[str]:
+    """The clippy step's arguments. Its lint flags are the panic ratchet's, so the ratchet step's `--lib --bins`
+    run that follows in the same target dir finds those units fresh (clippy's arguments are in each unit's
+    fingerprint) and cargo replays their diagnostics instead of linting HEAD's production code a second time:
+    3m39 of the ratchet's 5m52 on a warm slot (fleet job 160efa055d79f2c5cb65cbc5). The ratchet still runs and
+    counts its own command's output, so its verdict is the same. The clippy step leaves out the hits these
+    flags add (SourceLevels), so its annotations are the same too."""
+    return ["--all-targets", "--message-format=json", "--", *flags, *CAP_LINTS]
+
+
+def added_lints(flags: list[str]) -> frozenset[str]:
+    """The lint codes a `-W LINT` flag turns on (`clippy::unwrap_used`)."""
+    return frozenset(flags[i + 1] for i, arg in enumerate(flags[:-1]) if arg == "-W")
+
+
+class SourceLevels:
+    """Whether the source raises a lint itself (warn, deny or forbid), so clippy reports it without the ratchet's
+    `-W`: an attribute naming it (or its clippy group) in the file, in a module file above it up to its crate,
+    or in its crate's or the workspace's Cargo `[lints]` table. Wider than rustc's own scoping (an item's
+    attribute counts for its whole file, a lib.rs one for the crate's bins), so a lint the clippy step reported
+    before is never left out; at worst one more is reported."""
+
+    GROUPS = ("clippy::restriction", "clippy::pedantic", "clippy::all")
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.texts: dict[Path, str] = {}
+        self.tables: dict[Path, set[str]] = {}
+        self.known: dict[tuple[str, str], bool] = {}
+
+    def text(self, path: Path) -> str:
+        if path not in self.texts:
+            try:
+                self.texts[path] = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                self.texts[path] = ""
+        return self.texts[path]
+
+    def table(self, manifest: Path) -> set[str]:
+        """The clippy lints a Cargo.toml's `[lints.clippy]` or `[workspace.lints.clippy]` names."""
+        if manifest not in self.tables:
+            names: set[str] = set()
+            try:
+                import tomllib
+                data = tomllib.loads(self.text(manifest))
+                for lints in (data.get("lints") or {}, (data.get("workspace") or {}).get("lints") or {}):
+                    if isinstance(lints, dict) and isinstance(lints.get("clippy"), dict):
+                        names.update(lints["clippy"])
+            except Exception:  # an unreadable manifest (or a Python without tomllib) names every lint
+                names.add("*")
+            self.tables[manifest] = names
+        return self.tables[manifest]
+
+    def raises(self, file_name: str, code: str) -> bool:
+        if (file_name, code) in self.known:
+            return self.known[(file_name, code)]
+        names = (code, *self.GROUPS)
+        attr = re.compile(r"#!?\[(?:cfg_attr\([^\]]*?,\s*)?(?:warn|deny|forbid)\([^\]]*?(?:"
+                          + "|".join(re.escape(name) for name in names) + r")\b", re.S)
+        path = Path(file_name) if Path(file_name).is_absolute() else self.root / file_name
+        candidates, directory = [path], path.parent
+        while True:
+            candidates += [directory / "mod.rs", directory / "lib.rs", directory / "main.rs",
+                           directory.parent / f"{directory.name}.rs"]
+            if (directory / "Cargo.toml").is_file() or directory in (self.root, directory.parent):
+                break
+            directory = directory.parent
+        short = code.split("::", 1)[-1]
+        found = any(attr.search(self.text(candidate)) for candidate in candidates) or any(
+            names_ & {short, "*", "restriction", "pedantic", "all"}
+            for names_ in (self.table(directory / "Cargo.toml"), self.table(self.root / "Cargo.toml"))
+        ) or code in os.environ.get("RUSTFLAGS", "")
+        self.known[(file_name, code)] = found
+        return found
 # rustc's own error codes; a lint's code is its name (`clippy::needless_return`, `dead_code`).
 COMPILE_ERROR_CODE = re.compile(r"^E\d{4}$")
 # cargo's and rustc's closing lines after errors: they say how many, not what, so they never decide the verdict.
@@ -182,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     base = args.base.strip()
     paths = fmt_changed.changed(repo, base)
+    flags = [] if args.panic_ratchet else ratchet_flags(repo)
+    added = added_lints(flags)
     compare = base if args.compare_base and paths is not None else ""
     ratchet_inputs_changed = False
     if args.panic_ratchet and base and set(base) != {"0"}:
@@ -193,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
         if args.panic_ratchet:
             return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *LINT_ARGS]
+        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *lint_args(flags)]
         scope = "the whole cmux-tui workspace"
     else:
         touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
@@ -210,16 +300,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
                                  args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *LINT_ARGS]
+        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *lint_args(flags)]
         scope = ", ".join(selected)
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     text: list[str] = []
-    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text)
+    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text, added)
     report_lints(result.lints, scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
-            repo, command, paths, workspace, args.autofixed_ok):
+            repo, command, paths, workspace, args.autofixed_ok, added):
         return 0
     if result.rc and result.lock:
         print(stale_lock_error("cmux-tui clippy", result.lock))
@@ -237,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             nonlocal red_files
             print(" ".join(argv), flush=True)
             out: list[str] = []
-            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out)
+            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out, added)
             report_lints(run.lints, scope)
             red_files = run.red_files
             lints_only = run.rc and not run.lock and not run.compile_errors and run.lint_errors
@@ -283,7 +373,8 @@ def is_autofix_head(repo: Path, head: str) -> bool:
         return True
 
 
-def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[str, str], head: str) -> bool:
+def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[str, str], head: str,
+              added: frozenset[str] = frozenset()) -> bool:
     """Apply the PR autofix's clippy repair to the pull request's own files and lint again (see --autofixed-ok)."""
     if not re.fullmatch(r"[0-9a-f]{40}", head) or is_autofix_head(repo, head):
         return False
@@ -313,7 +404,7 @@ def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[
     if outside := [path for path in edited if path not in paths]:
         fmt_changed.git(repo, "checkout", "--quiet", "--", *outside)  # the push leaves these (pr-autofix-apply.sh)
     fixed = [path for path in edited if path in paths]
-    rc = run_clippy(command, cwd, repo)[0] if fixed else 1
+    rc = run_clippy(command, cwd, repo, None, added)[0] if fixed else 1
     fmt_changed.git(repo, "checkout", "--quiet", "--", ROOT)
     if rc:
         print("cmux-tui-clippy-changed: the PR autofix's repair leaves lints; they are this change's to fix")
@@ -332,10 +423,14 @@ class ClippyRun(NamedTuple):
     lint_errors: int  # error diagnostics that are lints (a level --cap-lints did not reach)
 
 
-def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None) -> ClippyRun:
+def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None,
+               added: frozenset[str] = frozenset()) -> ClippyRun:
     """Run clippy (`--message-format=json`) with each diagnostic's rendered text and cargo's own lines
     passed to stderr as they come, and sort what it said into lints and compile errors. TEXT, when given,
-    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it)."""
+    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it).
+    A hit of an ADDED lint (the ratchet's `-W` flags, see lint_args) the source does not raise itself is
+    the ratchet step's to count: it is neither printed nor reported here."""
+    levels = SourceLevels(cwd)
     files: list[str] = []
     lints: list[dict] = []
     seen: set[tuple] = set()
@@ -365,12 +460,15 @@ def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None
         if item.get("reason") != "compiler-message":
             continue
         message = item.get("message") or {}
-        if rendered := message.get("rendered"):
-            sys.stderr.write(rendered if rendered.endswith("\n") else rendered + "\n")
         level = message.get("level") or ""
         code = (message.get("code") or {}).get("code") or ""
         span = next((s for s in message.get("spans") or [] if s.get("is_primary")), None)
         is_lint = bool(code) and not COMPILE_ERROR_CODE.match(code)
+        if (code in added and not level.startswith("error") and span is not None
+                and not levels.raises(span.get("file_name") or "", code)):
+            continue
+        if rendered := message.get("rendered"):
+            sys.stderr.write(rendered if rendered.endswith("\n") else rendered + "\n")
         if level.startswith("error"):
             if is_lint:
                 lint_errors += 1
@@ -476,8 +574,7 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             print("cmux-tui-clippy-changed: no package left for the panic ratchet", flush=True)
             return 0
     ratchet = repo / RATCHET
-    flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
-                           stdout=subprocess.PIPE, text=True).stdout.split()
+    flags = ratchet_flags(repo)
     targets = ["--lib", "--bins"] if has_lib else ["--bins"]
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags, *CAP_LINTS]
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -59,7 +59,12 @@ lint_json() {
 summary_json() {
   printf '{"reason":"compiler-message","message":{"level":"error","code":null,"message":"aborting due to 1 previous error","rendered":"error: aborting due to 1 previous error\\\\n","spans":[]}}\\n'
 }
+# A hit of a ratchet lint (allow by default, so only the ratchet's -W flag or the source raises it) in FILE.
+ratchet_json() {
+  printf '{"reason":"compiler-message","message":{"level":"warning","code":{"code":"clippy::unwrap_used"},"message":"used `unwrap()` on a `Result` value","rendered":"warning: used `unwrap()` on a `Result` value\\\\n  --> %s:2:9\\\\n","spans":[{"is_primary":true,"file_name":"%s","line_start":2,"column_start":9}]}}\\n' "$1" "$1"
+}
 case "${CLIPPY_JSON:-}" in
+  ratchet) for file in $RATCHET_FILES; do ratchet_json "$file"; done; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   warn) lint_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   build-script) lint_json error; echo "error: failed to run custom build command for pkg-a v0.1.0" >&2; exit 101 ;;
   deny) lint_json error; summary_json; echo "error: could not compile pkg-a (lib) due to 1 previous error" >&2; echo '{"reason":"build-finished","success":false}'; exit 101 ;;
@@ -88,7 +93,9 @@ with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
-LINT = ["--all-targets", "--message-format=json", "--", "--cap-lints", "warn"]
+# The clippy step lints with the ratchet's flags too, so the ratchet step's run of the same units is fresh.
+LINT = ["--all-targets", "--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing",
+        "--cap-lints", "warn"]
 PANIC = ["--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing", "--cap-lints", "warn"]
 
 
@@ -264,6 +271,29 @@ class ClippyChangedTests(unittest.TestCase):
         text = summary.read_text()
         self.assertIn("1 lint(s), not blocking", text)
         self.assertIn("`cmux-tui/crates/a/src/lib.rs:3` clippy::needless_return", text)
+
+    def test_a_ratchet_lint_only_the_ratchet_flag_raises_is_left_to_the_ratchet_step(self) -> None:
+        # The clippy step lints with the ratchet's -W flags only so the ratchet step's run is fresh: those hits are
+        # the ratchet's to count, and the clippy step reports what it reported before.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={
+            "CLIPPY_JSON": "ratchet", "RATCHET_FILES": "crates/a/src/lib.rs crates/a/tests/journey.rs"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::warning file=", result.stdout)
+        self.assertNotIn("unwrap()", result.stderr)
+
+    def test_a_ratchet_lint_the_source_raises_is_still_reported(self) -> None:
+        # acpmux-core's `#![deny(clippy::indexing_slicing, ...)]` files: clippy reported these before the flags.
+        self.write("cmux-tui/crates/a/src/denied.rs", "#![deny(clippy::indexing_slicing, clippy::unwrap_used)]\n")
+        self.write("cmux-tui/crates/a/src/inner/mod.rs", "#![warn(clippy::unwrap_used)]\n")
+        self.write("cmux-tui/crates/b/Cargo.toml", '[package]\nname = "pkg-b"\n\n[lints.clippy]\nunwrap_used = "deny"\n')
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        files = ["crates/a/src/denied.rs", "crates/a/src/inner/leaf.rs", "crates/b/src/lib.rs", "crates/a/src/lib.rs"]
+        result = self.run_check("--base", self.base, env_extra={"CLIPPY_JSON": "ratchet", "RATCHET_FILES": " ".join(files)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        annotated = [line.split(",")[0].removeprefix("::warning file=cmux-tui/")
+                     for line in result.stdout.splitlines() if line.startswith("::warning file=")]
+        self.assertEqual(annotated, files[:3], "the file's own attribute, a module above it, the crate's [lints]")
 
     def test_a_lint_cargo_stopped_on_still_passes(self) -> None:
         # A level --cap-lints did not reach (an error-level lint): cargo exits non-zero, but only lints were in the way.
