@@ -1962,7 +1962,7 @@ async fn dispatch_request_with_identity(
             {
                 use crate::hub::admission_redirect as redirect;
                 let p = redirect::forwarded(&params, &placed);
-                match Box::pin(new_on_peer(hub, conn, &p, &placed.host)).await {
+                match heap(|| new_on_peer(hub, conn, &p, &placed.host)).await {
                     Ok(result) => {
                         redirect::log("redirected", placed.reason, Some(&placed.host), None);
                         return Ok(redirect::answer(result, &placed));
@@ -2734,7 +2734,7 @@ async fn dispatch_request_with_identity(
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
+                heap(|| hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
                 // Fork Conversation's Cancel names the fork by this token (`hub/fork_cancel.rs`),
                 // from before its admission: a Cancel while it is admitted stops it too.
@@ -4159,8 +4159,8 @@ async fn dispatch_request_with_identity(
             crate::customize_run::run(&params).await.map_err(RpcError::invalid_params)
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
-        method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
-        method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,
+        method::MUX_QUEUE_TEXT => heap(|| queue_text(hub, &params)).await,
+        method::MUX_ROWS => heap(|| rows(hub, conn, &params)).await,
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
