@@ -89,7 +89,7 @@ person may see"; that is suite.py's alone.
 | daemon-hung | SIGSTOP of the daemon, left stopped | a client must be served while it stays stopped |
 | sleep-wake-sim | SIGSTOP of the daemon, agent hosts and agent for 35 s, then SIGCONT | simulated, as above |
 | socket-gone | the socket file moved away for 20 s, then back | the client's send during the gap |
-| update-swap | a new binary renamed over the daemon's path, then `acpmux daemon restart` from it | the successor runs the new file and adopts the agent; no download or signature check |
+| update-swap | a new binary renamed over the daemon's path, nothing else | the daemon hands over to a daemon of the new file by itself, and none dies in the hand-over; no download or signature check |
 
 app-sigkill, update-midturn and ws-port-block have no daemon-only form (no app, and no WebSocket client without it).
 The expected-failure marks above are about the app; this half has none.

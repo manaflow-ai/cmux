@@ -22,8 +22,8 @@ Cases (--cases, default all):
   sleep-wake-sim   SIMULATION: SIGSTOP the daemon, its agent hosts and the agent for --sleep seconds, then SIGCONT.
   socket-gone      The daemon's socket file moved away for 20 s, then put back.
   update-swap      The acpmux binary replaced mid-turn (a new file renamed over the path the daemon runs from, as an
-                   update's swap), then `acpmux daemon restart` from the new file. The successor must run the new
-                   file. No download and no signature check: the swap and the hand-over only.
+                   update's swap) and nothing else: the daemon must hand over to a daemon of the new file by itself,
+                   and no daemon may die in the hand-over. No download and no signature check.
 
 Not here: app-sigkill, update-midturn (the app's relaunch), ws-port-block (no WebSocket client without the app).
 The run's daemon, home, config and binary copy are all under one temporary folder; this script signals only
@@ -144,6 +144,14 @@ class Run:
         except OSError:
             return []
 
+    def stops(self) -> list[dict]:
+        """Every daemon stop this home recorded today, oldest first (`daemon.stops.json`, the daemon's own record)."""
+        try:
+            with open(os.path.join(self.home, "daemon.stops.json")) as handle:
+                return list(json.load(handle).get("recent") or [])
+        except (OSError, ValueError):
+            return []
+
     def store_text(self, session: str) -> str:
         folder = os.path.join(self.home, "sessions", session, "events")
         try:
@@ -243,8 +251,8 @@ def inject(run: Run, case: str, session: str, ping: str) -> dict:
             handle.write(f"\nagent-conn-chaos generation {run.generation}\n".encode())
         os.rename(staged, run.binary)  # the swap: the path never goes missing, the running daemon's file is gone
         info["new_inode"] = os.stat(run.binary).st_ino
-        restarted = run.cli("daemon", "restart", timeout=BOUND[case])
-        info["restart"] = {"exit": restarted.returncode, "out": (restarted.stdout + restarted.stderr).strip()[:300]}
+        info["stops_before"] = len(run.stops())
+        # Nothing more: the daemon sees its own file replaced and hands over to a daemon of the new file by itself.
         info["fault_end"] = time.monotonic()
         send_ping(BOUND[case])
     else:
@@ -329,8 +337,14 @@ def run_case(run: Run, case: str) -> dict:
     if pongs != 1:
         result["failures"].append(f"the down-time prompt's answer is in the store {pongs} times (want 1)")
     if case == "update-swap":
-        if result.get("restart", {}).get("exit") != 0:
-            result["failures"].append(f"daemon restart after the swap: {result.get('restart')}")
+        deadline = fault_end + BOUND[case]
+        while run.daemon_pids() & set(result["daemon_before"]) and time.monotonic() < deadline:
+            time.sleep(0.5)  # test script: the old daemon is handing over
+        stops = run.stops()[result.pop("stops_before"):]
+        result["stops"] = [stop.get("cause") for stop in stops]
+        died = [stop for stop in stops if (stop.get("cause") or {}).get("kind") == "died"]
+        if died:  # the swap is a hand-over; a daemon that died in it (and was started again by a client) is a fault
+            result["failures"].append(f"a daemon died during the swap's hand-over: {died[0].get('cause')}")
         running = sorted(run.daemon_pids())
         exes = {}
         for pid in running:
