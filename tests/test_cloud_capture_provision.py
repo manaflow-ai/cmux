@@ -272,6 +272,37 @@ class Provision(unittest.TestCase):
         self.assertEqual(open_sealed(bundle["secrets"]["CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD"], pk, sk), PASSWORD)
         self.assertIn("production test account", logs[-1])
 
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_production_control_target_has_its_own_teamless_account_sealed_beside_the_probes(self):
+        # cmuxterm-hq cloud-chat-replies-production's control: its own (team, user) spare, so the other probes on the
+        # production account stop claiming it. Personal scope: no team_id, and the probe's account is untouched.
+        probe = provision.TARGETS["production"]
+        fake = FakeStack([{"id": "user-1", "primary_email": probe.email, "password": "probe-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["production-control"]
+        self.assertEqual(target.project, provision.PRODUCTION_PROJECT_ID)
+        self.assertIsNone(target.team_id)
+        self.assertNotIn(target.email, [t.email for n, t in provision.TARGETS.items() if n != "production-control"])
+        prod = provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                               expected_project=provision.PRODUCTION_PROJECT_ID)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(prod, out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "probe-password")
+        self.assertFalse([r for r in fake.requests if r[1].startswith("/team-memberships")])
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-prod-control@manaflow.dev")
+        self.assertEqual(created[0][3]["client_read_only_metadata"], {"cmuxVmPlan": "pro"})
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmuxterm-hq", "cloud-capture"))
+        self.assertEqual(sorted(bundle["secrets"]), ["CLOUD_PROBE_PRODUCTION_CONTROL_STACK_EMAIL",
+                                                     "CLOUD_PROBE_PRODUCTION_CONTROL_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CLOUD_PROBE_PRODUCTION_CONTROL_STACK_PASSWORD"], pk, sk),
+                         PASSWORD)
+
     def test_the_workflow_offers_production_team_with_the_production_key_and_no_grant_only(self):
         text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
         options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
