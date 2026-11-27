@@ -309,6 +309,63 @@ test("the frame a switch back lands on draws the chat, before its attach answers
   }
 });
 
+test("the attach reply of a switch back renders after the kept tail's frame paints", async () => {
+  // Leo, 2026-11-21: "workspace switch, opening a recent workspace, chat switch and restart reach a
+  // settled page (zero layout shift after first paint, streaming included) within 2x of a derived
+  // bound." A local daemon answers the attach at once: its page rendered the pane again before the
+  // frame of the kept tail painted, and that frame waited for it (bench/settled-page.bench.ts).
+  const daemon = new Daemon("after-paint");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  const tail: Step[] = [prompt("Turn one"), TURN_STARTED, reply(A, "Turn one done."), TURN_DONE];
+  daemon.pages.set(A, [
+    { events: tail },
+    { events: [prompt("Turn ninety"), TURN_STARTED, reply(A, "Turn ninety done."), TURN_DONE], from: 900 },
+  ]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  const had = { raf: scope.requestAnimationFrame, caf: scope.cancelAnimationFrame };
+  const frames = new Map<number, () => void>();
+  let id = 0;
+  scope.requestAnimationFrame = (run: () => void) => (frames.set(++id, run), id);
+  scope.cancelAnimationFrame = (frame: number) => frames.delete(frame);
+  try {
+    await client.select(B);
+    // Each reply the daemon hands the client, by request id.
+    const answered = new Set<unknown>();
+    const deliver = daemon.onmessage;
+    daemon.onmessage = (message) => {
+      answered.add((JSON.parse(message.data) as { id?: unknown }).id);
+      deliver?.(message);
+    };
+    const attachesOfA = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A);
+    const before = attachesOfA().length;
+    // The attach the switch back sends (chat A's first attach came with the page).
+    const attachOfA = () => attachesOfA()[before];
+    const back = client.select(A);
+    // Wait for the daemon's answer to that attach, then one task so the client's handling of it runs;
+    // no frame has painted yet.
+    for (let turn = 0; !answered.has(attachOfA()?.id ?? Symbol()); turn++) {
+      if (turn > 1000) throw new Error("the attach of chat A was never answered");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attachOfA()).toBeDefined();
+    expect(text(last())).toContain("Turn one done.");
+    expect(client.sessionEvents().map((event) => event.seq)).toEqual([1, 2, 3, 4]);
+    // The kept tail's frame paints; then the reply's page renders.
+    for (const run of Array.from(frames.values())) run();
+    frames.clear();
+    await back;
+    expect(client.sessionEvents().map((event) => event.seq)).toEqual([900, 901, 902, 903]);
+    expect(text(last())).toContain("Turn ninety done.");
+  } finally {
+    scope.requestAnimationFrame = had.raf;
+    scope.cancelAnimationFrame = had.caf;
+    client.close();
+  }
+});
+
 test("a chat that ran on past one attach page comes back without a hole in its transcript", async () => {
   const daemon = new Daemon("gap");
   const [A, B] = [daemon.sessionA, daemon.sessionB];

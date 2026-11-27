@@ -4,7 +4,7 @@
 // ui/Dialog's Escape); a Command key is answered here while the button is mounted and enabled.
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { cx } from "./cx";
-import { keycapLegend } from "./keycapLegend";
+import { KeyHint } from "./KeyHint";
 
 /** The key that presses a dialog button: Return, Escape, an arrow (viewers step with them), or
  * Command plus one character. */
@@ -79,11 +79,7 @@ export function DialogButton({
       aria-keyshortcuts={dialogKey ? dialogKeyAria(dialogKey) : undefined}
     >
       {children}
-      {dialogKey && (
-        <kbd className="ui-keyhint" aria-hidden="true">
-          {keycapLegend(dialogKeyGlyph(dialogKey))}
-        </kbd>
-      )}
+      {dialogKey && <KeyHint keys={dialogKeyGlyph(dialogKey)} aria-hidden="true" />}
     </button>
   );
 }

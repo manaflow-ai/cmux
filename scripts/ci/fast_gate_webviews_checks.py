@@ -62,6 +62,7 @@ CHECKS = (
     "check:catalog-keys",
     "check:catalog-unused",
     "check:popup-hover-reveals",
+    "check:surface-bypass",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -76,6 +77,13 @@ CHECK_CLASSES = {
     "check:catalog-keys": LINT,
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
+    "check:surface-bypass": LINT,
+}
+# Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
+NEW_CHECK_SCRIPTS = {
+    "check:design-tokens": "scripts/check-design-tokens.ts",
+    "check:ui-review": "scripts/check-ui-review.ts",
+    "check:surface-bypass": "scripts/check-surface-bypass.ts",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -206,7 +214,9 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
         if record:
             message = " ".join(record["message"])
             path = record["path"]
-            found = f"{unroot(path, root)}: {message}" if path else message
+            # The message is unrooted too: a type error naming a node_modules type prints the checkout's root in it
+            # (fast gates 45874767698 charged the base's bench/browsers.ts TS2345 to cmux#57053).
+            found = unroot(f"{path}: {message}" if path else message, root)
             out.append((found, f"{path}: {message}" if path else message))
         record = None
 
@@ -246,8 +256,10 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
 
 def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
     """(new, old): the merge's findings beyond the base's, and those the base has too, in the merge's order.
-    Counted, not a set: a second finding that reads like one the base already has is still new."""
-    left = Counter(found for found, _ in findings(base_output, base_root))
+    Counted, not a set: a second finding that reads like one the base already has is still new. The base's
+    webviews/node_modules is the merge's (a symlink), so a base frame there names the merge's root: that is <root>
+    too, or the base's vite stack would never match the merge's."""
+    left = Counter(unroot(found, merge_root) for found, _ in findings(base_output, base_root))
     new, old = [], []
     for found, shown in findings(merge_output, merge_root):
         if left[found] > 0:
@@ -378,11 +390,9 @@ def main(argv: list[str] | None = None) -> int:
             # package script. Until that PR lands, the merge parent cannot run this check; do not
             # charge the transition PR for the base's missing command. Later PRs see the script on
             # the base and are compared normally.
-            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
-                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
-                continue
-            if check == "check:ui-review" and not (base_webviews / "scripts/check-ui-review.ts").is_file():
-                print("webviews checks: check:ui-review is new; base has no command, so this transition is not charged", flush=True)
+            script = NEW_CHECK_SCRIPTS.get(check)
+            if script and not (base_webviews / script).is_file():
+                print(f"webviews checks: {check} is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0

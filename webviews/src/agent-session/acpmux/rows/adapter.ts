@@ -66,7 +66,8 @@ export class ChatAdapter {
       for (const entry of entries) {
         const row = entry.row;
         if (!row) continue;
-        const group = row.kind === "notice" && row.group ? held.get(row.group) : undefined;
+        // A turn's end and its replies read their group row (the turn header): its time, calls, start.
+        const group = (row.kind === "notice" || row.kind === "text") && row.group ? held.get(row.group) : undefined;
         let made = this.#made.get(row);
         if (!made || made.group !== group) {
           made = { group, rows: adaptRow(entry, held, this.context) };
@@ -115,14 +116,37 @@ export function adaptRow(
         },
       ];
     case "text":
-      return [{ ...head, kind: "assistant", text: String(body.text ?? ""), streaming: row.open }];
+      return [
+        {
+          ...head,
+          kind: "assistant",
+          text: String(body.text ?? ""),
+          streaming: row.open,
+          ...turnStart(row.group ? held.get(row.group) : undefined),
+        },
+      ];
     case "thinking":
       return [
-        { ...head, kind: "activity", items: [{ kind: "thought", text: String(body.text ?? "") }], streaming: row.open },
+        {
+          ...head,
+          kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
+          items: [{ kind: "thought", text: String(body.text ?? "") }],
+          streaming: row.open,
+        },
       ];
     case "tool": {
       const item = mergeToolItem(undefined, body, String(body.callId ?? ""), textFromContent(body.content));
-      return [{ ...head, kind: "activity", toolCount: 1, items: [item], streaming: row.open }];
+      return [
+        {
+          ...head,
+          kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
+          toolCount: 1,
+          items: [item],
+          streaming: row.open,
+        },
+      ];
     }
     case "notice":
       return body.notice === "turn_result"
@@ -133,6 +157,12 @@ export function adaptRow(
     default:
       return [];
   }
+}
+
+/// The turn's start from its group row, the turn header (`startMs`, set when the daemon bore it).
+function turnStart(group?: ChatRow): { turnStartedAtMs?: number } {
+  const start = (group?.body as { startMs?: unknown } | undefined)?.startMs;
+  return typeof start === "number" ? { turnStartedAtMs: start } : {};
 }
 
 /// The turn-end notice: its own fields, and the turn's time and calls from its group row (home b).
@@ -146,6 +176,7 @@ function turnSummary(
   return {
     ...head,
     kind: "turnSummary",
+    ...turnStart(group),
     ...(typeof body.seq === "number" ? { seq: body.seq } : {}),
     ...(typeof turn.ms === "number" ? { durationMs: turn.ms } : {}),
     ...(typeof turn.calls === "number" ? { toolCount: turn.calls } : {}),

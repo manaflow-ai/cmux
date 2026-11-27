@@ -8,17 +8,18 @@ import { chatSnapshotTimes } from "./chatSnapshot/live";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions } from "./loadDebug";
+import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions, SessionChurnOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
 import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
-import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { composerChips, composerFrames, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
+import { chipProbe } from "./chipProbe";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
 import type { PasteProbeOptions } from "./pasteProbe";
 import type { TypingLoadOptions } from "./typingLoadDebug";
@@ -101,6 +102,8 @@ export type AcpmuxDebug = {
   typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Changes listed sessions at a steady rate, as the daemon's `session_changed` does (loadDebug.ts). */
+  sessionChurn(options?: SessionChurnOptions): Promise<Record<string, unknown>>;
   /** Adds short tool calls (each its call, then its result) to its running turn (loadDebug.ts). */
   loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
@@ -479,9 +482,16 @@ export function createAcpmuxDebug(
             userBubbles: userBubblesState(),
             // The queued prompts as drawn: each row's text, its image ids and each thumbnail's state.
             queued: queuedRowsState(),
-            subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            // A subagent's view draws its close and Resume in the corner (subagents/SubagentViewCorner.tsx).
+            subagentCorner: document.querySelector(".cv-subagent-corner") !== null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // Where the composer's controls are drawn: a mode or place switch moves none of them.
+            composerFrames: composerFrames(),
+            // What the access chip decided its face from on its last render (chipProbe.ts).
+            composerInputs: chipProbe.last,
+            // What decides whether the run row is offered now.
+            runPlace: host.automation.compose?.runPlace?.() ?? null,
             // The composer's attachment tiles as drawn: loading (with its upload's percent), failed (why) or staged.
             attachments: composerAttachmentsState(),
             // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
@@ -563,6 +573,10 @@ export function createAcpmuxDebug(
     async loadTick(options = {}) {
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
+    },
+    async sessionChurn(options = {}) {
+      const { sessionChurn } = await import("./loadDebug");
+      return sessionChurn(options);
     },
     async loadTools(options = {}) {
       const { loadTools } = await import("./loadDebug");

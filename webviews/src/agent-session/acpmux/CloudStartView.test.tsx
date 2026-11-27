@@ -11,7 +11,7 @@ import { CloudStartView } from "./CloudStartView";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
-import { createGitHubPicker } from "./githubRepos";
+import { createGitHubPicker, githubFullName } from "./githubRepos";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -98,11 +98,13 @@ test("a start on its way reads as a local first turn: the message and the Thinki
   }
 });
 
-test("the quiet line names the stage, why it waits and about how long, and keeps Thinking as an arm", () => {
+test("the quiet line names the stage and counts its seconds, never a usual wait, and keeps Thinking as an arm", () => {
   const html = renderToStaticMarkup(<CloudStartView start={{ ...start, step: "machine" }} />);
   expect(html).toContain('data-stage="machine"');
   expect(html).toContain("Starting your Cloud machine");
-  expect(html).toContain("usually under a minute");
+  // No host start time: the clock still shows, counting from when the line first drew the stage.
+  expect(html).toMatch(/<time class="cv-worked__time" data-stage-clock="true">0s<\/time>/);
+  expect(html).not.toContain("usually");
   expect(html).not.toContain('data-step-id="machine"');
   // The copy stage, the hint arm's segments (machine done, copy current, agent next), and the arm
   // that keeps the line as it was.
@@ -114,7 +116,8 @@ test("the quiet line names the stage, why it waits and about how long, and keeps
     'data-step="next"',
   ]);
   const stacked = renderToStaticMarkup(<CloudStartView start={start} quietLook="stacked" />);
-  expect(stacked).toContain('class="acpmux-cloud-start__eta-line"');
+  expect(stacked).toContain("data-stage-clock");
+  expect(stacked).not.toContain("usually");
   const thinking = renderToStaticMarkup(<CloudStartView start={start} quietLook="thinking" />);
   expect(thinking).toContain("cv-thinking");
   expect(thinking).not.toContain("acpmux-cloud-start__stage");
@@ -542,7 +545,7 @@ test("initialized sessions collapse to one quiet line", () => {
 
 test("startup durations use the supplied clock", () => {
   const rows = startupChecklist({ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }, undefined, 3_500);
-  expect(rows[0]?.duration).toBe("2.5s");
+  expect(rows[0]?.duration).toBe("2s");
 });
 
 test("setup hint becomes a link when an environment callback is provided", () => {
@@ -560,6 +563,30 @@ test("setup hint becomes a link when an environment callback is provided", () =>
     />,
   );
   expect(html).toContain('class="acpmux-cloud-start__link"');
+});
+
+test("a failed setup keeps the environment target and opens its editor for repair", async () => {
+  const opened: unknown[] = [];
+  const failed: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    environment: "env_selected",
+    environmentId: "env_resolved",
+    setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+    step: undefined,
+    retryable: true,
+    message: "Environment setup failed.",
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onOpenEnvironment={(options) => opened.push(options)} />);
+  });
+  const link = container.querySelector<HTMLButtonElement>("[data-step-id=setup] button");
+  expect(link?.textContent).toBe("Edit cloud environment");
+  expect(container.querySelector('[data-step-id="setup"]')?.textContent).toContain("setup exited with status 1");
+  await act(async () => link?.click());
+  expect(opened).toEqual([{ environmentId: "env_resolved", section: "script" }]);
 });
 
 test("the harness row says Starting until the harness has started", () => {
@@ -704,6 +731,63 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
   refuse = true;
   await act(async () => connect?.click());
   expect(container.querySelector("[data-connect-error]")?.textContent).toBe("GitHub isn't set up for this team.");
+});
+
+// #55104: the card's Connect names the start's repository, and the start goes again by itself once connected.
+test("a needs-GitHub start connects for its repository and retries by itself once connected", async () => {
+  const failed = {
+    ...start,
+    state: "failed" as const,
+    retryable: true,
+    code: "seed.needs_github",
+    repository: "github:manaflow-ai/cmuxterm-hq",
+    message: "Connect GitHub so Cloud can clone manaflow-ai/cmuxterm-hq, then retry.",
+  };
+  const asked: Array<[string, Record<string, unknown>]> = [];
+  let reply: unknown = { opened: true };
+  let changed: (() => void) | undefined;
+  const github = createGitHubPicker(
+    async (method, params) => {
+      asked.push([method, params]);
+      if (method === "github.status") return { state: "ready", repos_scope: "all" };
+      if (method === "github.repos.list") return { repos: [] };
+      return reply;
+    },
+    () => () => undefined,
+    () => false,
+    (run) => {
+      changed = run;
+      return () => undefined;
+    },
+  );
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onRetry={() => void retried++} githubStore={github} />);
+  });
+  const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
+  // GitHub's page opened: nothing retries until the app says it finished the connection.
+  await act(async () => connect?.click());
+  expect(asked[0]).toEqual(["github.connect", { repo: "manaflow-ai/cmuxterm-hq" }]);
+  expect(retried).toBe(0);
+  await act(async () => changed?.());
+  expect(retried).toBe(1);
+  await act(async () => changed?.());
+  expect(retried).toBe(1); // once per click
+  // A connection already covers it: the start goes again at once, with no page.
+  reply = { opened: false };
+  await act(async () => connect?.click());
+  expect(retried).toBe(2);
+});
+
+test("only a GitHub repository name reaches github.connect", () => {
+  expect(githubFullName("manaflow-ai/cmuxterm-hq")).toBe("manaflow-ai/cmuxterm-hq");
+  expect(githubFullName("github:acme/api")).toBe("acme/api");
+  expect(githubFullName("https://github.com/acme/api.git")).toBe("acme/api");
+  expect(githubFullName("git@github.com:acme/api.git")).toBe("acme/api");
+  for (const bad of [undefined, "", "cmuxterm-hq", "https://gitlab.com/acme/api", "acme/api/x", "acme/..", "-acme/api"])
+    expect(githubFullName(bad)).toBeUndefined();
 });
 
 test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {

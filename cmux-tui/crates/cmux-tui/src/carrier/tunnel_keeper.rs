@@ -170,15 +170,25 @@ impl Keeper {
             return;
         }
         let mut restarts = 0u32;
+        // The last sign-in refusal written: the keeper asks every `check_every`, so it writes a
+        // refusal once and again only when its reason or team changes (a link whose tunnel never
+        // starts names why in link.log, where the failover probe reads it).
+        let mut refused: Option<String> = None;
         loop {
             let Some(joined) = self.joined_now() else {
                 tokio::time::sleep(self.timing.check_every).await;
                 continue;
             };
-            if self.ask(&joined).await.is_err() {
+            if let Err(why) = self.ask(&joined).await {
+                let why = format!("no sign-in for team {}: {why}", joined.team);
+                if refused.as_deref() != Some(why.as_str()) {
+                    self.emit(KeeperEvent::Unstarted(why.clone()));
+                    refused = Some(why);
+                }
                 tokio::time::sleep(self.timing.check_every).await;
                 continue;
             }
+            refused = None;
             let plan = match self.plan(&joined) {
                 Ok(plan) => plan,
                 Err(why) => {

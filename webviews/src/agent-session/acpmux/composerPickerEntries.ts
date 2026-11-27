@@ -1,4 +1,5 @@
 import type { AcpmuxSnapshot } from "./model";
+import { picksOwnModel } from "./agents";
 import type { PickerCatalog } from "./modelCatalogData";
 import { pickerFaceHarness } from "./modelPickerModel";
 import type { ModelPickerProps } from "./modelPickerLayout";
@@ -21,6 +22,10 @@ export function composerPickerEntries(
             (entry) =>
               !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
           )
+          // The Chief is no harness to pick a model on (Lucas 2026-11-25: "remove chief as a
+          // harness"): it picks its own model and lives on Home. A chat that already runs on it keeps
+          // it, so its own chip still has its menu.
+          .filter((entry) => !picksOwnModel(entry.family) || (entry.acpmuxHarness ?? entry.id) === summary?.harness)
           .map((entry) => ({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,

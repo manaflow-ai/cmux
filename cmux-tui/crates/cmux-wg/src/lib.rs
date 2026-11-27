@@ -30,6 +30,7 @@
 //! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
+mod delay_window;
 mod device;
 mod error;
 mod handshake_retry;
@@ -47,6 +48,7 @@ mod send_gate;
 #[cfg(test)]
 mod send_gate_tests;
 mod single_path;
+mod stall_trace;
 mod stream;
 #[cfg(test)]
 mod tcp_model_tests;
@@ -59,6 +61,7 @@ mod udp;
 mod ultra;
 mod ultra_auto;
 mod ultra_hello;
+mod ultra_period;
 mod ultra_rs;
 mod underlay;
 mod underlay_batch;

@@ -1,6 +1,7 @@
 // The session sidebar's model: what each session row shows and how rows group
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
+import { type AutoSession, autoSessionOf, heldInCloud } from "./autoSession/autoSession";
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
@@ -58,6 +59,12 @@ export type AcpmuxSessionEntry = {
   pinned?: boolean;
   /** Tagged `archived` through `_acpmux/tag` (the chat menu's Archive): off every list, found only by search. */
   archived?: boolean;
+  /** Why acpmux settled the chat (its `settled` tag, hub/auto_settle.rs): a settled chat is an
+   *  archived one with a reason, so it is `archived` too; a plain Archive has none. */
+  settled?: SettleReason;
+  /** The chat's own auto-settle override (its `autoSettle` tag): `never` keeps acpmux from
+   *  settling it; absent follows the settings. */
+  autoSettle?: "never";
   /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
   side?: boolean;
   pullRequest?: SessionPullRequest;
@@ -138,6 +145,9 @@ export type AcpmuxSessionEntry = {
   laneError?: string;
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
+  /** Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts); unset from an
+   *  acpmux without Auto, and the row then reads as it did before. */
+  autoSession?: AutoSession;
 };
 
 /** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
@@ -198,6 +208,13 @@ export const hostKind = (value: unknown) => (value === "local" || value === "clo
 export const PINNED_TAG = "pinned";
 /** The tag the chat menu's Archive sets. */
 export const ARCHIVED_TAG = "archived";
+/** Why a chat settled (acpmux hub/auto_settle.rs `SETTLED_TAG`): its pull requests merged or
+ *  closed, it sat idle, or `acpmux session settle` did it by hand. */
+export const SETTLED_TAG = "settled";
+export const SETTLE_REASONS = ["merged", "closed", "idle", "manual"] as const;
+export type SettleReason = (typeof SETTLE_REASONS)[number];
+/** A chat's own auto-settle override (acpmux `OVERRIDE_TAG`); only `never` means anything. */
+export const AUTO_SETTLE_TAG = "autoSettle";
 /** The tag New side chat sets on its fork (the value is the chat's session). */
 export const SIDE_TAG = "side";
 /** acpmux's tag on the fork a side question (`/btw`) is asked in, while it lives. */
@@ -288,14 +305,10 @@ const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "do
 export type SessionLane = "working" | "input" | "failed" | "lost" | "idle";
 const LANES: readonly string[] = ["working", "input", "failed", "lost", "idle"];
 
-/** A running turn's line as acpmux's `doing_line` (hub/activity.rs) writes it: its plan step and
- *  latest tool, either alone; else what the turn was asked (`lane.step`). */
+/** A running turn's line: its latest tool, else what the turn was asked (`lane.step`). */
 function doingLine(session: Record<string, any>): string | undefined {
   if (session.lane?.state !== "working") return undefined;
-  const step = text(session.turn?.planStep);
-  const tool = text(session.turn?.activity);
-  if (step && tool && step !== tool) return `${step} · ${tool}`;
-  return step ?? tool ?? text(session.lane?.step);
+  return text(session.turn?.activity) ?? text(session.lane?.step);
 }
 
 /** What a session waits on the person for: only the person answers any of them, in the app. acpmux
@@ -341,6 +354,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
   const cold = coldArchive(session.coldArchive);
+  const auto = autoSessionOf(session.autoSession);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -370,6 +384,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worktree: text(session.worktree),
     pinned: session.pinned === true || tagged(session.tags, PINNED_TAG),
     archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
+    ...settleTags(session.tags),
     // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
@@ -416,6 +431,21 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
     usageStats: usageStatsOf(session.usageStats),
+    ...(auto && { autoSession: auto }),
+  };
+}
+
+/** The `settled` reason and the `autoSettle` override from acpmux's tags. A reason counts only on an
+ *  archived chat: un-settling (`_acpmux/archive` false) drops the archive and the reason together,
+ *  so a reason without the archive is a stale copy. An unknown reason (a newer acpmux's) reads as
+ *  `manual`, so the chat still shows as settled. */
+export function settleTags(tags: unknown): { settled?: SettleReason; autoSettle?: "never" } {
+  const reason = tagValue(tags, SETTLED_TAG);
+  const known = (SETTLE_REASONS as readonly string[]).includes(reason ?? "");
+  const settled = reason === undefined || !tagged(tags, ARCHIVED_TAG) ? undefined : known ? reason : "manual";
+  return {
+    ...(settled !== undefined && { settled: settled as SettleReason }),
+    ...(tagValue(tags, AUTO_SETTLE_TAG) === "never" && { autoSettle: "never" as const }),
   };
 }
 
@@ -600,8 +630,6 @@ export function mostRecentProject(
 /// not read again. A session added, removed or moved in the list counts as a change.
 export class SessionsBy {
   private kept: readonly AcpmuxSessionEntry[] | undefined;
-  private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
-  private count = -1;
   /// The list `of` was last given, which a list made from it in place (sessionIndex.ts
   /// `noteReplaced`) is compared with at the replaced entries only.
   private last: readonly AcpmuxSessionEntry[] | undefined;
@@ -609,46 +637,26 @@ export class SessionsBy {
   constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
 
   of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
-    if (sessions === this.kept) return (this.last = sessions);
-    const replaced = this.kept === undefined ? undefined : replacedSince(this.last, sessions);
+    const previous = this.last;
+    if (sessions === previous) return this.kept!;
     this.last = sessions;
-    let moved = replaced === undefined && (this.kept === undefined || sessions.length !== this.count);
-    // Same length: updated in place, as an id not seen before marks the list moved. Another length
-    // starts again, so a session no longer listed leaves nothing behind.
-    if (moved) this.seen = new Map();
-    const positions = replaced ?? sessions.keys();
-    // A full pass also counts the ids listed: one listed twice changes what the list holds without
-    // changing its length. A list made in place swaps an entry for its own id, so it adds none.
-    const listedIds = replaced ? undefined : new Set<string>();
-    for (const at of positions) {
-      const entry = sessions[at]!;
-      if (listedIds?.has(entry.sessionId)) moved = true;
-      listedIds?.add(entry.sessionId);
-      const before = this.seen.get(entry.sessionId);
-      if (before?.entry === entry) {
-        if (before.at !== at) {
-          before.at = at;
-          moved = true;
-        }
-        continue;
+    if (previous && previous.length === sessions.length) {
+      // Both immutable lists already hold the entries. Compare only the ones that changed,
+      // without keeping a serialized key and a bookkeeping object for every session.
+      const positions = replacedSince(previous, sessions) ?? sessions.keys();
+      for (const at of positions) {
+        const entry = sessions[at]!;
+        const before = previous[at]!;
+        if (before === entry) continue;
+        if (
+          before.sessionId !== entry.sessionId ||
+          JSON.stringify(this.fields(before)) !== JSON.stringify(this.fields(entry))
+        )
+          return (this.kept = sessions);
       }
-      const key = JSON.stringify(this.fields(entry));
-      if (key !== before?.key || at !== before.at) moved = true;
-      if (before) {
-        before.entry = entry;
-        before.key = key;
-        before.at = at;
-      } else this.seen.set(entry.sessionId, { entry, key, at });
+      return this.kept!;
     }
-    // A session that left while another came, or another listed twice, keeps the same length: drop
-    // what it left behind, so it is new again when it comes back.
-    const listed =
-      listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
-    if (listed && this.seen.size !== listed.size)
-      for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
-    this.count = sessions.length;
-    if (moved) this.kept = sessions;
-    return this.kept!;
+    return (this.kept = sessions);
   }
 }
 
@@ -664,6 +672,7 @@ export const placeFields = (session: AcpmuxSessionEntry): readonly unknown[] => 
   session.hostKind,
   session.peer,
   listed(session),
+  startedByPerson(session),
 ];
 
 export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
@@ -701,6 +710,18 @@ export function recentFolders(
 }
 
 /// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
+/// A chat the person started (not one an agent or a Chief started: `startedBy`, `spawnedBy`, `chiefChild`, a
+/// Chief's own turn): its folder is one the person picked. Agents' folders (a Chief's `session` or `tmp`) are no
+/// recent folder of the person's (cmux#53226).
+export function startedByPerson(session: AcpmuxSessionEntry): boolean {
+  return !session.startedBy && !session.spawnedBy && !session.chiefChild && !session.chiefTurn;
+}
+
+/// `localFolder` of a chat the person started, the folder menu's recent folders.
+export function pickedFolder(session: AcpmuxSessionEntry): string | undefined {
+  return startedByPerson(session) ? localFolder(session) : undefined;
+}
+
 export function localFolder(session: AcpmuxSessionEntry): string | undefined {
   const cwd = session.cwd?.replace(/\/+$/, "");
   if (!cwd || cwd === "~" || isAgentHome(cwd)) return undefined;
@@ -719,13 +740,14 @@ export class FolderRecency {
   private last: readonly AcpmuxSessionEntry[] | undefined;
   private order: string[] = [];
   private newest = new Map<string, number>();
-  private seen = new Map<string, { folder: string | undefined; at: number }>();
 
   of(sessions: readonly AcpmuxSessionEntry[]): readonly string[] {
     if (sessions === this.last) return this.order;
-    const replaced = this.last === undefined ? undefined : replacedSince(this.last, sessions);
+    const previous = this.last;
+    const replaced = replacedSince(previous, sessions);
     this.last = sessions;
-    if (!replaced || !replaced.every((at) => this.moved(sessions[at]!))) this.build(sessions);
+    if (!previous || !replaced || !replaced.every((at) => this.moved(sessions[at]!, previous[at]!)))
+      this.build(sessions);
     return this.order;
   }
 
@@ -737,23 +759,22 @@ export class FolderRecency {
   private build(sessions: readonly AcpmuxSessionEntry[]) {
     this.order = recentFolders(sessions, this.folderOf);
     this.newest = new Map();
-    this.seen = new Map();
     for (const session of sessions) {
       const folder = this.folderOf(session);
       const at = activityTime(session) ?? 0;
-      this.seen.set(session.sessionId, { folder, at });
       if (folder !== undefined && at > (this.newest.get(folder) ?? -Infinity)) this.newest.set(folder, at);
     }
   }
 
   /// Applies one replaced session; false when the whole list must be read again.
-  private moved(session: AcpmuxSessionEntry): boolean {
-    const before = this.seen.get(session.sessionId);
+  private moved(session: AcpmuxSessionEntry, before: AcpmuxSessionEntry): boolean {
+    if (before.sessionId !== session.sessionId) return false;
+    const beforeFolder = this.folderOf(before);
+    const beforeAt = activityTime(before) ?? 0;
     const folder = this.folderOf(session);
     const at = activityTime(session) ?? 0;
-    if (!before || before.folder !== folder || at < before.at) return false;
-    this.seen.set(session.sessionId, { folder, at });
-    if (folder === undefined || at === before.at) return true;
+    if (beforeFolder !== folder || at < beforeAt) return false;
+    if (folder === undefined || at === beforeAt) return true;
     const newest = this.newest.get(folder)!;
     if (at < newest) return true;
     // Its folder's newest time again, from another chat: a tie with another folder may order otherwise.
@@ -825,9 +846,13 @@ export type SessionPlace =
     }
   | undefined;
 
-export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): SessionPlace {
+export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string, t: Translate = translate): SessionPlace {
   const host = cloudHost(session);
   if (host && host !== groupHost) return { kind: "cloud", label: host, branch: session.branch };
+  // An Auto chat of this Mac that the Cloud runs now reads as a Cloud chat does, by the word the
+  // composer's Where menu uses: its row names no machine of its own.
+  if (!host && heldInCloud(session.autoSession))
+    return { kind: "cloud", label: t("composer.cloud"), branch: session.branch };
   if (session.worktree) return { kind: "worktree", label: session.branch ?? projectLabel(session.worktree) };
   if (session.branch) return { kind: "branch", label: session.branch };
   return undefined;

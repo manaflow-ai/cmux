@@ -20,6 +20,7 @@
 //! assert_eq!(preview.images[0].source, "b.png");
 //! ```
 
+pub mod home_table;
 mod lines;
 mod parse;
 

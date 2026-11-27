@@ -1,9 +1,10 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // Updates > App Update (AppUpdateCard): the app update's status, from the host lists' `app_update`.
 // The sidebar shows no download (Leo 2026-11-03, after ChatGPT's one-step update), so this card
+// retry-prompt-ok: the update Try Again downloads and installs an update.
 // carries the progress, Cancel, Restart to Update and a failure's Try Again. One variant per state.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AppUpdateState } from "./ops";
+import type { AppUpdateState, PreviousBuild } from "./ops";
 
 const idle: AppUpdateState = {
   title: "App Update",
@@ -16,6 +17,18 @@ const idle: AppUpdateState = {
     { id: "nextCheck", label: "Next Check", value: "Today at 10:12 PM" },
   ],
 };
+const previousBuild = (refusal: string | null): PreviousBuild => ({
+  build: "3913596493800",
+  version: "1.0.0-nightly.3913596493800",
+  date: "2026-11-20",
+  commit: "d7ce54c2",
+  commit_url: "https://github.com/manaflow-ai/cmux/commit/d7ce54c2272",
+  title: "Go Back to Previous Build",
+  action: "Go Back",
+  detail: "Restarts once into 1.0.0-nightly.3913596493800, kept on this Mac. Settings and sessions stay.",
+  build_label: "Build 3913596493800",
+  refusal,
+});
 const card = (phase: string): PageFixtureStep => ({
   selector: `[data-card="app-update"][data-phase="${phase}"]`,
   action: "wait",
@@ -32,7 +45,7 @@ export default settingsPageEntry({
   title: "Settings App Update",
   area: "Settings",
   height: 520,
-  covers: ["pages/settings/components/AppUpdateCard.tsx"],
+  covers: ["pages/settings/components/AppUpdateCard.tsx", "pages/settings/components/PreviousBuildRow.tsx"],
   anchors: [{ selector: '[data-card="app-update"]' }],
   variants: {
     idle: variant(idle, "Nothing runs: the running version and Check Now."),
@@ -63,9 +76,29 @@ export default settingsPageEntry({
         phase: "check_failed",
         status: "Update Check Failed",
         detail: "The network connection was lost.",
+        // retry-prompt-ok: the host's action (UpdaterService); its download Try Again installs an update.
         actions: [{ id: "retry", title: "Try Again", prominent: false }],
       },
       "A failed check or download, background ones too: the cause and Try Again.",
     ),
+    "previous-build": {
+      section: "updates",
+      host: { app_update: idle },
+      options: { previousBuild: previousBuild(null), values: { "labs.previousBuild": true } },
+      steps: [card("idle"), { selector: "[data-previous-build]", action: "wait" }],
+      note: "Go Back to Previous Build: the kept build's number, day and commit, and its Go Back.",
+    },
+    "previous-build-refused": {
+      section: "updates",
+      host: { app_update: idle },
+      options: {
+        values: { "labs.previousBuild": true },
+        previousBuild: previousBuild(
+          "1.0.0-nightly.3913596493800 cannot read this Mac's sessions store (it is newer). Your data stays safe here.",
+        ),
+      },
+      steps: [card("idle"), { selector: "[data-previous-build][data-refused]", action: "wait" }],
+      note: "The rollback would refuse: Go Back is off and the host's reason shows.",
+    },
   },
 });

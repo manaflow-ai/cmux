@@ -291,7 +291,7 @@ try {
       worktree: `/home/dev/cmux-wt/${childName(i)}`,
       branch: `lane/${childName(i)}`,
       lane: { state: "working", step: words(4) },
-      turn: { activity: `Bash ${words(2)}`, planStep: `step 1/5 ${words(2)}` },
+      turn: { activity: `Bash ${words(2)}` },
     });
   }
   const turnOf = new Map(sessions.map((s, i) => [s.sessionId as string, i === 0 ? liveTurn : `turn-c${i - 1}-1`]));
@@ -426,7 +426,6 @@ try {
     s.lane = { state: "working", step: words(4) };
     s.turn = {
       activity: `${CHILD_TOOLS[Math.floor(rand() * CHILD_TOOLS.length)]} ${words(2)}`,
-      planStep: `step ${1 + Math.floor(rand() * 5)}/5 ${words(2)}`,
     };
     s.queued = rand() < 0.1 ? 1 : 0;
     counts.changes += 1;

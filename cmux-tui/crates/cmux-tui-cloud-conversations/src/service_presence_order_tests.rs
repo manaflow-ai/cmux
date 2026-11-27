@@ -38,6 +38,7 @@ fn entry(driver: u64, shown: Option<CloudEvent>) -> Subscription {
         typing_by: None,
         viewing: BTreeSet::new(),
         presence: shown,
+        resync: false,
     }
 }
 
@@ -131,4 +132,19 @@ fn a_replay_racing_the_socket_end_goes_out_before_the_empty_set() {
     // Nothing is kept for a later subscribe: the socket is gone.
     drop(emitted);
     assert!(service.inner.subscriptions.lock().unwrap()[&target].presence.is_none());
+}
+
+/// Past the 64 open conversations the daemon once refused at, every
+/// subscribe still opens its own stream.
+#[test]
+fn conversation_subscriptions_have_no_count_cap() {
+    let service = CloudConversations::new(Arc::new(NoBackend));
+    let past_old_cap = 65;
+    for index in 0..past_old_cap {
+        let target = Target::Conversation(format!("conv_{index:026}"));
+        service.subscribe(1, target).expect("subscribe past the old cap");
+    }
+    let open = service.inner.subscriptions.lock().unwrap().len();
+    assert_eq!(open, past_old_cap);
+    service.shutdown();
 }

@@ -48,13 +48,13 @@
 //!
 //! ```text
 //! # the whole matrix (8 steps x 7 kills), a table on stderr:
-//! cargo test -p cmux-tui --test move_kill_drill -- --ignored --nocapture --test-threads 1 move_kill_drill_matrix
+//! cargo test -p cmux-tui --test it -- --ignored --nocapture --test-threads 1 move_kill_drill_matrix
 //! # some cells:  MOVE_KILL_CASES=after-finish:off-dst,before-begin:cut
 //! # N random seeded cases (CMUX_FAULT_SEED, else the clock):  MOVE_KILL_RANDOM=20
 //! ```
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -1023,7 +1023,7 @@ fn move_kill_drill_matrix() {
         if !out.lost.is_empty() || !out.wrong.is_empty() {
             eprintln!("  seed {seed}, fault trace:\n{trace}");
             eprintln!(
-                "  replay: CMUX_FAULT_SEED={seed} MOVE_KILL_CASES={case} cargo test -p cmux-tui --test move_kill_drill -- --ignored --nocapture"
+                "  replay: CMUX_FAULT_SEED={seed} MOVE_KILL_CASES={case} cargo test -p cmux-tui --test it -- move_kill_drill:: --ignored --nocapture"
             );
         }
         if !new.is_empty() {

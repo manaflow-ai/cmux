@@ -29,6 +29,7 @@
 // with the panel.
 import { Button } from "../../../ui/Button";
 import { LiveCount } from "../summary/LiveCount";
+import { useSplitOpenResize } from "../../../ui/SplitEdge";
 import {
   createContext,
   Fragment,
@@ -146,6 +147,10 @@ export function BackgroundTasksPanel({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const t = useT();
+  // Docked in the chat's right column (it can be closed), opening narrows the chat and its composer,
+  // and closing widens them again: a split's resize (schemas/layout-motion/contract.json `resize`), one
+  // move of each box, as the side panel's (ArtifactPanel.tsx). Its own tab narrows nothing.
+  useSplitOpenResize(onClose ? "background tasks" : undefined);
   const live = anyRunning(groups);
   const now = useNow(live);
   // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
@@ -361,22 +366,10 @@ function WorkflowAgentTranscript({
   running: boolean;
   reads: WorkflowReads;
 }) {
-  const transcript = useWorkflowTranscript(
-    pane,
-    reads.sessionId,
-    true,
-    agent,
-    reads.chat,
-    reads.read,
-    reads.connection,
-  );
-  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it. The
-  // hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
+  const transcript = useWorkflowTranscript(pane, reads.sessionId, true, agent, reads.read, reads.connection);
+  // The panel's head names the agent. The hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
   // the window is taken from the agent's rows when they arrive, never from the notice.
-  const rows = useMemo(
-    () => (transcript.rows?.slice(1) ?? []).filter((row) => row.kind !== "notice"),
-    [transcript.rows],
-  );
+  const rows = useMemo(() => (transcript.rows ?? []).filter((row) => row.kind !== "notice"), [transcript.rows]);
   const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);
@@ -768,6 +761,7 @@ function StopSlot({
   if (!target && state !== "idle") setState("idle");
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
+  // retry-prompt-ok: stopping a task is a destructive action the person chooses, so a failed stop is theirs to try again.
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">

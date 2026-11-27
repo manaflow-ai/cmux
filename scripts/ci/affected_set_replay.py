@@ -56,14 +56,15 @@ EVERYTHING = (r"^.",)
 # check name (regex, re.search, case-insensitive, first match wins) -> inputs (regexes on repo paths).
 # None means the verdict depends on the PR itself, not its files: always affected.
 INPUTS: list[tuple[str, tuple[str, ...] | None]] = [
-    (r"size budget|size cap|defaults guard|freeze|risk|language boundaries|intent|^close$|pr-red-checks|^batch$"
+    (r"size budget|size cap|freeze|risk|language boundaries|intent|^close$|pr-red-checks|^batch$"
      r"|autofix|repairs|CI timing|ci-status|fallback|pr-checks|local test receipt|pr-capture-check|design spec"
      r"|fast check route|^changes$|resolve head and base|plan the look|path routing|^pr router$|action export areas"
      r"|^check$|web-subarea-scope|placement", None),
     (r"react-apps|Agent pane on real acpmux|chat-open|web bundles", WEB + (r"^Packages/macOS/CmuxNext/",)),
     (r"app compile|fast tier|terminal crates|journey", RUST_TUI + SWIFT_APP),
     (r"api-workerd|^backend", (r"^backend/", r"^workers/", r"^services/", r"^web/")),
-    (r"^fast gates$|^post cmux-next/fast-gates", EVERYTHING),
+    # pr-router.yml calls cmux-next-fast-gates.yml since 11-26: its checks read `cmux-next fast gates / <job>`.
+    (r"^(cmux-next fast gates / )?(fast gates$|post cmux-next/fast-gates)", EVERYTHING),
     (r"^tooling-tests$", (r"^scripts/", r"^tests/", r"^\.github/")),
     (r"^generated drift$", (r"^cmux-next/", r"^Packages/macOS/CmuxNext/", r"^cmux-tui/", r"^scripts/")),
     (r"^pr pipeline / linux$|^linux-preflight$", EVERYTHING),

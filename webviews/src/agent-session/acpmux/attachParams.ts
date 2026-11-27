@@ -27,6 +27,13 @@ export const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// the chat's `limits` changing.
 export const SUBSESSION_KIND = "subsession";
 
+/// The keys a plain attach sends, and only those: the relay params contract
+/// (test/agent-pane-relay-params-contract.test.ts) reads them off this type.
+export type PlainAttach = Pick<
+  AttachParams,
+  "sessionId" | "waitLogs" | "settled" | "afterSeq" | "limit" | "maxBytes" | "kinds" | "eventStream" | "visible"
+> & { attending: boolean; quietHidden: boolean };
+
 /// The attach of a chat drawn by v1: its newest page, then its records live. With `afterSeq` (a
 /// reconnect that holds the chat through that seq) the page is the records after it instead, oldest
 /// first (acpmux requests.rs: `afterSeq` alone pages forward), so a reconnect reads only what it
@@ -41,7 +48,7 @@ export function plainAttach(
     maxBytes: number;
     afterSeq?: number;
   },
-): AttachParams & { attending: boolean } {
+): PlainAttach {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,
@@ -73,8 +80,13 @@ export function plainAttach(
       ...(options.local ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
     ],
     eventStream: true,
+    // On screen (`visible`) apart from the reader's hand on it (`attending`, attention.ts): acpmux keeps
+    // unread by both, and leaves the agent's stream out while the page is not on screen at all
+    // (`quietHidden`, CMUX-571); the view that shows it again sends one `_acpmux/lagged`, and the page
+    // reads what it missed from its cursor (direct.ts `resyncAfterLag`).
     visible: options.visible,
     attending: options.attending ?? true,
+    quietHidden: true,
   };
 }
 
