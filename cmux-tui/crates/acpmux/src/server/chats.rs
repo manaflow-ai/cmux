@@ -291,10 +291,15 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TEAM_AUDIT {
         return team_audit::handle(conn.origin, &params).await;
     }
-    // A chat's route (`routes.rs`) and its move (`auto_gate.rs`) are session methods, not the
-    // chat index.
-    let of_a_session =
-        matches!(m, crate::rpc::method::MUX_CHAT_ROUTE_SET | crate::rpc::method::MUX_CHAT_MOVE);
+    // Routing, moving and placing a chat belong to the request dispatcher, which checks the
+    // caller's origin for each operation before running its handler.
+    let of_a_session = matches!(
+        m,
+        crate::rpc::method::MUX_CHAT_ROUTE_SET
+            | crate::rpc::method::MUX_CHAT_MOVE
+            | "_acpmux/chat_place"
+            | "_acpmux/chat_place_set"
+    );
     if !m.starts_with(PREFIX) || of_a_session {
         return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
