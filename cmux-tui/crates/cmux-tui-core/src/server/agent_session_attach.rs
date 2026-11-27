@@ -1546,7 +1546,8 @@ use media::{media, media_range};
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
     TRANSFER_FIELD, close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares,
-    detach_transferred_chat_shares, open_chat_shares, start_transferred_share_hosts,
+    detach_transferred_chat_shares, finish_transferred_chat_shares, open_chat_shares,
+    stage_transferred_chat_shares,
 };
 
 pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option<Value> {
@@ -1556,24 +1557,6 @@ pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option
         .export_for_transfer(mux.session_state_directory().as_deref(), session)
 }
 
-pub(crate) fn import_transferred_chat_shares(
-    mux: &Mux,
-    session: &str,
-    payload: &Value,
-) -> Result<Vec<String>, &'static str> {
-    mux.control_clients.agent_sessions.link_shares.import_for_transfer(
-        mux.session_state_directory().as_deref(),
-        session,
-        payload,
-    )
-}
-
-pub(crate) fn discard_transferred_chat_shares(mux: &Mux, ids: &[String]) {
-    mux.control_clients
-        .agent_sessions
-        .link_shares
-        .discard_transfer(mux.session_state_directory().as_deref(), ids);
-}
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;

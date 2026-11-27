@@ -156,7 +156,7 @@ impl Bridge {
     }
 
     /// Forgets the held prompts of a kicked guest, or (`None`) of an ended share's guests.
-    pub(super) fn forget(&self, share_id: &str, guest: Option<&str>) {
+    fn forget(&self, share_id: &str, guest: Option<&str>) {
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
         match guest {
             Some(guest) => {

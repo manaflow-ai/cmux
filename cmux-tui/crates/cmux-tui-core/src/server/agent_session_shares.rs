@@ -55,6 +55,9 @@ use crate::server::agent_transfer::state_file::{read_trusted, save};
 
 #[path = "agent_session_share_link.rs"]
 mod link;
+#[path = "agent_session_share_transfer.rs"]
+mod transfer;
+pub(crate) use transfer::{finish_transferred_chat_shares, stage_transferred_chat_shares};
 #[path = "agent_session_share_open.rs"]
 mod open;
 #[path = "agent_session_share_room.rs"]
@@ -467,6 +470,7 @@ impl LinkShare {
 #[derive(Default)]
 pub(in crate::server) struct LinkShares {
     shares: Mutex<Option<Vec<LinkShare>>>,
+    pending_transfers: transfer::Pending,
     timers: Timers,
     /// The one timer armed, and the expiry it ends. Changed only under the shares lock (taken
     /// first), so the timer always matches the shares it was computed from.
@@ -884,56 +888,15 @@ impl LinkShares {
     ) -> Option<Value> {
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
         let shares = slot.get_or_insert_with(|| self.load(directory));
+        let now = self.now();
         let shares: Vec<_> = shares
             .iter()
-            .filter(|share| share.session == session && share.live().is_ok())
+            .filter(|share| {
+                share.session == session && share.expires_at > now && share.live().is_ok()
+            })
             .cloned()
             .collect();
         (!shares.is_empty()).then(|| serde_json::to_value(shares).ok()).flatten()
-    }
-
-    /// Installs shares received with a chat before the target starts serving it. Existing share
-    /// ids are refused so a retry cannot overwrite a local owner record.
-    pub(crate) fn import_for_transfer(
-        &self,
-        directory: Option<&Path>,
-        session: &str,
-        payload: &Value,
-    ) -> Result<Vec<String>, &'static str> {
-        let incoming: Vec<LinkShare> =
-            serde_json::from_value(payload.clone()).map_err(|_| "share.bad_request")?;
-        if incoming.is_empty()
-            || incoming.iter().any(|share| share.session != session || share.live().is_err())
-        {
-            return Err("share.bad_request");
-        }
-        let ids = incoming.iter().map(|share| share.share_id.clone()).collect::<Vec<_>>();
-        let result = self.with(directory, |shares, _| {
-            if incoming
-                .iter()
-                .any(|share| shares.iter().any(|existing| existing.share_id == share.share_id))
-            {
-                return Err("share.exists");
-            }
-            shares.extend(incoming);
-            Ok((ids.clone(), true))
-        })?;
-        Ok(result)
-    }
-
-    /// Drops shares installed for a receive that was aborted, without sending a room DELETE.
-    pub(crate) fn discard_transfer(&self, directory: Option<&Path>, ids: &[String]) {
-        if ids.is_empty() {
-            return;
-        }
-        let _ = self.with(directory, |shares, _| {
-            let before = shares.len();
-            shares.retain(|share| !ids.iter().any(|id| id == &share.share_id));
-            Ok(((), shares.len() != before))
-        });
-        for id in ids {
-            self.bridge.forget(id, None);
-        }
     }
 
     /// Removes source records after the target has taken ownership. The room remains intact and
@@ -1619,13 +1582,6 @@ pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
     let directory = mux.session_state_directory();
     shares.close_chat(directory.as_deref(), session);
     shares.settle(mux);
-}
-
-/// Starts the hosted-room sockets for shares imported with a moved chat.
-pub(crate) fn start_transferred_share_hosts(mux: &Arc<Mux>, share_ids: &[String]) {
-    for share_id in share_ids {
-        room::host(mux, share_id);
-    }
 }
 
 /// Link shares are protected while their chat is in an outgoing transfer. The acpmux list closes
