@@ -958,7 +958,9 @@ export function ComposerPickers({
   // A remote chat has its own start values; a reported options list without effort is final.
   const effortComing =
     fresh &&
-    snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud &&
+    snapshot.origin !== "remote" &&
+    snapshot.origin !== "peer" &&
+    !snapshot.startsOnCloud &&
     summary?.configOptions === undefined &&
     (catalogModel?.efforts === undefined || catalogModel.efforts.length > 1);
   const effortAwaited = awaiting || effortComing;

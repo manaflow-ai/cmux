@@ -76,60 +76,111 @@ afterEach(async () => {
   resetStartModesForTests();
 });
 
-
 const FOLDER = "/Users/test/project";
 const MODEL = "claude-opus-5-5";
-const options = (value: string) => [{
-  id: "effort", name: "Effort", category: "thought_level", currentValue: value,
-  options: ["low", "medium", "high", "xhigh", "max"].map(value => ({ value })),
-}];
+const options = (value: string) => [
+  {
+    id: "effort",
+    name: "Effort",
+    category: "thought_level",
+    currentValue: value,
+    options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value })),
+  },
+];
 function snapshot(sessionId: string, effort?: string, harness = "claude"): AcpmuxSnapshot {
   return {
-    ...emptySnapshot(), origin: "local", ...(sessionId ? { sessionId } : {}),
-    catalog: [{ id: harness, name: "Claude Code", family: "claude", models: [{ id: MODEL, name: "Opus 5.5" }],
-      start: { model: MODEL, modelSource: "saved", effort: "medium", effortSource: "saved" } }],
-    summary: { sessionId, harness, family: "claude", model: MODEL, cwd: FOLDER, turnCount: 0,
-      ...(effort ? { configOptions: options(effort) } : {}) },
+    ...emptySnapshot(),
+    origin: "local",
+    ...(sessionId ? { sessionId } : {}),
+    catalog: [
+      {
+        id: harness,
+        name: "Claude Code",
+        family: "claude",
+        models: [{ id: MODEL, name: "Opus 5.5" }],
+        start: { model: MODEL, modelSource: "saved", effort: "medium", effortSource: "saved" },
+      },
+    ],
+    summary: {
+      sessionId,
+      harness,
+      family: "claude",
+      model: MODEL,
+      cwd: FOLDER,
+      turnCount: 0,
+      ...(effort ? { configOptions: options(effort) } : {}),
+    },
   } as AcpmuxSnapshot;
 }
 type Face = { model: string; effort: string; compact: string };
-async function frames(makeSnapshots: () => AcpmuxSnapshot[]): Promise<Face[]> {
+async function frames(makeSnapshots: () => AcpmuxSnapshot[], rememberedEffort = "medium"): Promise<Face[]> {
   const container = installDom();
   seedLastPicks({ global: { harness: "claude", model: MODEL }, folders: [] });
-  rememberLastChips("claude", { effort: "Medium" });
-  harnessProfiles.observe(snapshot("previous", "medium").summary);
+  rememberLastChips("claude", { effort: rememberedEffort === "high" ? "High" : "Medium" });
+  harnessProfiles.observe(snapshot("previous", rememberedEffort).summary);
   root = createRoot(container);
   const result: Face[] = [];
   for (const snapshot of makeSnapshots()) {
-    await act(async () => root!.render(<ComposerPickers snapshot={snapshot} harnessesListed={snapshot.catalog.length > 0}
-      onModel={() => undefined} onMode={() => undefined} onEffort={() => undefined} showPlan />));
+    await act(async () =>
+      root!.render(
+        <ComposerPickers
+          snapshot={snapshot}
+          harnessesListed={snapshot.catalog.length > 0}
+          onModel={() => undefined}
+          onMode={() => undefined}
+          onEffort={() => undefined}
+          showPlan
+        />,
+      ),
+    );
     result.push({
       model: container.querySelector(".acpmux-model-name")?.textContent?.trim() ?? "",
       effort: container.querySelector('.acpmux-model-detail[data-fit-forms^="full"]')?.textContent?.trim() ?? "",
-      compact: container.querySelector('.acpmux-model-detail[data-fit-forms="short"]')?.getAttribute("data-label") ?? "",
+      compact:
+        container.querySelector('.acpmux-model-detail[data-fit-forms="short"]')?.getAttribute("data-label") ?? "",
     });
   }
   return result;
 }
 const MEDIUM: Face = { model: "Opus 5.5", effort: "Medium", compact: "Med" };
 test("cached last-used model and effort survive cold catalog, attach and reported options", async () => {
-  expect(await frames(() => [
-    newTabStart(emptySnapshot(), [], "claude", FOLDER).snapshot,
-    snapshot(""),
-    snapshot("attached"),
-    snapshot("attached", "medium"),
-  ])).toEqual([MEDIUM, MEDIUM, MEDIUM, MEDIUM]);
+  expect(
+    await frames(() => [
+      newTabStart(emptySnapshot(), [], "claude", FOLDER).snapshot,
+      snapshot(""),
+      snapshot("attached"),
+      snapshot("attached", "medium"),
+    ]),
+  ).toEqual([MEDIUM, MEDIUM, MEDIUM, MEDIUM]);
 });
 test("an older opened chat shows its listed effort instead of the previous chat cache", async () => {
-  expect(await frames(() => [{ ...emptySnapshot(), sessionId: "old", origin: "local",
-    catalog: snapshot("").catalog, sessions: [{ sessionId: "old", harness: "claude", model: MODEL, effort: "high", unsent: false }],
-  } as AcpmuxSnapshot])).toEqual([{ model: "Opus 5.5", effort: "High", compact: "Hi" }]);
+  expect(
+    await frames(() => [
+      {
+        ...emptySnapshot(),
+        sessionId: "old",
+        origin: "local",
+        catalog: snapshot("").catalog,
+        sessions: [{ sessionId: "old", harness: "claude", model: MODEL, effort: "high", unsent: false }],
+      } as AcpmuxSnapshot,
+    ]),
+  ).toEqual([{ model: "Opus 5.5", effort: "High", compact: "" }]);
 });
 test("a session reporting options without effort stops showing the cached effort", async () => {
   const result = await frames(() => {
     const settled = snapshot("attached");
-    settled.summary = { ...settled.summary!, configOptions: [{ id: "model", name: "Model", category: "model", currentValue: MODEL,
-      options: [{ value: MODEL, name: "Opus 5.5" }] }] };
+    settled.summary = {
+      ...settled.summary!,
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          currentValue: MODEL,
+          options: [{ value: MODEL, name: "Opus 5.5" }],
+        },
+      ],
+    };
     return [snapshot(""), settled];
   });
   expect(result[0]).toEqual(MEDIUM);
@@ -138,4 +189,24 @@ test("a session reporting options without effort stops showing the cached effort
 test("a peer session never borrows this Mac's remembered effort", async () => {
   const result = await frames(() => [{ ...snapshot("peer-attached"), origin: "peer" }]);
   expect(result[0]?.effort).toBe("");
+});
+
+test("a nondefault last-used effort is present before the catalog replies", async () => {
+  const result = await frames(() => {
+    const confirmed = snapshot("attached", "high");
+    confirmed.catalog[0]!.start!.effort = "high";
+    const attached = { ...confirmed, summary: { ...confirmed.summary!, configOptions: undefined } };
+    return [newTabStart(emptySnapshot(), [], "claude", FOLDER).snapshot, attached, confirmed];
+  }, "high");
+  expect(result).toEqual(Array(3).fill({ model: "Opus 5.5", effort: "High", compact: "" }));
+});
+test("an explicit harness switch uses the target start effort, not the previous harness cache", async () => {
+  const result = await frames(() => {
+    const target = snapshot("", undefined, "claude-target");
+    target.catalog[0]!.start!.effort = "high";
+    const settled = snapshot("target-session", "high", "claude-target");
+    return [snapshot(""), { ...target, switching: { phase: "starting", harness: "claude-target" } }, settled];
+  });
+  expect(result[0]).toEqual(MEDIUM);
+  expect(result.slice(1).map((face) => face.effort)).toEqual(["High", "High"]);
 });
