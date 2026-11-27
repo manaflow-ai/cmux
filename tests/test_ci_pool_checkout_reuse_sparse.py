@@ -113,7 +113,13 @@ class PoolCheckoutReuse(unittest.TestCase):
                 # a step that turns sparse mode on unconditionally just above is always sparse: bare reapply is safe
                 always_sparse = any(l == " " * (len(line) - len(line.lstrip())) + "git config core.sparseCheckout true"
                                     for l in lines[max(0, n - 4):n - 1])
-                if "git sparse-checkout reapply" in line and GUARD not in line and not always_sparse:
+                # ...but only once the step drops extensions.worktreeConfig: a `git sparse-checkout disable` by
+                # another job leaves core.sparseCheckout=false in config.worktree, which beats .git/config and makes
+                # the reapply fatal anyway (cmux-next path routing, run 46055361348).
+                drops_worktree_config = any("git config --unset-all extensions.worktreeConfig" in l
+                                            for l in lines[max(0, n - 40):n - 1])
+                if "git sparse-checkout reapply" in line and GUARD not in line and not (
+                        always_sparse and drops_worktree_config):
                     bad.append(f"{path.name}:{n}")
         self.assertEqual(bad, [])
 

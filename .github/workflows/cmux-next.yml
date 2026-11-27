@@ -1006,9 +1006,7 @@ jobs:
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
             # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
-            # overrides the core.sparseCheckout this step writes, and the reapply below then fails with
-            # "must be in a sparse-checkout": 25 of 577 path routing runs on 2026-11-27 19:15-21:15Z (job 140737599081),
-            # each a false red and a rerun. Keep .git/config the only config, as the other pool checkouts do.
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
             git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
