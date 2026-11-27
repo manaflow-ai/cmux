@@ -3850,6 +3850,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             "needs.app-compile-fleet.outputs.verdict": fleet,
             # The cheap gate (note-cheap-gate): Linux cargo is not red.
             "needs.fast-tier-cargo.result": "success",
+            # The shared web producer completed before the scheme consumer.
+            "needs.web-bundles.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             "github.event_name": event, "github.ref": ref,
