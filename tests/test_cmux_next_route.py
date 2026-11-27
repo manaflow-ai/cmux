@@ -625,7 +625,10 @@ class PullRequestTiers(unittest.TestCase):
                          Loader=yaml.BaseLoader)["jobs"]
         clause = ("needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request'"
                   " || github.event.pull_request.base.ref != 'feat-cmux-next'"
-                  " || contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                  " || (contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                  " && (github.event.pull_request.base.ref != 'feat-cmux-next'"
+                  " || (github.event.action == 'labeled' && github.event.label.name == 'full-ci')"
+                  " || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))"
                   " || contains(github.event.pull_request.labels.*.name, 'dev-build')"
                   " || needs.path_route.outputs.mac_release == 'true'"
                   " || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready'"
