@@ -577,7 +577,7 @@ if ! [ "$first_submit" -lt "$app_staple" ] || ! [ "$app_staple" -lt "$dmg2" ] ||
   cat "$LOG" >&2
   exit 1
 fi
-if grep -v '^create-dmg-umask 0022$' "$LOG" | grep -q '^create-dmg-umask '; then
+if grep -v '^create-dmg-umask 0022$' "$LOG" | grep '^create-dmg-umask ' >/dev/null; then
   echo "FAIL: create-dmg must copy the app with umask 022" >&2
   exit 1
 fi
@@ -905,7 +905,7 @@ if ! stage staged --require-stapled-app >/dev/null 2>"$P/err" \
   || [ "$(cat "$P/staged/cmux-nightly-macos-arm64.dmg")" != second ] \
   || [ "$(cat "$P/staged/cmux-nightly-macos-arm64.dmg.first.dmg")" != first ] \
   || ! grep -Fxq 'stapled_app=true' "$P/staged/cmux-nightly-macos-arm64.dmg.notarization.state" \
-  || ! tar -tzf "$P/staged/cmux-nightly-notarization-recovery-app.tar.gz" | grep -q '^cmux NIGHTLY.app/' \
+  || ! tar -tzf "$P/staged/cmux-nightly-notarization-recovery-app.tar.gz" | grep '^cmux NIGHTLY.app/' >/dev/null \
   || ! python3 "$ROOT_DIR/scripts/ci/resolve-notarization-recovery.py" "$P/staged/cmux-nightly-notarization-recovery.json" \
     123 "$HEAD_SHA" nightly arm64 --run-attempt 1 --strict --extract-app >/dev/null; then
   echo "FAIL: a stapled-app hand-off must carry the state, the DMG, the first DMG and the current app, and resolve strictly" >&2

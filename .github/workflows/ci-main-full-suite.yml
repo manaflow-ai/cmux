@@ -45,13 +45,14 @@ jobs:
     # A completed full-suite run on main is what starts the next one, so the
     # gate always finds either nothing in flight or the run it must wait for.
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     # Never cancel a running gate: it holds the slot until its dispatched run
     # exists, so two gates never both see "nothing in flight". GitHub drops
     # an older pending gate when a newer one queues, which is harmless because
-    # every gate reads main's HEAD afresh. Dispatched CI runs share ci.yml's
-    # main concurrency group, which does not cancel in-progress non-PR runs.
+    # every gate reads main's HEAD afresh. Each dispatched CI run has a
+    # concurrency group of its own (ci.yml), so a dispatch never replaces a
+    # full-suite run still pending.
     concurrency:
       group: ci-main-full-suite-dispatch
       cancel-in-progress: false
@@ -66,7 +67,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -80,16 +81,36 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: scripts/ci
 
+      # A scheduled job's calls on the job token share the repository's per-hour installation pool with
+      # every other workflow; spent, the call ends "HTTP 403: API rate limit exceeded for installation" and
+      # the nightly silently does not run (ios-reliability-matrix 11-23/11-25, cmux#57719). The cmux bot
+      # App's token has its own hour; the job token stays the fallback when it cannot be minted.
+      # Detector: scripts/ci/cron_dispatch_token_lint.py.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
       - name: Skip when main's HEAD already has a full-suite run
         id: gate
         env:
-          GH_TOKEN: ${{ github.token }}
+          # The job token's hour runs out under load, and a gate that cannot
+          # read main fails open into a dispatch (the 15:25Z schedule gate on
+          # 2026-11-26), so it reads on the cmux bot App's token like the
+          # dispatch below.
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           FORCE: ${{ inputs.force && 'true' || 'false' }}
           COMPLETED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -118,7 +139,7 @@ jobs:
       - name: Dispatch CI on main
         if: ${{ steps.gate.outputs.dispatch == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           # Hold this job's concurrency slot until the new run exists, so the
@@ -142,7 +163,7 @@ jobs:
     # report. Reports are idempotent.
     if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
     # The cmux-bot mint below holds an App key: LINUX_RUNNER moves this job only among Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # Attribution reads the failed app-host shard logs of two runs (about
     # three minutes) and diffs the pull requests merged between them.
     timeout-minutes: 20
@@ -157,7 +178,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
           persist-credentials: false

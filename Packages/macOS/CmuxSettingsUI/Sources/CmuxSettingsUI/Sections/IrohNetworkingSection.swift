@@ -76,21 +76,21 @@ public struct IrohNetworkingSection: View {
                     await model.upsertCustomRelay(relay, deviceSecret: secret)
                 }
             }
+            // A save from the editor fails while the sheet covers this
+            // section, so the alert must be presented from the sheet itself.
+            .saveFailedAlert(
+                isPresented: Binding(
+                    get: { model.showsSaveError && showsCustomEditor },
+                    set: { if !$0 { model.clearSaveError() } }
+                )
+            )
         }
-        .alert(
-            String(localized: "settings.networking.saveFailed", defaultValue: "Could Not Save Networking Settings"),
+        .saveFailedAlert(
             isPresented: Binding(
-                get: { model.showsSaveError },
+                get: { model.showsSaveError && !showsCustomEditor },
                 set: { if !$0 { model.clearSaveError() } }
             )
-        ) {
-            Button(String(localized: "settings.common.ok", defaultValue: "OK"), role: .cancel) {}
-        } message: {
-            Text(String(
-                localized: "settings.networking.saveFailed.message",
-                defaultValue: "Your previous networking configuration is still active. Check your account connection and relay values, then try again."
-            ))
-        }
+        )
         .confirmationDialog(
             String(localized: "settings.networking.custom.remove.confirm", defaultValue: "Remove this custom relay?"),
             isPresented: Binding(
@@ -662,6 +662,22 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
             String(localized: "settings.networking.diagnostics.failure.unknown", defaultValue: "Unknown")
+        }
+    }
+}
+
+private extension View {
+    func saveFailedAlert(isPresented: Binding<Bool>) -> some View {
+        alert(
+            String(localized: "settings.networking.saveFailed", defaultValue: "Could Not Save Networking Settings"),
+            isPresented: isPresented
+        ) {
+            Button(String(localized: "settings.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(String(
+                localized: "settings.networking.saveFailed.message",
+                defaultValue: "Your previous networking configuration is still active. Check your account connection and relay values, then try again."
+            ))
         }
     }
 }
