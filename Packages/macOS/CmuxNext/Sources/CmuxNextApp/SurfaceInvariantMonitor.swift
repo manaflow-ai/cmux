@@ -62,9 +62,19 @@ final class SurfaceInvariantMonitor {
     func check() {
         guard let services else { return }
         checks += 1
-        for row in SurfaceDiagnosticsReport.statuses(services) where row.status.isBlank {
+        judge(SurfaceDiagnosticsReport.statuses(services).map(\.status))
+        #if DEBUG
+        let action = services.actionBudget.recent(1).first.map { "\($0.id)" } ?? "none"
+        sizes.check(services.cache.terminals.map { (key: $0.key, session: $0.value.session) }, action: action)
+        columns.check(services.windows.controllers.compactMap { $0.content?.layoutView }, action: action)
+        if sizes.wantsRecheck { noteChange() }
+        #endif
+    }
+
+    /// Counts and logs each blank pane of `statuses` (a fault in debug builds, an error in release ones).
+    func judge(_ statuses: [PaneSurfaceStatus]) {
+        for status in statuses where status.isBlank {
             blankPanes += 1
-            let status = row.status
             let surface = status.terminal.map { "\($0)" } ?? "none"
             #if DEBUG
             logger.fault("blank pane \(status.paneKey, privacy: .public) reason=\(status.blankReason ?? "-", privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public) shown=\(status.shownTab ?? "-", privacy: .public) installed=\(status.contentInstalled) surface=\(surface, privacy: .public)")
@@ -72,11 +82,5 @@ final class SurfaceInvariantMonitor {
             logger.error("blank pane \(status.paneKey, privacy: .public) reason=\(status.blankReason ?? "-", privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public)")
             #endif
         }
-        #if DEBUG
-        let action = services.actionBudget.recent(1).first.map { "\($0.id)" } ?? "none"
-        sizes.check(services.cache.terminals.map { (key: $0.key, session: $0.value.session) }, action: action)
-        columns.check(services.windows.controllers.compactMap { $0.content?.layoutView }, action: action)
-        if sizes.wantsRecheck { noteChange() }
-        #endif
     }
 }
