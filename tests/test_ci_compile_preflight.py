@@ -18,10 +18,13 @@ The build itself (a merged tree with each break, red) is proven on a runner: the
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import re
 import subprocess
 import sys
 import unittest
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +139,73 @@ class NeverSkipped(unittest.TestCase):
         self.assertIn("compile_preflight.py web-build", block)
         self.assertIn("compile_preflight.py web-touched . HEAD^1 HEAD", block)
         self.assertIn("fetch-depth: 2", block)
+
+
+class SharedWebArtifact(unittest.TestCase):
+    def test_manifest_accepts_copy_and_rejects_wrong_key_changed_missing_or_extra_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bundle.js").write_text("built output")
+            cp.cmd_artifact("write", root, "source-and-toolchain-key")
+            cp.cmd_artifact("verify", root, "source-and-toolchain-key")
+            with self.assertRaises(ValueError):
+                cp.cmd_artifact("verify", root, "another-source-key")
+            (root / "bundle.js").write_text("changed output")
+            with self.assertRaises(ValueError):
+                cp.cmd_artifact("verify", root, "source-and-toolchain-key")
+            (root / "bundle.js").write_text("built output")
+            (root / "extra.js").write_text("unexpected")
+            with self.assertRaises(ValueError):
+                cp.cmd_artifact("verify", root, "source-and-toolchain-key")
+            (root / "extra.js").unlink()
+            (root / "bundle.js").unlink()
+            with self.assertRaises(ValueError):
+                cp.cmd_artifact("verify", root, "source-and-toolchain-key")
+
+    def test_browser_install_replaces_a_second_build_and_keeps_no_producer_fallback(self) -> None:
+        # Execute the actual fleet build function with lightweight bundler/source-check stand-ins. This
+        # measures invocations, not production CPU savings: the five real PR receipts measure those.
+        source = (ROOT / "scripts/ci/react-apps-check-fleet.sh").read_text()
+        body = re.search(r"^build\(\) \{\n.*?^\}", source, re.M | re.S).group(0)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/cmux-next").mkdir(parents=True)
+            checker = root / "scripts/build-webviews-app.sh"
+            checker.write_text("#!/bin/bash\necho checked >> source-checks\n")
+            checker.chmod(0o755)
+            builder = root / "scripts/cmux-next/build-web-bundles.sh"
+            builder.write_text("#!/bin/bash\nif [ \"$1\" = --from ]; then echo install >> events; else echo build >> events; fi\n")
+            builder.chmod(0o755)
+            env = dict(os.environ, CMUX_WEB_BUNDLES_FROM="")
+            subprocess.run(["bash", "-c", body + "\nbuild\nbuild"], cwd=root, env=env, check=True)
+            self.assertEqual((root / "events").read_text().splitlines().count("build"), 2)
+            (root / "events").write_text("")
+            subprocess.run(["bash", "-c", body + "\nbuild\nCMUX_WEB_BUNDLES_FROM=artifact build"], cwd=root, env=env, check=True)
+            self.assertEqual((root / "events").read_text().splitlines(), ["build", "install"])
+            self.assertEqual(len((root / "source-checks").read_text().splitlines()), 4)
+
+    def test_only_web_consumers_wait_and_every_restored_output_has_a_manifest(self) -> None:
+        import yaml
+        router = yaml.safe_load(ROUTER.read_text())["jobs"]
+        self.assertNotIn("compile-preflight", router["pipeline"]["needs"])
+        self.assertTrue(router["pipeline"]["with"]["defer_web_browser"])
+        web = router["web-pipeline"]
+        self.assertIn("compile-preflight", web["needs"])
+        self.assertEqual(json.loads(web["with"]["jobs"]), ["web-browser"])
+        self.assertTrue(web["with"]["web_browser_only"])
+        self.assertIn("compile-preflight", router["size-budget"]["needs"])
+        pipeline = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
+        self.assertIn("!inputs.web_browser_only", job_block(pipeline, "ios-fast-runner"))
+        producer = job_block(CALLEE.read_text(), "web")
+        self.assertIn("web-artifact write", producer)
+        self.assertLess(producer.index("Build the web bundles"), producer.index("web-artifact write"))
+        for filename, job in (("cmux-next-size-budget.yml", "web-head"), ("pr-pipeline.yml", "web-browser")):
+            text = job_block((ROOT / ".github/workflows" / filename).read_text(), job)
+            self.assertIn('test "$PRODUCER_KEY" = "$SOURCE_KEY"', text)
+            self.assertIn("web-artifact verify", text)
+            self.assertIn("inputs.web_bundle_transport == 'r2'", text)
+            self.assertIn("inputs.web_bundle_transport == 'github'", text)
+            self.assertIn("pr-web-bundles-${{ inputs.web_bundle_key }}-${{ github.run_attempt }}", text)
 
 
 if __name__ == "__main__":

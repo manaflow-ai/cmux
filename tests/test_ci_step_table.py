@@ -1079,7 +1079,8 @@ class PipelineTest(unittest.TestCase):
                 routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}')"
                 if name in PIPELINE_LAND_TIER_JOBS:
                     # The land tier (#54886's condition and label guard): runs only at the head handed to land.
-                    self.assertEqual(job["if"], f"${{{{ ({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                    deferred = "!inputs.defer_web_browser && " if name == "web-browser" else ""
+                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
                 else:
                     self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
