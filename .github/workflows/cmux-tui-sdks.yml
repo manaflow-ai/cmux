@@ -105,6 +105,7 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
@@ -291,6 +292,7 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
@@ -525,8 +527,8 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
-      - name: Test and check the seven SDK capability descriptors
-        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+      - name: Check SDK descriptors and schema hashes have one source
+        run: python3 cmux-tui/scripts/test_check_sdk_single_source.py
 
       - name: Test deterministic SDK generator
         env:
