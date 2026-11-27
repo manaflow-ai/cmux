@@ -38,13 +38,7 @@ enum DebugCrashes {
         ])
     }
 
-    private static func recoveryName(_ recovery: LaunchRecovery) -> String {
-        switch recovery {
-        case .clean: "clean"
-        case .restarted: "restarted"
-        case .restartedSafely: "restartedSafely"
-        }
-    }
+    private static func recoveryName(_ recovery: LaunchRecovery) -> String { recovery.kind.rawValue }
 
     private static func record(_ record: BrowserCrashRecord) -> JSONValue {
         var object: [String: JSONValue] = [

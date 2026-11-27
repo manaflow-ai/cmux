@@ -31,10 +31,10 @@ struct CrashNoticeTests {
     @Test func aRestoreThatHangsTwiceSkipsBrowserPages() throws {
         let first = try Self.previous(signal: nil, survived: false)
         #expect(!LaunchRecovery.decide(previous: first).isRestart)
-        #expect(LaunchRecovery.watchesForLoop(previous: first))
+        #expect(LaunchRecovery.decide(previous: first).watchesForLoop)
         let second = try Self.previous(signal: nil, recovery: true, survived: false)
         #expect(LaunchRecovery.decide(previous: second).isSafeRestart)
-        #expect(!LaunchRecovery.watchesForLoop(previous: try Self.previous(signal: nil)))
+        #expect(!LaunchRecovery.decide(previous: try Self.previous(signal: nil)).watchesForLoop)
     }
 
     /// A safe restart holds only the pages the quick-ending run started; a plain restart holds none.

@@ -76,7 +76,8 @@ fn no_previous_run_is_clean_and_unwatched() {
             recovery: Recovery::Clean,
             watches_for_loop: false,
             crashed_pages: vec![],
-            starts_updater_before_windows: false
+            starts_updater_before_windows: false,
+            likely_oom: false
         }
     );
 }
@@ -120,10 +121,12 @@ fn a_high_footprint_kill_reads_as_oom() {
     assert!(at.was_likely_oom());
     assert_eq!(decide(Some(&at)), Recovery::Restarted);
     assert!(watches_for_loop(Some(&at)));
+    assert!(plan(Some(&at)).likely_oom, "the app reports an OOM from the plan");
     let below =
         PreviousRun { footprint_megabytes: Some(HIGH_FOOTPRINT_MEGABYTES - 1), ..run(None) };
     assert!(!below.was_likely_oom());
     assert_eq!(decide(Some(&below)), Recovery::Clean);
+    assert!(!plan(Some(&below)).likely_oom);
     // OOM wins over the safe restart a loop would get.
     let looping = PreviousRun { recovery: true, survived: false, ..at.clone() };
     assert_eq!(decide(Some(&looping)), Recovery::Restarted);

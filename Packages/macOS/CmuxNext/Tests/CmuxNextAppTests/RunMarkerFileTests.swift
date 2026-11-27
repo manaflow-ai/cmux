@@ -75,9 +75,9 @@ import Testing
         run.context = CrashContext(updated: Date(), windows: 1, workspaces: 1, tabKinds: ["browser"],
                                    focusedPane: "browser", browserEngine: "ready", browserFailures: 0,
                                    footprintMegabytes: MemoryPressureReporter.defaultHighFootprintMegabytes, actions: [])
-        #expect(run.wasLikelyOOM)
+        #expect(LaunchRecovery.decide(previous: run).likelyOOM)
         #expect(LaunchRecovery.decide(previous: run).previous != nil)
         run.quitting = true
-        #expect(!run.wasLikelyOOM)
+        #expect(!LaunchRecovery.decide(previous: run).likelyOOM)
     }
 }

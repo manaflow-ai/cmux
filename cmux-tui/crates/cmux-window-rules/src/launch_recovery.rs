@@ -114,6 +114,8 @@ pub struct Plan {
     pub crashed_pages: Vec<String>,
     /// In a restart loop the updater starts before windows.
     pub starts_updater_before_windows: bool,
+    /// The previous run was likely an OOM kill (`PreviousRun::was_likely_oom`): the app reports it.
+    pub likely_oom: bool,
 }
 
 /// `decide`, `watches_for_loop` and the crashed pages in one answer.
@@ -130,6 +132,7 @@ pub fn plan(previous: Option<&PreviousRun>) -> Plan {
         watches_for_loop: watches_for_loop(previous),
         crashed_pages,
         starts_updater_before_windows: recovery == Recovery::RestartedSafely,
+        likely_oom: previous.is_some_and(PreviousRun::was_likely_oom),
     }
 }
 

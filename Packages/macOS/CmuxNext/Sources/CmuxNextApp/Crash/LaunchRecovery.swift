@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextWindowRules
 import Foundation
 
 /// What the previous run left behind (`AppRunMarker`).
@@ -37,90 +38,52 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case pid, launched, recovery, survived, signal, quitting, startedPages, context, version, commit
     }
-
-    /// The run ended because someone asked it to: a requested-quit signal
-    /// its handler recorded, or no fatal signal while a requested quit ran
-    /// (killed before it finished). A fault during a quit is still a crash.
-    var endedAsAsked: Bool {
-        if let signal { return LaunchRecovery.requestedQuitSignals.contains(signal) }
-        return quitting == true
-    }
-
-    /// The run crashed: its fatal signal handler wrote the signal, or it
-    /// ended on an uncaught exception. A run that ended with no handler
-    /// running (`kill -9`, jetsam, power loss) did not crash; its next
-    /// launch restores the same way, without the restart notice.
-    var crashed: Bool { signal != nil || exception != nil }
-
-    /// A signal-less, unrequested end after a high-footprint snapshot is the
-    /// launch marker's only reliable indication of an OOM kill: SIGKILL and
-    /// jetsam do not run the app's signal handler.
-    var wasLikelyOOM: Bool {
-        guard signal == nil, exception == nil, !endedAsAsked else { return false }
-        return (context?.footprintMegabytes ?? 0) >= MemoryPressureReporter.defaultHighFootprintMegabytes
-    }
 }
 
-/// How this launch follows the previous one. Pure: `AppRunMarker` supplies
-/// the inputs.
-nonisolated enum LaunchRecovery: Equatable, Sendable {
-    /// The previous run quit normally, was asked to (a quit that had begun,
-    /// or a requested-quit signal recorded before `QuitSignal` ran), or was
-    /// killed with no handler running and no high-footprint OOM evidence.
-    case clean
-    /// The previous run ended unexpectedly: restore everything and show the
-    /// notice.
-    case restarted(PreviousRun)
-    /// The previous run followed a crash or a quick kill and ended again
-    /// soon after it started: restore everything, except that a page that run
-    /// started before it ended waits for Reload (`crashedPages`), so a page that
-    /// kills the app cannot loop.
-    case restartedSafely(PreviousRun)
+/// How this launch follows the previous one, asked of Rust (cmux-window-rules `launch_recovery`: a quit
+/// as asked, a crash, a likely OOM kill, a restart loop). `AppRunMarker` supplies the inputs.
+nonisolated struct LaunchRecovery: Equatable, Sendable {
+    /// `clean`: quit, asked to, or killed with no OOM evidence. `restarted`: ended unexpectedly, restore
+    /// and show the notice. `restartedSafely`: a restart loop, the pages that run started wait for Reload.
+    nonisolated enum Kind: String, Decodable, Sendable { case clean, restarted, restartedSafely }
+
+    private struct Plan: Decodable, Equatable, Sendable {
+        var recovery: Kind, watchesForLoop: Bool, crashedPages: Set<String>, startsUpdaterBeforeWindows: Bool, likelyOom: Bool
+    }
+
+    private let plan: Plan
+    /// The previous run, when this launch is a restart.
+    let previous: PreviousRun?
+    var kind: Kind { plan.recovery }
+    /// This launch watches for a restart loop; if it also ends early, the next holds the pages it started.
+    var watchesForLoop: Bool { plan.watchesForLoop }
+    /// The restored tabs whose page stays unloaded until the person reloads it (after a restart loop).
+    var crashedPages: Set<String> { plan.crashedPages }
+    /// In a restart loop, once settings are read: not after a first frame the build may never reach.
+    var startsUpdaterBeforeWindows: Bool { plan.startsUpdaterBeforeWindows }
+    /// A signal-less, unrequested end after a high-footprint snapshot: likely an OOM kill.
+    var likelyOOM: Bool { plan.likelyOom }
+    var isRestart: Bool { kind != .clean }
+    var isSafeRestart: Bool { kind == .restartedSafely }
+
+    static let clean = LaunchRecovery(plan: Plan(recovery: .clean, watchesForLoop: false, crashedPages: [],
+                                                 startsUpdaterBeforeWindows: false, likelyOom: false), previous: nil)
 
     /// A restart that ends within this time of its launch counts as quick.
     static let quickCrashWindow: Duration = .seconds(60)
 
-    /// Signals that ask the app to quit (`kill`, Ctrl-C in the launching
-    /// terminal, that terminal closing). `QuitSignal` turns them into Quit,
-    /// keep sessions; ending on one is never a restart.
+    /// Signals that ask the app to quit (`kill`, Ctrl-C in the launching terminal, that terminal
+    /// closing). `QuitSignal` turns them into Quit, keep sessions; ending on one is never a restart.
     static let requestedQuitSignals: Set<Int32> = [SIGTERM, SIGINT, SIGHUP]
 
     static func decide(previous: PreviousRun?) -> LaunchRecovery {
-        guard let previous, !previous.endedAsAsked else { return .clean }
-        if previous.wasLikelyOOM { return .restarted(previous) }
-        if previous.recovery, !previous.survived { return .restartedSafely(previous) }
-        return previous.crashed ? .restarted(previous) : .clean
-    }
-
-    /// Whether this launch watches for a restart loop: it follows a crash,
-    /// or a run killed within `quickCrashWindow` of its launch (a hang at
-    /// restore ends in Force Quit, which records no signal). If this run
-    /// also ends early, the next launch holds the pages it started (`crashedPages`).
-    static func watchesForLoop(previous: PreviousRun?) -> Bool {
-        if decide(previous: previous).isRestart { return true }
-        guard let previous, !previous.endedAsAsked else { return false }
-        return !previous.survived
-    }
-
-    var previous: PreviousRun? {
-        switch self {
-        case .clean: nil
-        case .restarted(let run), .restartedSafely(let run): run
+        struct Facts: Encodable {
+            var recovery, survived, exception: Bool, signal: Int32?, quitting: Bool?, footprintMegabytes: Int?, startedPages: [String]?
         }
-    }
-
-    var isRestart: Bool { previous != nil }
-
-    /// This launch follows a restart loop (`restartedSafely`).
-    var isSafeRestart: Bool { if case .restartedSafely = self { true } else { false } }
-
-    var startsUpdaterBeforeWindows: Bool { isSafeRestart } // in a restart loop, once settings are read: not after a first frame the build may never reach
-
-    /// The restored tabs whose page stays unloaded until the person reloads it: after a restart
-    /// loop, the pages the quick-ending run had started (one of them may be what ended it).
-    /// Every other tab loads when it shows, as after any launch.
-    var crashedPages: Set<String> {
-        guard case .restartedSafely(let run) = self else { return [] }
-        return Set(run.startedPages ?? [])
+        struct Request: Encodable { var previous: Facts? }
+        let facts = previous.map { Facts(recovery: $0.recovery, survived: $0.survived, exception: $0.exception != nil, signal: $0.signal,
+                                         quitting: $0.quitting, footprintMegabytes: $0.context?.footprintMegabytes, startedPages: $0.startedPages) }
+        guard let plan = WindowRules().call("window_launch_recovery", Request(previous: facts), as: Plan.self) else { return .clean }
+        return LaunchRecovery(plan: plan, previous: plan.recovery == .clean ? nil : previous)
     }
 }
