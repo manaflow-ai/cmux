@@ -77,6 +77,12 @@ grep -q "miss (no recorded build" "$TMP/restore.log" || fail "an unrecorded job 
 build; [[ $compiled == 3 ]] || fail "after an unrecorded job every workspace crate rebuilds, got $compiled"
 [[ "$("$TARGET/debug/app")" == 2 ]] || fail "and the app is the checked-out one"
 
+# An empty pool tree with the R2 fallback on: not linked, so the R2 cargo restore runs.
+rm -rf "$TMP/home/.cache"; : > "$TMP/out"; TARGET=""
+CMUX_POOL_WARM_TARGET_MISS_R2=1 pool restore > "$TMP/restore.log"
+grep -q "R2 cargo build restores instead" "$TMP/restore.log" || fail "an empty pool tree defers to R2"
+[[ ! -s "$TMP/env" && ! -s "$TMP/out" ]] || fail "a deferred miss links nothing"
+
 # Anywhere else: nothing linked, nothing recorded.
 : > "$TMP/out"
 RUNNER=blacksmith-4vcpu-ubuntu-2404 TARGET="" pool restore > "$TMP/restore.log"

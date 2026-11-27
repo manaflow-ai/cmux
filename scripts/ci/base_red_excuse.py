@@ -8022,7 +8022,15 @@ WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\
 # steps" and no per-test comparison ran: lw#12133 at fb44c444 ("4 failed after discounting 24 on main 33ce8b65:
 # test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
 # test against main like any other ws-check red: a unit that passes on main stays the head's red.
-WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
+# Since lw#12687 (2026-11-27) both discounted forms also count the run's flakes apart (units that failed, passed on main
+# and passed again on the PR's tree: never the PR's, never main's): "... (+K base red discounted, F flaky, main SHA8)" and
+# "N failed after discounting K on main SHA8, F flaky: UNIT". Unread, lw#12864 at 19dbd9c7 ("1 failed after discounting
+# 9 on main 67c96e79, 7 flaky: test_timing_asserts.py") was refused "names no failed steps". A flake is a FAILED label
+# the log keeps as the head's, so the counts split the log's labels as own + discounted + flaky, and the first unit is
+# any of the head's (the flakes, which ws-check leaves out of its own, are not marked in the log this reads).
+WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8})(?:, (\d+) flaky)?: (.*)",
+                                       re.S)
+WS_CHECK_FLAKY_MARKER = re.compile(r" \(\+\d+ base red discounted, (\d+) flaky, main [0-9a-f]{8}\)")
 # leo-workspace tools/ws-check publish_failed ends a main commit's red status with its failed set, " [fails N: HASHES]"
 # (5 base64url characters a label), cutting the text before it so the whole stays at 139. It is no part of the step a
 # description names, so it is dropped before the description is read. 2026-11-27: every red main status carried it
@@ -8080,22 +8088,22 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
         # at e9da65f7, "1 failed after discounting 7 on main 99f45fab: test_text_io_encoding.py" over a log whose
         # pass saw 6 of 8 fail on main, was refused "does not match run 45922084826's WS_CHECK_RESULT".
         found = ws_check_own_base(lines, at, failed)
-        if found is None or not found["head_only"] or not named[4]:
+        if found is None or not found["head_only"] or not named[5]:
             return False
-        own, discounted = int(named[1]), int(named[2])
+        own, discounted, flaky = int(named[1]), int(named[2]), int(named[4] or 0)
         firsts = []
         for label in sorted(found["head_only"]):
             step, bracket, unit = label.partition(" [")
             firsts.append(unit.removesuffix("]") if bracket else step)
         if named[3] != found["main"][:8] or own < 1 or discounted < len(found["on_main"]):
             return False
-        if own + discounted != len(found["on_main"]) + len(found["head_only"]):
+        if own + discounted + flaky != len(found["on_main"]) + len(found["head_only"]):
             return False
         def names(first: str) -> bool:
             # the unit, maybe cut at the status's room, or the unit with more after it (more units, a lane run's tag:
             # cmux#58085's "test_b.py, test_c.py" and "test_b.py cmux-cp-1; log x")
-            return first.startswith(named[4]) or named[4].startswith((first + ", ", first + " "))
-        if discounted == len(found["on_main"]):
+            return first.startswith(named[5]) or named[5].startswith((first + ", ", first + " "))
+        if discounted == len(found["on_main"]) and not flaky:
             return names(firsts[0])
         return any(names(first) for first in firsts)
     count, total, described = int(named[1]), int(named[2]), named[5]
@@ -8107,13 +8115,17 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
     if found is None or not found[0]:
         return False
     own, discounted, main = found
-    if count != len({label.split(" [", 1)[0] for label in own}):
+    flaky = WS_CHECK_FLAKY_MARKER.search(described) if not named[3] else None
+    own_steps = len({label.split(" [", 1)[0] for label in own})
+    # a flake is one of this log's head-only labels that ws-check counts apart: its step may be one the status leaves out
+    if count != own_steps and not (flaky and 1 <= count < own_steps):
         return False
-    marker = f" (+{discounted} base red discounted, main {main[:8]})"
+    flakes = f", {flaky[1]} flaky" if flaky else ""
+    marker = f" (+{discounted} base red discounted{flakes}, main {main[:8]})"
     if named[3]:  # lw#9754's shape: the marker before the unit
         return (int(named[3]), named[4]) == (discounted, main[:8]) and ws_check_names_step(described, own[0])
-    # The marker after the unit, both cut together at 139 characters.
-    return (own[0] + marker).startswith(described)
+    # The marker after the unit, both cut together at 139 characters; with flakes, the unit is any of the head's.
+    return any((label + marker).startswith(described) for label in (own if flaky else own[:1]))
 
 
 def ws_check_names_step(described: str, step: str) -> bool:
