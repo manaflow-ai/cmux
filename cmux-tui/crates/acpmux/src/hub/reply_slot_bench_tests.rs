@@ -47,10 +47,10 @@ fn chat(hub: &Hub, s: &Arc<Session>, n: usize) {
     let output = "x".repeat(400);
     let mut seq = 0usize;
     while seq < n / 2 {
-        hub.append(&s, "mux", "turn_started", json!({}));
+        hub.append(s, "mux", "turn_started", json!({}));
         for i in 0..4 {
             hub.append(
-                &s,
+                s,
                 "in",
                 "agent_message_chunk",
                 update(
@@ -60,17 +60,17 @@ fn chat(hub: &Hub, s: &Arc<Session>, n: usize) {
             );
         }
         hub.append(
-            &s,
+            s,
             "in",
             "tool_call",
             update("tool_call", json!({"toolCallId": format!("t{seq}"), "title": "run"})),
         );
-        hub.append(&s, "in", "tool_call_update", update("tool_call_update", json!({"toolCallId": format!("t{seq}"), "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": output}}]})));
+        hub.append(s, "in", "tool_call_update", update("tool_call_update", json!({"toolCallId": format!("t{seq}"), "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": output}}]})));
         seq += 7;
     }
-    hub.append(&s, "mux", "turn_started", json!({}));
+    hub.append(s, "mux", "turn_started", json!({}));
     hub.append(
-        &s,
+        s,
         "in",
         "agent_message_chunk",
         update(
@@ -79,13 +79,13 @@ fn chat(hub: &Hub, s: &Arc<Session>, n: usize) {
         ),
     );
     hub.append(
-        &s,
+        s,
         "in",
         "tool_call",
         update("tool_call", json!({"toolCallId": "tail", "title": "run"})),
     );
     while seq < n {
-        hub.append(&s, "in", "tool_call_update", update("tool_call_update", json!({"toolCallId": "tail", "status": "in_progress", "content": [{"type": "content", "content": {"type": "text", "text": output}}]})));
+        hub.append(s, "in", "tool_call_update", update("tool_call_update", json!({"toolCallId": "tail", "status": "in_progress", "content": [{"type": "content", "content": {"type": "text", "text": output}}]})));
         seq += 1;
     }
 }

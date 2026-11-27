@@ -34,7 +34,7 @@ fn record(seq: u64, pick: u8, text: &str) -> EventRecord {
         5 => update("tool_call_update", json!({})),
         6 => update("agent_thought_chunk", json!({})),
         7 => update("plan", json!({})),
-        8 => mux(if text.len() % 2 == 0 { "turn_started" } else { "user_message" }),
+        8 => mux(if text.len().is_multiple_of(2) { "turn_started" } else { "user_message" }),
         // A subagent's words, a replayed chunk and a record of another kind change nothing.
         9 => update("agent_message_chunk", json!({"acpmux": {"subagent": "s1"}})),
         10 => update("agent_message_chunk.replay", json!({})),

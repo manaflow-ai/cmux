@@ -123,6 +123,7 @@ impl ReplyFold {
 
     /// The newest reply, trimmed; None before any or when it holds no words: `masked_reply`'s
     /// answer before its mask.
+    #[cfg(test)]
     pub fn last(&self) -> Option<&str> {
         self.replies.back().map(|r| r.trim()).filter(|r| !r.is_empty())
     }
