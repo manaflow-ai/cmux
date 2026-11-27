@@ -702,8 +702,12 @@ learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
 upgrade, about three round trips to the edge) waited behind the Mac's gather
 and answer. Now it asks for the ticket at once:
 
-- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
-  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true` when it sends
+  `relay: "now"`, or `relay: "first"` (RFD 0142 R1: its join then starts as
+  the hub forwards the offer, beside the direct race and the Mac's own join,
+  not after `wg-resp`). Absent means false; an older Mac ignores the field.
+  A `first` dialer whose Mac answers `ready` (a build before relay first)
+  lets the early join go and keeps the 3 s rule.
 - **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
   own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
@@ -758,6 +762,26 @@ split wins.
   join and talk exactly as before, and an older Worker's relay object that
   answers the prewarm with `426` is created all the same. A prewarmed object
   holds no socket and no storage, so it is evicted soon after if nobody joins.
+- **Central pick (RFD 0142 O2, added 2026-11-25, server-only, off by
+  default, no version change):** with the Worker var
+  `LINK_RELAY_CENTRAL_PICK=on`, the user's hub learns where relays actually
+  ran fast, after Google Espresso. It keys a network pair on both ends'
+  AS number and ingress colo (`asn@colo>asn@colo`, phone first; no user,
+  device or address) and keeps, per pair and region, a moving average of the
+  relayed link's median round trip from the phone's existing `link_stat`
+  (`path: "https-relay"`, at least 3 samples; credited only when the phone's
+  placements in the last 30 minutes all went to one pair and region). The
+  prewarm then places the relay by the Rust pick
+  (`rust/crates/cmux-region-pick`, loaded as wasm): a learned region scores
+  what it measured, an unmeasured one its estimate plus the pair's least
+  learned-minus-estimate gap (at most 60 ms), and the pair moves off its
+  last region only for one at least max(10 ms, 20 %) faster, the margin
+  `relay_rank.rs` uses for TURN. With nothing learned, or a pair with no AS
+  number, the placement is exactly the one above. At most 64 pairs per user
+  are kept, and a row unseen for 7 days is dropped. Off (the default) the hub
+  creates no table and places as before. No frame, field, header or status
+  is new: old phones' `link_stat` feeds it as is, and an extra field in it is
+  ignored as before.
 
 ### When no path works
 

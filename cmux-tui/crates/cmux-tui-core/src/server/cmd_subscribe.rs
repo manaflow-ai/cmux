@@ -605,8 +605,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
                 "last_prompt": last_prompt.as_deref(),
             });
             // Optional, never null: an older remote daemon's forwarded event names no terminal.
-            if let Some(terminal_id) = terminal_id.as_deref() {
-                event["terminal_id"] = json!(terminal_id);
+            if let (Some(terminal_id), Some(fields)) =
+                (terminal_id.as_deref(), event.as_object_mut())
+            {
+                fields.insert("terminal_id".to_owned(), json!(terminal_id));
             }
             event
         }
