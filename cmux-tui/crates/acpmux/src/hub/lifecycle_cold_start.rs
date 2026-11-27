@@ -130,10 +130,13 @@ impl Hub {
             meta.created_by.as_ref(),
             session.person.load(std::sync::atomic::Ordering::SeqCst),
         );
-        let profile = &crate::subrouter_priority::profile_with(
-            profile,
-            self.subrouter_priority(session, &meta, for_person),
-        );
+        // A lane started while a coordinator waits on it asks at the coordinator's class
+        // (`wait_edges.rs`).
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let own = self.subrouter_priority(session, &meta, for_person);
+        let priority = self.inherit_priority(session, own);
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let profile = &crate::subrouter_priority::profile_with(profile, priority);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();

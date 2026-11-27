@@ -708,6 +708,42 @@ class FlattenAndWhenTrueTests(unittest.TestCase):
             with self.subTest(label), self.assertRaises(BindingError):
                 rendered(spawn_document(), bindings)
 
+    def test_request_only_properties_and_original_initializer_shape(self) -> None:
+        source = self.source(
+            extra={"tab": {"type": "SurfaceID?", "default": "nil"}},
+            order=["pane", "tab", "options", "size", "before", "mutation"],
+            initializer={"explicit": ["mutation", "before"], "post_init": ["label"], "labels": {"size": "cell"}},
+        )
+        self.assertIn("public var tab: SurfaceID?", source)
+        self.assertNotIn("case tab", source)
+        self.assertIn("public var label: String?", source)
+        self.assertIn("public init(pane: PaneID, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions(), "
+                      "cell size: CellSize? = nil, before: Bool, mutation: MutationIdentity?)", source)
+        self.assertIn("try container.encodeIfPresent(label, forKey: .label)", source)
+
+    def test_initializer_cannot_hide_a_required_field_or_misspell_a_property(self) -> None:
+        for options in ({"post_init": ["pane"]}, {"explicit": ["unknown"]},
+                        {"post_init": ["label"], "explicit": ["label"]}, {"labels": {"label": "pane"}}):
+            with self.subTest(options), self.assertRaisesRegex(BindingError, "initializer"):
+                self.source(initializer=options)
+
+    def test_special_encodings_require_the_schema_wire_type_and_value(self) -> None:
+        with self.assertRaisesRegex(BindingError, "decimal uint64"):
+            self.source(fields={"label": {"encode": "decimal_uint64"}})
+        with self.assertRaisesRegex(BindingError, "case of the optional schema enum"):
+            self.source(fields={"label": {"encode": {"when_true": "left"}}})
+        document = spawn_document()
+        document["commands"]["spawn-pane"]["request"]["fields"]["label"]["type"] = {"kind": "ref", "name": "PaneDirection"}
+        for case in ("left", "missing"):
+            bindings = spawn_bindings(fields={"label": {"name": "left", "encode": {"when_true": case}}})
+            if case == "missing":
+                with self.assertRaisesRegex(BindingError, "case of the optional schema enum"):
+                    rendered(document, bindings)
+            else:
+                source = rendered(document, bindings)["Layout/SpawnPaneRequest.generated.swift"]
+                self.assertIn("if left { try container.encode(PaneDirection.left, forKey: .left) }", source)
+                self.assertIn('case left = "label"', source)
+
     def test_a_flatten_may_not_take_a_required_field(self) -> None:
         bindings = spawn_bindings()
         bindings["flatten"]["SpawnOptions"]["wire"].append("pane")
@@ -738,6 +774,13 @@ class FlattenAndWhenTrueTests(unittest.TestCase):
         bindings["families"]["Layout"]["requests"]["spawn-pane"]["flatten"]["other"] = {"type": "Other"}
         with self.assertRaisesRegex(BindingError, "overlap.*argv"):
             rendered(spawn_document(), bindings)
+
+    def test_flatten_cannot_overwrite_a_mutation_identity_or_cas_guard(self) -> None:
+        for wire in ("origin", "mutation_id", "expected_generation", "expected_revision"):
+            bindings = spawn_bindings()
+            bindings["flatten"]["SpawnOptions"]["wire"].append(wire)
+            with self.subTest(wire), self.assertRaisesRegex(BindingError, f"overlap.*{wire}"):
+                rendered(spawn_document(), bindings)
 
     def test_omit_rejects_unknown_and_required_fields(self) -> None:
         for omitted, message in ((["unknown"], "does not have"), (["pane"], "requires")):
