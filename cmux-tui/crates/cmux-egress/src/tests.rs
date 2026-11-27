@@ -29,12 +29,8 @@ fn the_audit_keeps_allowed_and_refused_connections() {
 
 #[test]
 fn an_audit_line_is_one_json_object() {
-    let entry = AuditEntry {
-        host: "a\"b".into(),
-        site: "s",
-        verdict: Verdict::Unlisted,
-        refused: true,
-    };
+    let entry =
+        AuditEntry { host: "a\"b".into(), site: "s", verdict: Verdict::Unlisted, refused: true };
     assert_eq!(
         audit_line(&entry, Mode::Enforce, 7),
         "{\"ts\":7,\"host\":\"a\\\"b\",\"site\":\"s\",\"verdict\":\"unlisted\",\"mode\":\"enforce\",\"refused\":true}\n"
