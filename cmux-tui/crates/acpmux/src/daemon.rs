@@ -726,6 +726,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         );
         tracing::warn!("hub carrier off for this run: this home was copied from another machine");
     }
+    // Screen sharing on a joined Linux machine with no step on it (`cmux_rd.rs`): the pinned
+    // cmux-rd installed and `linux-host enable` run once per version, on its own thread after
+    // the clone check (a copied home is skipped), waiting for a join made while this runs.
+    if !memory_store {
+        crate::cmux_rd::spawn_at_daemon_start(home());
+    }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
     let wireguard = if config.transport.wireguard && !clone_unsettled {
@@ -1267,6 +1273,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 let _phase = gauges.phase("finish startup");
                 hub.finish_startup_after_prepare(reloaded).await;
             }
+            // A move to another machine the previous daemon left goes on, or says why it did not
+            // happen and pauses its fresh Cloud machine (`server/place_set.rs`).
+            crate::server::place_set::resume(&hub);
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
             // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
