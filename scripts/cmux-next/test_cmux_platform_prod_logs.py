@@ -579,6 +579,20 @@ class NeverBoundTests(unittest.TestCase):
                                 "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
         self.assertNotIn("power", bare["log"])
 
+    def test_a_start_trace_keeps_its_kind_and_before_as_fixed_words_only(self):
+        # hq#31259: the slow starts were spare wakes (window, refresh, warm) nobody waited on; the reader keeps which.
+        row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "kind": "window", "before": "paused", "steps": {"power": 103931},
+                               "power": {"call_ms": 103800, "provider_ms": 103500}, "total_ms": 103931}))
+        self.assertEqual(row["log"]["kind"], "window")
+        self.assertEqual(row["log"]["before"], "paused")
+        for kind in ("person", "refresh", "warm"):
+            kept = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "kind": kind, "before": "stopped"}))
+            self.assertEqual((kept["log"]["kind"], kept["log"]["before"]), (kind, "stopped"))
+        odd = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "kind": "spare_x", "before": "vm_secret"}))
+        self.assertNotIn("kind", odd["log"])
+        self.assertNotIn("before", odd["log"])
+
     def test_a_never_bound_line_keeps_the_probe_as_typed_facts_only(self):
         row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,
                                "code": "cloud.machine.never_bound", "ms": 305000, "create_running": False,
