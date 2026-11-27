@@ -1,7 +1,7 @@
 // A finished turn's waterfall (TurnWaterfall.tsx): each timed tool call and thought as a span on
 // one time axis from the turn's start, so a slow turn shows where its time went. Pure, so the
 // footer's toggle costs nothing until the reader opens it.
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import type { AcpmuxActivity, AcpmuxModelCall, AcpmuxRow } from "../model";
 import { rowFailed } from "./toolFailure";
 import { isDraftCall } from "./toolGroups";
 
@@ -109,20 +109,43 @@ export function workEnds(work: readonly AcpmuxActivity[] | undefined): string {
   return key;
 }
 
+/// A Timeline span's kind for one model call acpmux timed (claude_stdio/model_calls.rs).
+export const MODEL_CALL = "model";
+
+/// A model call as a span: from its request to its last token, the model's whole time on it,
+/// "from anthropic and back" (Leo, 2026-11-27, on a Timeline that read "Thinking 3ms").
+function modelCallItem(call: AcpmuxModelCall): AcpmuxActivity {
+  return {
+    kind: MODEL_CALL,
+    text: "",
+    startedAt: call.requestAt ?? call.firstTokenAt,
+    endedAt: call.lastTokenAt,
+    firstTokenAt: call.firstTokenAt,
+    ...(call.thought && { thought: true }),
+  };
+}
+
 /// The timed work of a turn's rows, in order: its tool calls (not the drafts the transcript hides,
-/// turns.ts withoutDrafts) and its thoughts, each with a start and an end. Undefined when nothing
-/// was timed, so a footer carries nothing it cannot draw.
+/// turns.ts withoutDrafts), and its model calls as acpmux timed them (`modelCallItem`), each with a
+/// start and an end. A turn whose daemon timed no call (an older one, another harness) has its
+/// thoughts instead, timed from their first chunk to their last: Claude Code's thinking comes in
+/// one burst at its call's end, so those measure milliseconds of a call's seconds. Undefined when
+/// nothing was timed, so a footer carries nothing it cannot draw.
 export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefined {
+  const timed = rows.some((row) => row.modelCalls?.length);
   const work: AcpmuxActivity[] = [];
   for (const row of rows) {
-    if (row.kind !== "activity") continue;
-    for (const item of row.items ?? []) {
-      const [from, to] = spanTimes(item);
-      if (from === undefined || to === undefined) continue;
-      if (item.tool ? isDraftCall(item.tool) : item.kind !== "thought") continue;
-      work.push(item);
-    }
+    if (row.kind === "activity")
+      for (const item of row.items ?? []) {
+        const [from, to] = spanTimes(item);
+        if (from === undefined || to === undefined) continue;
+        if (item.tool ? isDraftCall(item.tool) : timed || item.kind !== "thought") continue;
+        work.push(item);
+      }
+    for (const call of row.modelCalls ?? []) work.push(modelCallItem(call));
   }
+  // In the order they ran: a row's calls ended after the work it shows began.
+  if (timed) work.sort((a, b) => spanTimes(a)[0]! - spanTimes(b)[0]!);
   return work.length ? work : undefined;
 }
 
@@ -188,12 +211,17 @@ export function waterfallCharts(chart: Pick<Waterfall, "spans" | "total" | "gapT
 /// One line of the plain form: a call with its own time, or (no span) the turn's thinking.
 export type WaterfallLine = { span?: WaterfallSpan; ms: number };
 
-/// The plain form's lines: one "Thinking" line for all of the turn's time with no tool running
-/// (its thoughts and the model's time around them, which the chart split into a tick and a striped
-/// row), then each call with its own time, in the order they ran. Under 1ms of thinking is no line.
+/// The plain form's lines: one "Thinking" line for the model's time, then each call with its own
+/// time, in the order they ran. The model's time is its timed calls' (`modelCallItem`, request to last
+/// token) when acpmux timed them, else all of the turn's time with no tool running (its thoughts and
+/// the model's time around them, which the chart split into a tick and a striped row). Under 1ms of
+/// thinking is no line.
 export function waterfallLines(chart: Pick<Waterfall, "spans" | "total">): WaterfallLine[] {
   const calls = chart.spans.filter((span) => span.item.tool);
-  const thinking = waterfallGaps(calls, chart.total).reduce((sum, gap) => sum + gap.to - gap.from, 0);
+  const models = chart.spans.filter((span) => span.item.kind === MODEL_CALL);
+  const thinking = models.length
+    ? models.reduce((sum, span) => sum + span.to - span.from, 0)
+    : waterfallGaps(calls, chart.total).reduce((sum, gap) => sum + gap.to - gap.from, 0);
   const lines: WaterfallLine[] = thinking >= 1 ? [{ ms: thinking }] : [];
   for (const span of calls) lines.push({ span, ms: span.to - span.from });
   return lines;
