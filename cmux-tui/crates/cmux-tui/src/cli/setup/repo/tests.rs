@@ -653,8 +653,8 @@ fn an_empty_machine_gets_every_look_and_no_stack() {
         looks[0],
         json!({
             "id": "manaflow-ai/codex-profile",
-            "name": "Codex",
-            "tagline": "Like the Codex app.",
+            "name": "Pebble",
+            "tagline": "Clean, quiet, sidebar of threads.",
             "repo": "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
             "tags": ["chat", "sidebar", "new-tab"],
             "traits": ["Light", "Round corners"],

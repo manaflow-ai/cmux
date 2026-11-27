@@ -21,8 +21,8 @@ const SEEDS: Seed[] = [
   {
     id: "manaflow-ai/studio-look",
     name: "Studio",
-    tagline: "Near-black and compact, for chats.",
-    traits: ["Dark", "Compact"],
+    tagline: "Dark and compact.",
+    traits: ["Black", "Compact"],
     repo: "github.com/manaflow-ai/cmux-studio-look",
     tags: ["chat", "dark"],
     colors: { dark: ["#16161a", "#1f1f25", "#2a2a33", "#f0a35e"], light: ["#f6f4f0", "#ece8e1", "#ffffff", "#c8743a"] },
@@ -56,14 +56,14 @@ const SEEDS: Seed[] = [
   },
 ];
 
-/** The gallery's four looks as `setup/looks.json` lists them (Leo, 2026-11-27: "well i thought we
- * wanted to have the chatgpt/codex ones as our options", "we need to have the t3 code one", "we need
- * to have at least SOMETHING you root for"), with their themes' colors. */
+/** The gallery's four looks as `setup/looks.json` lists them, under names of our own (Leo,
+ * 2026-11-27: "we need to have at least SOMETHING you root for", "and obv dont call it t3 code and
+ * whatnot"), with their themes' colors. */
 const SHIPPED: Seed[] = [
   {
     id: "manaflow-ai/codex-profile",
-    name: "Codex",
-    tagline: "Like the Codex app.",
+    name: "Pebble",
+    tagline: "Clean, quiet, sidebar of threads.",
     traits: ["Light", "Round corners"],
     repo: "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
     tags: ["chat", "sidebar", "new-tab"],
@@ -71,22 +71,14 @@ const SHIPPED: Seed[] = [
   },
   {
     id: "manaflow-ai/claude-code-profile",
-    name: "Claude Code",
-    tagline: "Like Claude Code.",
+    name: "Kiln",
+    tagline: "Warm tones, roomy chat.",
     traits: ["Dark", "Warm"],
     repo: "github.com/manaflow-ai/cmux/examples/looks/claude-code/profile@feat-cmux-next",
     tags: ["chat", "sidebar", "new-tab"],
     colors: { dark: ["#191919", "#282524", "#302d2b", "#d97757"], light: ["#191919", "#282524", "#302d2b", "#d97757"] },
   },
-  {
-    id: "manaflow-ai/t3code-profile",
-    name: "T3 Code",
-    tagline: "Like T3 Code.",
-    traits: ["Black", "Compact"],
-    repo: "github.com/manaflow-ai/cmux/examples/looks/t3code/profile@feat-cmux-next",
-    tags: ["chat", "dark", "sidebar"],
-    colors: { dark: ["#000000", "#0a0a0a", "#1a1a1a", "#c4b5fd"], light: ["#000000", "#0a0a0a", "#1a1a1a", "#c4b5fd"] },
-  },
+  SEEDS[0]!,
   SEEDS[1]!,
 ];
 
