@@ -123,7 +123,7 @@ jobs:
       # fetch outran the job's 10 minutes on pool runners (runs 45596156615, 45596705573): ancestry against
       # main is asked of GitHub below.
       - name: Checkout the trusted CI helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           fetch-depth: 1
@@ -217,7 +217,7 @@ jobs:
     environment: ${{ inputs.paused_reads && inputs.target == 'staging' && 'cmux-next-vm-image-dev' || format('cmux-vm-{0}', inputs.target) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           persist-credentials: false

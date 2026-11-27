@@ -4,6 +4,7 @@
 # CMUX_PUBLISHED_KEYS_WRITE=1 cargo test -p cmux-config --test published_keys
 agentPane.attachmentView
 agentPane.composerLook
+agentPane.composerPlaceholder
 agentPane.composerRing
 agentPane.composerVimKeys
 agentPane.dictationShortcut
@@ -35,6 +36,7 @@ agentPane.display.layout.messages
 agentPane.display.minimap
 agentPane.display.modelChipIcon
 agentPane.display.modelPickerOrder
+agentPane.display.modelPickerStyle
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach
@@ -43,6 +45,7 @@ agentPane.display.rail.control
 agentPane.display.rail.show
 agentPane.display.rail.side
 agentPane.display.sendPop
+agentPane.display.sendScrollsToTop
 agentPane.display.senderIcon.badge
 agentPane.display.senderIcon.corner
 agentPane.display.senderIcon.lead
@@ -196,6 +199,7 @@ appearance.glassControls
 appearance.glassTransparency
 appearance.gooeyTabs
 appearance.highlightColor
+appearance.homeCardStyle
 appearance.hue
 appearance.iconTheme
 appearance.inactiveWindowDim
@@ -242,6 +246,7 @@ appearance.metrics.toolbarButtonActiveFill
 appearance.metrics.toolbarButtonCornerRadius
 appearance.metrics.toolbarButtonGap
 appearance.metrics.toolbarButtonSize
+appearance.mode
 appearance.paneArt.dark
 appearance.paneArt.light
 appearance.paneBackgrounds
@@ -307,6 +312,7 @@ appearance.themeFile
 appearance.themeFileExceptions
 appearance.titleAreaContrast
 appearance.titleAreaTone
+appearance.toolbarButtonStyle
 appearance.twoTone
 appearance.wallpaperLighting
 appearance.wallpaperTint
@@ -404,6 +410,7 @@ computerUse.cursorTag
 computerUse.deniedApps
 computerUse.driver
 computerUse.enabled
+computerUse.floatingPreview
 computerUse.livePreview
 computerUse.menus
 computerUse.mode
@@ -483,14 +490,20 @@ editor.wordWrapColumn
 experiments.agentBadges
 experiments.agentBadgesBeam
 experiments.appFontChrome
+experiments.appStoreFeatures
+experiments.appsTier
 experiments.attachmentTypeIcons
 experiments.browserProfileCard
+experiments.chatInstantUnderLoad
 experiments.chatWidgets
 experiments.cloudDiskBar
+experiments.cloudToggle
+experiments.compactionThresholdInsight
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
 experiments.composerV2
+experiments.eventsAsToolCalls
 experiments.expandedEditsEstimate
 experiments.foldSummaryCounts
 experiments.forum
@@ -513,6 +526,7 @@ experiments.threadMinimapRestReveal
 experiments.toastGlass
 experiments.toastsV2
 experiments.transcriptWorkLog
+experiments.writtenHTMLOpenBeside
 feed.agentPermissionPrompts
 feed.github.enabled
 feed.github.pollIntervalSeconds
@@ -565,6 +579,7 @@ labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
 labs.previousBuild
+labs.teamCompute
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
@@ -693,6 +708,7 @@ remote.ultraMode
 remoteDesktop.maxBitrateMbps
 remoteDesktop.maxFps
 remoteDesktop.quality
+remoteDesktop.sharpLinuxText
 screenshots.findTools
 screenshots.folders
 sessions.allowFullAccess
@@ -713,6 +729,7 @@ sidebar.density
 sidebar.detailedStatusIcons
 sidebar.drawnMenus
 sidebar.floatOnHover
+sidebar.folderlessUngrouped
 sidebar.groupBy
 sidebar.groupByComputer
 sidebar.groupGradient
@@ -749,7 +766,11 @@ sidebar.nowPlaying.otherApps
 sidebar.numbering
 sidebar.pinnedBandsScroll
 sidebar.priorityView.enabled
+sidebar.priorityView.filters
+sidebar.priorityView.showIdle
 sidebar.priorityView.shown
+sidebar.priorityView.statusWords
+sidebar.profileMenu.style
 sidebar.sectionLook
 sidebar.sections.hidden
 sidebar.sections.order
@@ -780,6 +801,7 @@ sidebar.style
 sidebar.textSize
 sidebar.topBandMaxShare
 sidebar.workspaceIcons
+sidebar.workspaceListApp
 sidebar.workspaceRow.agent.agentStatus
 sidebar.workspaceRow.agent.branch
 sidebar.workspaceRow.agent.directory
@@ -978,4 +1000,6 @@ workspaces.hibernation.hiddenSpaceMinutes
 workspaces.hibernation.idleMinutes
 workspaces.newPlacement
 worktrees.autoCleanup
+worktrees.branchPrefix
 worktrees.cleanBuildCaches
+worktrees.location

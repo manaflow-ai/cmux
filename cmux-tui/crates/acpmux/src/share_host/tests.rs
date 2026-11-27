@@ -533,6 +533,44 @@ fn the_helpers_own_grant_reading_is_kept_with_the_item_it_is_listed_as() {
 }
 
 #[test]
+fn a_fresh_install_reads_the_helpers_grants_once_before_any_share() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let macos = home.path().join("cmux NIGHTLY Helper.app/Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    let exe = macos.join(helper::EXECUTABLE);
+    std::fs::write(
+        &exe,
+        b"#!/bin/sh\n[ \"$1\" = permissions ] || exit 2\necho '{\"screen_recording\":true,\"accessibility\":true}'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut found = 0;
+    helper::read_grants_once(home.path(), || {
+        found += 1;
+        Some(exe.clone())
+    });
+    assert_eq!(found, 1);
+    let kept = &helper::status_json(home.path())["permissions"];
+    assert_eq!(kept["screen_recording"], true, "the helper's grant, before any share: {kept}");
+    assert_eq!(kept["listed_as"], "cmux NIGHTLY Helper");
+
+    // Once per home: a second ask neither looks the helper up again nor reads it again.
+    let other = tempfile::tempdir().unwrap();
+    let mut looked = 0;
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    assert_eq!(looked, 1);
+    assert_eq!(helper::status_json(other.path())["permissions"], Value::Null);
+}
+
+#[test]
 fn the_joins_install_mark_and_status_are_read_from_its_files() {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
@@ -1370,6 +1408,18 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
             "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
+    // Two equal records: the one seen last, as the app picks, not the one listed last.
+    shared.set_devices(&json!({"devices": [
+        {"id": "new", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 200.0},
+        {"id": "old", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 100.0},
+        {"id": "never", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true},
+    ]}));
+    assert_eq!(shared.device_hub_of("vm").unwrap()["id"], "new");
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos"},
+    ]}));
     // This device's own record is never another machine's.
     assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
 }
