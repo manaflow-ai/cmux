@@ -3380,11 +3380,8 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
-  // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
-  if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
-  const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
+  const mine = ownNamedMachines(rows, tag, { kept });
   let failed = 0;
   for (const r of mine) {
     const id = String(r.id ?? r.machine_id ?? "");
@@ -4502,6 +4499,19 @@ export const LONG_JOURNEY_MS = 11 * 3_600_000;
 /** The machine name of a run that deletes its machine at the end: ` long` marks a run that may outlast STALE_JOURNEY_MS. */
 export function autoMachineName(tag: string, long: boolean): string {
   return `cloud journey auto ${tag}${long ? " long" : ""}`;
+}
+/**
+ * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
+ * the ids in EXCLUDE. A create can leave a second machine under the run's name besides the id it answered: run
+ * 46059808882 (jr-mwzf7mv7, an 86.8 s create) deleted the answered vm_5e22ac9cfbb7343202e5 at its end while a second
+ * `cloud journey auto jr-mwzf7mv7` stayed paused on the production probe account, held a plan slot (paused counts
+ * against the 20-machine cap) until the next run's STALE_JOURNEY_MS sweep 3 h later. --kept adds a --keep run's names.
+ */
+export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolean; exclude?: Iterable<string | null | undefined> } = {}): any[] {
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`, `${autoMachineName(tag, long)} cold`]));
+  if (opts.kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
+  const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
+  return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
 }
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
@@ -5671,19 +5681,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: g };
       }).catch(() => undefined);
     }
-    if (deleted) return;
-    let id = machine;
-    if (!id && !cleanupCreatedIdsOnly) {
-      // Every page: the machine may sit past the first (a shared account's list).
-      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
-      id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
+    if (!deleted && machine) {
+      const target: string = machine;
+      await J.step("delete (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-delete`);
+        return { value: null, detail: target };
+      }).catch(() => undefined);
     }
-    if (!id) return;
-    const target: string = id;
-    await J.step("delete (cleanup)", async () => {
-      await api.deleteMachine(target, `${tag}-cleanup-delete`);
-      return { value: null, detail: target };
-    }).catch(() => undefined);
+    if (cleanupCreatedIdsOnly) return;
+    // Every machine under this run's own names, not only the id create answered: a lost create reply leaves
+    // `machine` null, and a slow create can leave a second machine by the same name (ownNamedMachines). Every page:
+    // the machine may sit past the first (a shared account's list).
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    for (const r of ownNamedMachines(rows, tag, { exclude: [machine, gatewayMachine] })) {
+      const target = String(r.id ?? r.machine_id ?? "");
+      if (!target) continue;
+      await J.step("delete own-named machine (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-name-${target}`);
+        return { value: null, detail: `${target} ${r.status ?? "?"}` };
+      }).catch(() => undefined);
+    }
   });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
