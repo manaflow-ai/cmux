@@ -1070,7 +1070,7 @@ if [[ "$mode" == screen ]]; then
   use_pinned_toolchain
   warm_target_guard
   step "screen go" ensure_go
-  step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
+  step "screen clippy" cargo clippy --locked --workspace --all-targets ${keep_going[@]+"${keep_going[@]}"} -- -D warnings
   step "screen test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "screen release build" cargo build --locked --release -p cmux-screen-host
   step "tailnet release build" cargo build --locked --release --manifest-path "$root/cmux-tui/Cargo.toml" -p cmux-tailnet
@@ -1101,7 +1101,7 @@ if [[ "$mode" == vm-cli ]]; then
   export CARGO_TARGET_DIR="$root/.build/cmux-vm-cli-target"
   cd "$root/workers/cmux-vm/cli"
   warm_target_guard
-  step "vm-cli clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
+  step "vm-cli clippy" cargo clippy --locked --workspace --all-targets ${keep_going[@]+"${keep_going[@]}"} -- -D warnings
   step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "vm-cli release build" cargo build --locked --release -p cmux-vm
   step "vm-cli artifact" copy_vm_cli

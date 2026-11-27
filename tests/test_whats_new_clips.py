@@ -1262,6 +1262,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('record_one "$id" "$roles" "$before" &', run)
         self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
         self.assertIn('--deadline "${QUEUE_S}s"', run)
+        # The step's key names the nightly, so the controller ranks it in the delivery class (nightlyOrPromoteJob:
+        # "nightly" in the key), not at -9 behind every queued simulator step (46020149254: 0 clips).
+        key = re.search(r'--key "([^"]+)"', run)
+        self.assertIsNotNone(key, "each clip step passes its own --key")
+        self.assertIn("nightly", key.group(1).lower())
+        self.assertIn("$id", key.group(1))
+        self.assertIn("GITHUB_RUN_ID", key.group(1))
         self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
         bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
         self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
