@@ -129,7 +129,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
     # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
-    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
+    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped, and an
+    # unresolved line's guest DNS facts keep only counts and flags (edge_dns_guest).
     "cloud.machine.edge_dns",
     "cloud.machine.ledger_wake",
     "cloud.machine.power_overdue",
@@ -444,6 +445,74 @@ DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
 RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
 
 
+# cloud.machine.edge_dns's `guest` (cmux-platform#2293 NeverBoundProbe.ts edgeDnsGuestFacts): the guest's own DNS facts
+# when coderouter.cmux.internal stays unresolved after every kick, each one raw text with its lines joined by `|`:
+# hosts (the /etc/hosts lines naming the edge), confd (the resolved.conf.d drop-ins, `path:` before each), status
+# (`resolvectl status`) and journal (systemd-resolved's tail). The journal and status can name hosts a tenant's
+# machine looked up, so no text leaves: only counts, flags, the drop-ins' own file names and the kind of address the
+# hosts line points at.
+EDGE_DNS_JOURNAL = (
+    ("timed_out", re.compile(r"timed out|timeout", re.I)),
+    ("degraded", re.compile(r"degraded feature set", re.I)),
+    ("servfail", re.compile(r"SERVFAIL")),
+    ("refused", re.compile(r"REFUSED|connection refused", re.I)),
+    ("no_servers", re.compile(r"no (appropriate )?(name|dns) servers?", re.I)),
+    ("started", re.compile(r"Started .*Name Resolution|Starting .*Name Resolution", re.I)),
+    ("stopped", re.compile(r"Stopped .*Name Resolution|Stopping .*Name Resolution", re.I)),
+)
+EDGE_DNS_CONFD_FILE = re.compile(r"(?:^|\|)(/(?:etc|run)/systemd/resolved\.conf\.d/([0-9A-Za-z._-]{1,64}\.conf)):")
+EDGE_DNS_IPV4 = re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
+
+
+def edge_dns_addr_kind(text):
+    """The kind of the first IPv4 address in `text`: loopback, private, link_local, cgnat, public, or none."""
+    m = EDGE_DNS_IPV4.search(text)
+    if not m:
+        return "none"
+    a, b = int(m.group(1)), int(m.group(2))
+    if a == 127:
+        return "loopback"
+    if a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168):
+        return "private"
+    if a == 169 and b == 254:
+        return "link_local"
+    if a == 100 and 64 <= b <= 127:
+        return "cgnat"
+    return "public"
+
+
+def edge_dns_guest(g):
+    """cloud.machine.edge_dns `guest`'s typed projection: counts and flags, never the guest's text."""
+    out = {}
+    hosts = g.get("hosts")
+    if isinstance(hosts, str):
+        lines = [x for x in hosts.split("|") if x.strip()]
+        out["hosts_lines"] = len(lines)
+        out["hosts_addr"] = edge_dns_addr_kind(lines[0]) if lines else "none"
+    confd = g.get("confd")
+    if isinstance(confd, str):
+        out["confd_files"] = sorted({m.group(2) for m in EDGE_DNS_CONFD_FILE.finditer(confd)})[:8]
+        out["confd_internal"] = "cmux.internal" in confd
+        out["confd_dns_lines"] = sum(1 for x in confd.split("|") if x.strip().startswith("DNS="))
+    status = g.get("status")
+    if isinstance(status, str):
+        lines = status.split("|")
+        out["status_links"] = sum(1 for x in lines if re.match(r"\s*Link \d+ \(", x))
+        out["status_internal_scope"] = "~cmux.internal" in status
+        out["status_current_server"] = any("Current DNS Server:" in x for x in lines)
+        out["status_servers"] = len(EDGE_DNS_IPV4.findall(" ".join(x for x in lines if "DNS Servers:" in x)))
+    journal = g.get("journal")
+    if isinstance(journal, str):
+        lines = [x for x in journal.split("|") if x.strip()]
+        counts = {"lines": len(lines)}
+        for name, rx in EDGE_DNS_JOURNAL:
+            n = sum(1 for x in lines if rx.search(x))
+            if n:
+                counts[name] = n
+        out["journal"] = counts
+    return out
+
+
 def idle_kept(j):
     """cloud.idle.kept's typed projection: why, a timer_only flag for `workload`, the daemon version and a running
     band. The line's team and machine are ids and its process, port and timer names are the guest's own words: only
@@ -588,6 +657,10 @@ def public_log(j):
             out["exit"] = j["exit"]
         if j.get("why") in ("bind", "claim"):
             out["why"] = j["why"]
+        if out.get("outcome") == "unresolved" and isinstance(j.get("guest"), dict):
+            facts = edge_dns_guest(j["guest"])
+            if facts:
+                out["guest"] = facts
     if "error" in j:
         out["error"] = True
     return out, None

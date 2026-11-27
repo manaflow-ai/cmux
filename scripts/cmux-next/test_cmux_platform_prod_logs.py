@@ -403,6 +403,35 @@ class ProjectionTests(unittest.TestCase):
         self.assertNotIn("exit", odd["log"])
         self.assertNotIn("10.0.0.2", json.dumps(row))
 
+    def test_an_unresolved_edge_dns_keeps_guest_facts_as_counts_and_flags_only(self):
+        # Production 2026-11-26 21:50Z, 22:15Z and 23:48Z: three cloud-chat auth.signed_out guests stayed unresolved
+        # after every kick; cmux-platform#2293 logs their DNS facts as `guest`, raw text a tenant's lookups can be in.
+        guest = {
+            "hosts": "100.64.1.7 coderouter.cmux.internal|",
+            "confd": "/run/systemd/resolved.conf.d/61-freestyle-tls.conf:[Resolve]|DNS=100.64.1.1|"
+                     "Domains=~cmux.internal|/etc/systemd/resolved.conf.d/cmux scope.conf:x|",
+            "status": "Global|resolv.conf mode: stub|Link 2 (eth0)|Current DNS Server: 100.64.1.1|"
+                      "DNS Servers: 100.64.1.1 1.1.1.1|DNS Domain: ~cmux.internal|",
+            "journal": "Using degraded feature set UDP instead of EDNS0 for DNS server 100.64.1.1.|"
+                       "Timeout while resolving secret-tenant.example.com|Started Network Name Resolution.|",
+        }
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "claim",
+                               "outcome": "unresolved", "exit": 3, "ms": 22606, "guest": guest}))
+        self.assertEqual(row["log"]["guest"], {
+            "hosts_lines": 1, "hosts_addr": "cgnat",
+            "confd_files": ["61-freestyle-tls.conf"], "confd_internal": True, "confd_dns_lines": 1,
+            "status_links": 1, "status_internal_scope": True, "status_current_server": True, "status_servers": 2,
+            "journal": {"lines": 3, "timed_out": 1, "degraded": 1, "started": 1},
+        })
+        text = json.dumps(row)
+        for leak in ("secret-tenant", "100.64.1.7", "1.1.1.1", "cmux scope"):
+            self.assertNotIn(leak, text)
+        kicked = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "outcome": "kicked", "guest": guest}))
+        self.assertNotIn("guest", kicked["log"])
+        empty = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "outcome": "unresolved",
+                                 "guest": {"hosts": ""}}))
+        self.assertEqual(empty["log"]["guest"], {"hosts_lines": 0, "hosts_addr": "none"})
+
     def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
         # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
         row = logs.line(event({"msg": "machines.spare.claim", "team": TEAM, "spares": 1,
