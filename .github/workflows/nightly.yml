@@ -3089,8 +3089,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     permissions:
       contents: read
-      # write: the resolver dispatches cmux-tui-tree-request.yml when nothing publishes the tip's tree (CMUX_TUI_TREE_REQUEST).
-      actions: write
+      actions: read
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
     outputs:
       commit: ${{ steps.resume_source.outputs.build_sha || steps.resolve.outputs.commit }}
@@ -3182,8 +3181,6 @@ jobs:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
           CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock scripts/ci/nightly-steps
-          # A tip tree nothing publishes is requested (cmux-tui-tree-request.yml), then waited for, not a red nightly.
-          CMUX_TUI_TREE_REQUEST: "1"
           TRACK: ${{ needs.decide.outputs.track }}
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh

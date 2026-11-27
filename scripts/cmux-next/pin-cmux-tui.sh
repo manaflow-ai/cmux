@@ -1919,40 +1919,9 @@ resolve_newest_published_tree() {
 # CMUX_TUI_TREE_TIP_WAIT_SECONDS: by default 3000 in nightly.yml (inside the
 # resolver job's 75 min) and 0 everywhere else, so request-nightly-next.sh and
 # the media workflow still look once. It runs only while a cmux-tui artifacts
-# run for the tip, or an active run of the same tree, exists. When none does,
-# CMUX_TUI_TREE_REQUEST=1 (nightly.yml, whose resolver holds actions: write)
-# dispatches cmux-tui-tree-request.yml for the tip, which re-runs the tip's own
-# artifacts run, and waits for it the same way; without it, or when the
-# dispatch is refused, it fails at once. It fails when the publisher ends
-# without publishing, or when the bound is hit.
-# 2026-11-25: tree 29e859d3 of nightly-next tip 19d5725c had no publisher (its
-# owner had failed, the tip's run deferred to it and ended green, the
-# feat-cmux-next push was coalesced), and every nightly failed here for hours,
-# naming the dispatch a person had to run.
-# request_tip_tree <tip> <key> <state>: with CMUX_TUI_TREE_REQUEST=1, dispatches
-# cmux-tui-tree-request.yml on feat-cmux-next for <tip> and returns 0; else, or
-# when the dispatch is refused, returns 1. The request publishes only a
-# feat-cmux-next commit, re-runs its run (a coalesced one in full, a failed one
-# by its failed jobs), refuses a compile error or a fourth attempt, and starts
-# nothing while a same-key run is active, so a second nightly asking for the
-# same tree starts no second build.
-request_tip_tree() {
-  local tip="$1" key="$2" state="$3" repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
-  [[ "${CMUX_TUI_TREE_REQUEST:-}" == 1 ]] || return 1
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "warning: CMUX_TUI_TREE_REQUEST=1 but gh is not installed; cannot request tree $key" >&2
-    return 1
-  fi
-  if ! gh workflow run cmux-tui-tree-request.yml --repo "$repo" --ref feat-cmux-next -f commit="$tip" >&2; then
-    echo "warning: the cmux-tui-tree-request.yml dispatch for ${tip:0:12} was refused; nothing was requested" >&2
-    return 1
-  fi
-  echo "the tip ${tip:0:12}'s cmux-tui tree $key had no publisher (artifacts runs: $state); requested it from cmux-tui-tree-request.yml" >&2
-  [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] \
-    || echo "- requested cmux-tui tree \`$key\` of \`$tip\` (cmux-tui-tree-request.yml): no run was publishing it" >> "$GITHUB_STEP_SUMMARY"
-  return 0
-}
-
+# run for the tip, or an active run of the same tree, exists; it fails at once
+# when none does (this job holds actions: read, so it starts no publisher), when
+# the publisher ends without publishing, or when the bound is hit.
 resolve_newest_published_or_await_tip() {
   local wait_seconds rc=0 tip key state sha_file
   if [[ "${GITHUB_WORKFLOW_REF:-}" == */.github/workflows/nightly.yml@* ]]; then
@@ -1977,22 +1946,14 @@ resolve_newest_published_or_await_tip() {
     state="$(artifacts_runs_state "$tip")"
     # Fail fast only on a confirmed miss: the tip's runs read and none active, and
     # the recent runs list read with no same-tree run. An unreadable list waits.
-    local check_seconds="${CMUX_TUI_TREE_RUN_CHECK_SECONDS:-300}" missed=false
-    [[ "$state" != active && "$state" != unknown && -z "$(active_publisher_for_key "$key")" ]] && missed=true
-    if [[ "$missed" == true ]] && request_tip_tree "$tip" "$key" "$state"; then
-      # The request's job starts in about a minute and re-runs the tip's run; the
-      # first look at the tip's runs still reads them ended, so the second, which
-      # decides, comes after the request has had time to start it.
-      state="requested; was ${state}"
-      check_seconds="${CMUX_TUI_TREE_REQUEST_CHECK_SECONDS:-600}"
-    elif [[ "$missed" == true ]]; then
+    if [[ "$state" != active && "$state" != unknown && -z "$(active_publisher_for_key "$key")" ]]; then
       {
         echo "error: the tip ${tip:0:12}'s cmux-tui tree $key is not published and no cmux-tui artifacts run is publishing it, so the nightly has nothing to wait for."
         case "$state" in
           none) echo "  No cmux-tui artifacts run exists for $tip." ;;
           *) echo "  Its runs ended without publishing it: ${state#ended }." ;;
         esac
-        echo "  No publisher could be requested (CMUX_TUI_TREE_REQUEST=1 dispatches cmux-tui-tree-request.yml). Start one, then re-run this nightly:"
+        echo "  This job holds actions: read only and starts no publisher. Start one, then re-run this nightly:"
         echo "    gh workflow run cmux-tui-artifacts.yml --repo ${GITHUB_REPOSITORY:-manaflow-ai/cmux} --ref feat-cmux-next"
         echo "  (or re-run the failed artifacts run for $tip)."
       } >&2
@@ -2001,7 +1962,7 @@ resolve_newest_published_or_await_tip() {
     echo "no older commit can be built; waiting up to ${wait_seconds}s for the publisher of the tip ${tip:0:12}'s tree $key (artifacts runs: $state)" >&2
     sha_file="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-tip.XXXXXX")"
     CMUX_TUI_TREE_WAIT_SECONDS="$wait_seconds" CMUX_TUI_TREE_PUBLISHER_SHA="$tip" CMUX_TUI_TREE_DISPATCH="" \
-      CMUX_TUI_TREE_RUN_CHECK_SECONDS="$check_seconds" wait_for_tree "$key" "$sha_file" ""
+      wait_for_tree "$key" "$sha_file" ""
     rm -f "$sha_file"
   fi
   echo "the tip's tree $key is published; resolving again" >&2

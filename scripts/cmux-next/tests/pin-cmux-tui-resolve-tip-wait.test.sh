@@ -5,9 +5,9 @@
 # bf6faf9c692f (5d81874b330a): not published" while same-key run 40444370171
 # was still building that tree, and every older commit carried a different
 # nightly.yml. It never waits when a commit resolves, never outside nightly.yml,
-# fails at once when nothing publishes the tree unless CMUX_TUI_TREE_REQUEST=1
-# (nightly.yml) requests it from cmux-tui-tree-request.yml and waits for that,
-# and fails on a publisher that ends without publishing or at the bound. No network: a stub curl serves the CDN and the Actions API;
+# fails at once when nothing publishes the tree (it holds actions: read, so it
+# starts no publisher), and fails on a publisher that ends without publishing
+# or at the bound. No network: a stub curl serves the CDN and the Actions API;
 # waits run on a virtual clock.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -64,7 +64,7 @@ runs() {
 }
 # all <sha> <status>: the workflow's recent runs (active_publisher_for_key reads them).
 all() { printf '{"workflow_runs": [{"id": 2, "head_sha": "%s", "status": "%s"}]}\n' "$1" "$2" > "$api/all.json"; }
-reset() { rm -rf "$cdn" "$api"; mkdir -p "$cdn" "$api"; echo '{"workflow_runs": []}' > "$api/all.json"; : > "$FAKE_CLOCK_EVENTS"; : > "$TMP/gh.log"; }
+reset() { rm -rf "$cdn" "$api"; mkdir -p "$cdn" "$api"; echo '{"workflow_runs": []}' > "$api/all.json"; : > "$FAKE_CLOCK_EVENTS"; }
 
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/curl" <<STUB
@@ -92,13 +92,6 @@ path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
 chmod +x "$TMP/bin/curl"
-# gh records each call; FAKE_GH_EXIT refuses it.
-cat > "$TMP/bin/gh" <<STUB
-#!/usr/bin/env bash
-echo "\$*" >> "$TMP/gh.log"
-exit "\${FAKE_GH_EXIT:-0}"
-STUB
-chmod +x "$TMP/bin/gh"
 
 NIGHTLY_REF=o/r/.github/workflows/nightly.yml@refs/heads/nightly-next
 # resolve [env...] -> out (stdout), err, status, took (virtual seconds)
@@ -147,7 +140,7 @@ for body in '{"workflow_runs": null}' '{"workflow_runs": [1]}' '{}'; do
   [[ "$status" == 0 ]] && grep -q "a same-tree run is unknown" <<<"$err" || fail "malformed runs list $body: must be unknown and wait"
 done
 
-# 3. No run exists: it fails at once with what to dispatch without CMUX_TUI_TREE_REQUEST=1 (no dispatch).
+# 3. No run exists: it fails at once with what to dispatch (no actions: write, no dispatch).
 reset; runs "$tip" ""
 resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"
 [[ "$status" == 1 ]] || fail "no publisher: must fail"
@@ -155,36 +148,6 @@ resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"
 grep -q "No cmux-tui artifacts run exists for $tip" <<<"$err" \
   && grep -q "gh workflow run cmux-tui-artifacts.yml --repo o/r --ref feat-cmux-next" <<<"$err" \
   || fail "no publisher: the failure must say to dispatch the artifacts workflow"
-[[ ! -s "$TMP/gh.log" ]] || fail "no publisher, no CMUX_TUI_TREE_REQUEST: must dispatch nothing"
-
-# 3b. Nightly-next 45659900601 (2026-11-25): tree 29e859d3 had no publisher (the tip's run deferred to an owner
-#     that failed, and ended green), and the nightly failed naming the dispatch a person had to run. With
-#     CMUX_TUI_TREE_REQUEST=1 it requests the tree for the tip, and the request re-runs the tip's run.
-reset; runs "$tip" completed success
-fake_clock_at 90 "printf '{\"workflow_runs\": [{\"id\": 1, \"status\": \"queued\", \"conclusion\": null, \"html_url\": \"u1\"}]}' > '$api/runs-$tip.json'"
-fake_clock_at 900 "'$TMP/publish' '$tip'"
-resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF" CMUX_TUI_TREE_REQUEST=1
-[[ "$status" == 0 ]] && grep -qx "source_commit=$tip" <<<"$out" || fail "requested tree: must wait for the re-run and resolve the tip"
-grep -qx "workflow run cmux-tui-tree-request.yml --repo o/r --ref feat-cmux-next -f commit=$tip" "$TMP/gh.log" \
-  || fail "requested tree: must dispatch cmux-tui-tree-request.yml for the tip on feat-cmux-next ($(cat "$TMP/gh.log"))"
-[[ "$(wc -l < "$TMP/gh.log")" -eq 1 ]] || fail "requested tree: exactly one request"
-grep -q "requested it from cmux-tui-tree-request.yml" <<<"$err" || fail "requested tree: say it was requested"
-(( took >= 900 && took < 1200 )) || fail "requested tree: expected to stop waiting once the tree published"
-
-# 3c. A refused request fails at once, as with no request.
-reset; runs "$tip" ""
-resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF" CMUX_TUI_TREE_REQUEST=1 FAKE_GH_EXIT=1
-[[ "$status" == 1 ]] && (( took == 0 )) || fail "refused request: must fail at once"
-grep -q "dispatch for ${tip:0:12} was refused" <<<"$err" && grep -q "nothing to wait for" <<<"$err" \
-  || fail "refused request: say the dispatch was refused and nothing publishes"
-
-# 3d. A request that starts nothing (a compile error, the attempt cap) fails on its two ended checks, the second
-#     CMUX_TUI_TREE_REQUEST_CHECK_SECONDS (600) in, not at the 3000 s bound.
-reset; runs "$tip" completed failure
-resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF" CMUX_TUI_TREE_REQUEST=1
-[[ "$status" == 1 ]] || fail "request that starts nothing: must fail"
-grep -q "no cmux-tui artifacts run will publish tree $key" <<<"$err" || fail "request that starts nothing: name the miss"
-(( took >= 600 && took < 900 )) || fail "request that starts nothing: must fail at its second check"
 
 # 4a. The publisher already failed: fail at once with its run.
 reset; runs "$tip" completed failure
