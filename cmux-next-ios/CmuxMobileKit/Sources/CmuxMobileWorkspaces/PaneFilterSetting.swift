@@ -14,7 +14,11 @@ import Observation
 @MainActor
 @Observable
 public final class PaneFilterSetting {
-    public static let shared = PaneFilterSetting()
+    /// The app's choice; in memory in unit tests, so no test reads a filter the host saved earlier
+    /// (`StickyTabSelectionTests` lost its browser tab on a runner whose saved filter hid browsers,
+    /// run 46057064825). UI tests launch the app as its own process and keep the saved choice.
+    public static let shared = PaneFilterSetting(
+        defaults: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil ? .standard : nil)
     static let key = "cmux.mobile.overview.paneFilter"
 
     @ObservationIgnored private let defaults: UserDefaults?
