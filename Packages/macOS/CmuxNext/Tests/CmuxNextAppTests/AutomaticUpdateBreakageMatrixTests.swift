@@ -8,7 +8,7 @@ import Testing
 /// One deterministic matrix exercises the bundle, feed, policy, transfer and relaunch failure
 /// boundaries that have repeatedly made an update look enabled while it could not complete.
 /// Each row is independent so Swift Testing can run the cases in parallel without sharing defaults.
-@MainActor @Suite(.serialized) struct AutomaticUpdateBreakageMatrixTests {
+@MainActor struct AutomaticUpdateBreakageMatrixTests {
     enum Scenario: String, CaseIterable, Sendable, CustomTestStringConvertible {
         case missingFeedMetadata
         case malformedFeedMetadata
@@ -139,8 +139,11 @@ import Testing
             }
 
         case .nextAppOwnedPolicy:
+            let (defaults, suite) = Self.freshDefaults()
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
             let updater = Self.updater(identity: Self.identity(bundleID: "com.cmuxterm.app.nightly.cmux-next",
-                                                               feed: Self.nextFeed))
+                                                               feed: Self.nextFeed), defaults: defaults)
             updater.configure(checkAutomatically: true, checkInterval: 900, downloadAutomatically: true)
             #expect(updater.automaticUpdates)
             #expect(!updater.downloadsFoundUpdates)
