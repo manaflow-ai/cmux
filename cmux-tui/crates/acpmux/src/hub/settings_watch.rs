@@ -1,6 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. The cmux settings file watched for the
 //! start-mode setting (`agents.defaultPermissionMode`, `start_mode.rs`) and the
-//! cmux router's start model (`agents.modelRouter.model`, which reloads the catalog):
+//! new-chat model and effort rows (`agents.defaults.*`, which redraw each harness's start):
 //! when its value changes, local `_acpmux/watch` connections get
 //! `_acpmux/start_mode_changed`, so a pending chat's start-mode chip asks
 //! acpmux again only then, never each time its pane is shown again. Any
@@ -128,6 +128,9 @@ impl Hub {
             Some(watch.clone());
         // The value the watchers' last answer was based on.
         let mut last = super::start_mode::setting_snapshot();
+        // The new-chat model and effort rows (`model_settings.rs`): a change redraws open pages'
+        // start model and effort.
+        let mut last_models = crate::model_settings::chat_defaults_snapshot();
         let (signal, mut wake) = super::harness_watch::wake_slot();
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
@@ -140,11 +143,22 @@ impl Hub {
                     hub.subsession_runs.wake();
                     hub.settings_changes.send_modify(|seq| *seq = seq.wrapping_add(1));
                 }
-                let Ok(now) =
-                    tokio::task::spawn_blocking(super::start_mode::setting_snapshot).await
+                let Ok((now, models)) = tokio::task::spawn_blocking(|| {
+                    (
+                        super::start_mode::setting_snapshot(),
+                        crate::model_settings::chat_defaults_snapshot(),
+                    )
+                })
+                .await
                 else {
                     break;
                 };
+                if models != last_models {
+                    last_models = models;
+                    if let Some(hub) = hub.upgrade() {
+                        hub.start_settings_changed().await;
+                    }
+                }
                 if now == last {
                     continue;
                 }

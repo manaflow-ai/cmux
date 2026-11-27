@@ -930,12 +930,13 @@ exit "$status"
 # Registries: cmux-tui/persisted-formats/formats.toml (the acpmux store, hosts, caches) and persisted-formats/formats.toml
 # (Swift app state, webviews versions and storage keys); settings keys: schemas/settings/published-keys.txt and
 # retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
-# published settings key is a row or retired (the cmux_next_ daemon tests step). Seconds.
+# published settings key is a row or retired (the cmux_next_ daemon tests step); this step runs the same settings
+# row/ledger check on the pull request before a publisher can serve it. Seconds.
 [step.persisted-formats]
 job = "linux"
 timeout = 300
 title = "Persisted formats ship their migration"
-about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; published settings keys and retired-keys entries are never removed"
+about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; every live settings row is published, and every published key is live or retired; published settings keys and retired-keys entries are never removed"
 inputs = [
   "cmux-tui/**",
   "persisted-formats/**",
@@ -2629,6 +2630,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/cpu_class/*",
   "cmux-tui/crates/acpmux/src/daemon/*",
   "cmux-tui/crates/acpmux/src/daemon/router_owner/*",
+  "cmux-tui/crates/acpmux/src/death_route/*",
   "cmux-tui/crates/acpmux/src/deps/*",
   "cmux-tui/crates/acpmux/src/gauges/*",
   "cmux-tui/crates/acpmux/src/hand/*",
@@ -2909,6 +2911,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui/src/app/window_docks/*",
   "cmux-tui/crates/cmux-tui/src/app/window_frame/*",
   "cmux-tui/crates/cmux-tui/src/bin/*",
+  "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/*",
   "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/*",
   "cmux-tui/crates/cmux-tui/src/build_adopt/*",
   "cmux-tui/crates/cmux-tui/src/carrier/*",

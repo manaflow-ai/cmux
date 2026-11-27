@@ -2375,7 +2375,7 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         token = steps[ids.index("reuse-token")]
         # The mirror's candidate lookup runs inside the fingerprint step, so the token comes first.
         self.assertLess(ids.index("reuse-token"), ids.index("reuse-key"))
-        self.assertIn("vars.CI_FAST_TIER_CARGO_BOT_READ != '0'", token["if"])
+        self.assertIn("(vars.CI_FAST_TIER_CARGO_BOT_READ || '1') != '0'", token["if"])
         self.assertIn("inputs.no_reuse != true", token["if"])
         self.assertEqual(token.get("timeout-minutes"), 1)
         for step_id in ("reuse-key", "reuse", "planner-reuse"):
@@ -3379,7 +3379,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", one_runs_on(jobs[name]))
 
-    def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
+    def run_fast_linux_read(self, codes: list[str], reply: dict | None, remote_head: str = "a" * 40) -> tuple[str, str, float]:
         """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
         the blocking read writes `reply` and prints 200 (or prints 404 when None)."""
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
@@ -3401,10 +3401,16 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift;
 printf 200
 """)
             curl.chmod(0o755)
+            # No-verdict reads also check the branch tip. Keep that read offline and
+            # current by default, independent of the live branch and runner environment.
+            git = bin_dir / "git"
+            git.write_text(f"#!/bin/bash\nprintf '%s\\trefs/heads/feat-cmux-next\\n' '{remote_head}'\n")
+            git.chmod(0o755)
             output = Path(temp) / "out"
             env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": temp,
                    "GITHUB_OUTPUT": str(output), "GATEWAY": "", "REF": "a" * 40, "REPO": "manaflow-ai/cmux",
-                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90"}
+                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90",
+                   "SEEN": "", "SUPERSEDED_GATE": "1", "STALE_PUSH_GATE": "1"}
             started = time.monotonic()
             # GitHub runs a `run:` step as `bash -e {0}`.
             result = subprocess.run(["bash", "-e", "-c", run], env=env, capture_output=True, text=True, timeout=60)
@@ -3423,6 +3429,11 @@ printf 200
         out, log, _ = self.run_fast_linux_read(["000", "000"], None)
         self.assertIn("verdict=unavailable", out)
         self.assertIn("results service down (HTTP 000)", log)
+
+    def test_fast_check_down_service_skips_a_superseded_push(self):
+        out, log, _ = self.run_fast_linux_read(["530", "530"], None, remote_head="b" * 40)
+        self.assertIn("verdict=superseded", out)
+        self.assertIn("no Mac fallback", log)
 
     def test_fast_check_still_waits_for_a_live_results_service(self):
         verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
@@ -3614,6 +3625,10 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                             # path_route hands the jobs its labels as ",a,b," (note-97).
                             "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
+            if "full-ci" in labels:
+                # The full-ci run is the labeled event's (CI_FULL_CI_ONE_SHOT: a later push into feat-cmux-next
+                # runs the cheap tier).
+                context.update({"github.event.action": "labeled", "github.event.label.name": "full-ci"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
         return context
 
