@@ -1024,6 +1024,13 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     },
   };
   (window as unknown as { __firstLoad: typeof recording }).__firstLoad = recording;
+  // Rows mounted over time (`.acpmux-row[data-row-id]` count at each DOM change), printed by RES_TRACE=1.
+  const mountedAt: [number, number][] = [];
+  (window as unknown as { __mountedAt: typeof mountedAt }).__mountedAt = mountedAt;
+  new MutationObserver(() => {
+    const n = document.querySelectorAll(".acpmux-row[data-row-id]").length;
+    if (n !== (mountedAt.at(-1)?.[1] ?? -1)) mountedAt.push([Math.round(performance.now()), n]);
+  }).observe(document, { childList: true, subtree: true });
   type Source = { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
   /// A box by its class names and its parent's first one ("acpmux-main > div.acpmux-dock").
   const named = (node: Node | null | undefined): string => {
@@ -2064,6 +2071,11 @@ try {
         timeout: RECORD_MS + 60_000,
         polling: 250,
       });
+      if (process.env.RES_TRACE === "1")
+        console.log(
+          "  MOUNTED " +
+            JSON.stringify(await page.evaluate(() => (window as unknown as { __mountedAt: unknown }).__mountedAt)),
+        );
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
