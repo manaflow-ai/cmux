@@ -41,13 +41,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "daemon felt",
-        &[
-            ("What a person feels: p50, p90 and p99 latencies", "acpmux daemon felt"),
-            ("The same as JSON", "acpmux --json daemon felt"),
-        ],
-    ),
-    (
         "daemon start",
         &[
             ("Start the daemon and wait until it accepts clients", "acpmux daemon start"),
@@ -171,7 +164,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Probe every harness for its models again", "acpmux daemon models --refresh"),
         ],
     ),
-    ("daemon felt", &[("Show felt-latency p50, p90 and p99", "acpmux daemon felt")]),
+    (
+        "daemon felt",
+        &[
+            ("Show felt-latency p50, p90 and p99", "acpmux daemon felt"),
+            ("The same as JSON", "acpmux --json daemon felt"),
+        ],
+    ),
     (
         "daemon placement",
         &[(

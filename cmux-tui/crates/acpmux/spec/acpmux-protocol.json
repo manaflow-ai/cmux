@@ -2833,18 +2833,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/chat_place",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/chat_place_set",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/move_targets",
       "params": {
         "$ref": "#/types/MoveTargetsParams"

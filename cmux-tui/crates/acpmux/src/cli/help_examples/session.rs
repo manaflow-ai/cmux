@@ -117,27 +117,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "session hold",
-        &[
-            (
-                "Hold a session: it takes no turn until its person asks",
-                "acpmux session hold review-27310",
-            ),
-            (
-                "Hold this machine's fleet but the coordinators",
-                "acpmux session hold --fleet --allow 'coord*' --reason \"deploy freeze\"",
-            ),
-            ("Print the fleet hold, changing nothing", "acpmux session hold --fleet --status"),
-        ],
-    ),
-    (
-        "session release",
-        &[
-            ("Release a held session", "acpmux session release review-27310"),
-            ("Lift this machine's fleet hold", "acpmux session release --fleet"),
-        ],
-    ),
-    (
         "session restart",
         &[
             ("Restart coord's agent on the installed version", "acpmux session restart coord"),

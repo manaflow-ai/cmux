@@ -530,7 +530,6 @@ impl WorkFold {
                 && matches!(head.kind, agent_host::QUEUED_METHOD | agent_host::WRITTEN_METHOD);
             return;
         };
-        self.subagents.set_clock(head.at);
         let subagents_own = e.dir == "in"
             && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
             && e.msg

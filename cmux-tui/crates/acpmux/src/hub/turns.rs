@@ -592,10 +592,6 @@ impl Hub {
         if first_work.is_some() {
             let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((arrived, release)) = seam {
-                // The paused first work lets the chat's prompt admission go (#52381), so the
-                // other prompts first_work_tests sends in this window reach the inbox hold this
-                // seam exists to test, rather than wait on admission behind it.
-                admitted();
                 // Queue admission is let go first: held, it alone would keep every other prompt
                 // out while this one waits, and `first_work_tests.rs` checks that the first
                 // work's own hold (`inbox.rs`) keeps notices and the delegator right without it.
