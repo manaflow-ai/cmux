@@ -1,0 +1,19 @@
+{
+  "record_version": 1,
+  "session_id": "@SESSION@",
+  "incarnation": "inc-1",
+  "host_pid": 4242,
+  "start_nonce": "0123456789abcdef0123456789abcdef",
+  "harness_pid": 4243,
+  "owner_token": "owner-token",
+  "protocol_min": 1,
+  "protocol_max": 3,
+  "host_build": "acpmux (current build)",
+  "socket": "@SOCKET@",
+  "caller_token": "caller-token",
+  "claude_translator": true,
+  "host_level": 2,
+  "holder": false,
+  "local_chatgpt_expiry": 1800000000,
+  "local_kimi_expiry": 1800000001
+}
