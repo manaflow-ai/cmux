@@ -15,6 +15,8 @@ docs/mdm/*
 # Mac; SettingsSchemaExportTests compares them with a fresh export): the bot
 # copies them in (hq-11, 2026-10-16). The settings sources stay frozen.
 !schemas/settings/settings-schema.json
+# The published-keys record only grows, with the schema it records (published_keys.rs).
+!schemas/settings/published-keys.txt
 !docs/mdm/com.manaflow.cmux*
 !docs/mdm/cmux-example.mobileconfig
 !docs/mdm/managed-preferences.md

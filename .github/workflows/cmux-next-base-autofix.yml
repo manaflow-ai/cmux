@@ -1282,6 +1282,16 @@ jobs:
           if git diff --quiet HEAD~1 HEAD -- schemas/settings/settings-schema.json; then
             echo "schemas/settings/settings-schema.json unchanged"; exit 0
           fi
+          # A new row is a published key (cmux-config tests/published_keys.rs): the record only grows,
+          # so the bot adds the regenerated schema's new rows to it in the same commit. Without it the
+          # pushed schema left published_keys red on feat-cmux-next (11 rows, 2026-11-27), and every
+          # base autofix refused its own schema for the red the push itself would make.
+          (cd cmux-tui && CMUX_PUBLISHED_KEYS_WRITE=1 cargo test --locked -p cmux-config --test published_keys -q 2>&1 | tail -5)
+          if ! git diff --quiet -- schemas/settings/published-keys.txt; then
+            git add schemas/settings/published-keys.txt
+            git commit --quiet --amend --no-edit
+            echo "recorded the regenerated schema's new rows in schemas/settings/published-keys.txt"
+          fi
           # cargo's whole output is kept so a stale Cargo.lock is named as such (cargo-locks.py explain).
           log="$RUNNER_TEMP/cmux-config-tests.log"
           if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tee "$log" | tail -60); then

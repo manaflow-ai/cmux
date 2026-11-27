@@ -93,7 +93,7 @@ output_areas() {
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
-      schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
+      schemas/settings/settings-schema.json | schemas/settings/published-keys.txt | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
       # The docs reference pages (base-autofix.sh 1e1): the settings reference from the settings export,
