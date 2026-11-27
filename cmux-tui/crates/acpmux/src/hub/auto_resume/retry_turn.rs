@@ -217,6 +217,26 @@ impl Hub {
         }
         let (cut_turn, failed, error, fired_gen) =
             self.claim_failed_turn(session, auto, allow_stopped)?;
+        // Automatic continuations and manual Retry must not send through a live child whose
+        // route/credential/gateway is marked for replacement. Manual Retry used to bypass this
+        // because `PromptOptions::fired` is set only after the claim; a pending route fallback
+        // could therefore resend on the failed environment before the reaper ran.
+        if auto.is_some() || session.respawn_required.load(std::sync::atomic::Ordering::SeqCst) {
+            // A first-send gateway fallback or manual route retry changes the next spawn's
+            // environment. Preserve background work while waiting for that spawn, never resend
+            // on the old child.
+            let ready = self.prepare_retry_handoff(session, &cut_turn, false, fired_gen).await;
+            if self.shutting_down() || session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+                // The outer first-send task leaves shutdown/replacement settlement to its
+                // owner too; no late skip should overwrite that boundary.
+                return Err(crate::hub::shutdown::shutting_down_error());
+            }
+            if !ready {
+                let stopped = !session.auto_resume.current(fired_gen);
+                self.clear_fired(session, &cut_turn, fired_gen);
+                return Err(if stopped { super::stopped() } else { super::superseded() });
+            }
+        }
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
         let prompt_id = format!("{root}{SUFFIX}{attempt}");

@@ -24,6 +24,9 @@ spec.loader.exec_module(fake)
 inner = fake.handle_prompt
 def handle(rid, params):
     text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    if len(sys.argv) > 3:
+        with open(sys.argv[3], "w") as receipt:
+            receipt.write(os.environ.get("TEST_RETRY_ROUTE", "missing"))
     once = text.startswith("revoked-once:") and not os.path.exists(sys.argv[2])
     if once or text.startswith("revoked-always:"):
         open(sys.argv[2], "a").close()
@@ -79,6 +82,90 @@ async fn until(what: &str, check: impl Fn() -> bool) {
 /// Longer than the retry's wait: a retry that was coming has started by then.
 async fn past_the_wait() {
     tokio::time::sleep(Duration::from_millis(FIRST_SEND_RETRY_MS + 1_500)).await;
+}
+
+async fn handoff_chat() -> (Arc<Hub>, Arc<Session>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {
+            "argv": ["python3", "-c", WRAPPER, fake, dir.path().join("once"), dir.path().join("route")],
+            "env": {"TEST_RETRY_ROUTE": "old"}
+        }},
+        "defaultHarness": "fake"
+    })).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    cfg.profile_sources = crate::config::ProfileSources::none();
+    let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+    let hub = Hub::new(cfg, store);
+    let s = hub
+        .new_session(NewRequest { cwd: Some(dir.path().to_owned()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    (hub, s, dir)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn automatic_restart_first_send_waits_for_work_and_uses_replacement_environment() {
+    let (hub, s, dir) = handoff_chat().await;
+    *s.work_below_since.lock().unwrap() = 1;
+    let error = prompt(&hub, &s, "revoked-once: hello", "handoff").await.unwrap_err();
+    assert!(error.message.contains(REVOKED), "{error:?}");
+    assert_eq!(records(&hub, &s, "first_send_retry").len(), 1);
+    let old = s.child.lock().await.clone().unwrap();
+    hub.config
+        .write()
+        .await
+        .harnesses
+        .get_mut("fake")
+        .unwrap()
+        .env
+        .insert("TEST_RETRY_ROUTE".into(), "replacement".into());
+    // The replacement route is required before this retry, not an optional stale-host refresh.
+    hub.respawn_when_quiet_required(&s);
+    until("first send claims its retry", || {
+        matches!(s.auto_resume.lock().as_ref(), Some(super::super::Mark::Firing(..)))
+    })
+    .await;
+    assert_eq!(records(&hub, &s, "turn_started").len(), 1);
+    assert!(Arc::ptr_eq(&old, s.child.lock().await.as_ref().unwrap()));
+    assert_eq!(std::fs::read_to_string(dir.path().join("route")).unwrap(), "old");
+    *s.work_below_since.lock().unwrap() = 0;
+    until("first-send retry completes on replacement", || {
+        records(&hub, &s, "turn_result").len() == 2
+    })
+    .await;
+    assert!(!Arc::ptr_eq(&old, s.child.lock().await.as_ref().unwrap()));
+    assert_eq!(std::fs::read_to_string(dir.path().join("route")).unwrap(), "replacement");
+    assert_eq!(records(&hub, &s, "user_message")[1]["promptId"], "handoff~resume-1");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn automatic_restart_first_send_stop_fences_a_busy_handoff() {
+    let (hub, s, _dir) = handoff_chat().await;
+    *s.work_below_since.lock().unwrap() = 1;
+    let error = prompt(&hub, &s, "revoked-once: hello", "handoff-stop").await.unwrap_err();
+    assert!(error.message.contains(REVOKED), "{error:?}");
+    assert_eq!(records(&hub, &s, "first_send_retry").len(), 1);
+    let old = s.child.lock().await.clone().unwrap();
+    // The replacement route is required before this retry, not an optional stale-host refresh.
+    hub.respawn_when_quiet_required(&s);
+    until("first send claims its retry", || {
+        matches!(s.auto_resume.lock().as_ref(), Some(super::super::Mark::Firing(..)))
+    })
+    .await;
+    hub.stop_auto_resume(&s);
+    until("busy first-send retry settles after Stop", || {
+        records(&hub, &s, "auto_resume_skipped")
+            .iter()
+            .any(|m| m["firstSend"] == true && m["skipped"] == "stopped")
+    })
+    .await;
+    assert_eq!(records(&hub, &s, "turn_started").len(), 1);
+    assert!(Arc::ptr_eq(&old, s.child.lock().await.as_ref().unwrap()));
+    assert!(s.auto_resume.lock().is_none());
+    hub.shutdown_all().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -142,34 +142,63 @@ impl Hub {
     }
 
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
-        self.eligible(session, false)
+        self.eligible(session, false, false)
     }
 
     /// [`Self::idle_eligible`] for the idle reaper's own exit: a chat whose continuation is due
     /// later than `idle_governor::FAR_RESUME` sleeps too, as its period says (`idle_governor.rs`):
     /// the continuation's prompt starts it again when due.
     pub(super) fn sleep_eligible(&self, session: &Session) -> bool {
-        self.eligible(session, true)
+        self.eligible(session, true, false)
     }
 
-    fn eligible(&self, session: &Session, far_resume_sleeps: bool) -> bool {
+    /// The currently firing retry may replace its stale proxy process before sending its
+    /// prompt. Its own continuation is the only idle gate it may omit; all work stays protected.
+    pub(super) fn retry_restart_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, false, true)
+    }
+
+    /// A retry mark can briefly outlive its scheduler when automatic retries are disabled. The
+    /// mark is settled by that scheduler and cannot fire a continuation, so it must not keep a
+    /// required quiet restart from hibernating the old environment.
+    fn retries_disabled(&self) -> bool {
+        self.auto_resume_disabled.load(Ordering::SeqCst)
+    }
+
+    fn eligible(&self, session: &Session, far_resume_sleeps: bool, firing_retry: bool) -> bool {
         // A chat its rate limit holds past its idle period sleeps through the hold, its queue
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
         // `sleeps_through_hold`).
         let sleeps_held = self.sleeps_through_hold(session);
+        let required_restart = session.respawn_required.load(Ordering::SeqCst)
+            && session.respawn_when_quiet.load(Ordering::SeqCst);
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && !self.secrets.waiting_in(&session.id)
-            && (session.queued() == 0 || sleeps_held)
+            // A firing continuation owns the aside entries held by its cut turn. They remain
+            // queued until the continuation succeeds, so treating every queued entry as a
+            // blocker would make a required quiet handoff wait for its own retry forever.
+            && (session.queued() == 0
+                || sleeps_held
+                || (firing_retry && {
+                    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+                    // The count also reserves prompts waiting for the turn lock, before
+                    // they have an entry. Only exempt fully accounted-for held entries;
+                    // an empty (or partly held) snapshot must not hide an arriving prompt.
+                    queue.len() as u64 == session.queued() && queue.iter().all(|q| q.aside())
+                }))
             && session.pending_permissions().is_empty()
             && !self.holds_work_below(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
-            && (!self.continuation_pending(session)
+            && (firing_retry
+                || !self.continuation_pending(session)
+                || self.retries_disabled()
+                || required_restart
                 || sleeps_held
                 || (far_resume_sleeps
                     && self.continuation_waits_far(session, super::idle_governor::FAR_RESUME)))
@@ -267,8 +296,20 @@ impl Hub {
     /// after [`quiet_respawn`] with nothing logged, under every gate an idle exit has, the census
     /// of what runs under it included, and its next prompt starts it again.
     pub(super) fn respawn_when_quiet(self: &Arc<Self>, session: &Session) {
-        session.respawn_when_quiet.store(true, Ordering::SeqCst);
+        if !session.respawn_when_quiet.swap(true, Ordering::SeqCst) {
+            session.state_seq.fetch_add(1, Ordering::SeqCst);
+            self.events.row_changed(session);
+        }
         self.wake_idle_reaper();
+    }
+
+    /// Mark a restart whose replacement environment is required by the next automatic retry.
+    /// The quiet mark remains shared with opportunistic stale/profile restarts so the idle reaper
+    /// keeps one hibernation path, while the separate bit tells retry handoff whether it may use
+    /// the existing child.
+    pub(super) fn respawn_when_quiet_required(self: &Arc<Self>, session: &Session) {
+        session.respawn_required.store(true, Ordering::SeqCst);
+        self.respawn_when_quiet(session);
     }
 
     /// A child was published: make sure the reaper runs and sees it.
@@ -469,7 +510,7 @@ impl Hub {
             self.touch(&session);
             return;
         }
-        if !self.hibernate_held(&session, link_lost, Some(seen)).await {
+        if !self.hibernate_held(&session, link_lost, Some(seen), None).await {
             return;
         }
         if moving {
@@ -508,13 +549,17 @@ impl Hub {
         session: &Arc<Session>,
         link_lost: bool,
         seen: Option<u64>,
+        firing_retry: Option<u64>,
     ) -> bool {
         session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
         if seen.is_some_and(|seen| session.last_active.load(Ordering::SeqCst) != seen) {
             self.clear_hibernation(session);
             return false;
         }
-        self.detach_child(session).await;
+        if !self.detach_child_if_current(session, firing_retry).await {
+            self.clear_hibernation(session);
+            return false;
+        }
         if link_lost {
             self.end_unadopted_host(session).await;
         }

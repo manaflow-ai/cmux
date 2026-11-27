@@ -87,6 +87,7 @@ use crate::store::EventRecord;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
@@ -509,8 +510,19 @@ impl Pending {
     }
 
     /// Whether a fired task's generation `fired_gen` is still the current one.
-    fn current(&self, fired_gen: u64) -> bool {
+    pub(super) fn current(&self, fired_gen: u64) -> bool {
         self.generation.load(std::sync::atomic::Ordering::SeqCst) == fired_gen
+    }
+
+    /// Run a synchronous operation while fencing the mark against a concurrent Stop.
+    ///
+    /// Retry teardown uses this to authorize and remove the child in one critical section;
+    /// Stop either fences the generation first or observes the child already removed. The mark
+    /// is deliberately acquired without waiting: the teardown takes the child slot first, while
+    /// Stop takes this mark first, so waiting here would invert their lock order.
+    pub(super) fn try_with_current<T>(&self, fired_gen: u64, f: impl FnOnce() -> T) -> Option<T> {
+        let _mark = self.mark.try_lock().ok()?;
+        self.current(fired_gen).then(f)
     }
 
     /// Changes each time a pending continuation is let go, however it went: settled, stopped,
@@ -720,6 +732,83 @@ pub(super) fn shown_line(line: &str) -> String {
 }
 
 impl Hub {
+    /// Prepare a marked route/credential/gateway restart before a continuation sends its prompt.
+    ///
+    /// The continuation keeps its firing generation while background work prevents hibernation;
+    /// dropping the mark would lose the retry, while sending through the live child would reuse
+    /// the old route.  A short bounded wake lets work finish without holding any restart lease.
+    /// The caller rechecks `still_cut_by` after this returns, so a person's queued prompt or a
+    /// Stop that arrived while waiting supersedes the continuation through the normal finish path.
+    async fn prepare_retry_handoff(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        cut_turn: &str,
+        rate_held: bool,
+        fired_gen: u64,
+    ) -> bool {
+        let mut released = session.auto_resume.released();
+        let mut delay = Duration::from_millis(500);
+        // Process exits have no session event. Census retries back off to five seconds;
+        // Stop/new work wakes this task through the continuation's existing release watch.
+        // Never expire the continuation just because its background work is long-lived.
+        let mut inspect_proxy = true;
+        let mut announced_wait = false;
+        loop {
+            if !session.auto_resume.current(fired_gen)
+                || !still_cut_by(session, cut_turn, rate_held)
+                || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
+                || session.status() == SessionStatus::Closed
+                || session.moving().is_some()
+                || self.shutting_down()
+            {
+                return false;
+            }
+            if inspect_proxy {
+                self.end_stale_proxy_before_retry(session, fired_gen).await;
+                inspect_proxy = false;
+                // Teardown/census awaited: cancellation must be read again before success.
+                continue;
+            }
+            // Stale binaries and profile refreshes are opportunistic: the existing child is
+            // still usable for this continuation. Only a changed route, credential, gateway or
+            // proxy makes the replacement environment required before sending.
+            if !session.respawn_required.load(std::sync::atomic::Ordering::SeqCst) {
+                return true;
+            }
+            if session.child.lock().await.is_none() {
+                return true;
+            }
+            if self.end_marked_restart_before_retry(session, fired_gen).await {
+                return session.auto_resume.current(fired_gen) && !self.shutting_down();
+            }
+            if !announced_wait && delay >= Duration::from_secs(5) {
+                let reason = if session.turn().is_some() {
+                    "turn"
+                } else if session.queue().iter().any(|queued| !queued.aside()) {
+                    "queued-prompt"
+                } else if session.child.lock().await.is_none() {
+                    "no-child"
+                } else {
+                    // The remaining refusal is a lock or process-census gate. Keep this
+                    // distinct from background work: the census logger records Busy/Unknown.
+                    "quiet-gate"
+                };
+                self.append(
+                    session,
+                    "mux",
+                    "auto_resume_waiting_restart",
+                    json!({"turnId": cut_turn, "reason": reason, "required": true}),
+                );
+                announced_wait = true;
+            }
+            tokio::select! {
+                _ = released.changed() => {},
+                _ = tokio::time::sleep(delay) => {},
+            }
+            delay = (delay * 2).min(Duration::from_secs(5));
+        }
+    }
+
     /// Mark an outgoing session before its durable store is staged. The admission lock order is
     /// `auto_resume -> append_lock -> turn` for completion and replacement; attestation takes
     /// `append_lock -> turn` and never `auto_resume`. The replacement fence takes both locks in
@@ -970,9 +1059,6 @@ impl Hub {
                 // takes the new deadline.
                 hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
-                // Its wait over, a background capacity continuation waits its turn at the
-                // host's gate; the permit lives as long as its attempt.
-                let _permit = hub.capacity_gate_admit(&session, &turn_id, reason, &wake).await;
                 let cut = CutTurn {
                     from: from.as_deref(),
                     prompt_id: &root,
@@ -983,7 +1069,7 @@ impl Hub {
                     not_before: None,
                     slash: slash.as_deref(),
                 };
-                hub.resume_or_compact(&session, cut, attempt).await;
+                hub.resume_or_compact(&session, cut, attempt, Some((wake, reason))).await;
                 return;
             }
             let cut = CutTurn {
@@ -996,7 +1082,7 @@ impl Hub {
                 not_before: None,
                 slash: slash.as_deref(),
             };
-            hub.resume_or_compact(&session, cut, attempt).await;
+            hub.resume_or_compact(&session, cut, attempt, Some((wake, reason))).await;
         });
     }
 
@@ -1741,6 +1827,7 @@ impl Hub {
         session: &Arc<Session>,
         cut: CutTurn<'_>,
         attempt: usize,
+        gate: Option<(Arc<Notify>, RetryReason)>,
     ) {
         // Transfer replacement can leave this old task alive after the returning journal
         // takes its id. It must neither fire nor record a skip in that new journal.
@@ -1829,7 +1916,48 @@ impl Hub {
         // (`ECONNREFUSED`, or a CA it does not trust): retrying in that process fails the same
         // way every attempt. It ends first, and this prompt starts a fresh one on the same
         // conversation (`stale_host_respawn.rs`).
-        self.end_stale_proxy_before_retry(session).await;
+        let ready = self.prepare_retry_handoff(session, cut_turn, rate, fired_gen).await;
+        // A daemon restart restores the existing durable schedule. Do not replace it with
+        // a terminal "superseded" just because the old environment was still busy at shutdown.
+        if self.shutting_down() || session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        if !ready
+            || !still_cut_by(session, cut_turn, rate)
+            || session.status() == SessionStatus::Closed
+            || session.moving().is_some()
+        {
+            self.finish_auto_resume(
+                session,
+                &cut,
+                attempt,
+                &held,
+                (Err(superseded()), fired_gen),
+                false,
+            );
+            return;
+        }
+        // A capacity continuation waits at the family gate only after the quiet handoff. Holding
+        // its probe permit while `prepare_retry_handoff` waits would block every other chat in
+        // that harness family from probing a recovered provider.
+        let _permit = if let Some((wake, gate_reason)) = gate.as_ref() {
+            let Some(permit) =
+                self.capacity_gate_admit(session, cut_turn, *gate_reason, wake).await
+            else {
+                self.finish_auto_resume(
+                    session,
+                    &cut,
+                    attempt,
+                    &held,
+                    (Err(superseded()), fired_gen),
+                    false,
+                );
+                return;
+            };
+            Some(permit)
+        } else {
+            None
+        };
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.finish_auto_resume(
             session,

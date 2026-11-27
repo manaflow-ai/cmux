@@ -10,6 +10,9 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/quiet_restart.rs"]
+mod quiet_restart;
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -28,12 +31,11 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-fn scratch(test: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("acpmux-restart-{test}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+fn scratch(test: &str) -> daemon_env::Scratch {
+    let root = daemon_env::Scratch::new(&format!("acpmux-restart-{test}"));
     std::fs::create_dir_all(root.join("home")).unwrap();
     std::fs::create_dir_all(root.join("config").join("harnesses")).unwrap();
-    std::fs::canonicalize(&root).unwrap()
+    root
 }
 
 /// The harness launcher at `path`: the fake agent, with its own pid in `RUN_PID`.
@@ -61,7 +63,7 @@ impl Client {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(60), self.1.recv())
                 .await
-                .expect("no reply in 60 s")
+                .unwrap_or_else(|_| panic!("no reply in 60 s for {m} (request {id})"))
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
@@ -182,7 +184,7 @@ async fn restart_harness_restarts_named_chats_and_reports_one_that_cannot_spawn(
     assert_ne!(local.harness_pid(&c).await, c_pid, "C restarted");
     assert_eq!(local.harness_pid(&a).await, a_new, "the Chief's chat is never swept");
 
-    let _ = std::fs::remove_dir_all(&root);
+    hub.shutdown_all().await;
 }
 
 /// The config file `hub_from_file` reads and a reload reads again: harness `good` runs the
@@ -312,6 +314,11 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     };
     assert_eq!(reply["result"]["stopReason"], "end_turn", "the turn was not cut: {reply}");
 
+    // Drive the real idle reaper rather than relying only on the prompt-time handoff. This keeps
+    // the profile path covered when a chat stays quiet after its turn ends.
+    let clock = quiet_restart::clock(&hub);
+    quiet_restart::hibernate(&hub, &chat, &clock).await;
+
     // The next turn runs on a new agent with the new argv, resuming the same agent session.
     let next = local.harness_args(&chat).await;
     assert!(
@@ -329,7 +336,7 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     assert_eq!(local.harness_pid(&chat).await, settled, "an unchanged profile keeps its agent");
     assert_eq!(local.respawn_pending(&chat).await, Value::Null);
 
-    let _ = std::fs::remove_dir_all(&root);
+    hub.shutdown_all().await;
 }
 
 /// Leo, 2026-10-22: "switching model/harness/whatever shouldnt immediately stop things,
@@ -445,5 +452,5 @@ async fn a_model_switch_during_a_turn_applies_after_it_and_never_stops_it() {
     assert_eq!(summary["preview"], "FAKE_MODEL=m-idle", "{summary}");
     assert_ne!(local.harness_pid(&chat).await, after, "restarted on the idle pick");
 
-    let _ = std::fs::remove_dir_all(&root);
+    hub.shutdown_all().await;
 }

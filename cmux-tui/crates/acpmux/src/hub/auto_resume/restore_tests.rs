@@ -672,6 +672,7 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
             slash: None,
         },
         1,
+        None,
     )
     .await;
     assert_eq!(hub.session_summary(&imported)["retry"], before);
