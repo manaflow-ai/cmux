@@ -37,6 +37,19 @@ fn send(
     class: PromptClass,
     wake_or_fail: bool,
 ) -> (tokio::task::JoinHandle<Result<Value, RpcError>>, tokio::sync::oneshot::Receiver<Value>) {
+    send_observing_acceptance(hub, to, from, prompt_id, text, (class, wake_or_fail), || {})
+}
+
+/// Observe acceptance synchronously, before inbox review can start the notice's turn.
+fn send_observing_acceptance(
+    hub: &Arc<Hub>,
+    to: &Arc<Session>,
+    from: &str,
+    prompt_id: &str,
+    text: &str,
+    (class, wake_or_fail): (PromptClass, bool),
+    on_accepted: impl FnOnce() + Send + 'static,
+) -> (tokio::task::JoinHandle<Result<Value, RpcError>>, tokio::sync::oneshot::Receiver<Value>) {
     let provenance = json!({"kind": "session_message", "from": format!("acp:{from}"),
                             "fromName": from, "to": format!("acp:{}", to.id), "verified": true});
     let (tx, accepted) = tokio::sync::oneshot::channel();
@@ -50,6 +63,7 @@ fn send(
         wake_or_fail,
         reply_reader: wake_or_fail.then_some(reader),
         on_accepted: Some(Box::new(move |v| {
+            on_accepted();
             let _ = tx.send(v);
         })),
         ..PromptOptions::default()
@@ -234,11 +248,20 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
     held.abort();
 
     // A question wakes it: never refused, and a turn comes until its notice ran.
-    let (question, accepted) =
-        send(&hub, &s, "s-other", "p-q", "which branch?", PromptClass::Question, true);
+    let (observed_hub, observed_id) = (hub.clone(), s.id.clone());
+    let (question, accepted) = send_observing_acceptance(
+        &hub,
+        &s,
+        "s-other",
+        "p-q",
+        "which branch?",
+        (PromptClass::Question, true),
+        move || {
+            assert!(observed_hub.work_coming(&observed_id), "its notice's turn is still coming")
+        },
+    );
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
-    assert!(hub.work_coming(&s.id), "its notice's turn is still coming");
     let answered = tokio::time::timeout(WAIT, question).await.unwrap().unwrap().unwrap();
     assert_eq!(answered["stopReason"], "end_turn", "{answered}");
     let settled = async {

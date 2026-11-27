@@ -545,14 +545,12 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         &mut accept,
     );
     tokio::pin!(prompt);
-    let answer = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        tokio::select! {
-            result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
-            ack = rx.recv() => ack.expect("acceptance"),
-        }
-    })
-    .await
-    .expect("an inbox delivery is accepted while configuration is being written");
+    let answer = tokio::select! {
+        result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+        ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => ack
+            .expect("an inbox delivery is accepted while configuration is being written")
+            .expect("acceptance"),
+    };
     assert_eq!(answer["promptId"], "after-restore");
     assert_eq!(answer["inbox"], true);
     assert_eq!(answer["queued"], true);
@@ -855,6 +853,32 @@ async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_
         let both = Some(vec!["b1".to_owned(), "r1".to_owned()]);
         assert_eq!(carried(&session), both, "the blocker brings it at once ({class:?})");
     }
+}
+
+/// No notice steers into a Codex turn whose model has not answered its prompt yet: codex-acp
+/// takes that steer as a new prompt and cancels the running one, so the chat's task was lost
+/// to an "expired undelivered" FYI three times in one chat (acp-chief-issues 2026-11-27). No
+/// timer polls it: the model's first sign looks again (`model_answered`), and the notice steers
+/// in as before. A Claude chat's turn takes it at once.
+#[tokio::test]
+async fn no_notice_steers_into_a_codex_turn_before_its_model_answers() {
+    let (hub, session) = hub_with_chat("codex-steer");
+    session.meta.lock().unwrap().family = Some("codex".to_owned());
+    running(&session);
+    session.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "held while the model has not answered");
+    assert!(session.inbox().timer.is_none(), "no timer: the model's first sign looks again");
+
+    session.heard.fetch_add(1, Ordering::SeqCst);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["b1".to_owned()]), "steered in once it answered");
+
+    let (hub, claude) = hub_with_chat("claude-steer");
+    running(&claude);
+    claude.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&claude);
+    assert_eq!(carried(&claude), Some(vec!["b1".to_owned()]), "a Claude turn takes it at once");
 }
 
 /// What steers into a running turn at once: blockers, and a result from the chat's parent or
