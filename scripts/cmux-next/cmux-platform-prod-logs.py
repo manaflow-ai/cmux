@@ -529,6 +529,30 @@ START_KINDS = frozenset({"person", "window", "refresh", "warm"})
 START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
 
 
+# cloud.start.first_reply (cmux-platform StartTrace.ts firstReplyOf): `steps`, each hop's ms of one real chat's start
+# (StartTrace.ts HOPS, hopDurations), `first`, the hop that opened its trace, and `cold`, the agent_start span's cold
+# flag. Without them a 140-180 s create reads only `ms` and `path` (production 2026-11-27 05:15-06:50Z, hq#32155,
+# hq#32203): boot, agent start and the model's own wait cannot be told apart. A hop not listed here is dropped.
+FIRST_REPLY_HOPS = ("click", "send", "api", "carrier", "placement", "provider_create", "restore", "wake", "boot",
+                    "network", "agent_auth", "agent_start", "model_request", "first_token")
+
+
+def first_reply_split(j):
+    """{steps, first, cold} from a first_reply line: listed hops with int ms, in HOPS order; anything else dropped."""
+    out = {}
+    steps = j.get("steps")
+    if isinstance(steps, dict):
+        kept = {h: steps[h] for h in FIRST_REPLY_HOPS if base.typed(INT, steps.get(h)) is not None}
+        if kept:
+            out["steps"] = kept
+    if j.get("first") in FIRST_REPLY_HOPS:
+        out["first"] = j["first"]
+    cold = base.typed(INT, j.get("cold"))
+    if cold is not None:
+        out["cold"] = cold
+    return out
+
+
 def power_split(power):
     """{listed key: ms} from a trace's power split; a non-int or unlisted key is dropped. None when nothing is left."""
     if not isinstance(power, dict):
@@ -545,6 +569,12 @@ UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
 # The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+# The class of the bind agent's last cloud or updater line when it logged no bind line (cmux-platform#2332
+# NeverBoundProbe agent_last): which bind_now step held it. Only these fixed tokens leave; anything else reads "other".
+AGENT_LAST = frozenset({
+    "bind_line", "install_key_failed", "wireguard_key_failed", "waiting_bind_file", "bound_file_unreadable",
+    "updater", "no_line", "cloud_other",
+})
 AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
                         r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
 HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
@@ -593,6 +623,11 @@ def probe_facts(out):
             facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
         elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
             facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_journal_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_journal_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_last"] = v if v in AGENT_LAST else "other"
         elif ln.startswith("agent_bind="):
             v = ln.split("=", 1)[1]
             facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
@@ -935,6 +970,8 @@ def public_log(j):
             out["kind"] = j["kind"]
         if j.get("before") in START_BEFORE:
             out["before"] = j["before"]
+    if msg == "cloud.start.first_reply":
+        out.update(first_reply_split(j))
     if msg == "cloud.spare.promotion_failed":
         rev = image_rev(j.get("image"))
         if rev is not None:
