@@ -1,4 +1,6 @@
-name: cmux-next manual performance
+name: cmux-next web performance
+# Keep the registered display name used by the fleet workflow-name index.
+# Manual dispatcher: Chromium latency (default) or exclusive fleet stress A/B.
 
 # Staged policy: manual runs only. Activation needs the trusted validator, budget and a
 # measured baseline on feat-cmux-next, and a trigger whose workflow comes from the base
