@@ -1,4 +1,6 @@
-use super::pressure::{CPU_PROBES, PROBE_INTERVAL_MS, Pressure, Reading, Tracker, parse, rose};
+use super::pressure::{
+    CPU_PROBES, PAUSE_GAP_MS, PROBE_INTERVAL_MS, Pressure, Reading, Tracker, parse, rose,
+};
 use serde_json::json;
 
 const MEMINFO: &str =
@@ -102,4 +104,33 @@ fn a_rise_goes_past_the_report_floor() {
     assert_eq!(next.reason, "pressure");
     assert!(r.finished(&ok, 1_800, 0.5).is_none());
     assert!(r.trigger("change", 2_000).is_none(), "the floor holds again after the urgent send");
+}
+
+/// A spare pegged while it warmed, paused and restored at its bind: the first reading after the
+/// pause names nothing (production read-back 45952116856 grew such a machine 2.5 s after it was
+/// made). A CPU still pegged after the pause pegs again on its own three probes.
+#[test]
+fn a_pause_starts_the_tracker_over() {
+    let mut t = Tracker::default();
+    for i in 0..4 {
+        t.observe(&reading(500, 2, 9), i * 1_000);
+    }
+    assert!(t.observe(&reading(500, 2, 9), 4_000).cpu_pegged, "pegged while it warmed");
+    let resumed = 4_000 + PAUSE_GAP_MS + 1;
+    assert_eq!(
+        t.observe(&reading(500, 3, 1), resumed).to_json(),
+        None,
+        "no stale peg, no OOM rise"
+    );
+    assert!(!t.observe(&reading(500, 3, 9), resumed + 1_000).cpu_pegged);
+    assert!(!t.observe(&reading(500, 3, 9), resumed + 2_000).cpu_pegged);
+    assert!(t.observe(&reading(500, 3, 9), resumed + 3_000).cpu_pegged, "held 2 s again");
+    let mut steady = Tracker::default();
+    for i in 0..5 {
+        steady.observe(&reading(500, 0, 9), i * PAUSE_GAP_MS);
+    }
+    assert!(
+        steady.observe(&reading(500, 0, 9), 5 * PAUSE_GAP_MS).cpu_pegged,
+        "a gap at the bound is no pause"
+    );
 }

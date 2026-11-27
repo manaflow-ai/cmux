@@ -1197,7 +1197,11 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // Work below it waits for quiet (`restart_waits_for_work_below`).
+                        if s.route_switch.load(Ordering::SeqCst)
+                            && !hub.restart_waits_for_work_below(&s)
+                            && s.route_switch.swap(false, Ordering::SeqCst)
+                        {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the
