@@ -229,7 +229,8 @@ fn answer(fold: &ReplyFold, count: usize) -> Vec<String> {
 /// always, cut to fit.
 fn within_budget(mut replies: Vec<String>, budget: usize) -> Vec<String> {
     let json_len = |r: &str| serde_json::to_string(r).map_or(r.len(), |s| s.len()) + 1;
-    let mut used = 0;
+    // The array's brackets; each reply counts its comma.
+    let mut used = 2;
     let mut keep = 0;
     for r in replies.iter().rev() {
         let len = json_len(r);
@@ -241,7 +242,7 @@ fn within_budget(mut replies: Vec<String>, budget: usize) -> Vec<String> {
     }
     let mut out = replies.split_off(replies.len() - keep);
     if let Some(newest) = out.last_mut() {
-        while json_len(newest) > budget {
+        while json_len(newest) + 2 > budget {
             let mut cut = newest.len() / 2;
             while !newest.is_char_boundary(cut) {
                 cut -= 1;
