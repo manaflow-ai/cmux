@@ -72,7 +72,7 @@ jobs:
       # limit exceeded for installation". The wrapper waits for the budget's reset and tries
       # again (scripts/ci/gh_budget_wait.sh), bounded by this job's timeout.
       - name: Checkout the rate-limit wrapper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -223,7 +223,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -245,7 +245,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -272,6 +272,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download exact polling inputs
         run: |
@@ -397,7 +403,7 @@ jobs:
             "OUTER_LOG=$RUNNER_TEMP/cmux-outer-dmg-notarization.state.log" >> "$GITHUB_ENV"
 
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -424,6 +430,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -636,7 +648,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -655,7 +667,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -682,6 +694,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download outer polling metadata
         run: |
@@ -734,7 +752,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -761,6 +779,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -954,7 +978,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -973,7 +997,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1000,6 +1024,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download stapled-app polling metadata
         run: |
@@ -1052,7 +1082,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1079,6 +1109,12 @@ jobs:
           GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
+      # A rate limit past gh_app_token.sh's four tries waits for the budget's reset (at most
+      # an hour per job) instead of failing a signed nightly: run 45859181110's poll gave up
+      # on gh run download on 11-26 16:37Z and NEXT stalled. Installed after it, it wraps it.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1185,7 +1221,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1239,7 +1275,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     env:
       # One writer at a time, newest first, without a concurrency group (a
       # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
@@ -1263,7 +1299,7 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
     steps:
       - name: Checkout trusted publication tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1394,9 +1430,11 @@ jobs:
           release = None
           for attempt in range(4):
               try:
-                  # The installed gh wrappers wait out a rate limit (first backoff 60 s): outlast that.
+                  # The installed gh wrappers wait out a rate limit: gh_budget_wait.sh up to an hour,
+                  # reserved before it sleeps, so a shorter kill spends the wait and the next try
+                  # fails at once. Outlast the whole hour.
                   result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
-                                          capture_output=True, text=True, timeout=240)
+                                          capture_output=True, text=True, timeout=3900)
               except subprocess.TimeoutExpired as expired:
                   # Keep what gh printed before it stalled (a rate-limit refusal), then retry.
                   seen = expired.stderr or expired.stdout or b""
@@ -1529,7 +1567,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --head "$SOURCE_HEAD_SHA" --branch "$SOURCE_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
-            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+            --appcasts nightly-out --build "$NIGHTLY_BUILD" \
+            --feeds appcast-arm64.xml
           python3 - "$NIGHTLY_BUILD" <<'PY'
           from pathlib import Path
           import sys
@@ -1695,7 +1734,7 @@ jobs:
       NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
     steps:
       - name: Checkout trusted delta tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1771,7 +1810,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: release
     env:
       # One writer at a time, newest first, without a concurrency group (a
@@ -1792,7 +1831,7 @@ jobs:
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
     steps:
       - name: Checkout trusted publication tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
