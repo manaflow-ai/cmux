@@ -1,4 +1,4 @@
-import Observation
+public import Observation
 
 /// The Cloud previews this app opened in a browser pane (`cloud.preview.open`), by origin: what the
 /// pane's Publish button (RFD 0003 E-A, `experiments.appsTier`) asks Rust about
