@@ -153,7 +153,9 @@ jobs:
           binary="$target_dir/debug/cmux-tui"
           cargo build -p cmux-tui --bin cmux-tui --locked
           test -x "$binary"
-          file "$binary" | grep -q 'ELF 64-bit'
+          # ELF 64-bit magic (7f 'E' 'L' 'F', class 2), read with coreutils: a runner image
+          # without file(1) failed this step after a good build.
+          test "$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')" = 7f454c4602
           sha256sum "$binary"
           # Bind the caller to the checkout's actual merge, not just the PR head.
           mkdir -p "$RUNNER_TEMP/migrate-journey"
