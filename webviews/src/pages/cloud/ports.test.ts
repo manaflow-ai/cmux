@@ -18,6 +18,8 @@ const forward = (machine = "a", port = 3000): PortForward => ({
   port,
   host: "127.0.0.1",
   localPort: port + 10000,
+  scheme: "http",
+  url: `http://127.0.0.1:${port + 10000}/`,
   generation: 1,
   state: "up",
 });

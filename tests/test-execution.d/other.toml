@@ -816,6 +816,10 @@ path = "tests/test_risk_tier.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rivals_restart.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_run_checks_concurrently.py"
 lane = "linux-guard"
 serial = true
@@ -1099,6 +1103,11 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 [[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_webviews_no_duplicate_import_names.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_webviews_no_duplicate_import_names.py"
 
 [[test]]
 path = "tests/test_webviews_test_history.py"
