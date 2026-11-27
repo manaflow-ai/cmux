@@ -12,7 +12,7 @@
 //! - On where `irohDirect` is true, or unset on a machine whose `directPort` names a port (it
 //!   opted into direct links already; every lane VM has) ([`crate::config::Config::iroh_on`]);
 //!   off on any other machine and wherever `irohDirect` is false. On, the carrier
-//!   binds one iroh endpoint (its key kept in `~/.acpmux/iroh.key`) and hands each accepted
+//!   binds one iroh endpoint (its key kept in the state dir's `iroh.key`) and hands each accepted
 //!   connection's stream to the same [`super::Incoming`] a relay circuit reaches.
 //! - Upgrade, not a race: a machine's first dial rides the relay. Beside it the carrier asks the
 //!   far machine for its iroh address over that relay circuit ([`super::CircuitService::IrohAddr`])
@@ -56,7 +56,7 @@ const MAX_INCOMING: usize = 256;
 /// How the carrier binds its iroh endpoint.
 #[derive(Clone, Debug, Default)]
 pub struct IrohConfig {
-    /// The endpoint's key file (`~/.acpmux/iroh.key`); none: a new key each start.
+    /// The endpoint's key file (the state dir's `iroh.key`); none: a new key each start.
     pub secret: Option<PathBuf>,
     /// Use iroh's relays for hole punching and as its own fallback. Off: direct addresses only
     /// (tests on loopback).

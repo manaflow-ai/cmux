@@ -3058,7 +3058,8 @@ pub async fn start_configured(
         None => None,
     };
     if iroh_direct {
-        let secret = dirs::home_dir().map(|home| home.join(".acpmux").join("iroh.key"));
+        // In the daemon's state dir, beside its node key: the endpoint id stays the same across restarts.
+        let secret = Some(state_dir.join("iroh.key"));
         let config = iroh_path::IrohConfig { secret, relay: true, bind: None };
         match carrier.start_iroh(config).await {
             Ok(task) => {
