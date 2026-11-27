@@ -493,14 +493,34 @@ def lane_receipt(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace) -> dict |
     """The newest lane receipt that covers this run's merge, as verify's found dict (plus shadow), or None with
     the reasons in args.lane_reasons."""
     reasons = args.lane_reasons
-    answer = ask({"op": "lookup", "check": args.job, "head_tree": args.head_tree})
+    found = lane_receipt_for(ask, fetch, args, args.head_tree, same_head_ok=True)
+    parent_tree = getattr(args, "lane_parent_tree", None) or ""
+    if parent_tree and not SHA.match(parent_tree):
+        reasons.append(f"unresolved lane parent tree ({parent_tree!r})")
+        parent_tree = ""
+    if found is None and parent_tree and parent_tree != args.head_tree:
+        # The head is GitHub's update-branch merge of the base into the lane (resolve reads it: two parents,
+        # committed by GitHub as "Merge branch '<base>' into lane/..."). No lane ever tested that commit's tree; its
+        # first parent is the lane's own commit, whose receipt on an older base is the same change on an ancestor
+        # base, which base_covers already holds any receipt to. 4 of the 11 land dispatches with no lane receipt on
+        # 2026-11-27 11:35-12:45Z were such merges (cmux#60368, #60412, #58138, #57644).
+        # On the receipt's own base, it covers only when its tested merge is this head's very tree.
+        found = lane_receipt_for(ask, fetch, args, parent_tree, same_head_ok=False, merge_tree=args.head_tree)
+    return found
+
+
+def lane_receipt_for(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace, head_tree: str, *,
+                     same_head_ok: bool, merge_tree: str | None = None) -> dict | None:
+    """The newest lane receipt for HEAD_TREE that covers this run's merge, or None with the reasons appended."""
+    reasons = args.lane_reasons
+    answer = ask({"op": "lookup", "check": args.job, "head_tree": head_tree})
     for receipt in answer.get("receipts") or []:
         producer = str(receipt.get("producer") or "")
         where = f"lane receipt by {producer or 'unknown'}"
         try:
-            if receipt.get("check") != args.job or receipt.get("head_tree") != args.head_tree \
+            if receipt.get("check") != args.job or receipt.get("head_tree") != head_tree \
                     or receipt.get("repo") != args.repo or not producer.startswith("lane:"):
-                raise Rejected(f"{where} is not a {args.job} receipt of {args.repo} for head tree {args.head_tree}")
+                raise Rejected(f"{where} is not a {args.job} receipt of {args.repo} for head tree {head_tree}")
             if receipt.get("command_sha256") != hashlib.sha256(CANONICAL[args.job].encode()).hexdigest():
                 raise Rejected(f"{where} ran another command than {CANONICAL[args.job]!r}")
             receipt_base, receipt_tree = receipt.get("base"), receipt.get("tree")
@@ -508,8 +528,9 @@ def lane_receipt(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace) -> dict |
                     and SHA.match(receipt_tree)):
                 raise Rejected(f"{where} names no base and merge tree")
             base_covers(fetch, repo=args.repo, job=args.job, where=where, receipt_base=receipt_base,
-                        receipt_tree=receipt_tree, base=args.base, merge_tree=args.merge_tree, rust_roots=None,
-                        same_head=receipt.get("head") == args.head)
+                        receipt_tree=receipt_tree, base=args.base,
+                        merge_tree=args.merge_tree if merge_tree is None else merge_tree, rust_roots=None,
+                        same_head=same_head_ok and receipt.get("head") == args.head)
         except Rejected as error:
             reasons.append(str(error))
             continue
@@ -932,6 +953,9 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--output", type=Path)
     check.add_argument("--lane", action="store_true", help="also ask the controller for a lane receipt of this head "
                        "tree (needs id-token: write)")
+    check.add_argument("--lane-parent-tree", dest="lane_parent_tree", default="",
+                       help="with --lane: the lane commit's tree under a GitHub update-branch merge head, asked for when "
+                       "the head tree has no lane receipt")
     check.add_argument("--workspaces", type=Path, help=".github/rust-workspaces.toml (rust-workspaces, from the base)")
     sub.add_parser("flush", help="retry the lane receipts the controller did not answer for (spawned by produce)")
     args = parser.parse_args(argv)
