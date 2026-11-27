@@ -5,7 +5,8 @@ name: Cloud VM image roll
 #   1. plan     cmux-tui-artifacts.yml dispatches this run for every feat-cmux-next build it published and
 #               verified (input commit); a feat-cmux-next push that changes the image inputs starts it too.
 #               images/cmux-vm/auto-roll.ts plan rolls only a build of the branch that changes the binaries
-#               the lock pins, and never an older one; it lists the fix commits the roll carries.
+#               the lock pins, and never an older one; it lists the fix commits the roll carries. A push run
+#               also pins files.cmux.com's newest published build when it is on the tip and newer than the pin.
 #   2. bake     cloud-vm-image-bake.yml (called, roll: true) pins that build into the lock and bakes the
 #               image with the agent tools. The gate is the bake's own exact-image checks
 #               on the candidate snapshot: the 5-clone smoke and the agent tools probe, whose harness gate (harness-gate.ts) must pass
@@ -74,7 +75,7 @@ env:
 jobs:
   platform-readiness:
     if: github.event_name == 'workflow_dispatch' && inputs.platform_readiness
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 10
     environment: cmux-vm-production
     permissions:
@@ -114,7 +115,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: manaflow-ai/cmux-platform
           ref: refs/heads/main
@@ -145,7 +146,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -180,7 +181,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -281,7 +282,7 @@ jobs:
   promote:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 15
     # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
     environment: cmux-vm-production
@@ -317,7 +318,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -393,7 +394,7 @@ jobs:
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: write
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: vars.CMUX_VM_DEPLOY_ENABLED != '1'
         with:
           repository: manaflow-ai/cmux-platform
@@ -415,7 +416,7 @@ jobs:
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: read
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: manaflow-ai/cmux-platform
           ref: refs/heads/main
@@ -467,7 +468,7 @@ jobs:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 75
     # The dev Freestyle account, as the bake: the candidate snapshot lives there. feat-cmux-next only.
     environment: cmux-next-vm-image-dev
@@ -506,7 +507,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -565,7 +566,7 @@ jobs:
   report:
     needs: [plan, bake, promote]
     if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -596,7 +597,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: images/cmux-vm
