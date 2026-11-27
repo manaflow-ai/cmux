@@ -14,10 +14,21 @@ struct TurnStateFeedListReadTests {
             Issue.record("a refused page is not read as refused")
             return
         }
-        let first = #"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"paced"}}"#
+        let first = #"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"paced","data":{"reason":"list.paced"}}}"#
         guard case .pageRefused = AgentTurnStateFeed.Message(line: Data(first.utf8)) else {
             Issue.record("a refused first page is not read as refused")
             return
+        }
+    }
+
+    /// Only `list.paced` is asked again: any other page error would fail the same way forever.
+    @Test func aFailedPageIsNotReadAsRefused() {
+        for line in [#"{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"invalid params"}}"#,
+                     #"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"no such cursor","data":{"reason":"list.cursor"}}}"#] {
+            guard case .pageFailed = AgentTurnStateFeed.Message(line: Data(line.utf8)) else {
+                Issue.record("a failed page is not read as failed: \(line)")
+                continue
+            }
         }
     }
 
