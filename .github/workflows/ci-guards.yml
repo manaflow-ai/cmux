@@ -1366,6 +1366,7 @@ jobs:
           python3 tests/test_base_coalesce_record_dir.py
           python3 tests/test_ci_acpmux_tests_full_ci_own_paths.py
           python3 tests/test_ci_rust_workspaces_land_head.py
+          python3 tests/test_ci_self_edit_sweep.py
           python3 tests/test_web_green_marker.py
 
       - name: Validate cache seed and release workflow steps
