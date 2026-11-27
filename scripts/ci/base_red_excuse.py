@@ -4855,6 +4855,11 @@ COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 NODE_ID = re.compile(r"[A-Za-z0-9_=+/-]{1,200}")
 
 
+def nodes_refused(why: BaseException) -> bool:
+    """Whether WHY is the lane-gh broker refusing SUITE_CHECKS_QUERY's root `nodes`, in whatever class it arrived."""
+    return "root field nodes is refused" in str(why)
+
+
 class SuiteChecks:
     """The conclusions of each check suite's check runs of a name, every attempt, read in batches over GraphQL."""
 
@@ -4889,9 +4894,15 @@ class SuiteChecks:
             try:
                 found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
                                                    repo=self.repo))
-            except Refused as why:
-                if "root field nodes is refused" not in str(why):
-                    return  # read over REST instead, as before
+            except (Refused, UnreadRead, *unread_classes()) as why:
+                # The broker's refusal reaches here as a failed `gh` (main_fix_evidence.Unread, which judge()'s
+                # rate_limit_aware re-raises as UnreadRead, not a Refused): caught as a Refused alone it escaped this
+                # fallback, and every lane VM's land stopped on it as a tool_error (cmux#59202, cmux#60109 on
+                # gcp-agent-lane-1, 2026-11-27). The refusal costs no quota (the broker answers it), once a reader.
+                if not nodes_refused(why):
+                    if isinstance(why, Refused):
+                        return  # read over REST instead, as before
+                    raise
                 self.rooted = True
             except ValueError:
                 return
