@@ -1375,7 +1375,7 @@ while True:
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
                   "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
             if os.environ.get("FAKE_CLAUDE_RESUME_FAILS") == "1":
-                agent_failure("toolu_send")
+                agent_failure("toolu_send", os.environ.get("FAKE_CLAUDE_RESUME_ERROR", "agent-503"))
             if os.environ.get("FAKE_CLAUDE_RESUME_COMPLETES") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503,
                       "tool_use_id": "toolu_send", "status": "completed", "output_file": "",
