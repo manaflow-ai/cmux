@@ -88,14 +88,23 @@ public struct MobilePlansView: View {
 
     @ViewBuilder
     private var currentPlanSection: some View {
-        if let account = billing.account.account {
-            Section {
+        Section {
+            if let account = billing.account.account {
                 LabeledContent(
                     L10n.string("mobile.billing.currentPlan", defaultValue: "Current plan"),
                     value: BillingPlanCopy(planID: account.currentPlan.planID).name
                 )
                 .accessibilityIdentifier("BillingCurrentPlan")
-            } footer: {
+            } else {
+                LabeledContent(
+                    L10n.string("mobile.billing.currentPlan", defaultValue: "Current plan"),
+                    value: "—"
+                )
+                .redacted(reason: .placeholder)
+                .accessibilityIdentifier("BillingCurrentPlanPlaceholder")
+            }
+        } footer: {
+            if let account = billing.account.account {
                 let sourceText = sourceText(account.currentPlan.source)
                 if billing.paymentPastDue || sourceText != nil {
                     VStack(alignment: .leading, spacing: 6) {
@@ -116,14 +125,7 @@ public struct MobilePlansView: View {
     private var accountContent: some View {
         switch billing.account {
         case .idle, .loading:
-            Section {
-                HStack(spacing: 12) {
-                    CmuxSpinner()
-                    Text(L10n.string("mobile.billing.loading", defaultValue: "Loading plans"))
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityIdentifier("BillingLoading")
-            }
+            loadingPlanSections
         case .failed(let failure):
             Section {
                 Text(BillingFailureCopy(failure: failure).message)
@@ -169,10 +171,7 @@ public struct MobilePlansView: View {
                 }
                 .accessibilityIdentifier("BillingOffersUnavailable")
             } else {
-                Section {
-                    CmuxSpinner()
-                }
-                .accessibilityIdentifier("BillingOffersLoading")
+                loadingPlanSections
             }
         } else {
             let applePlan = account.currentPlan.source == .apple ? account.currentPlan.planID : nil
@@ -200,6 +199,24 @@ public struct MobilePlansView: View {
                         buy: { Task { await billing.buy(offer, entryPoint: entryPoint) } }
                     )
                 }
+            }
+        }
+    }
+
+    /// The NEXT catalog is known before the account and StoreKit prices arrive.
+    /// These three rows keep Plus, Pro and Max in the same list geometry from
+    /// the first frame through product resolution.
+    @ViewBuilder
+    private var loadingPlanSections: some View {
+        ForEach([BillingPlanID.nextPlus, .nextPro, .nextMax], id: \.self) { planID in
+            Section {
+                MobilePlanLoadingRow(planID: planID)
+                    .overlay(alignment: .topTrailing) {
+                        if planID == .nextPlus {
+                            CmuxSpinner()
+                                .accessibilityIdentifier("BillingLoading")
+                        }
+                    }
             }
         }
     }

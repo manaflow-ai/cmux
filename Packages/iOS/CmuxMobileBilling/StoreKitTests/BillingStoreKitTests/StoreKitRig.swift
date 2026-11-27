@@ -437,4 +437,29 @@ enum PlansSnapshot {
         window.rootViewController = nil
         return image
     }
+
+    /// Captures the identifiers from the cold first frame before the screen's
+    /// task can finish its account refresh.
+    static func initialAccessibilityIdentifiers(_ model: BillingModel) -> Set<String> {
+        let root = NavigationStack {
+            MobilePlansView(entryPoint: .settings, initialPeriod: .monthly)
+        }
+        .environment(model)
+        let host = UIHostingController(rootView: root)
+        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+
+        var identifiers = Set<String>()
+        func collect(_ view: UIView) {
+            if let identifier = view.accessibilityIdentifier { identifiers.insert(identifier) }
+            for child in view.subviews { collect(child) }
+        }
+        collect(host.view)
+        window.isHidden = true
+        window.rootViewController = nil
+        return identifiers
+    }
 }

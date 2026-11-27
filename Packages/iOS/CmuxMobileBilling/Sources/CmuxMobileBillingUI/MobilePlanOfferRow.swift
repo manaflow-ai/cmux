@@ -54,6 +54,7 @@ struct MobilePlanOfferRow: View {
             .accessibilityIdentifier("BillingOfferBuy.\(offer.planID.rawValue)")
         }
         .padding(.vertical, 4)
+        .frame(minHeight: MobilePlanRowGeometry.minimumHeight, alignment: .top)
     }
 
     private var priceText: String {
