@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard_delta  # noqa: E402
 import test_network_allowlist as network  # noqa: E402
+import test_ci_noclobber_sweep as noclobber  # noqa: E402
 import test_outbound_hosts as outbound  # noqa: E402
 
 DOC = "docs/privacy.md"
@@ -145,6 +146,10 @@ class OutboundHosts(Case):
                          {A: swift("api.cmux.dev", "new.cmux.dev")}, 1)
         self.assertIn("new.cmux.dev: not in docs/privacy.md", got[0])
 
+    def test_a_new_name_already_present_in_an_untouched_file_is_allowed(self):
+        self.check({ALLOW: allow(("api.cmux.dev", "code")), A: swift(), B: swift("api.cmux.dev")},
+                   {A: swift("api.cmux.dev")}, 0)
+
     def test_a_host_still_named_elsewhere_is_not_stale(self):
         self.check({DOC: doc("api.cmux.dev"), A: swift("api.cmux.dev"), B: swift("api.cmux.dev")},
                    {A: swift()}, 0)
@@ -233,6 +238,51 @@ class NetworkAllowlist(Case):
         repo = self.repo({ALLOW: allow(), CATALOG: json.dumps({"relays": []}), DOC: doc("api.cmux.dev")})
         repo.write({ALLOW: allow(("api.cmux.dev", "code"))})
         self.assertIsNone(guard_delta.changed(network.RULES, repo.root, repo.base))
+SH = "#!/bin/bash\n"
+HERE = 'DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+TEMPLATE = 't=$(mktemp "/tmp/x.$USER.XXXXXX")\n'
+SHADOW = "mktemp() { echo /tmp/x; }\n"
+
+
+class NoclobberSweep(Case):
+    def check(self, base: dict[str, str], head: dict[str, str | None], n: int) -> list[str]:
+        """The changed-files problems: every one the whole scan has and the base had not, and only the whole
+        scan's (a touched file's old problem counts: the sweep reads that file whole)."""
+        repo = self.repo(base)
+        before = set(noclobber.unapproved(noclobber.hits(repo.root), {}))
+        repo.write(head)
+        paths = guard_delta.changed(noclobber.RULES, repo.root, repo.base)
+        self.assertIsNotNone(paths)
+        only = noclobber.reach(repo.root, paths)
+        got = noclobber.unapproved(noclobber.hits(repo.root, only), {})
+        whole = noclobber.unapproved(noclobber.hits(repo.root), {})
+        self.assertLessEqual({p for p in whole if p not in before}, set(got), (got, whole))
+        self.assertLessEqual(set(got), set(whole))
+        self.assertEqual(len(got), n, got)
+        return got
+
+    def test_a_new_guessable_name_fails(self):
+        self.check({"scripts/a.sh": SH}, {"scripts/a.sh": SH + "f=/tmp/out.$$\n"}, 1)
+
+    def test_a_sourced_file_that_shadows_mktemp_fails_its_untouched_sourcer(self):
+        base = {"scripts/a.sh": SH + HERE + '. "$DIR/lib.sh"\n' + TEMPLATE, "scripts/lib.sh": SH + "f() { :; }\n"}
+        got = self.check(base, {"scripts/lib.sh": SH + SHADOW}, 1)
+        self.assertTrue(got[0].startswith("scripts/a.sh:4:"), got)
+
+    def test_a_source_chain_through_a_file_outside_the_dirs_is_followed(self):
+        base = {"scripts/a.sh": SH + 'ROOT="$(git rev-parse --show-toplevel)"\n. "$ROOT/tools/mid.sh"\n' + TEMPLATE,
+                "tools/mid.sh": SH + HERE + '. "$DIR/deep.sh"\n', "tools/deep.sh": SH + "f() { :; }\n"}
+        self.check(base, {"tools/deep.sh": SH + SHADOW}, 1)
+
+    def test_a_problem_in_an_untouched_file_is_not_reported(self):
+        self.check({"scripts/a.sh": SH + "f=/tmp/out.$$\n", "scripts/b.sh": SH},
+                   {"scripts/b.sh": SH + "echo hi\n"}, 0)
+
+    def test_an_app_name_only_an_untouched_file_hits_is_still_found(self):
+        repo = self.repo({"scripts/a.sh": SH + 's=/tmp/cmux-debug-$TAG.sock\nf=/tmp/out.$$\n', "scripts/b.sh": SH})
+        found = noclobber.with_app_names(repo.root, {"scripts/b.sh"}, [])
+        self.assertTrue(any(h[3].startswith("/tmp/cmux-debug-") for h in found), found)
+        self.assertEqual(noclobber.unapproved(found, {}), [], "the grep-found file's other hits are the base's")
 
 
 if __name__ == "__main__":

@@ -216,7 +216,7 @@ def change_problems(base: str, paths: list[str], data: dict, privacy_doc: str, r
     stale = {e["host"] for e in data["hosts"] if e["named_in"] == "code"} & lost
     named = set(outbound.named_anywhere(stale, root)) | ice_named_anywhere(stale, root)
     # coverage_problems on just these: the gained hosts' entries, and the named_in "code" entries for lost hosts.
-    sub = {**data, "hosts": [e for e in data["hosts"] if e["named_in"] != "code" or e["host"] in stale]}
+    sub = {**data, "hosts": [e for e in data["hosts"] if e["named_in"] != "code" or e["host"] in stale or e["host"] in gained]}
     return coverage_problems(sub, gained, {}, relays, named | (set(head) | set(head_ice)))
 
 

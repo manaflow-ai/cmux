@@ -200,7 +200,8 @@ jobs:
         run: python3 tests/test_ci_fleet_ios_build.py
 
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
-      # and .github/ (an allowlist with reasons that only shrinks).
+      # and .github/ (an allowlist with reasons that only shrinks). On a pull request it reads only the changed files
+      # and the shell files that source them (tests/guard_delta.py); a branch's own run reads them all.
       - name: Validate no guessable shared-temp names
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_noclobber_sweep.py
@@ -229,6 +230,7 @@ jobs:
         run: |
           python3 tests/test_ci_step_table.py
           python3 tests/test_ci_ios_fast_verdict.py
+          python3 tests/test_ci_ios_fast_dispatch.py
           python3 tests/test_indexnow_notification.py
 
       - name: Validate the green receipts that skip unchanged checks
@@ -1300,6 +1302,11 @@ jobs:
       - name: Validate the package interface fingerprint
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_interface_fingerprint.py
+
+      # pr-router's land tier post waits once for a near reset, never counting tokens refused for permissions.
+      - name: Validate the land tier status post waits out a spent budget once
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_land_tier_status_post.py
 
       - name: Validate late placement onto idle root runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
