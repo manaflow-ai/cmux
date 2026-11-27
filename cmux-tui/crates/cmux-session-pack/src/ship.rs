@@ -15,11 +15,12 @@
 use crate::Result;
 use crate::manifest::Manifest;
 use crate::read::Pack;
-use crate::store::{Id, Store, hex};
+use crate::store::{Id, MAX_STORED_CHUNK_BYTES, Store, hex};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 
 const MAGIC: &[u8; 6] = b"CSPB1\n";
+const MAX_MANIFEST_BYTES: usize = 128 << 20;
 
 /// What a bundle held.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -141,8 +142,7 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
     }
     let mut len = [0u8; 4];
     input.read_exact(&mut len)?;
-    let mut json = vec![0u8; u32::from_le_bytes(len) as usize];
-    input.read_exact(&mut json)?;
+    let json = read_bounded(input, u32::from_le_bytes(len), MAX_MANIFEST_BYTES, "manifest")?;
     let manifest = if json.is_empty() { None } else { Some(Manifest::parse(&json)?) };
     loop {
         let mut id: Id = [0u8; 32];
@@ -151,8 +151,12 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
             _ => input.read_exact(&mut id[1..])?,
         }
         input.read_exact(&mut len)?;
-        let mut file = vec![0u8; u32::from_le_bytes(len) as usize];
-        input.read_exact(&mut file)?;
+        let file = read_bounded(
+            input,
+            u32::from_le_bytes(len),
+            MAX_STORED_CHUNK_BYTES,
+            "stored chunk",
+        )?;
         store.receive(&id, &file)?;
     }
     let Some(manifest) = manifest else { return Ok(None) };
@@ -163,4 +167,14 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
     }
     manifest.save(store)?;
     Ok(Some(manifest))
+}
+
+fn read_bounded(input: &mut dyn Read, len: u32, max: usize, what: &str) -> Result<Vec<u8>> {
+    let len = len as usize;
+    if len > max {
+        return Err(format!("a {what} of {len} bytes is over the {max} byte limit").into());
+    }
+    let mut bytes = vec![0u8; len];
+    input.read_exact(&mut bytes)?;
+    Ok(bytes)
 }

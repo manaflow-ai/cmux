@@ -23,6 +23,13 @@ pub const KIND_TABLE: u8 = b'T';
 const CODEC_RAW: u8 = 0;
 const CODEC_ZSTD: u8 = 1;
 const HEADER: usize = 6;
+/// The largest uncompressed chunk this crate will encode or decode.
+///
+/// This is also the upper bound passed to zstd when a received chunk declares its
+/// expanded size.  Bundle and peer readers apply a corresponding bound to the
+/// stored representation before allocating it.
+pub(crate) const MAX_CHUNK_BYTES: usize = 128 << 20;
+pub(crate) const MAX_STORED_CHUNK_BYTES: usize = MAX_CHUNK_BYTES + HEADER;
 /// zstd's window is 8 MiB at level 19; a chunk larger than that (one huge line) gets a window
 /// that covers it, up to the 128 MiB every decoder accepts.
 const WINDOW_DEFAULT: usize = 8 << 20;
@@ -66,6 +73,13 @@ pub fn chunk_id(kind: u8, payload: &[u8]) -> Id {
 
 /// A chunk as its file holds it: header and compressed bytes.
 pub fn encode_chunk(kind: u8, payload: &[u8], level: i32) -> Result<Vec<u8>> {
+    if payload.len() > MAX_CHUNK_BYTES {
+        return Err(format!(
+            "a chunk of {} bytes is over the {} byte chunk limit",
+            payload.len(), MAX_CHUNK_BYTES
+        )
+        .into());
+    }
     let len = u32::try_from(payload.len()).map_err(|_| {
         format!("a chunk of {} bytes is over the 4 GiB a chunk holds", payload.len())
     })?;
@@ -91,10 +105,33 @@ pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
     let &[codec, kind, a, b, c, d, ref body @ ..] = file else {
         return Err("a chunk file is shorter than its header".into());
     };
+    if file.len() > MAX_STORED_CHUNK_BYTES {
+        return Err(format!(
+            "a chunk file of {} bytes is over the {} byte chunk limit",
+            file.len(), MAX_STORED_CHUNK_BYTES
+        )
+        .into());
+    }
     let len = u32::from_le_bytes([a, b, c, d]) as usize;
+    if len > MAX_CHUNK_BYTES {
+        return Err(format!(
+            "a chunk expands to {len} bytes, over the {} byte chunk limit",
+            MAX_CHUNK_BYTES
+        )
+        .into());
+    }
     let payload = match codec {
-        CODEC_RAW => body.to_vec(),
-        CODEC_ZSTD => zstd::bulk::Decompressor::new()?.decompress(body, len)?,
+        CODEC_RAW => {
+            if body.len() != len {
+                return Err(format!("a raw chunk says {len} bytes and holds {}", body.len()).into());
+            }
+            body.to_vec()
+        }
+        CODEC_ZSTD => {
+            let mut d = zstd::bulk::Decompressor::new()?;
+            d.set_parameter(zstd::zstd_safe::DParameter::WindowLogMax(27))?;
+            d.decompress(body, len)?
+        }
         other => {
             return Err(
                 format!("a chunk file has codec {other}, which this build does not read").into()
@@ -224,4 +261,28 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     tmp.as_file().sync_data()?;
     tmp.persist(path).map_err(|e| e.error)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CODEC_RAW, CODEC_ZSTD, KIND_EVENTS, decode_chunk};
+
+    #[test]
+    fn rejects_expanded_lengths_before_allocating() {
+        for codec in [CODEC_RAW, CODEC_ZSTD] {
+            let mut file = vec![codec, KIND_EVENTS];
+            file.extend_from_slice(&u32::MAX.to_le_bytes());
+            let err = decode_chunk(&file).unwrap_err().to_string();
+            assert!(err.contains("chunk limit"), "{err}");
+        }
+    }
+
+    #[test]
+    fn rejects_raw_body_length_before_copying() {
+        let mut file = vec![CODEC_RAW, KIND_EVENTS];
+        file.extend_from_slice(&4u32.to_le_bytes());
+        file.extend_from_slice(b"too short");
+        let err = decode_chunk(&file).unwrap_err().to_string();
+        assert!(err.contains("raw chunk"), "{err}");
+    }
 }
