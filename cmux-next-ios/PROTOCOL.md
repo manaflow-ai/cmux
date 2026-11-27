@@ -287,10 +287,13 @@ closed with 4001 `moved`.
     from peers that never send relay frames and confirm routes with an
     in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
     sender can join the session's WebSocket relay ("WebSocket relay"
-    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
-    has no other path: no plain UDP and no TURN allocation, so the peer
-    joins at once too); absent from older peers, which never join, and
-    then neither does this side. A roam's endpoint announcement
+    below): `"ready"` (when nothing else reaches the peer), `"first"`
+    (relay first: it joins as its dial starts, beside the direct
+    race, and so does a peer that said `"first"` too; a peer that reads
+    it as `"ready"` keeps the older rule) or `"now"` (it has no other
+    path: no plain UDP and no TURN allocation, so the peer joins at once
+    too); absent from older peers, which never join, and then neither
+    does this side. A roam's endpoint announcement
     (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
@@ -679,7 +682,13 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   client's `ping` is answered `pong` without waking the object.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  path (`relay: "now"`); as the dial starts when both said `"first"` (the
+  Mac on the phone's `wg-init`, the phone as its tunnel starts on the
+  Mac's `wg-resp`, beside the direct race and TURN; the phone's pending
+  handshake initiation goes through the relay as it joins, the same
+  message, so a direct answer in flight still completes it; neither asks
+  the other with `wg-relay`, and a join that finds the peer already heard
+  is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
   heard nothing for 16 s in the foreground, when its relay socket dies while
@@ -722,8 +731,12 @@ learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
 upgrade, about three round trips to the edge) waited behind the Mac's gather
 and answer. Now it asks for the ticket at once:
 
-- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
-  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true` when it sends
+  `relay: "now"`, or `relay: "first"` (RFD 0142 R1: its join then starts as
+  the hub forwards the offer, beside the direct race and the Mac's own join,
+  not after `wg-resp`). Absent means false; an older Mac ignores the field.
+  A `first` dialer whose Mac answers `ready` (a build before relay first)
+  lets the early join go and keeps the 3 s rule.
 - **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
   own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
@@ -1494,9 +1507,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
   the host process and the daemon run its tab ids came from: it is new at each hostd start
   and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
-  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
-  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
-  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  every row, order and held picture of the old, so a phone gets a manifest. Remote Control
+  is one app-wide switch (`mobile.allowIPhoneConnections`, which runs or stops hostd), so no
+  chat's tab is hidden for exposure; the filter keeps the rule that a tab naming an agent
+  session the exposure blocks is hidden, and every tab is while it is unavailable. Browser favicons and thumbnails come from the Mac app on its
   stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
   "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
   (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG

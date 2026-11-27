@@ -148,7 +148,6 @@ cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
 cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
-cmux-tui/bindings/*/.cmux-resource-api.json merge=cmux-generated-v1
 cmux-tui/bindings/cpp/.cmux-sdk-manifest.json merge=cmux-generated-v1
 # The Java raw package: every file its .cmux-sdk-manifest.json lists is
 # generated; the hand-written ones (not in the manifest) merge by line.
@@ -205,6 +204,8 @@ workers/presence/src/generated/** merge=cmux-generated-v1
 web/services/relay/generated/** merge=cmux-generated-v1
 schemas/defaults/cmux-next.json merge=cmux-generated-v1
 cmux-tui/crates/cmux-app-host/generated/** merge=cmux-generated-v1
+# Compatibility evidence must survive a conflict, never be kept from one side and regenerated.
+cmux-tui/spec/api-compat.surface.json !merge
 clients/ts/cloud/src/generated.ts merge=cmux-generated-v1
 clients/ts/cloud/src/automation-cmux.ts merge=cmux-generated-v1
 cmux-tui/crates/cmux-cloud-wire/src/generated/** merge=cmux-generated-v1

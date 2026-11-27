@@ -2,8 +2,9 @@
 // Settings > Team > Compute: who on the team uses what Cloud compute, and the team's monthly
 // allotment scaled down, held or up in one click. The card renders `computeModel` (../computeAllotment.ts)
 // and nothing else: the sentence, the dial's figures, the rows and their notes are derived there.
-// Three layouts are on trial in the gallery (ledger, meter, inbox); the card is in no Settings
-// category yet. It reads once when it mounts and after each click; it never polls.
+// Three layouts are on trial in the gallery (ledger, meter, inbox); Settings > Cloud mounts the ledger,
+// read-only, behind Labs labs.teamCompute (CloudComputeCard.tsx). It reads once when it mounts and
+// after each click; it never polls.
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
@@ -22,13 +23,25 @@ export type ComputeCardViewProps = {
   layout: ComputeLayout;
   busy?: boolean;
   error?: string | null;
+  /** The host serves only the read: no dial buttons, no Auto switch, nothing that cannot work. */
+  readOnly?: boolean;
   onSet(run: AllotmentSet): void;
 };
 
 const ALLOTMENT_KEY = [...settingsKeys.all, "allotment"] as const;
 
-/** The card on the settings store: one read on mount, the view a click answers replaces it. */
-export function ComputeCard({ layout = "ledger" }: { layout?: ComputeLayout }) {
+/** The card on the settings store: one read on mount, the view a click answers replaces it.
+ * `readOnly`: the host serves no `cmux.settings.cloud.allotment.set`, so nothing is offered to click.
+ * `explainUnavailable`: a read that answered nothing draws one plain line instead of nothing. */
+export function ComputeCard({
+  layout = "ledger",
+  readOnly = false,
+  explainUnavailable = false,
+}: {
+  layout?: ComputeLayout;
+  readOnly?: boolean;
+  explainUnavailable?: boolean;
+}) {
   const store = useStore();
   const query = useQuery(
     { queryKey: ALLOTMENT_KEY, queryFn: () => store.allotment(), staleTime: Infinity },
@@ -37,7 +50,7 @@ export function ComputeCard({ layout = "ledger" }: { layout?: ComputeLayout }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const view = query.data;
-  if (!view) return null;
+  if (!view) return explainUnavailable && query.isFetched ? <ComputeUnavailable /> : null;
   const onSet = async (run: AllotmentSet) => {
     setBusy(true);
     try {
@@ -54,6 +67,7 @@ export function ComputeCard({ layout = "ledger" }: { layout?: ComputeLayout }) {
       layout={layout}
       busy={busy}
       error={error}
+      readOnly={readOnly}
       onSet={(run) => void onSet(run)}
     />
   );
@@ -79,14 +93,43 @@ export function ComputeCardDemo({
   );
 }
 
-/** The card itself: a dumb renderer of `model`. */
-export function ComputeCardView({ model, layout, busy = false, error = null, onSet }: ComputeCardViewProps) {
+/** The read answered no view: allotments are off for the team, Cloud is signed out, or the read failed. */
+function ComputeUnavailable() {
   return (
-    <section className="group" data-card="compute" data-compute-layout={layout} aria-busy={busy}>
+    <section className="group" data-card="compute" data-compute-unavailable="">
+      <h3 className="group-title">Compute</h3>
+      <div className="rows">
+        <div className="row">
+          <p className="row-help m-0" style={{ whiteSpace: "normal" }}>
+            Your team's compute allotment isn't available. Sign in to Cloud, or check again later.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** The card itself: a dumb renderer of `model`. */
+export function ComputeCardView({
+  model,
+  layout,
+  busy = false,
+  error = null,
+  readOnly = false,
+  onSet,
+}: ComputeCardViewProps) {
+  return (
+    <section
+      className="group"
+      data-card="compute"
+      data-compute-layout={layout}
+      data-compute-read-only={readOnly ? "" : undefined}
+      aria-busy={busy}
+    >
       <h3 className="group-title">Compute</h3>
       <div className="rows">
         {layout === "inbox" ? (
-          <Inbox model={model} busy={busy} onSet={onSet} />
+          <Inbox model={model} busy={busy} readOnly={readOnly} onSet={onSet} />
         ) : (
           <>
             <div className="row">
@@ -95,7 +138,13 @@ export function ComputeCardView({ model, layout, busy = false, error = null, onS
               </p>
             </div>
             {layout === "meter" ? (
-              <Meter model={model} busy={busy} onSet={onSet} />
+              <Meter model={model} busy={busy} readOnly={readOnly} onSet={onSet} />
+            ) : readOnly ? (
+              <div className="row">
+                <p className="row-help m-0" data-compute-allotment="">
+                  {model.meter.allotLabel} a month
+                </p>
+              </div>
             ) : (
               <div className="row flex flex-wrap items-start justify-between gap-4">
                 <Dial model={model} busy={busy} onSet={onSet} />
@@ -124,7 +173,7 @@ export function ComputeCardView({ model, layout, busy = false, error = null, onS
   );
 }
 
-type PartProps = { model: ComputeModel; busy: boolean; onSet(run: AllotmentSet): void };
+type PartProps = { model: ComputeModel; busy: boolean; readOnly?: boolean; onSet(run: AllotmentSet): void };
 
 // Equal columns, each as wide as the widest figure, so every figure sits centred under its own button.
 function Dial({ model, busy, onSet }: PartProps) {
@@ -241,7 +290,7 @@ function MemberLine({ row, cell }: { row: MemberRow; cell: string }) {
   return (
     <tr data-compute-member={row.member}>
       <td className={cell}>
-        <div>{row.member}</div>
+        <div>{row.name}</div>
         <div className="row-help" style={WRAP}>
           {row.detail}
         </div>
@@ -258,7 +307,7 @@ function MemberLine({ row, cell }: { row: MemberRow; cell: string }) {
 /** The accent at falling strengths, one per member in the bar and its legend. */
 const strength = (index: number) => Math.max(0.3, 1 - index * 0.12);
 
-function Meter({ model, busy, onSet }: PartProps) {
+function Meter({ model, busy, readOnly = false, onSet }: PartProps) {
   const { meter } = model;
   const option = (position: AllotmentPosition) => model.options.find((candidate) => candidate.position === position)!;
   const step = (position: "down" | "up", label: string, name: string) => {
@@ -299,10 +348,10 @@ function Meter({ model, busy, onSet }: PartProps) {
           style={{ left: `${Math.min(meter.allot, 0.85) * 100}%` }}
           data-compute-dial=""
         >
-          {step("down", "-", "Scale down")}
+          {!readOnly && step("down", "-", "Scale down")}
           <span className="row-help whitespace-nowrap">{meter.allotLabel}</span>
-          {step("up", "+", "Scale up")}
-          {!option("hold").proposed && (
+          {!readOnly && step("up", "+", "Scale up")}
+          {!readOnly && !option("hold").proposed && (
             <Button
               size="sm"
               disabled={busy || model.locked || option("hold").disabled}
@@ -331,7 +380,7 @@ function Meter({ model, busy, onSet }: PartProps) {
                 style={{ opacity: strength(index) }}
                 aria-hidden="true"
               />
-              <span>{row.member}</span>
+              <span>{row.name}</span>
               <span className="row-help">{row.month}</span>
             </li>
           ))}
@@ -342,7 +391,7 @@ function Meter({ model, busy, onSet }: PartProps) {
             </span>
           </li>
         </ul>
-        <AutoSwitch model={model} busy={busy} onSet={onSet} />
+        {!readOnly && <AutoSwitch model={model} busy={busy} onSet={onSet} />}
       </div>
     </div>
   );
@@ -352,7 +401,7 @@ function Tick({ at }: { at: number }) {
   return <div className="absolute -top-1 -bottom-1 w-px bg-fg" style={{ left: `${Math.min(at, 1) * 100}%` }} />;
 }
 
-function Inbox({ model, busy, onSet }: PartProps) {
+function Inbox({ model, busy, readOnly = false, onSet }: PartProps) {
   const cards: ReactNode =
     model.reasons.length === 0 ? (
       <div className="row">
@@ -364,22 +413,24 @@ function Inbox({ model, busy, onSet }: PartProps) {
       model.reasons.map((reason) => (
         <div key={reason.key} className="row flex items-start justify-between gap-4" data-compute-reason={reason.key}>
           <p className="m-0">{reason.text}</p>
-          <div className="flex shrink-0 gap-2">
-            {reason.accept && (
-              <Button
-                size="sm"
-                variant="solid"
-                disabled={busy}
-                data-compute-accept={reason.accept}
-                onClick={() => onSet({ action: reason.accept! })}
-              >
-                Accept
+          {!readOnly && (
+            <div className="flex shrink-0 gap-2">
+              {reason.accept && (
+                <Button
+                  size="sm"
+                  variant="solid"
+                  disabled={busy}
+                  data-compute-accept={reason.accept}
+                  onClick={() => onSet({ action: reason.accept! })}
+                >
+                  Accept
+                </Button>
+              )}
+              <Button size="sm" disabled={busy} data-compute-not-now="" onClick={() => onSet({ action: "hold" })}>
+                Not now
               </Button>
-            )}
-            <Button size="sm" disabled={busy} data-compute-not-now="" onClick={() => onSet({ action: "hold" })}>
-              Not now
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
       ))
     );
@@ -388,7 +439,7 @@ function Inbox({ model, busy, onSet }: PartProps) {
       {cards}
       <div className="row flex items-center justify-between gap-4">
         <span data-compute-hold-line="">{model.holdLine}</span>
-        <AutoSwitch model={model} busy={busy} onSet={onSet} />
+        {!readOnly && <AutoSwitch model={model} busy={busy} onSet={onSet} />}
       </div>
       {!model.empty && (
         <div className="row">
