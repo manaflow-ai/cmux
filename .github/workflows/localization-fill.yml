@@ -48,14 +48,11 @@ jobs:
     outputs:
       rows: ${{ steps.gaps.outputs.rows }}
       head: ${{ steps.head.outputs.head }}
-    env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "300"
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh), as billing-nightly.yml: every later gh
       # call waits through a rate limit or a GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -67,7 +64,7 @@ jobs:
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
           path: main
@@ -82,19 +79,6 @@ jobs:
       - name: Pin the head
         id: head
         run: echo "head=$(git -C main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .gh-budget-tooling
-          sparse-checkout: |
-            scripts/ci/gh_budget_wait.sh
-            scripts/ci/gh_budget_wait.cjs
-          sparse-checkout-cone-mode: false
-      - name: Wait through GitHub API rate limits and 5xx in this job
-        working-directory: ${{ github.workspace }}
-        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this hourly pass sends
       # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
       - name: Read the GITHUB_TOKEN floor
@@ -175,14 +159,11 @@ jobs:
       GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
-    env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "300"
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh), as billing-nightly.yml: every later gh
       # call waits through a rate limit or a GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -195,7 +176,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       # The helper at this workflow's own commit.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -206,7 +187,7 @@ jobs:
             scripts/localization-plurals.json
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gaps.outputs.head }}
           path: fresh
@@ -233,19 +214,6 @@ jobs:
           python3 -I trusted/scripts/localization_fill.py apply --repo-dir fresh --packet "$RUNNER_TEMP/packet/packet.json" \
             --answer "$RUNNER_TEMP/answer/answer.json" | tee -a "$GITHUB_OUTPUT"
           python3 -I trusted/scripts/localization_catalog.py check --root fresh
-      - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .gh-budget-tooling
-          sparse-checkout: |
-            scripts/ci/gh_budget_wait.sh
-            scripts/ci/gh_budget_wait.cjs
-          sparse-checkout-cone-mode: false
-      - name: Wait through GitHub API rate limits and 5xx in this job
-        working-directory: ${{ github.workspace }}
-        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       - name: Mint the pull request token
         id: app-token
         if: ${{ steps.apply.outputs.applied != '0' }}

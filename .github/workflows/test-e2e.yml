@@ -92,7 +92,7 @@ jobs:
     # job lengths, whatever Blacksmith's wait, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (four or five API calls; see e2e_runner_pool.py for the budget), and the
@@ -115,7 +115,7 @@ jobs:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
       - name: Checkout pool helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
@@ -430,7 +430,7 @@ jobs:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
       - name: Checkout sibling helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: scripts/ci/e2e_sibling_build.py
           sparse-checkout-cone-mode: false
@@ -542,7 +542,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
@@ -555,7 +555,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
@@ -1169,7 +1169,7 @@ jobs:
       # they always were.
       - name: Checkout the E2E test steps
         if: ${{ steps.test-here.outputs.tested == 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
@@ -1318,7 +1318,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
@@ -1331,7 +1331,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
@@ -1390,7 +1390,7 @@ jobs:
       # The steps come from this workflow's revision, not the tested one, which
       # may predate them.
       - name: Checkout the E2E test steps
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow

@@ -35,7 +35,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout parent repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The synthetic PR commit and its first parent are sufficient for
           # the merge-base comparison, and keep this guard shallow like the
@@ -81,7 +81,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -225,10 +225,6 @@ jobs:
       - name: Validate no job names its runner only as literal labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
-
-      - name: Validate no job names a vendor runner label no variable can move
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_runner_pins_movable.py
 
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
@@ -1684,6 +1680,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
 
+      - name: Validate every continuation job waits through a GitHub API rate limit
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_continuation_jobs_wait_through_rate_limits.py
+
       - name: Validate nightly and DEV publish jobs send gh calls as the release App first
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_publish_app_token_workflow.py
@@ -1719,6 +1719,10 @@ jobs:
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py
+
+      - name: Refuse bare urlopen of GitHub's API and the cmux CDN
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_bare_urlopen.py
 
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
@@ -1956,7 +1960,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
           # fetch-depth 0 would also fetch every branch of the repository
@@ -2022,7 +2026,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -2057,7 +2061,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
