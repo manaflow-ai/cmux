@@ -19,8 +19,10 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 afterAll(() => {
-  scope.window = saved.window;
-  scope.document = saved.document;
+  if (saved.window === undefined) delete scope.window;
+  else scope.window = saved.window;
+  if (saved.document === undefined) delete scope.document;
+  else scope.document = saved.document;
   dom.window.close();
 });
 
@@ -121,7 +123,11 @@ type Snapshot = {
   rows: Array<{ kind?: string; turnId?: string; tripwires?: TripwireState }>;
 };
 
-async function replayTurn(fixture: TripwireState, nextTurn?: TripwireState, attachState?: TripwireState): Promise<Snapshot> {
+async function replayTurn(
+  fixture: TripwireState,
+  nextTurn?: TripwireState,
+  attachState?: TripwireState,
+): Promise<Snapshot> {
   const { AcpmuxDirectClient } = await import("../direct");
   const { MockAcpmuxSocket, mockHost } = await import("../mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -247,7 +253,8 @@ test("attach summary does not discard equal or older turn recap evidence", async
   for (const attached of [finished, state(51, red, "tripwire-newer")]) {
     const snapshot = await replayTurn(finished, undefined, attached);
     expect(snapshot.summary?.tripwires).toEqual(attached);
-    expect(snapshot.rows.find((row) => row.kind === "turnSummary" && row.turnId === finished.turnId)?.tripwires)
-      .toEqual(finished);
+    expect(
+      snapshot.rows.find((row) => row.kind === "turnSummary" && row.turnId === finished.turnId)?.tripwires,
+    ).toEqual(finished);
   }
 });

@@ -11015,8 +11015,7 @@ export class AcpmuxDirectClient {
             at: event.at,
             kind: "turnSummary",
             ...(resultStartedAtMs !== undefined && { turnStartedAtMs: resultStartedAtMs }),
-            tripwires:
-              (turnId ? this.tripwireTurns.get(turnId) : undefined) ?? this.rows.get(summaryId)?.tripwires,
+            tripwires: (turnId ? this.tripwireTurns.get(turnId) : undefined) ?? this.rows.get(summaryId)?.tripwires,
             // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
