@@ -108,6 +108,7 @@ public final class LocalhostForwarder {
         var listener: NWListener?
         var binding: Task<Result<UInt16, Failure>, Never>?
         var bindingID: UInt = 0
+        var connections: [ObjectIdentifier: NWConnection] = [:]
 
         init(target: Target, macID: String?) {
             self.target = target
@@ -250,6 +251,8 @@ public final class LocalhostForwarder {
         route.binding?.cancel()
         route.listener?.cancel()
         route.listener = nil
+        for connection in route.connections.values { connection.cancel() }
+        route.connections.removeAll()
     }
 
     /// Registers a proxy bind before starting it, so concurrent callers and
@@ -364,6 +367,8 @@ public final class LocalhostForwarder {
             route.binding = nil
             route.listener?.cancel()
             route.listener = nil
+            for connection in route.connections.values { connection.cancel() }
+            route.connections.removeAll()
         }
     }
 
@@ -490,25 +495,27 @@ public final class LocalhostForwarder {
 
     private func serveProxy(_ connection: NWConnection, key: ProxyKey) async {
         guard let route = proxies[key], !suspended else { connection.cancel(); return }
+        let connectionID = ObjectIdentifier(connection)
+        route.connections[connectionID] = connection
+        defer {
+            route.connections.removeValue(forKey: connectionID)
+            connection.cancel()
+        }
         connection.start(queue: Self.queue)
         guard let (head, remainder) = await Self.proxyHead(connection) else {
             _ = await Self.send(connection, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         guard let request = Self.proxyRequest(head) else {
             _ = await Self.send(connection, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         guard request.authority.lowercased() == Self.authority(host: route.target.host!, port: route.target.port).lowercased() else {
             _ = await Self.send(connection, Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         guard request.authorization == Self.authorization(username: route.username, password: route.password) else {
             _ = await Self.send(connection, Data("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"cmux\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         let channel: any LinkChannel
@@ -524,20 +531,17 @@ public final class LocalhostForwarder {
             if let linkError, Self.refusalCodes.contains(linkError.code) {
                 await MainActor.run { self.targetRefusals[route.target] = linkError.message }
             }
-            connection.cancel()
             return
         }
         guard proxies[key] === route, !suspended else {
             await channel.close(code: "superseded", reason: "")
-            connection.cancel()
             return
         }
         guard await Self.send(connection, Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8)) else {
             await channel.close(code: "eof", reason: "")
-            connection.cancel(); return
+            return
         }
         await Self.pumpRaw(connection, channel: channel, initial: remainder)
-        connection.cancel()
     }
 
     private struct ProxyRequest {
