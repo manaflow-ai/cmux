@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxScreenKit
 public import CmuxNextDevices
@@ -40,6 +41,8 @@ public final class MacScreenPaneModel {
     public internal(set) var deviceSetup: MacScreenDeviceSetup?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// While the pane retries a failure on its own: what shows in place of it (``card``); nil otherwise.
+    var retryCover: MacScreenRetryCover?
     /// The agent that started this tab's view without a person's click; nil for a person's.
     public internal(set) var startedBy: MacScreenStarter?
     /// Holds the card's in-between states back (``MacScreenCardQuiet``); tests give it a manual clock.
@@ -112,15 +115,25 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
+    private var retryWatch: Task<Void, Never>?
     /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
     private var cursorTask: Task<Void, Never>?
+    /// Asks the hub again, on its own, after a failure whose only sensible answer is yes
+    /// (``MacScreenPaneModel/retriesOnItsOwn(_:)``): no Try Again or Reconnect button for it. Runs only while the tab shows.
+    private let retry = AutoRetry(owner: "mac-screen.reconnect")
+    /// A retry asked the hub: the next failure is its outcome.
+    private var retryAttempting = false
+    /// The retry stretch began with a stream that failed or dropped (a blip): it shows Reconnecting until the bound.
+    private var retryQuiet = false
+    /// The stretch's last failure, as its card said it then.
+    private var retryFailure: MacScreenRetryCover?
     /// The current transport's clipboard sync (cap `clipboard.text`); nil until a session offers it.
     private var clipboardBridge: RemoteClipboardBridge?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
-    /// signaling to the session once; a dropped stream does not reconnect on
-    /// its own (Try Again asks again).
+    /// signaling to the session once; a dropped stream asks the hub again on its own
+    /// while the tab shows, when that prompts nobody (``retry``).
     /// `viewerLook` fixes the look (the gallery and tests); nil follows the setting.
     public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences,
                 viewerLook: MacScreenViewerLook? = nil) {
@@ -147,6 +160,10 @@ public final class MacScreenPane {
             if session.stream != nil || session.isReconnecting { session.disconnect() }
         }
         view.input.waitForClick()
+        // Out of sight until the tab shows (`resume()`).
+        retry.setInSight(false)
+        retry.setAttempt { [weak self] in self?.retryNow() }
+        observeRetry()
     }
 
     /// A tab restored on an old pairing-link record: link pairing is no
@@ -314,6 +331,8 @@ public final class MacScreenPane {
         // A device's tab asks the hub when shown with a scope waiting
         // (hidden past its grace mid-session, or opened unseen and not started yet).
         start()
+        // A failure the pane retries itself: one attempt now, then the backoff while the tab shows.
+        retry.setInSight(true)
     }
 
     /// A device tab with a scope waiting asks the hub now, shown or not: a person's open (or
@@ -330,6 +349,7 @@ public final class MacScreenPane {
     public func pause() {
         guard visible else { return }
         visible = false
+        retry.setInSight(false)
         view.input.releaseKeyboard()
         hideTimer.schedule(after: hiddenGrace) { @MainActor [weak self] in
             guard let self, !visible else { return }
@@ -340,8 +360,11 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
+        retry.stop()
+        retry.setInSight(false)
         model.recording.stop()
         decodeTask?.cancel()
+        retryWatch?.cancel()
         cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
@@ -374,6 +397,61 @@ public final class MacScreenPane {
     private func reconnect() {
         guard let hub = model.hub else { return }
         hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
+    }
+
+    // MARK: Retry
+
+    /// Follows the state card and the retry: a failure the pane answers itself starts or continues the retry, a live
+    /// picture ends it, anything else (a person's choice, a prompt on the host) stops it.
+    private func observeRetry() {
+        retryWatch?.cancel()
+        retryWatch = Task { [weak self] in
+            let changes = ObservationStream { [weak self] () -> [Bool] in
+                guard let self else { return [] }
+                return [model.retriesOnItsOwn(model.stateCard), retry.isFailing, retry.showsNotice]
+            }
+            for await _ in changes {
+                guard let self else { return }
+                syncRetry()
+            }
+        }
+    }
+
+    private func syncRetry() {
+        let state = model.stateCard
+        if let state, model.retriesOnItsOwn(state) {
+            // The first failure of a stretch, or the outcome of a retry's attempt (never a redraw of the same failure).
+            if retryAttempting || !retry.isFailing {
+                if !retry.isFailing {
+                    if case .hubRefused = state { retryQuiet = false } else { retryQuiet = true }
+                }
+                retryAttempting = false
+                retry.failed()
+            }
+            retryFailure = MacScreenRetryCover(card: state, detail: MacScreenCardView.stateFailedDetail(state, model))
+        } else if let state, state.isAttemptInFlight, retry.isFailing {
+            // An attempt is under way: the cover stays.
+        } else {
+            retryAttempting = false
+            retryFailure = nil
+            if retry.isFailing {
+                // A live picture ends the stretch; anything else is the person's to answer.
+                if state == nil { retry.succeeded() } else { retry.stop() }
+            }
+        }
+        var cover: MacScreenRetryCover?
+        if retry.isFailing, let failure = retryFailure {
+            cover = retryQuiet && !retry.showsNotice
+                ? MacScreenRetryCover(card: .connecting(reconnecting: model.everConnected), detail: "") : failure
+        }
+        if model.retryCover != cover { model.retryCover = cover }
+    }
+
+    /// The retry's attempt: ask the hub again for what the failure was asking for.
+    private func retryNow() {
+        guard let hub = model.hub, let state = model.stateCard, model.retriesOnItsOwn(state) else { return }
+        retryAttempting = true
+        if case let .hubRefused(_, requested) = state { hub.request(requested) } else { reconnect() }
     }
 
     /// The viewer toolbar or a targeted Stop Viewing action ends this session.

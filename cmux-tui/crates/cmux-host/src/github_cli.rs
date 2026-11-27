@@ -1036,10 +1036,23 @@ pub fn gh_hosts_path(
     home.map(|h| h.join(".config/gh/hosts.yml"))
 }
 
+/// The working folder's `origin` as configured. Not `git remote get-url`: that applies
+/// `url.*.insteadOf`, and a Cloud machine's git cache rewrites every github.com fetch URL to
+/// its loopback proxy (`cmux_git_cache::gitconfig`), so the repo read as none there and
+/// `acpmux github-mcp` had no default repo (journey runs 45750510949, 45778908629).
 pub fn origin_url() -> Option<String> {
-    let out =
-        std::process::Command::new("git").args(["remote", "get-url", "origin"]).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    origin_url_in(None)
+}
+
+/// [`origin_url`] for `dir` (the process's working folder when none).
+pub fn origin_url_in(dir: Option<&Path>) -> Option<String> {
+    let mut git = std::process::Command::new("git");
+    if let Some(dir) = dir {
+        git.arg("-C").arg(dir);
+    }
+    let out = git.args(["config", "--get", "remote.origin.url"]).output().ok()?;
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    (out.status.success() && !url.is_empty()).then_some(url)
 }
 
 /// The helper value `setup` writes: this binary by absolute path (the name

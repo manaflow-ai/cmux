@@ -225,6 +225,31 @@ FAKE_CARGO_BUILD_FAILS=1 PATH="$tmp/slowbin:$PATH" run
 expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate core: the tests do not build"
 if grep -q "^FAST-TIER PASS" <<<"$out"; then echo "FAIL: entries ran after a failed build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
 
+# Swift reports a compiler diagnostic before it finishes compiling the remaining
+# files. The build process and its children must stop at that first error.
+mkdir -p "$tmp/errorbin"
+cat > "$tmp/errorbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "Sources/Fail.swift:1:1: error: cannot find 'PaneMoreShotsTests' in scope"
+  sleep 30
+  exit 1
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/errorbin/swift"
+registry '{"entries": [{"name": "swift compile", "kind": "swift", "package": "Pkg", "filter": "Matches", "owner": "op-test"}]}'
+started=$SECONDS
+PATH="$tmp/errorbin:$PATH" run
+elapsed=$(( SECONDS - started ))
+expect "a Swift compiler error fails the tier" 1 "^FAST-TIER FAIL build:Pkg: the tests do not build"
+expect "the first Swift diagnostic remains visible" 1 "cannot find 'PaneMoreShotsTests' in scope"
+if [ "$elapsed" -ge 8 ]; then
+  echo "FAIL: Swift compile error waited for the build (${elapsed}s, want under 8s)" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+
 # --changed-files (a pull request's diff) runs only the entries, and builds only the packages, the change
 # reaches; the post-merge batch runs the rest (note-559). These read the repository's own registry and graphs.
 scoped() {

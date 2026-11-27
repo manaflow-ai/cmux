@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pick the macOS pool the unsigned iOS jobs land on.
 
-test-ios.yml (mobile-core-package, ios-simulator-build, ios-simulator) and
+test-ios.yml (ios-simulator-build, ios-simulator) and
 ios-screenshots.yml (screenshots) run this in a `runner` job, the way
 test-e2e.yml runs e2e_runner_pool.py, and every macOS job of the run reads its
 outputs.
@@ -195,10 +195,11 @@ path reads the runs' jobs instead; see Live capacity.)
 
 Labels. ios-simulator-build and ios-simulator need the iOS runtime, and
 screenshots too, so they ask for the owned pool label and SIM_LABEL together
-(`runs_on`); the plain pool label alone never reaches them. mobile-core-package
-runs SwiftPM tests on the host and needs no simulator, so it takes the pool
-label alone (`package_runs_on`). glaeda knows these jobs (the build and package
-jobs are isolated jobs, the simulator jobs hold its per-mini simulator token),
+(`runs_on`); the plain pool label alone never reaches them. `package_runs_on`
+(the pool label alone) is for a job that runs SwiftPM tests on the host and needs
+no simulator; test-ios.yml has none now that its packages test on Linux
+(mobile-core-linux). glaeda knows these jobs (the build job is an isolated
+job, the simulator jobs hold its per-mini simulator token),
 so unlike an E2E run they never take the root label. Neither label appears in
 workflow text (tests/test_ci_self_hosted_guard.sh refuses `glaeda-` there):
 runs-on reads the JSON this prints.
@@ -212,8 +213,9 @@ would wait for good), or CI_OWNED_POOL_SLOTS gives SIM_LABEL no machines. It
 also refuses what auto refuses: an `ios_version`, an upload, a release call
 and `seed_cache`. CI_IOS_OWNED is not required, so a proof run can precede it.
 
-A `swift_package` run of test-ios.yml runs mobile-core-package alone: one
-machine and no simulator, so it needs no SIM_LABEL capacity.
+A `swift_package` run of test-ios.yml runs only mobile-core-linux, on Linux: it
+needs no SIM_LABEL capacity, and is still charged one machine (run_jobs()), an
+over-count for a rare manual dispatch.
 
 A job left queued on the owned labels, or refused by glaeda at job start, is
 re-run by ci-owned-pool-rescue.yml, which watches the run through the marker
@@ -317,8 +319,8 @@ class Lane:
 
 
 LANES = {
-    # mobile-core-package and ios-simulator-build run side by side; the
-    # simulator matrix (iPhone, iPad) follows the build, two again.
+    # ios-simulator-build, then the simulator matrix (iPhone, iPad) that
+    # follows it: two at once.
     "test-ios": Lane(jobs=2, measured=True),
     # One capture or CmuxMobileKit job.
     "screenshots": Lane(jobs=1, measured=False),
@@ -404,7 +406,7 @@ class Route:
 
     @property
     def package_runs_on(self) -> str:
-        """runs-on as JSON for mobile-core-package, which needs no simulator."""
+        """runs-on as JSON for a host-only SwiftPM job, which needs no simulator."""
         if self.grant_labels:
             return json.dumps([label for label in self.grant_labels if label != SIM_LABEL])
         return json.dumps(self.label)
@@ -428,7 +430,7 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     if lane in ("screenshots", "kit", "phone-cells", "billing", "pipeline"):
         return 1
     if (swift_package or "").strip():
-        # mobile-core-package alone: SwiftPM tests on the host.
+        # mobile-core-linux alone, on Linux.
         return 0
     return 1 if (device_family or "").strip() in ("iphone", "ipad") else MAX_SIM_JOBS
 
@@ -958,7 +960,7 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     `${CI_OVERFLOW_MAC or 'cmux-mac'}` instead, as other own-branch Mac workflows do (vars.CI_OVERFLOW_MAC ||
     'cmux-mac'), with SIM_LABEL and xcode-<version>: the shared glaeda runners carrying all three take it, and
     the CI controller grants it to any free Mac whose asker reports that Xcode and an iOS simulator runtime
-    (cmuxterm-hq build-fleet/internal/sched/grant.go). mobile-core-package drops SIM_LABEL. Its Xcode is the
+    (cmuxterm-hq build-fleet/internal/sched/grant.go). package_runs_on drops SIM_LABEL. Its Xcode is the
     lane's vars.CMUX_CI_XCODE_APP_PR, else the macOS 26 row of xcode-pins.txt, which select-ci-xcode.sh picks
     on such a Mac (CMUX_CI_XCODE_APP stays empty off a glaeda- label).
 

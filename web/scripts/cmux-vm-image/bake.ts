@@ -29,7 +29,8 @@
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
- *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode. cmux-dns-scope.path
+ *   keeps public resolvers behind the provider's TLS-edge resolver on a machine created with an edge rule.
  * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
  *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
  *   memory and task limits, and the user's systemd manager outlives a runaway session.
@@ -117,7 +118,7 @@ import {
   rdSetupCommand,
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
-import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
@@ -898,6 +899,8 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "echo shell-env-ok",
   ].join(" && "));
   await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
+  for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
@@ -1111,6 +1114,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
+  await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand());
 }
 
 /**
@@ -1153,6 +1157,41 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
     `i=0; while [ "$i" -lt ${limitSeconds} ] && [ ! -s "$health" ]; do i=$((i + 1)); sleep 1; done`,
     `if [ ! -s "$health" ]; then echo "acpmux's harness check did not finish in ${limitSeconds}s (no $health); its processes:" >&2; ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" >&2; exit 1; fi`,
     'echo "acpmux-harness-checks-done after ${i}s"',
+  ].join(" && ");
+}
+
+/**
+ * harness-health.json marks the end of the `--version` and sign-in checks, not of the model probes the same start
+ * runs (hub/model_probe.rs for the ACP harnesses, hub/live_models.rs for Claude and Codex): each spawns its CLI,
+ * which writes under /tmp (/tmp/opencode, /tmp/claude-<uid>, /tmp/cursor-agent-logs-<uid>), for up to 60 s before
+ * acpmux kills it. A probe still running at clean writes again after tmp-empty and fails tmp-no-writer. Every probe
+ * runs in `<acpmux home>/unattended` (protected_folders.rs unattended_cwd), so wait until no process of the daemon
+ * user has its cwd there. At the bound, name the probes still running and stop them (TERM, then KILL): a probe CLI
+ * that hangs past acpmux's own kill (2026-11-26 roll 45732114266: two `cursor-agent acp` probes alive after 120 s)
+ * is the bake's own process and must not fail the roll; only a probe that survives KILL does. `unattended` is for
+ * tests.
+ */
+export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
+  const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
+  // One find over /proc (a readlink per process forks hundreds of times); -lname matches the cwd link's target.
+  const probes = [
+    'find /proc -mindepth 2 -maxdepth 2 -name cwd \\( -lname "$dir" -o -lname "$dir/*" \\) 2>/dev/null | while IFS= read -r c; do',
+    '  pid="${c#/proc/}"; pid="${pid%%/*}"; echo "  probe pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)"',
+    "done",
+  ].join("\n");
+  return [
+    ...(unattended === undefined ? [cmuxTuiLayoutSelector(), 'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-probes-no-service; exit 0; fi'] : []),
+    `dir=${dir}`,
+    `probes() {\n${probes}\n}`,
+    `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
+    `left="$(probes)"`,
+    'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
+    `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,
+    `stop() { for p in $(probes | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p'); do kill "-$1" "$p" 2>/dev/null || true; done; }`,
+    'stop TERM; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
+    'if [ -n "$(probes)" ]; then stop KILL; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done; fi',
+    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes survived KILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
+    'echo "acpmux-probes-quiet after ${i}s (stopped the rest)"',
   ].join(" && ");
 }
 

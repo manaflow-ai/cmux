@@ -17,6 +17,7 @@ enum AgentShareStrings {
     }
 
     static var cloudRoomMissing: String {
+        // retry-prompt-ok: updating the Cloud machine replaces its binaries
         String(localized: "agentShare.cloudRoomMissing", defaultValue: "This Cloud machine can’t make share links yet. Update the machine, then try again.", table: "AgentShare", bundle: .localizedModule)
     }
 
@@ -33,6 +34,7 @@ enum AgentShareStrings {
     }
 
     static var timedOut: String {
+        // retry-prompt-ok: making a share link publishes the chat (a side effect the person chooses)
         String(localized: "agentShare.timedOut", defaultValue: "The share service didn’t answer in time, so no link was made. Try again.", table: "AgentShare", bundle: .localizedModule)
     }
 
@@ -64,6 +66,7 @@ enum AgentShareStrings {
     static func reason(_ code: String) -> String? {
         switch code {
         case "share.needs_sign_in": String(localized: "agentShare.needsSignIn", defaultValue: "Sign in to cmux to share a chat.", table: "AgentShare", bundle: .localizedModule)
+        // retry-prompt-ok: making a share link publishes the chat (a side effect the person chooses)
         case "share.room_unreachable": String(localized: "agentShare.roomUnreachable", defaultValue: "The share service didn’t answer. Try again in a moment.", table: "AgentShare", bundle: .localizedModule)
         case "share.room_refused": String(localized: "agentShare.roomRefused", defaultValue: "Sharing is off for this account.", table: "AgentShare", bundle: .localizedModule)
         case "share.not_a_chat": notAChat

@@ -18,14 +18,16 @@ import {
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
-  type CloudUsage,
   type CloudRetention,
   type CloudSnapshot,
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
   type CloudSurge,
+  type CloudUsage,
 } from "./ops";
+
+import { parseSpendLimit, SPEND_LIMIT_SET, type PoolStanding } from "./pool";
 
 export { sampleMachines } from "./mockData";
 
@@ -121,6 +123,8 @@ export class MockCloudProvider implements PageClient {
   offline = false;
   /** The next call of this op fails with a retryable owner error. */
   failNext?: string;
+  /** Every call of this op fails as `failNext` does, until cleared (a read that stays down). */
+  failAlways?: string;
   /** The code (and backend text "raw backend text") of the `failNext` failure; default upstream_error. */
   failCode?: string;
   /** Runs after the list result is taken and before it is answered (an event during the list). */
@@ -161,6 +165,10 @@ export class MockCloudProvider implements PageClient {
    * create answers `spend_cap_reached`. Unset: a server without the cap.
    */
   spendCap?: NonNullable<CloudPlan["spend_cap"]>;
+  /** The plan's hours and the spend limit past them as `cloud.plan.get` answers them (RFD 0081, pool.ts). */
+  pool?: PoolStanding;
+  /** The spend limit's setter answers `spend_limit_forbidden` (the caller is not a team admin). */
+  spendLimitForbidden = false;
   /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
   memberBudget?: { spent_usd: number; limit_usd: number };
   /**
@@ -212,8 +220,8 @@ export class MockCloudProvider implements PageClient {
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
-    if (this.failNext === op) {
-      this.failNext = undefined;
+    if (this.failNext === op || this.failAlways === op) {
+      if (this.failNext === op) this.failNext = undefined;
       if (this.failCode) throw pageError(this.failCode, "raw backend text", false);
       throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
     }
@@ -291,7 +299,8 @@ export class MockCloudProvider implements PageClient {
       },
       ...(this.retention ? { retention: structuredClone(this.retention) } : {}),
       ...(this.spendCap ? { spend_cap: this.spendCap } : {}),
-    };
+      ...(this.pool ? { pool: { ...this.pool } } : {}),
+    } as CloudPlan;
   }
 
   /** The archives taken by archive and delete are ready: each machine is removed, its archive listed. */
@@ -729,9 +738,26 @@ export class MockCloudProvider implements PageClient {
     return this.fs.serve(op, p, machine.id);
   }
 
+  /**
+   * The spend limit's setter, as the platform answers it: an admin's, parsed like PoolLimit.ts, `{pool}`. With no pool
+   * the server's switch is off (`cloud.spend_limit.off`).
+   */
+  private setSpendLimit(args: Params): unknown {
+    if (!this.pool) throw pageError("cmux.cloud.spend_limit_off", "the spend limit is not on for this server");
+    if (this.spendLimitForbidden)
+      throw pageError("cmux.cloud.spend_limit_forbidden", "only a team admin sets the spend limit");
+    const limit = parseSpendLimit(String(args.spend_limit_usd));
+    if (limit === null) throw pageError("cmux.cloud.spend_limit_invalid", "spend_limit_usd must be 0 to 10000");
+    const pool = this.pool;
+    const mayRun = pool.percent < 100 || pool.overage_usd < limit;
+    this.pool = { ...pool, spend_limit_usd: limit, may_run: mayRun };
+    return { confirmed: true, pool: this.pool };
+  }
+
   /** The host's native confirmation: on yes it runs the op as origin user and answers its result. */
   private runAction(p: Params): unknown {
     const action = String(p.action);
+    if (action === SPEND_LIMIT_SET) return this.setSpendLimit((p.args ?? {}) as Params);
     if (action === HostActions.browserTabOpen) {
       if (this.unsupported.has(action)) throw pageError("cmux.app.unknown_action", action);
       if (this.tabError) throw pageError(this.tabError, "the browser refused the proxied tab");

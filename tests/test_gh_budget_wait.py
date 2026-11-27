@@ -236,6 +236,17 @@ class WrapperTests(unittest.TestCase):
                 self.assertIn("did not reach GitHub", result.stderr)
                 self.assertEqual(h.waited(), 1)
 
+    def test_a_dispatch_github_failed_with_a_5xx_is_tried_again(self) -> None:
+        # Run 45776501690: wake-nightly-next-tick moved to the spare pool, then GitHub answered
+        # "could not create workflow dispatch event: HTTP 500" and the job failed. GitHub created
+        # no dispatch, so the same call is tried again after the unsent backoff.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 500: Failed to run workflow dispatch")
+        result = h.gh("workflow", "run", "nightly-next-tick.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
+        self.assertEqual(h.waited(), 1)
+
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
@@ -497,14 +508,17 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
     # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
-    # github.token from its job env). No App path fits it: the release App holds contents and workflows,
-    # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
-    # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
+    # github.token from its job env). The release App cannot dispatch (contents and workflows, not actions), so
+    # github.token goes first and a refusal moves to cmux-bot and the CI pools (GH_TOKEN_SPARE, GH_TOKEN_SPARES)
+    # at once: run 45562645699 slept 18.4 min here for github.token's reset (test_dispatches_move_to_app_pools).
     ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
     # The loop's retry of a commit whose nightly-next-one left the slot before nightly-next moved: a workflow
     # dispatch like retry-nightly-next's, for the same reason (the release App cannot dispatch). Its nightly-next
     # read is git ls-remote.
     ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
+    # The post-publication dispatch, the same way: github.token first, then cmux-bot and the CI pools at once
+    # (run 45562645699 slept 12.9 min here).
+    ("dispatch-published-in", "Ask for this build's post-publication run"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
@@ -513,6 +527,8 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
     ("published-in", "Comment the build on its PRs"),
+    # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
+    ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
@@ -551,8 +567,10 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(len(installs), 1, name)
             at = installs[0]
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
+            # A token only git reads (FETCH_TOKEN: the warm builder's checkout) spends no REST budget.
             later_gh = [i for i, s in enumerate(steps)
-                        if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
+                        if "github.token" in str({k: v for k, v in (s.get("env") or {}).items() if k != "FETCH_TOKEN"})
+                        or "release-tag-token" in str(s.get("env", {}))]
             # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
             # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
             # unsigned-resume restore come first. The restore runs in every nightly-next sign run, so it
@@ -568,6 +586,17 @@ class WorkflowTests(unittest.TestCase):
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
         self.assertEqual(new, [], "give each step an App-token path: mint one and pass "
                          "`steps.<mint>.outputs.token || github.token`, or install gh_app_token.sh earlier in its job")
+
+    def test_the_failure_report_waits_through_a_rate_limit(self) -> None:
+        # Run 45776501690: report-nightly-failure's github-script died on "API rate limit exceeded", so the
+        # failed nightly opened no issue. Every github-script step of the job retries a rate-limited request.
+        scripts = [s for s in self.jobs["report-nightly-failure"]["steps"] if "github-script" in str(s.get("uses", ""))]
+        self.assertTrue(scripts)
+        for step in scripts:
+            script = step["with"]["script"]
+            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
+            self.assertIn("x-ratelimit-reset", script, step.get("name"))
+            self.assertIn("deadline", script, step.get("name"))
 
     def test_the_shared_token_detector(self) -> None:
         mint = {"name": "Mint", "id": "mint", "uses": "actions/create-github-app-token@x"}
@@ -596,6 +625,21 @@ class WorkflowTests(unittest.TestCase):
             if dispatches:
                 self.assertIn(name, PUBLISH_PATH, name)
 
+    def test_dispatches_move_to_app_pools(self) -> None:
+        # Run 45562645699: with github.token's hour spent, the tick wake and the post-publication dispatch slept
+        # 18.4 and 12.9 min for its reset after the feed was live. Each App installation has its own hour.
+        for name, step_name in (("wake-nightly-next-tick", "Ask main's nightly-next tick"),
+                                ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
+                                ("dispatch-published-in", "Ask for this build's post-publication run")):
+            steps = self.jobs[name]["steps"]
+            env = next(s for s in steps if s.get("name") == step_name).get("env") or {}
+            self.assertIn("steps.cmux-bot-token.outputs.token", str(env.get("GH_TOKEN_SPARE")), (name, step_name))
+            self.assertIn("env.CI_POOL_GH_TOKEN", str(env.get("GH_TOKEN_SPARES")), (name, step_name))
+            self.assertTrue(any(s.get("id") == "cmux-bot-token" for s in steps), name)
+            self.assertTrue(any("ci_pool_tokens.py" in str(s.get("run", "")) for s in steps), name)
+            # App keys stay off the nightly mini.
+            self.assertNotIn("CI_NIGHTLY_MINI", str(self.jobs[name]["runs-on"]), name)
+
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
             timeout = mode_off_timeout(self.jobs[name].get("timeout-minutes", 360))
@@ -610,7 +654,7 @@ class WorkflowTests(unittest.TestCase):
                 if "timeout-minutes" in step and "GH_TOKEN" in step.get("env", {}):
                     self.assertGreaterEqual(int(mode_off_timeout(step["timeout-minutes"])), 65, (name, step.get("name")))
 
-    def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
+    def test_the_attestation_signs_offline_and_never_waits_for_the_budget(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
         # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
         # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
@@ -634,14 +678,23 @@ class WorkflowTests(unittest.TestCase):
             if isinstance(needs, str):
                 needs = [needs]
             self.assertNotIn("attest-nightly-remote-daemon", needs, name)
+        # The provenance is signed with no GitHub REST call and the API write gets one try: waiting for the
+        # shared installation budget (--reserve 200) held this job 17.6 minutes in run 45562645699.
         steps = job["steps"]
         names = [s.get("name") for s in steps]
-        attest = names.index("Attest immutable SSH daemon assets")
-        self.assertIn("gh_budget_wait.sh --reserve 200", steps[attest - 1]["run"])
-        # The retry waits through the same script (one ledger, an hour in all), only while the budget is short.
-        wait = steps[names.index("Wait for the API budget before retrying the daemon attestation")]["run"]
-        self.assertIn("gh_budget_wait.sh --reserve 200", wait)
-        self.assertNotIn("sleep", wait)
+        for step in steps:
+            self.assertNotIn("gh_budget_wait", str(step.get("run", "")), step.get("name"))
+            self.assertNotIn("attest-build-provenance", str(step.get("uses", "")), step.get("name"))
+        sign = steps[names.index("Sign the SSH daemon provenance offline")]
+        self.assertIn("scripts/ci/attest-offline/sign.mjs", sign["run"])
+        self.assertIn("remote-daemon-assets/cmuxd-remote-*", sign["run"])
+        self.assertNotIn("GH_TOKEN", sign.get("env", {}))
+        keep = steps[names.index("Keep the SSH daemon provenance bundle")]
+        self.assertIn("actions/upload-artifact@", keep["uses"])
+        store = steps[names.index("Store the daemon attestation (one try, no budget wait)")]
+        self.assertTrue(store.get("continue-on-error"))
+        self.assertIn("attest-store.sh", store["run"])
+        self.assertLess(names.index("Keep the SSH daemon provenance bundle"), names.index("Store the daemon attestation (one try, no budget wait)"))
 
     def test_the_app_engine_fetch_keeps_its_budget_wrapper(self) -> None:
         steps = self.jobs["build-nightly-app"]["steps"]

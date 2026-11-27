@@ -407,7 +407,29 @@ def culprit_body(run_url: str, sha: str, job: str, verdict: dict, run_id: int, o
     ])
 
 
+def rate_limited(error: subprocess.CalledProcessError) -> bool:
+    """A read GitHub refused because the hour's API budget is spent (HTTP 403 or 429 "rate limit")."""
+    text = f"{error.stderr or ''} {error.stdout or ''}".lower()
+    return "rate limit" in text
+
+
 def main(argv: list[str]) -> int:
+    """Attribute the run's red; a spent API budget skips the attribution instead of failing the job.
+
+    This job runs only when another job already failed, so a refused read made it a second red row
+    for the same push with no culprit in it (2026-11-26 01:41Z and 01:46Z, both "API rate limit
+    exceeded for installation"). The real red stays red; the next push run attributes it.
+    """
+    try:
+        return attribute(argv)
+    except subprocess.CalledProcessError as error:
+        if not rate_limited(error):
+            raise
+        print("Attribution skipped: GitHub's API rate limit refused a read; the next push run attributes this red.")
+        return 0
+
+
+def attribute(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", required=True)
     parser.add_argument("--run-id", type=int, required=True)

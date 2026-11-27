@@ -107,6 +107,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
         root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook)
+        services.wallpaperBadge.add(root.backdropView) // a live wallpaper's badge shows the signed-in account
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -484,6 +485,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
+    var titlebarAccessoryReserve: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryReserve }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
     /// Views that keep clear of the top row (Home's header in a pane with no tab bar): they
     /// re-check when the top row, the main pane card or a pane moves (`WindowController+Sidebar`).

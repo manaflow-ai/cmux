@@ -82,6 +82,8 @@ import CmuxNextDesign
     private func reloadNotice() -> NSView {
         let text = PageInfoStyle.label(PageInfoStrings.reloadToApply, font: PageInfoStyle.captionFont,
                                        color: PageInfoStyle.secondaryText, wraps: true)
+        // retry-prompt-ok: reloading throws away what the page holds (typed text, scroll, a playing video); the person
+        // picks when (Chrome's Page Info reload infobar).
         let button = PageInfoRowView(symbol: "arrow.clockwise", title: PageInfoStrings.reload, identifier: "pageInfo.reload")
         button.onActivate = { send(.reload) }
         return stack([padded(text), button], spacing: 2)

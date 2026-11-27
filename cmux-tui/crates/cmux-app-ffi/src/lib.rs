@@ -31,10 +31,15 @@
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
 //! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
 //! include/cmux_pane_pictures.h).
+//! `screenshots` is the Screenshots pane's rules: what a source lists, the newest-first listing,
+//! the sources and where tools save, the page address and the gate (cmux-screenshots,
+//! include/cmux_screenshots.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
+//! `url_input` is the typed address-bar policy: what the omnibox, the New Tab
+//! field and newTab.submit load or search (cmux-url-input, include/cmux_url_input.h).
 
 //! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
 //! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
@@ -44,6 +49,8 @@
 //! build's Files pane reader (include/cmux_files_lister.h).
 //! `system_calendar` is the `system_calendar.*` app ops' params, window and
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
+//! `home` is the Mac Home, chat list and Chief rules (cmux-home-rules' JSON
+//! ops, include/cmux_home.h).
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
 //! `interactivity` is priority by interactivity (cmux-interactivity, include/cmux_interactivity.h): note what the
@@ -56,6 +63,8 @@
 /// cbindgen:ignore
 pub mod files_lister;
 pub mod goo;
+/// cbindgen:ignore
+pub mod home;
 pub mod hover;
 /// cbindgen:ignore
 pub mod interactivity;
@@ -86,5 +95,7 @@ pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_pane_pictures::ffi as pane_pictures;
 pub use cmux_rd_ffi as rd;
+pub use cmux_screenshots::ffi as screenshots;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
+pub use cmux_url_input::ffi as url_input;

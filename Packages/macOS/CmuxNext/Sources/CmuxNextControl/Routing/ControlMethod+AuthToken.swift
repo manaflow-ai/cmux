@@ -109,6 +109,7 @@ extension ControlMethod {
         case "managed":
             ControlStrings.text("control.authToken.managed", "Your organization limits cmux on this Mac to its managed team, so a token for another team isn't available.")
         case "unavailable":
+            // retry-prompt-ok: a socket API reply to a script, which owns its own retry
             ControlStrings.text("control.authToken.unreachable", "cmux Cloud didn't answer. Try again in a moment.")
         case "local_failure":
             ControlStrings.text("control.authToken.localFailure", "cmux on this Mac couldn't make a token. Run cmux auth token again.")

@@ -577,7 +577,9 @@ def start_login(agent: str, login: str) -> list[str]:
     """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
     on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
     leave it signed out (its login is the Mac's broker)."""
-    return ["--login", login] if login and agent == "claude" else []
+    # `cmux cloud start-chat` has no --login any more (a machine's agents reach models through the Cloud model route;
+    # run 45643863592 died on `unexpected argument "--login"`), so no value is passed on.
+    return []
 
 
 def list_unread(message: str) -> bool:

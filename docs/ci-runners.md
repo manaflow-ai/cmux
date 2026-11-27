@@ -1238,3 +1238,22 @@ branch (a fork's run gets no repository variables), the owner branch, membership
 lists and comparisons. GitHub-hosted routes are the exact exceptions in
 `tests/test_ci_self_hosted_guard.sh`.
 
+
+## A Swift test on a fleet Mac from a lane VM
+
+A lane VM, which has no Mac and no GitHub token, runs one macOS test at its own
+open PR's head with:
+
+```bash
+cmux-ci test --setup kernel-free --timeout 2400 -- \
+  bash -c 'set -o pipefail; cd Packages/macOS/CmuxNext && swift test --filter CmuxNextPhoneAccessTests'
+```
+
+`fast-checks.yml` is dispatched from main (#57062; it used to be the PR's own
+base, which returned 422), and its `checks-mac` job runs the command on a fleet
+mini. Pass the command in `bash -c` form: a pipe without `pipefail` hides the
+test's exit code from the receipt. The fleet mini's anonymous github.com
+requests get HTTP 403, so for a command that mentions `swift`, `checks-mac`
+first seeds SwiftPM binary targets such as `CCmuxAppFFI` into the mini's shared
+cache and resolves each package's pins with the job's read-only token (#57947).
+The command step itself never sees the token.

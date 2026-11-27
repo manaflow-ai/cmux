@@ -335,6 +335,33 @@
           ]
         },
         {
+          "key": "experiments.transcriptWorkLog",
+          "note": "Taste prototype: a finished agent turn reads as a work log. Its steps stay in the closed Worked for, the edited-files card reads Changed N files +N -N over the session's branch with Preview, a sent file's chip says added to context, and hairline low-contrast borders replace fills (webviews useExperimentSwitch(\"transcriptWorkLog\"), conversation/transcriptWorkLog.css). Off by default; off keeps today's transcript.",
+          "title": {
+            "key": "settings.experiments.transcriptWorkLog",
+            "text": "Transcript Work Log"
+          },
+          "help": {
+            "key": "settings.experiments.transcriptWorkLog.help",
+            "text": "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "agent",
+            "chat",
+            "transcript",
+            "work log",
+            "worked for",
+            "diff",
+            "changed files",
+            "context"
+          ]
+        },
+        {
           "key": "experiments.terminalAgentMark",
           "note": "Leo 2026-11-24 (\"terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats\"): an agent running in a terminal tab (Claude Code, Codex as a CLI) draws its mark on a soft rounded square of its tint (CmuxNextTabs TabAgentMarkCache terminal:, TabStripMetrics.terminalAgentMarks; DesignSettings.terminalAgentMarks; iPhone AgentAvatarMark.terminalShapeEnabled reads the same key from UserDefaults). A GUI agent chat keeps its bare mark (Mac) or circle (iPhone). Picked from a 4-variant gallery (cmux#53018: cut-out badge, dark tile, label, rounded square). Off by default; off keeps today's marks.",
           "title": {
@@ -431,6 +458,29 @@
             "background",
             "groups",
             "glyph"
+          ]
+        },
+        {
+          "key": "experiments.forumCallCard",
+          "note": "Forum Tool Calls: a call to the agent forum (agent-forum search, show, list, ask, post, reply, topic, close) draws as a forum row in the chat, its line in the forum's words and the threads it found, read or posted as links, in place of the shell row (webviews experiment forum-call-card, arm card; forumShellCalls.ts). Off by default; off keeps the shell row. A cmux-forum MCP post, reply or search draws its card either way (forumCalls.ts). Leo, 2026-11-22: \"i wonder if that's also grounds for a new type of tool call appearance in the gui\".",
+          "title": {
+            "key": "settings.experiments.forumCallCard",
+            "text": "Forum Tool Calls"
+          },
+          "help": {
+            "key": "settings.experiments.forumCallCard.help",
+            "text": "Agent forum searches, reads and posts show as forum rows with links to their threads."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "forum",
+            "agent forum",
+            "tool call",
+            "threads",
+            "labs"
           ]
         },
         {
@@ -806,6 +856,30 @@
             "account",
             "helium",
             "labs"
+          ]
+        },
+        {
+          "key": "experiments.appStoreFeatures",
+          "note": "App Store Features: the App Store's Features tab, every built-in feature (backgrounds, Chief pet, Now Playing, every Lab and Experiment) as a switch on its own setting (cmux-tui server/app_features.rs, webviews pages/apps/FeaturesView.tsx). Leo, 2026-10-21: \"have that app store area as a sort of way to, like, toggle things on and off\". Off by default (Leo's UI rule: merge default-off); off draws no tab and apps.features.* lists nothing and refuses writes.",
+          "title": {
+            "key": "settings.experiments.appStoreFeatures",
+            "text": "App Store Features"
+          },
+          "help": {
+            "key": "settings.experiments.appStoreFeatures.help",
+            "text": "The App Store gets a Features tab where built-in features turn on and off."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "app",
+            "store",
+            "features",
+            "switches",
+            "toggles"
           ]
         }
       ]

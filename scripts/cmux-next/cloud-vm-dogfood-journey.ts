@@ -43,6 +43,13 @@
  *
  * Every VM, snapshot and agent key it makes is deleted by exact id at the end.
  *
+ * --paused-reads adds the paused-read leg (cmuxterm-hq RFD 0144 piece 2, RFD 0163 pick 1: "publish resume p95 and
+ * paused-read p95"): before the pause it writes a 10 x 20 file tree, and while the VM is paused it times, through the
+ * files routes and with no resume, a folder listing (GET files/entries) and a file open (GET files/content), n = 30
+ * each, and a whole-tree search (list every folder, read every file, find the one needle), n = 5. The VM must still
+ * be paused after every batch and the resume after it must answer 200 (a VM that woke answers 409), so a run that
+ * passes woke it 0 times. A key without vm:files is a note and the leg is skipped.
+ *
  * --egress-allowlist adds the egress red team (RFD sandboxing-and-lockdown): a VM made with
  * initialNetwork.egress {mode: "allowlist", presets: [anthropic, openai, github, npm, pypi]} must still reach
  * api.anthropic.com and github.com, and must fail to POST a marker to an outside host or a raw IP (v4 and v6).
@@ -59,6 +66,7 @@ const option = (name: string): string | undefined => {
 const skipSleep = argv.includes("--skip-sleep");
 const lifecycle = argv.includes("--lifecycle");
 const egressAllowlist = argv.includes("--egress-allowlist");
+const pausedReads = argv.includes("--paused-reads");
 const cmuxPath = option("--cmux") ?? process.env["CMUX_PATH"] ?? "";
 // The headless VM CLI (workers/cmux-vm/cli, binary cmux-vm): the same library `cmux vm` links in process, for a run
 // whose cmux has no `vm` scope yet (the public cmux is built from main; `cmux vm` is on feat-cmux-next).
@@ -399,6 +407,142 @@ async function cliJson(args: string[], what: string): Promise<unknown> {
   } catch {
     throw new Error(`cmux vm ${what} printed no JSON: ${out.stdout.slice(0, 200)}`);
   }
+}
+
+/** The paused-read leg's tree (module docs, --paused-reads): DIRS folders of FILES files each, one needle file. */
+const PAUSED_TREE = { dirs: 10, files: 20 } as const;
+const PAUSED_READ_N = 30;
+const PAUSED_SEARCH_N = 5;
+const PAUSED_SEARCH_CONCURRENCY = 8;
+
+const percentile = (samples: number[], p: number): number => {
+  const sorted = [...samples].sort((a, b) => a - b);
+  return sorted.length === 0 ? -1 : sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)]!;
+};
+const stats = (samples: number[]) => ({
+  n: samples.length,
+  p50: Math.round(percentile(samples, 50) * 10) / 10,
+  p95: Math.round(percentile(samples, 95) * 10) / 10,
+  max: Math.round(Math.max(...samples) * 10) / 10,
+});
+
+/** Writes the leg's tree on the running VM; answers its absolute root and the needle. */
+async function pausedTree(id: string): Promise<{ root: string; needle: string }> {
+  const needle = `needle-${randomBytes(6).toString("hex")}`;
+  const { dirs, files } = PAUSED_TREE;
+  const script =
+    `set -e; r="$HOME/paused-reads-${needle}"; ` +
+    // Fixed two-digit names (seq -f %02g, not -w): -w pads to the widest number, so 10 folders were d0..d9 and the
+    // needle's d04 never existed (run 45846190008 failed seeding: "d04/f07.txt: Directory nonexistent").
+    `for d in $(seq -f %02g 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -f %02g 0 ${files - 1}); do ` +
+    `yes "line of d$d/f$f.txt for the paused read leg" | head -n 40 > "$r/d$d/f$f.txt"; done; done; ` +
+    `echo ${needle} >> "$r/d04/f07.txt"; sync; echo "$r"`;
+  const out = await exec(id, script, 60_000);
+  const root = out.stdout.trim().split("\n").at(-1) ?? "";
+  if (out.exitCode !== 0 || !root.startsWith("/")) throw new Error(`paused-read tree answered ${JSON.stringify(out).slice(0, 300)}`);
+  return { root, needle };
+}
+
+/** One files route call on the paused VM, timed; a 429 waits out its Retry-After and counts. */
+async function pausedFilesCall(id: string, route: "entries" | "content", path: string, counts: { rateLimited: number }): Promise<{ ms: number; reply: Reply }> {
+  for (;;) {
+    const startedAt = performance.now();
+    const reply = await call("GET", `${vmPath(id)}/files/${route}?path=${encodeURIComponent(path)}`);
+    const ms = performance.now() - startedAt;
+    if (reply.status !== 429) return { ms, reply };
+    counts.rateLimited += 1;
+    await sleep(2_000);
+  }
+}
+
+async function pausedState(id: string): Promise<string> {
+  return String(field(expectStatus(await call("GET", vmPath(id)), [200], "GET vm (paused reads)"), "state"));
+}
+
+/** The timed reads on the paused VM (module docs, --paused-reads). */
+async function pausedReadsLeg(id: string, tree: { root: string; needle: string }, failed: string[]): Promise<void> {
+  const out: Record<string, unknown> = { tree: { ...PAUSED_TREE, root: tree.root } };
+  result["pausedReads"] = out;
+  const counts = { rateLimited: 0 };
+  const states: string[] = [];
+  const probe = await call("GET", `${vmPath(id)}/files/entries?path=${encodeURIComponent(tree.root)}`);
+  if (probe.status === 403) {
+    note("the key lacks vm:files; the paused-read leg was skipped");
+    out["skipped"] = "vm:files";
+    return;
+  }
+  expectStatus(probe, [200], "GET files/entries on a paused VM");
+  states.push(await pausedState(id));
+
+  const dir = (i: number) => `${tree.root}/d${String(i % PAUSED_TREE.dirs).padStart(2, "0")}`;
+  const listing: number[] = [];
+  await timed("pausedListing", async () => {
+    for (let i = 0; i < PAUSED_READ_N; i += 1) {
+      const { ms, reply } = await pausedFilesCall(id, "entries", dir(i), counts);
+      const entries = field(expectStatus(reply, [200], "GET files/entries (paused)"), "entries");
+      if (!Array.isArray(entries) || entries.length !== PAUSED_TREE.files) throw new Error(`paused listing of ${dir(i)} answered ${reply.text.slice(0, 200)}`);
+      listing.push(ms);
+    }
+  });
+  states.push(await pausedState(id));
+
+  const open: number[] = [];
+  await timed("pausedOpen", async () => {
+    for (let i = 0; i < PAUSED_READ_N; i += 1) {
+      const name = `f${String(i % PAUSED_TREE.files).padStart(2, "0")}.txt`;
+      const { ms, reply } = await pausedFilesCall(id, "content", `${dir(i)}/${name}`, counts);
+      expectStatus(reply, [200], "GET files/content (paused)");
+      if (!reply.text.startsWith(`line of d${String(i % PAUSED_TREE.dirs).padStart(2, "0")}/${name}`)) throw new Error(`paused open of ${name} answered ${reply.text.slice(0, 120)}`);
+      open.push(ms);
+    }
+  });
+  states.push(await pausedState(id));
+
+  const search: number[] = [];
+  let hits: string[] = [];
+  let requests = 0;
+  await timed("pausedSearch", async () => {
+    for (let round = 0; round < PAUSED_SEARCH_N; round += 1) {
+      const startedAt = performance.now();
+      const found: string[] = [];
+      const files: string[] = [];
+      const top = await pausedFilesCall(id, "entries", tree.root, counts);
+      requests += 1;
+      const dirs = (field(expectStatus(top.reply, [200], "GET files/entries (search root)"), "entries") as Array<{ name: string; kind: string }>)
+        .filter((e) => e.kind === "directory").map((e) => `${tree.root}/${e.name}`);
+      const pool = async <T>(items: T[], work: (item: T) => Promise<void>) => {
+        let next = 0;
+        await Promise.all(Array.from({ length: PAUSED_SEARCH_CONCURRENCY }, async () => {
+          while (next < items.length) await work(items[next++]!);
+        }));
+      };
+      await pool(dirs, async (d) => {
+        const { reply } = await pausedFilesCall(id, "entries", d, counts);
+        requests += 1;
+        for (const e of field(expectStatus(reply, [200], "GET files/entries (search)"), "entries") as Array<{ name: string; kind: string }>) {
+          if (e.kind === "file") files.push(`${d}/${e.name}`);
+        }
+      });
+      await pool(files, async (f) => {
+        const { reply } = await pausedFilesCall(id, "content", f, counts);
+        requests += 1;
+        expectStatus(reply, [200], "GET files/content (search)");
+        if (reply.text.includes(tree.needle)) found.push(f.slice(tree.root.length + 1));
+      });
+      search.push(performance.now() - startedAt);
+      hits = found;
+    }
+  });
+  states.push(await pausedState(id));
+
+  out["listing"] = stats(listing);
+  out["open"] = stats(open);
+  out["search"] = { ...stats(search), files: PAUSED_TREE.dirs * PAUSED_TREE.files, requestsPerSearch: Math.round(requests / PAUSED_SEARCH_N), concurrency: PAUSED_SEARCH_CONCURRENCY, hits };
+  out["rateLimited"] = counts.rateLimited;
+  out["statesDuring"] = states;
+  out["stayedPaused"] = states.every((s) => s === "paused");
+  if (hits.length !== 1) failed.push("pausedSearchHits");
+  if (out["stayedPaused"] !== true) failed.push("pausedReadsWoke");
 }
 
 /** The API legs: each verb, with the disk proof across pause, stop, fork and snapshot. */
@@ -789,6 +933,7 @@ try {
       if (!/^[0-9]+$/.test(value)) throw new Error(`background process answered ${JSON.stringify(out).slice(0, 200)}`);
       return value;
     });
+    const pausedTreeAt = pausedReads ? await timed("pausedTree", () => pausedTree(id)) : null;
 
     await timed("pause", async () => {
       expectStatus(await call("POST", `${vmPath(id)}/pause`, undefined, {}, 3 * 60_000), [200], "POST pause");
@@ -797,6 +942,7 @@ try {
     await timed("paused", () => waitForState(id, "paused", 3 * 60_000));
     result["statusAfterPauseSeries"] = await stateSeries(id, pausedAt, [1_000, 5_000, 15_000]);
     result["statusAfterPause"] = (result["statusAfterPauseSeries"] as Array<{ status: string }>).at(-1)?.status ?? "unknown";
+    if (pausedTreeAt) await pausedReadsLeg(id, pausedTreeAt, failed);
     // Resume first, while the VM is surely paused: anything that reaches the VM (exec included) wakes it, and
     // resume on a VM that is no longer paused is 409 by design ("Only a paused VM can be resumed").
     await timed("resume", async () => {

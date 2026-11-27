@@ -138,7 +138,7 @@ fn post(url: &str, headers: &[(&str, String)], body: Vec<u8>) -> Result<(u16, Va
         .build()
         .map_err(|e| e.to_string())?;
     let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::cli::automation_webhook_fire")
         .default_headers(space)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

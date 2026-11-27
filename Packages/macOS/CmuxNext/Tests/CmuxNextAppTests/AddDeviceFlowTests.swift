@@ -281,6 +281,23 @@ import Testing
         #expect((page["rows"] as? [[String: Any]])?.count == 2)
     }
 
+    @Test func peerChangesShareOneSpacedReadAndEndOnTheLastState() async throws {
+        let cli = FakeCLI()
+        let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) })
+        directory.peerReadEvery = .milliseconds(300)
+        let lists = { cli.calls.filter { $0 == ["device", "list", "--json"] }.count }
+        for _ in 0..<20 { directory.refreshForPeerChange() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(lists() == 1, "a burst of peer changes starts one read")
+        for _ in 0..<20 { directory.refreshForPeerChange() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(lists() == 1, "changes inside the window wait for the trailing read")
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(lists() == 2, "the trailing read runs once the window ends")
+        await directory.refresh()
+        #expect(lists() == 3, "a person's own refresh reads at once")
+    }
+
     @Test func removeGoesThroughOnePathAndReadsAgain() async {
         let cli = FakeCLI()
         let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) })

@@ -113,3 +113,103 @@ async fn a_models_read_during_startup_waits_for_the_disk_lists() {
     next.load_model_caches_from(dir.path().to_path_buf()).await;
     assert_eq!(read.await.unwrap(), vec!["m-one".to_owned()]);
 }
+
+/// Antigravity (agy 1.5.16) names one model per option value and one `availableModels` id per
+/// reasoning level (`gemini-3.8-flash-low` … `-high`). Its rows in `_acpmux/models` carry those
+/// levels, so the picker's Reasoning column lists them before a chat runs the model. A model with
+/// no level ids (`gpt-oss-120b-medium`) keeps none.
+#[tokio::test]
+async fn level_variants_in_the_model_list_become_each_models_efforts() {
+    let hub = hub(&["agy", "acp"]);
+    let options = json!([{
+        "id": "model", "category": "model", "type": "select", "currentValue": "gemini-4-neon",
+        "options": [
+            {"value": "gemini-4-neon", "name": "Gemini 4 Neon"},
+            {"value": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+            {"value": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)"},
+        ],
+    }]);
+    let available = listed(&[
+        "gemini-4-neon-high",
+        "gemini-4-neon-xhigh",
+        "gemini-4-neon-medium",
+        "gemini-4-neon-low",
+        "gemini-3.8-flash-high",
+        "gemini-3.8-flash-medium",
+        "gemini-3.8-flash-low",
+        "gpt-oss-120b-medium",
+    ]);
+    assert!(hub.remember_models_from("acme", Some(&options), Some(&available)));
+    let catalog = hub.models_catalog().await;
+    let row = catalog["harnesses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|h| h["harness"] == "acme")
+        .cloned()
+        .unwrap();
+    let efforts = |id: &str| {
+        row["models"].as_array().unwrap().iter().find(|m| m["id"] == id).unwrap()["efforts"].clone()
+    };
+    assert_eq!(efforts("gemini-4-neon"), json!(["low", "medium", "high", "xhigh"]));
+    assert_eq!(efforts("gemini-3.8-flash"), json!(["low", "medium", "high"]));
+    assert_eq!(efforts("gpt-oss-120b-medium"), Value::Null);
+    // The same report again changes nothing.
+    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available)));
+    // A resumed chat's answer with no `availableModels` keeps the levels.
+    hub.remember_models_from("acme", Some(&options), None);
+    assert_eq!(hub.known_efforts.lock().unwrap()["acme"]["gemini-3.8-flash"].len(), 3);
+}
+
+/// A model the list names as it is gets no levels from a sibling model whose id ends in a level
+/// word: OpenCode lists both `gpt-5.1-codex` and `gpt-5.1-codex-max`, two models.
+#[test]
+fn a_listed_model_takes_no_levels_from_a_sibling_model() {
+    let models = vec![
+        ("gpt-5.1-codex".to_owned(), "GPT-5.1 Codex".to_owned()),
+        ("gpt-5.1-codex-max".to_owned(), "GPT-5.1 Codex Max".to_owned()),
+    ];
+    let efforts = crate::model_catalog::variant_efforts(
+        &models,
+        Some(&listed(&["gpt-5.1-codex", "gpt-5.1-codex-max"])),
+    );
+    assert!(efforts.is_empty(), "{efforts:?}");
+}
+
+/// Image roll 45732114266: cursor-agent probes ran on minutes after their 60 s bound. A probe
+/// dropped before it ended its agent (the bound's timeout, a stopping daemon) left the agent
+/// running, since the agent's exit watcher holds it and `kill_on_drop` never fired.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dropped_probe_ends_its_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("pid");
+    // An ACP agent that never answers `initialize`, as a harness waiting on its sign-in does.
+    let script = format!("echo $$ > '{}'; exec sleep 30", pid_file.display());
+    let hub = hub(&["sh", "-c", &script]);
+    let profile = hub.config.read().await.harnesses["acme"].clone();
+    let probe = hub.probe_one("acme", &profile);
+    let pid = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::pin!(probe);
+        loop {
+            tokio::select! {
+                _ = &mut probe => panic!("the probe ended before it was dropped"),
+                () = tokio::time::sleep(std::time::Duration::from_millis(20)) => {}
+            }
+            if let Some(pid) =
+                std::fs::read_to_string(&pid_file).ok().and_then(|s| s.trim().parse::<i32>().ok())
+            {
+                return pid;
+            }
+        }
+    })
+    .await
+    .expect("the probe's agent never started");
+    // The probe was dropped with the timeout above, its agent still waiting.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // SAFETY: signal 0 only checks that the process exists.
+    while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the dropped probe's agent still runs");
+}

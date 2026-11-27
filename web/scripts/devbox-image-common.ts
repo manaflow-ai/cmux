@@ -27,6 +27,30 @@ import { MACHINE_HEALTH_SCRIPT, MACHINE_HYGIENE_SOURCE } from "./cmux-vm-image/m
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
+
+/**
+ * Freestyle answers a VM start it has no capacity for with 429
+ * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
+ * size ladder starts up to twelve VMs at once and the largest shapes queue
+ * longest: rebake run 45818176059 lost xl and 2xl to it after the bake, the
+ * verify and md..lgx had passed. Every VM start on the rebake path goes
+ * through this: back off and ask again for up to ten minutes, and rethrow any
+ * other error at once.
+ */
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000): Promise<T> {
+  const deadline = Date.now() + budgetMs;
+  for (let attempt = 1, waitMs = firstWaitMs; ; attempt += 1, waitMs = Math.min(waitMs * 2, Math.max(firstWaitMs, 120_000))) {
+    try {
+      return await start();
+    } catch (error) {
+      const e = error as { status?: unknown; code?: unknown; message?: unknown } | null;
+      const overloaded = e?.status === 429 || e?.code === "INFRASTRUCTURE_OVERLOADED";
+      if (!overloaded || Date.now() + waitMs > deadline) throw error;
+      console.log(`${label}: Freestyle start capacity overloaded (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+}
 export const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");

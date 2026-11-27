@@ -407,6 +407,8 @@ public enum SignalFrame: Equatable, Sendable {
 extension LiveAPI {
     /// What a failed device removal tells the user. Never names the
     /// service's vendors; quotes the Request ID when the service sent one.
+    /// Removing a device is the person's own action with a side effect on the service, so its
+    /// copy may name a retry: whether to remove it again is theirs to decide.
     public static func removalMessage(for error: any Error) -> ServiceFailureMessage {
         if let failure = error as? Failure {
             let text: String
@@ -414,12 +416,16 @@ extension LiveAPI {
             case (403, "not_owner"):
                 text = "This device belongs to another account. Only the account it's signed in to can remove it."
             case (401, _):
+                // retry-prompt-ok: a real step first (sign in); the removal is the person's to repeat.
                 text = "Your session expired. Sign in again, then try again."
             case (429, _):
+                // retry-prompt-ok: the service enforces the wait; the removal is the person's to repeat.
                 text = "Too many requests. Wait a moment and try again."
             case (500..., _), (0, _):
+                // retry-prompt-ok: the person's own removal, refused by the service.
                 text = "The Cloud service couldn't remove it. Try again in a moment."
             default:
+                // retry-prompt-ok: the person's own removal, refused by the service.
                 text = UserFacingError.isProse(failure.message)
                     ? "The Cloud service refused: \(failure.message)"
                     : "The Cloud service couldn't remove it. Try again in a moment."
@@ -429,32 +435,38 @@ extension LiveAPI {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                // retry-prompt-ok: the person's own removal never reached the service.
                 return ServiceFailureMessage(text: "You're offline. Connect to the internet and try again.")
             case .timedOut:
+                // retry-prompt-ok: the person's own removal; the service may not have seen it.
                 return ServiceFailureMessage(text: "Can't reach the cmux Cloud service right now. Try again in a moment.")
             default:
+                // retry-prompt-ok: the person's own removal never reached the service.
                 return ServiceFailureMessage(text: "Couldn't reach the Cloud service. Try again in a moment.")
             }
         }
+        // retry-prompt-ok: the person's own removal failed.
         return ServiceFailureMessage(text: UserFacingError.message(error, fallback: "Couldn't remove it. Try again."))
     }
 }
 
 /// What a person reads for a failed service call: never the HTTP status, the code
-/// or the type. The service's own message shows when it reads as a sentence.
+/// or the type. The service's own message shows when it reads as a sentence. Shown for loads
+/// (retried on their own) and actions alike, so only a server-enforced wait names a retry.
 extension LiveAPI.Failure: LocalizedError {
     public var errorDescription: String? {
         switch status {
         case 401: return "Your session expired. Sign in again."
+        // retry-prompt-ok: the service enforces the wait (rate limit).
         case 429: return "Too many requests. Wait a moment and try again."
-        case 500...: return "The Cloud service isn't available right now. Try again in a moment."
+        case 500...: return "The Cloud service isn't available right now."
         default: break
         }
         if UserFacingError.isProse(message) { return message.trimmingCharacters(in: .whitespacesAndNewlines) }
         switch status {
         case 403: return "You don't have access to that."
         case 404: return "That isn't available anymore."
-        default: return "The Cloud service couldn't do that. Try again in a moment."
+        default: return "The Cloud service couldn't do that."
         }
     }
 }

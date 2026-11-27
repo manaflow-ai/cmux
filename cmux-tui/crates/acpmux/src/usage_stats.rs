@@ -886,7 +886,8 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
 /// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
 /// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
-/// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
+/// window when the settings name one (`harness_limits::claude_autocompact_window`). False when
+/// its argv is not this
 /// daemon's, or settings.json cannot be read.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
     const KEYS: [&str; 2] = ["CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
@@ -1087,7 +1088,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 }
 
 /// The proleptic Gregorian date of a day count since 1970-01-01.
-fn civil_from_days(days: u64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(days: u64) -> (i64, u32, u32) {
     // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
     crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }

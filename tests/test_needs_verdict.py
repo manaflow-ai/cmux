@@ -261,7 +261,7 @@ MIXED = {
         "BACKEND_RESULT": "failure", "MAC_IOS_RESULT": "skipped"},
     ("test-ios.yml", "ios-tests", "Check iOS test routing"): {"IOS_NEEDS": json.dumps({
         "detect-ios-changes": {"result": "abandoned"}, "runner": {"result": "failure"},
-        "package-conventions-lint": {"result": "skipped"}, "mobile-core-package": {"result": "skipped"},
+        "package-conventions-lint": {"result": "skipped"}, "mobile-core-linux": {"result": "skipped"},
         "ios-simulator-build": {"result": "skipped"}})},
     ("ci-guards.yml", "guard-status", "Check routed guard jobs"): {
         "GUARD_INPUTS": json.dumps({"submodule_forward_only": "true", "linux_guard_tests": "true",

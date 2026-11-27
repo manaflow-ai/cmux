@@ -1,3 +1,4 @@
+#if canImport(ObjectiveC)
 @testable import CmuxNextCompat
 import Foundation
 import Observation
@@ -171,3 +172,4 @@ struct AppLanguageTests {
         #expect(bundle.inAppLanguage === bundle)
     }
 }
+#endif

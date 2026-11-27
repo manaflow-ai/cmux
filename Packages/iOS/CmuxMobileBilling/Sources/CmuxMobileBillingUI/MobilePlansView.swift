@@ -95,8 +95,17 @@ public struct MobilePlansView: View {
                 )
                 .accessibilityIdentifier("BillingCurrentPlan")
             } footer: {
-                if let sourceText = sourceText(account.currentPlan.source) {
-                    Text(sourceText)
+                let sourceText = sourceText(account.currentPlan.source)
+                if billing.paymentPastDue || sourceText != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if billing.paymentPastDue {
+                            PaymentPastDueNotice()
+                                .accessibilityIdentifier("BillingPaymentPastDue")
+                        }
+                        if let sourceText {
+                            Text(sourceText)
+                        }
+                    }
                 }
             }
         }

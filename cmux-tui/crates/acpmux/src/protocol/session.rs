@@ -55,7 +55,7 @@ pub struct ForkParams {
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
 /// acpmux may lack newer fields, so nullable ones are optional here.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub session_id: String,
@@ -399,7 +399,7 @@ pub struct SessionSummary {
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
 /// becomes active and another when progress clears it; the summary lets a newly attached client
 /// render the current state without replaying the transcript.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopEpisodeSummary {
     pub episode_id: u64,
@@ -488,7 +488,7 @@ pub enum Autocompact {
 /// A durable lifecycle fact supplied by an explicit producer. This contract
 /// is intentionally optional and opaque to the session sidebar until a
 /// producer wires it to a real controller receipt.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct LifecycleReceipt {
@@ -510,7 +510,7 @@ pub enum Indicator {
 }
 
 /// One row of a chat's tool list (`store::ToolRow`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct ToolSummary {
@@ -579,7 +579,7 @@ impl McpServerSummary {
 }
 
 /// The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(transform = require_all)]
 pub struct Lane {
     pub state: LaneState,
@@ -611,14 +611,14 @@ pub enum LaneState {
     Idle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     Agent,
     User,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LastMessage {
     pub role: MessageRole,
     pub text: String,
@@ -626,7 +626,7 @@ pub struct LastMessage {
 
 /// What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
 /// why an agent does not start there unasked.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct PersonHold {
@@ -635,7 +635,7 @@ pub struct PersonHold {
 }
 
 /// The running turn.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct TurnSummary {
@@ -655,7 +655,7 @@ pub struct TurnSummary {
 }
 
 /// A prompt waiting for the running turn to end.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct QueuedPromptSummary {
@@ -774,7 +774,7 @@ fn require_all_but_avatar(schema: &mut schemars::Schema) {
 }
 
 /// An image a queued prompt sends.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all_but_source)]
 pub struct QueuedImage {

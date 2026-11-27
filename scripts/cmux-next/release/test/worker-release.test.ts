@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from "bun:test"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { currentVersion, globRegex, main, selectRoutes, type Route } from "../worker-release.ts"
+import { currentVersion, gitFetchRetrying, globRegex, main, selectRoutes, type Route } from "../worker-release.ts"
 
 const dir = mkdtempSync(join(tmpdir(), "rails-worker-"))
 const calls = join(dir, "wrangler-calls.txt")
@@ -181,6 +181,32 @@ describe("advance", () => {
       expect(r.output).toBe("")
       expect(r.calls).toEqual([])
     }
+  })
+})
+
+describe("gitFetchRetrying (advance's fetch; run 45740936781 died on one \"Operation too slow\")", () => {
+  const repo = join(dir, "fetch-retry")
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")))
+  execFileSync("git", ["init", "-q", repo], { env: gitEnv })
+  it("tries a transport failure again and names every try in the error", () => {
+    let message = ""
+    try {
+      gitFetchRetrying(repo, ["--quiet", "http://127.0.0.1:9/cmux.git", "refs/heads/feat-cmux-next"], { tries: 3, timeoutSeconds: 30, backoff: "0" })
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toContain("failed on all 3 tries")
+  })
+  it("does not try a refusal again", () => {
+    const origin = join(dir, "fetch-retry-origin.git")
+    execFileSync("git", ["init", "-q", "--bare", origin], { env: gitEnv })
+    expect(() => gitFetchRetrying(repo, ["--quiet", origin, "refs/heads/no-such-branch"], { tries: 3, timeoutSeconds: 30, backoff: "60" })).toThrow("refused on try 1 of 3")
+  })
+  it("advance fetches only through the retry layer", () => {
+    const source = readFileSync(new URL("../worker-release.ts", import.meta.url), "utf8")
+    const advance = source.slice(source.indexOf('if (command === "advance")'), source.indexOf('if (!worker)'))
+    expect(advance).toContain("gitFetchRetrying(cwd,")
+    expect(advance).not.toContain('git("fetch"')
   })
 })
 

@@ -240,6 +240,8 @@ keyed! {
     HandoffStartParams: ["handoffId", "revision", "promptId", "capsule", "checkpoint"];
     /// `_acpmux/harness_enable`.
     HarnessEnableParams: ["folder", "id"];
+    /// `_acpmux/harness_disable`.
+    HarnessDisableParams: ["folder", "id"];
     /// `_acpmux/harness/health`.
     HarnessHealthParams: ["refresh", "rescan", "checkLatest", "autoUpdate", "view"];
     /// `_acpmux/harnesses`.

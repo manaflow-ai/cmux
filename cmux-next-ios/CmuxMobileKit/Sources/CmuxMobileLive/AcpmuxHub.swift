@@ -931,7 +931,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushOpenChunk()
         if replay.requiresResync {
             guard let hub else {
-                continuation.yield(.clientError("Reconnect to load this chat."))
+                // The Mac session this chat came from has ended; the chat opened again comes from the
+                // new one. Nothing here for the person to do over.
+                continuation.yield(.clientError("This chat's connection to the Mac closed."))
                 continuation.finish()
                 return (head, stream)
             }
@@ -981,6 +983,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // Messages reach the Mac in the order they were sent: each waits for the one before
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
+            // One trace id from the tap to the Mac's write of the prompt (``PhoneTrace``).
+            let traceID = PhoneTrace.newTraceID()
             let previous = promptChain
             // The files already uploading since their pick go with this prompt; emptying the
             // composer after Send does not cancel them.
@@ -992,8 +996,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 let blocks: [JSONValue]
                 do {
                     try Task.checkCancellation()
-                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
-                                                         prestaged: prestaged)
+                    blocks = try await PhoneTrace.$traceID.withValue(traceID) {
+                        try await PhoneTrace.action("send-attachments", args: ["count": "\(attachments.count)"]) {
+                            try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
+                                                        prestaged: prestaged)
+                        }
+                    }
                     try Task.checkCancellation()
                 } catch {
                     // Stopped or failed before every early upload was linked: none of them is wanted now.
@@ -1003,7 +1011,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     return
                 }
                 await self.sendPrompt(HeldPrompt(text: text, attachments: attachments, promptID: promptID,
-                                                 steer: steer, resend: resend, blocks: blocks, at: sentAt))
+                                                 steer: steer, resend: resend, blocks: blocks, at: sentAt, traceID: traceID))
             }
             promptChain = task
             sendTasks[promptID] = task
@@ -1098,6 +1106,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var blocks: [JSONValue]
         /// When it was sent: its place among the held prompts.
         var at: ContinuousClock.Instant
+        /// The send's trace id (``PhoneTrace``), sent as `_meta.traceId`.
+        var traceID: String = PhoneTrace.newTraceID()
     }
 
     /// How long a prompt may go with no progress on the link (nothing heard from the Mac, no
@@ -1248,7 +1258,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func writePrompt(_ prompt: HeldPrompt, hub: AcpmuxHub) async {
         do {
-            let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: sessionID))
+            let (connection, id) = try await Self.tracedSubmit(prompt, session: sessionID, hub: hub)
             promptOutbox.wrote(promptId: prompt.promptID)
             promptOutbox.progressed(nowMs: ChatPromptClock.milliseconds(now()))
             pumpPrompts()
@@ -1350,7 +1360,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func sendPrompt(_ prompt: HeldPrompt) async {
         guard let hub else { return }
         do {
-            let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: sessionID))
+            let (connection, id) = try await Self.tracedSubmit(prompt, session: sessionID, hub: hub)
             Task { [weak self] in
                 do { _ = try await connection.reply(to: id) } catch { self?.promptNotSent(prompt, error) }
             }
@@ -1372,6 +1382,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func stopPrompt(_ promptID: String, delete: Bool) {}
     private func retryPromptNow(_ promptID: String) {}
     #endif
+
+    /// Writes the prompt as the `send` action of its trace (``PhoneTrace``): the span ends when the
+    /// Mac's channel took it, one round trip at the floor; the answer comes when the turn ends.
+    static func tracedSubmit(_ prompt: HeldPrompt, session: String, hub: AcpmuxHub) async throws -> (AcpmuxConnection, Int) {
+        try await PhoneTrace.$traceID.withValue(prompt.traceID) {
+            try await PhoneTrace.action("send", floorRoundTrips: 1, args: ["resend": "\(prompt.resend)"]) {
+                try await hub.submit("session/prompt", promptParams(prompt, session: session))
+            }
+        }
+    }
 
     static func promptParams(_ prompt: HeldPrompt, session: String) -> JSONValue {
         .object([
@@ -1730,9 +1750,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func revokeChatPermission() async throws {
         let reply = try await call("_acpmux/permission_chat_revoke", ["sessionId": .string(sessionID)])
         // acpmux answers `{active: false}` and nothing else (the Mac's client checks the same).
-        guard reply["active"] == .bool(false) else {
-            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke. Refresh and try again."))
+        guard reply["active"] != .bool(false) else { return }
+        // No confirmation in the reply: read the chat's allowance again (the Refresh the copy used
+        // to ask the person for) and count the revoke done when the Mac no longer allows the chat.
+        guard let now = try? await chatPermissions() else {
+            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke."))
         }
+        if !now.allowedForChat { return }
+        // retry-prompt-ok: revoking is the person's own change, and the Mac still allows the chat
+        // after it; whether to revoke again is theirs to decide.
+        throw AgentFeatureUnavailable(String(localized: "\(summary.macName) still allows this chat. Try again."))
     }
 
     /// Reads the open asks again: a reattach from the last record applied, whose reply lists
@@ -1781,7 +1808,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let ready: Bool
         if let hub { ready = hub.isReady ? true : await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock()) } else { ready = false }
         guard let hub, ready else {
-            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
+            // Already waited for, up to the hub's ready grace: nothing to wait for here.
+            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected."))
         }
         do {
             return try await hub.request(method, .object(params))
@@ -2036,7 +2064,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = Task { [weak self] in
             var pipelined = self?.takePipelined()
             while let read = self?.nextRead(generation) {
-                let pages = await Self.readPages(hub, read, pipelined: pipelined) { [weak self] in self?.generation == generation }
+                // A chat's first read is the "open-chat" action (``PhoneTrace``): its pages are
+                // its round trips; one, the pipelined attach, is the floor.
+                let pages = await PhoneTrace.action(read.firstAttach ? "open-chat" : "catch-up", floorRoundTrips: 1) {
+                    await Self.readPages(hub, read, pipelined: pipelined) { [weak self] in self?.generation == generation }
+                }
                 pipelined = nil
                 guard self?.caughtUp(pages, read, generation) == true else { return }
             }

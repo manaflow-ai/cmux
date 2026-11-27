@@ -16,6 +16,8 @@ import { HomeIcon } from "./icons";
 import { activityAt, chiefState, conversationName, isUnread, listOrder, type ChiefState } from "./model";
 import { chiefBackendChip, type HomeChief, type HomeConversation, type HomeParticipant } from "./types";
 import { intl } from "../../ui/intl";
+import { useLasting } from "../../ui/lasting";
+import { KeyHint } from "../../ui/KeyHint";
 
 /** Where the list shows New Cloud Machine: a labeled row under the search field (`row`, the page's),
  * an icon in the header beside New Message and New Chief (`header`), or a labeled row at the foot of
@@ -76,6 +78,9 @@ export function ConversationList({
   cloudError,
 }: ConversationListProps) {
   const { t, format } = strings;
+  // The store reads the Cloud inbox again on its own (store.ts `retryCloud`); a failure says nothing
+  // until it has lasted the house deadline, then one quiet line with no button.
+  const cloudLasting = useLasting(!!cloudError);
   const cloudRow = (look: CloudEntryLook) =>
     onNewCloudMachine &&
     cloudEntry === look && (
@@ -157,10 +162,10 @@ export function ConversationList({
       <button type="button" className="lg-search" onClick={onOpenPalette}>
         <HomeIcon name="search" size={14} />
         <span>{t("list.search")}</span>
-        <kbd>⌘K</kbd>
+        <KeyHint keys="⌘K" />
       </button>
       {cloudRow("row")}
-      {cloudError && (
+      {cloudError && cloudLasting && (
         <output className="lg-list-empty lg-cloud-error selectable" data-cloud-error="">
           {format("cloud.unreachable", cloudError)}
         </output>

@@ -147,6 +147,50 @@ impl Customize {
         })
     }
 
+    /// Writes the profile `name` from the given settings and files, without touching what is
+    /// live: a pack an agent made (a chat stylesheet at `agent-pane/theme.css`, a default-off
+    /// setting turned on). It is checked whole as `use` checks it, so a pack that would not
+    /// preview is refused here. `cmux customize try NAME` puts it on; `keep` and `revert` end it.
+    pub fn write_pack(
+        &self,
+        name: &str,
+        description: &str,
+        settings: BTreeMap<String, Value>,
+        files: BTreeMap<String, String>,
+        now_ms: u64,
+    ) -> Result<Saved, Error> {
+        if !valid_name(name) {
+            return Err(Error::Profile(format!(
+                "{name:?}: a pack name is lowercase letters, digits, '-' and '_' (like \"calmer-composer\")"
+            )));
+        }
+        if settings.is_empty() && files.is_empty() {
+            return Err(Error::Profile(
+                "a pack needs a stylesheet (--css FILE) or a setting (--set KEY=VALUE)".to_owned(),
+            ));
+        }
+        let profile = Profile {
+            version: 1,
+            name: name.to_owned(),
+            description: description.to_owned(),
+            created_ms: now_ms,
+            settings,
+            files,
+        };
+        self.check_profile(&profile)?;
+        let path = self.roots().profiles_dir().join(format!("{name}.json"));
+        let mut text = serde_json::to_string_pretty(&profile).map_err(std::io::Error::other)?;
+        text.push('\n');
+        cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
+        Ok(Saved {
+            name: name.to_owned(),
+            path,
+            settings: profile.settings.len(),
+            files: profile.files.keys().cloned().collect(),
+            left_out: Vec::new(),
+        })
+    }
+
     /// What is live now as a profile to share, and what was left out of it
     /// (one line each). The live tree must validate, as for an apply. What
     /// `save` writes and `cmux setup export` puts in a setup repo.

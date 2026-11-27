@@ -2414,7 +2414,11 @@ export type ChannelBuild = {
   /** The row offers Switch (`cmux.settings.channels.switch_build`): any build but the installed
    * and pulled ones, on an app that follows a feed. Absent from older hosts. */
   switch?: boolean;
-  prs: { number: number; url: string }[];
+  /** Every PR in this build, from its signed notes; older hosts send at most 8 and no titles. */
+  prs: { number: number; url: string; title?: string }[];
+  /** The PR list's toggle ("PRs (42)"); null when the build's notes are not loaded, absent from
+   * older hosts (the row then shows the bare numbers inline). */
+  prs_label?: string | null;
 };
 
 /** One release channel's recent builds, newest first. */
@@ -2757,6 +2761,9 @@ export type SettingsStreams = {
   "cmux.settings.models.changed": ModelsState;
   /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
   "cmux.settings.keys.changed": { revision: number };
+  /** An extension was installed, removed, hidden or reloaded after a save: Settings > Extensions reads
+   * `cmux.settings.extensions.list` again (the event has no values). */
+  "cmux.settings.extensions.changed": null;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
