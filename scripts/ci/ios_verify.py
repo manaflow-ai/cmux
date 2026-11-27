@@ -111,17 +111,17 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
-def step_key(step: dict, head: str, pr: int) -> str:
-    """The controller's idempotency key for STEP. It names the head and the shard: a key is bound to the first
-    step it named, so a key without the head answers a re-verify after a push (or a base merge) with HTTP 409
-    "step_key already names a different step", and two shards of one mode on one worker would share one."""
+def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
+    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}"
+    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
 
 
-def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", step_key(step, head, pr), "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
@@ -353,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
+    ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -379,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
