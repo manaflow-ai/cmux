@@ -95,6 +95,7 @@ cmux-tui/crates/cmux-classic-import/src/source.rs	.local/state/cmux"	2	keep	the 
 cmux-tui/crates/cmux-classic-import/src/source.rs	com.cmuxterm.app"	1	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	join("cmux")	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-cloud-config/src/handoff.rs	com.cmuxterm.app"	2	keep	names Classic's bundle id to recognize it as a cmux app for handoff; no read or write under it
+cmux-tui/crates/cmux-sign-clone-sweep/src/lib.rs	com.cmuxterm.app"	1	keep	bundle-id family matcher for Chromium code-sign clone roots under /private/var/folders (Leo #45151: sweep every cmux app's leftover clones); a clone is removed only when its Info.plist names the same family id; no read or write under a Classic state root
 cmux-tui/crates/cmux-cloud-environment/src/client_config.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-environment/src/lib.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/platform/linux/mod.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
