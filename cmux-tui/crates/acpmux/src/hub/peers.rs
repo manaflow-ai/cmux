@@ -932,9 +932,16 @@ impl Hub {
                 // Whether a name missing from its rows is final, and messages waiting for the
                 // peer go now (`hub/no_session.rs`).
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
+                PeerNotice::PresenceReset { link } => {
+                    if self
+                        .peer(&peer)
+                        .is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+                    {
+                        self.presence.reset_remote(&peer);
+                    }
+                }
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
-                    self.presence.clear_remote(&peer);
                     self.peer_ready_rows(&peer, generation);
                     self.events.origin_tee(&peer, OriginState::Connected, crate::store::now_ms());
                     // The link takes requests again: messages waiting for a peer go now, not
@@ -1367,8 +1374,21 @@ impl Hub {
                         self.capture_peer_unsent((&peer, generation, link), id, seq);
                     }
                 }
-                PeerNotice::Notification { method: m, params, .. } if m == method::MUX_PRESENCE => {
-                    self.presence.publish_remote(&params, &peer);
+                PeerNotice::Notification { method: m, params, link }
+                    if m == method::MUX_PRESENCE =>
+                {
+                    if self
+                        .peer(&peer)
+                        .is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+                    {
+                        if params.get(crate::hub::presence::BASELINE_MARKER)
+                            == Some(&Value::Bool(true))
+                        {
+                            self.presence.publish_remote_baseline(&params, &peer);
+                        } else {
+                            self.presence.publish_remote(&params, &peer);
+                        }
+                    }
                 }
                 PeerNotice::Notification { method: m, mut params, link } => {
                     let Some(id) =

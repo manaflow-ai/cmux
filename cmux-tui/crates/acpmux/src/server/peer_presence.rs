@@ -110,9 +110,6 @@ impl Outgoing {
             }) {
                 entry.clone()
             } else {
-                if entries.len() >= 256 {
-                    return Err(RpcError::invalid_params("too many shared presence entries"));
-                }
                 let token = uuid::Uuid::now_v7().to_string();
                 let mut leave = params.clone();
                 leave["visible"] = json!(false);
@@ -179,9 +176,6 @@ impl Incoming {
         let mut entries = self.0.lock_or_recover();
         if let Some(key) = entries.get(token) {
             return Ok(key.clone());
-        }
-        if entries.len() >= 4096 {
-            return Err(RpcError::invalid_params("too many peer presence clients"));
         }
         let key = format!("{}:presence:{}", conn.id, token);
         entries.insert(token.to_owned(), key.clone());

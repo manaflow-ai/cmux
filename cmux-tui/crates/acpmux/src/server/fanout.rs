@@ -5,6 +5,7 @@ use super::{
     Conn, Hub, Message, Ordering, broadcast, deliver, durable_gate, harness_admin, inventory_watch,
     json,
 };
+use crate::no_panic::LockExt;
 use std::sync::Arc;
 use tokio::sync::watch;
 

@@ -94,6 +94,8 @@ pub const FOLLOW_SELF: &str = "presence.follow_self";
 /// Internal marker on a presence note relayed from a peer. It is removed before a local client
 /// receives the note and prevents the note from being sent back over the peer link.
 pub const REMOTE_MARKER: &str = "_acpmuxPeer";
+/// Internal marker for a snapshot read as a peer attach baseline.
+pub const BASELINE_MARKER: &str = "_acpmuxPresenceBaseline";
 /// Peers preserve individual originating clients when relaying authored presence.
 pub const PEER_FEATURE: &str = "shared-peer-presence-v1";
 
@@ -123,12 +125,12 @@ pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 pub fn peer_unsupported() -> RpcError {
     RpcError::new(
         -32000,
-        "presence is kept for this daemon's own clients; a peer daemon's link carries none",
+        "this presence operation is unavailable for the peer link or current Live setting",
     )
     .with_data(json!({"reason": PEER_UNSUPPORTED}))
 }
 
-/// No participants: a chat on a peer daemon, whose presence this daemon does not carry.
+/// No participants: sharing is off or the peer link has ended.
 pub fn none(chat: &str) -> Value {
     json!({"sessionId": chat, "participants": []})
 }
@@ -300,7 +302,8 @@ impl Default for Presence {
 pub struct RemoteSnapshot {
     owner: Weak<Inner>,
     key: (String, String),
-    latest: Mutex<(u64, Option<Value>)>,
+    // Monotonic revision, latest snapshot, and whether a new link awaits its baseline.
+    latest: Mutex<(u64, Option<Value>, bool)>,
 }
 
 impl RemoteSnapshot {
@@ -319,7 +322,9 @@ impl RemoteSnapshot {
             let mut note = note.clone();
             if let Some(object) = note.as_object_mut() {
                 object.insert(REMOTE_MARKER.into(), Value::String(self.key.0.clone()));
+                latest.0 += 1;
                 latest.1 = Some(note);
+                latest.2 = false;
             }
         }
     }
@@ -357,7 +362,7 @@ impl Presence {
         let snapshot = Arc::new(RemoteSnapshot {
             owner: Arc::downgrade(&self.inner),
             key: key.clone(),
-            latest: Mutex::new((0, None)),
+            latest: Mutex::new((0, None, false)),
         });
         remote.insert(key, Arc::downgrade(&snapshot));
         snapshot
@@ -378,6 +383,48 @@ impl Presence {
         }
     }
 
+    /// Reset a peer's cache for a new link, retaining an empty notification while allowing the
+    /// first attach baseline on that link to repopulate it.
+    pub fn reset_remote(&self, peer: &str) {
+        self.clear_remote(peer);
+        let held: Vec<_> = self
+            .inner
+            .remote
+            .lock_or_recover()
+            .iter()
+            .filter(|((source, _), _)| source == peer)
+            .filter_map(|(_, snapshot)| snapshot.upgrade())
+            .collect();
+        for snapshot in held {
+            snapshot.latest.lock_or_recover().2 = true;
+        }
+    }
+
+    /// Apply a baseline only to a cache reset for this link. A live note read first wins.
+    pub fn publish_remote_baseline(&self, note: &Value, peer: &str) {
+        let Some(chat) = note.get("sessionId").and_then(Value::as_str) else { return };
+        let snapshot = self
+            .inner
+            .remote
+            .lock_or_recover()
+            .get(&(peer.to_owned(), chat.to_owned()))
+            .and_then(Weak::upgrade);
+        let Some(snapshot) = snapshot else { return };
+        let mut latest = snapshot.latest.lock_or_recover();
+        if !latest.2 {
+            return;
+        }
+        let mut note = note.clone();
+        if let Some(object) = note.as_object_mut() {
+            object.insert(REMOTE_MARKER.into(), Value::String(peer.to_owned()));
+            object.remove(BASELINE_MARKER);
+        }
+        latest.0 += 1;
+        latest.1 = Some(note.clone());
+        latest.2 = false;
+        let _ = self.inner.changes.send(Arc::new(note));
+    }
+
     /// Broadcast a complete presence snapshot received from `peer` without adding it to this
     /// daemon's local state. The marker keeps the snapshot from looping back over the link.
     pub fn publish_remote(&self, note: &Value, peer: &str) {
@@ -395,6 +442,7 @@ impl Presence {
                     let mut latest = snapshot.latest.lock_or_recover();
                     latest.0 += 1;
                     latest.1 = Some(note.clone());
+                    latest.2 = false;
                 }
             }
             let _ = self.inner.changes.send(Arc::new(note));
@@ -890,6 +938,33 @@ mod tests {
         drop(second);
         drop(other);
         assert!(presence.inner.remote.lock_or_recover().is_empty());
+    }
+
+    #[test]
+    fn remote_presence_reconnect_baseline_preserves_newer_updates() {
+        let presence = Presence::default();
+        let held = presence.watch_remote("peer", "chat");
+        let active = json!({"sessionId": "chat", "participants": [{"id": "ana"}],
+            BASELINE_MARKER: true});
+        let before_reset = held.revision();
+        presence.reset_remote("peer");
+        assert!(held.revision() > before_reset);
+        held.seed(&active, before_reset);
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        presence.publish_remote_baseline(&active, "peer");
+        let restored = held.snapshot().unwrap();
+        assert_eq!(restored["participants"][0]["id"], "ana");
+        assert!(restored.get(BASELINE_MARKER).is_none());
+
+        presence.reset_remote("peer");
+        presence.publish_remote(&none("chat"), "peer");
+        presence.publish_remote_baseline(&active, "peer");
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+
+        presence.reset_remote("peer");
+        held.seed(&none("chat"), held.revision());
+        presence.publish_remote_baseline(&active, "peer");
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
     }
 
     #[test]

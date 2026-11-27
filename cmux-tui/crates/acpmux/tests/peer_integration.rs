@@ -585,6 +585,69 @@ async fn shared_presence_over_peer(peer_auth: bool) {
     assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
 }
 
+/// A stable participant must return after a link flap without another view/typing request.
+#[tokio::test]
+async fn peer_presence_recovers_unchanged_participants_after_reconnect() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, token) = listen_with_peer_token(b.clone(), "presence-reconnect").await;
+    let mut cb = client(b.clone()).await;
+    let session = cb
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "presence-stable"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let sid = session["sessionId"].as_str().unwrap();
+    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    cb.call(method::MUX_ATTACH, json!({"sessionId": sid, "visible": false})).await.unwrap();
+    cb.call(
+        method::MUX_VIEW,
+        json!({
+            "sessionId": sid, "visible": true,
+            "_meta": {"acpmux": {"author": {"id": "stable-ana", "name": "Ana"}}}
+        }),
+    )
+    .await
+    .unwrap();
+    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached = ca
+        .call(
+            method::MUX_ATTACH,
+            json!({
+                "sessionId": "b/presence-stable", "limit": 0, "visible": false
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(attached["presence"]["participants"][0]["id"], "stable-ana");
+    let peer = a.peer_by_name("b").unwrap();
+    let epoch = peer.link_epoch();
+    let mut settled = peer.settled();
+    flap.send(()).unwrap();
+    ca.wait(method::MUX_PRESENCE, |p| p["participants"] == json!([])).await;
+    ca.wait(method::MUX_PRESENCE, |p| p["participants"][0]["id"] == "stable-ana").await;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while peer.link_epoch() == epoch
+            || !peer.connected.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            settled.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("peer reconnects");
+    // No client on B changed presence after the initial view.
+    assert_eq!(b.presence.snapshot(sid)["participants"][0]["id"], "stable-ana");
+}
+
 /// Identical raw ids from different peers never mix their presence in a local client.
 #[tokio::test]
 async fn peer_presence_is_scoped_to_the_attached_source() {
