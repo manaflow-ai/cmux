@@ -58,4 +58,36 @@ import Testing
             #expect(ChiefHarness.codex.failureMessage(message, model: "gpt-6.1-sol") == message)
         }
     }
+
+    /// Claude Code prints the notice for every model id it has no built-in row for, even when
+    /// the turn succeeds, so a turn that fails for another reason keeps its own message.
+    @Test func anUnrecognizedModelNoticeDoesNotRelabelAnotherFailure() {
+        let message = """
+            [claude-code:unrecognized_model] {"model":"deepseek-v4.1-flash","query_source":"sdk"}
+            API Error: 429 rate limit exceeded, please retry later.
+            """
+        let text = ChiefHarness.claude.failureMessage(message, model: "deepseek-v4.1-flash")
+        #expect(text == message)
+        #expect(!text.contains("Chief Settings"))
+    }
+
+    @Test func anUnrecognizedModelNoticeBesideARejectionStillMaps() {
+        let message = """
+            [claude-code:unrecognized_model] {"model":"claude-opus-9"}
+            There's an issue with the selected model (claude-opus-9). Run --model to pick a different model.
+            """
+        let text = ChiefHarness.claude.failureMessage(message, model: "claude-opus-9")
+        #expect(text == ChiefText.unknownModel("claude-opus-9", harness: "Claude Code"))
+    }
+
+    @Test func anAPIErrorNamingUnrecognizedModelStillMaps() {
+        let message = #"API Error: 400 {"type":"error","error":{"type":"unrecognized_model","message":"model is unknown"}}"#
+        let text = ChiefHarness.claude.failureMessage(message, model: "deepseek-v4.1-flash")
+        #expect(text == ChiefText.unknownModel("deepseek-v4.1-flash", harness: "Claude Code"))
+    }
+
+    @Test func strippingKeepsEveryOtherLine() {
+        let message = "[claude-code:unrecognized_model]\nquota exceeded\n[claude-code:unrecognized_model] {\"model\":\"x\"}"
+        #expect(ChiefHarness.strippingUnrecognizedModelNotices(message) == "quota exceeded")
+    }
 }

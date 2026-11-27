@@ -126,11 +126,33 @@ extension ChiefHarness {
         Self.isUnknownModelFailure(message, model: model) ? ChiefText.unknownModel(model, harness: displayName) : message
     }
 
+    /// The notice Claude Code prints on stderr for a model id that is not one of its built-in
+    /// Anthropic ids — every proxied non-Anthropic lane raises it, even on a successful turn.
+    /// One per line, optionally followed by its JSON payload.
+    private static let unrecognizedModelNotice = "[claude-code:unrecognized_model]"
+
+    /// `message` without its `unrecognized_model` notices: they report that the CLI has no
+    /// built-in row for the id, not that this turn failed, so they must not label another
+    /// failure (a quota, network or tool error) an unknown model.
+    static func strippingUnrecognizedModelNotices(_ message: String) -> String {
+        message
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix(unrecognizedModelNotice) }
+            .joined(separator: "\n")
+    }
+
     /// Whether `message` says the CLI rejected `model`: Claude Code's "issue with the selected
     /// model" and `unrecognized_model`, the API's `not_found_error` "model: <id>", Codex's
     /// "model … does not exist", "is not supported" and `model_not_found`.
+    ///
+    /// A bracketed `[claude-code:unrecognized_model]` notice does not count on its own: it is
+    /// printed for every id the CLI lacks a built-in row for, so only when the notice is the
+    /// whole message does it stand as the failure's evidence. An `unrecognized_model` in any
+    /// other line (an API error body) keeps matching.
     static func isUnknownModelFailure(_ message: String, model: String) -> Bool {
-        let text = message.lowercased()
+        let stripped = Self.strippingUnrecognizedModelNotices(message)
+        let evidence = stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? message : stripped
+        let text = evidence.lowercased()
         let generic = ["issue with the selected model", "unrecognized_model", "model_not_found", "unknown model",
                        "invalid model", "model not found", "model is not supported", "model is not available"]
         if generic.contains(where: text.contains) { return true }
