@@ -582,7 +582,9 @@ jobs:
           CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
           RESCUE_TRIED: ${{ inputs.rescue_tried }}
           FFI_UNIVERSAL: ${{ inputs.universal && 'true' || '' }}
-        run: python3 scripts/ci/app_ffi_rescue.py
+        # -u: a buffered print stamped every line at the job's end (job 140538369006: a 17 min sleep to a rate-limit reset
+        # logged at 13:54Z for a read refused at 13:37Z).
+        run: python3 -u scripts/ci/app_ffi_rescue.py
 
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
@@ -1042,4 +1044,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next
+        # The run's installation token shares a rate limit with every other job: runs 46002456039 and
+        # 46005933257 got "HTTP 403: API rate limit exceeded for installation" here (2026-11-27 13:47Z and
+        # 14:17Z) and no re-pin ran. Retry on the bounded backoff app-ffi-repin.yml's twin step uses (about 9 min).
+        run: |
+          for wait in 0 60 120 180 180; do
+            sleep "$wait"
+            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
+            echo "re-pin dispatch failed; retrying after backoff"
+          done
+          exit 1

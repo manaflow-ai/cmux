@@ -1154,6 +1154,21 @@ pub mod method {
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
+    /// Another machine's Control and Screen through the carrier (`server/consent_grant.rs`):
+    /// `{daemonId}` -> its status plus `self`. The person's local connection only.
+    pub const MUX_CONSENT_REMOTE_STATUS: &str = "_acpmux/consent_remote_status";
+    /// `{daemonId, grant}`: a grant the app signed, carried to that machine; its answer.
+    pub const MUX_CONSENT_REMOTE_SET: &str = "_acpmux/consent_remote_set";
+    /// `{id, trusted}` on the machine a grant reached: pins the pending ask's key, or unpins.
+    pub const MUX_CONSENT_GRANTOR_TRUST: &str = "_acpmux/consent_grantor_trust";
+    /// `{grant}`: an account-wide (`*`) grant this machine's own app key signed, applied here and
+    /// handed to every listed machine of the account.
+    pub const MUX_CONSENT_ACCOUNT_SET: &str = "_acpmux/consent_account_set";
+    /// `{}`: opens this machine's enrollment window and collects its app's and its peers' keys.
+    pub const MUX_CONSENT_TRUST_REFRESH: &str = "_acpmux/consent_trust_refresh";
+    /// `{surface, viewerId, viewerName?, hubUser?}` -> `{allowed, source, reason?}`: whether the app
+    /// may skip its per-connect prompt for a device hub viewer of this account.
+    pub const MUX_CONSENT_SCREEN_AUTO: &str = "_acpmux/consent_screen_auto";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     /// The share host's status (`share_host/`): `{}` -> `acpmux.share-host.status/1`, what
     /// `acpmux share-host status` prints. Local socket only.
