@@ -11,6 +11,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -490,7 +491,8 @@ def lane_receipt(**overrides) -> dict:
 
 
 def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, audit_percent: int = 0,
-                body: str = "Change.\n", pr: int | None = None) -> tuple[dict, list[dict]]:
+                body: str = "Change.\n", pr: int | None = None,
+                merge_tree: str = MERGE_TREE) -> tuple[dict, list[dict]]:
     asked: list[dict] = []
 
     def ask(payload):
@@ -501,7 +503,7 @@ def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, a
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body)
     args = SimpleNamespace(job="fast-gates", repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE,
-                           merge_tree=MERGE_TREE, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
+                           merge_tree=merge_tree, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
                            pr=pr, lane=True)
     try:
         return ci_receipt.verify(args, fetch=fake or FakeGitHub(), lane_ask_fn=ask), asked
@@ -536,6 +538,26 @@ class LaneReceipts(unittest.TestCase):
                     {"producer": "actions:x"}, {"check": "rust-workspaces"}, {"base": "short"}):
             result, _ = lane_verify([lane_receipt(**bad)])
             self.assertEqual(result["valid"], "false", bad)
+
+    def test_a_dispatch_with_no_merge_tree_takes_a_receipt_on_an_older_base(self):
+        # The merger's land-time dispatch (78 of 100 fast-gates runs, 2026-11-26) has no merge ref to read a tree from.
+        result, _ = lane_verify([lane_receipt(base=OLD_BASE)], merge_tree="")
+        self.assertEqual(result["valid"], "true", result["reason"])
+        self.assertEqual(result["producer"], "lane:fs-agent-lane-9")
+
+    def test_a_dispatch_on_the_receipts_own_base_takes_it_only_for_the_same_head_commit(self):
+        # Lanes test on the newest base, so most land dispatches share the receipt's base: the same head commit on the
+        # same base is the merge the lane tested; another commit with the same tree may merge differently.
+        result, _ = lane_verify([lane_receipt()], merge_tree="")
+        self.assertEqual(result["valid"], "true", result["reason"])
+        result, _ = lane_verify([lane_receipt(head="9" * 40)], merge_tree="")
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("no merge tree", result["reason"])
+
+    def test_a_malformed_merge_tree_is_still_refused(self):
+        result, _ = lane_verify([lane_receipt(base=OLD_BASE)], merge_tree="nope")
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("unresolved", result["reason"])
 
     def test_the_first_covering_receipt_wins(self):
         result, _ = lane_verify([lane_receipt(tree="9" * 40, producer="lane:a"), lane_receipt(producer="lane:b")])
@@ -591,10 +613,41 @@ class LaneRecord(unittest.TestCase):
                                                 merge_tree=MERGE_TREE, seconds=1, post=lambda u, d: (403, b"no"),
                                                 env={}), 0)
 
-        def down(u, d):
-            raise OSError("unreachable")
-        self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
-                                                merge_tree=MERGE_TREE, seconds=1, post=down, env={}), 0)
+    def test_a_record_with_no_answer_is_spooled_and_flushed_until_recorded(self):
+        """2026-11-27 08:16Z-08:40Z: 7 green lane passes ran past the controller's deadline and were thrown away."""
+        import json as j  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as folder:
+            env = {"CI_RECEIPT_SPOOL": folder}
+            spawned = []
+
+            def down(u, d):
+                raise OSError("unreachable")
+            self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
+                                                    merge_tree=MERGE_TREE, seconds=1, post=down, env=env,
+                                                    spawn=lambda: spawned.append(1)), 0)
+            self.assertEqual(spawned, [1])
+            entries = list(Path(folder).glob("*.json"))
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(j.loads(entries[0].read_text())["payload"]["head_tree"], HEAD_TREE)
+            # a 5xx keeps it; the next round records it and empties the spool
+            answers = [(503, b"busy"), (200, j.dumps({"receipt": {"producer": "lane:x"}}).encode())]
+            sleeps = []
+            self.assertEqual(ci_receipt.flush(env=env, post=lambda u, d: answers.pop(0), sleep=sleeps.append), 0)
+            self.assertEqual((answers, sleeps, list(Path(folder).glob("*.json"))), ([], [ci_receipt.RETRY_EVERY_S], []))
+
+    def test_a_refusal_is_not_spooled_and_an_expired_entry_is_dropped(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = {"CI_RECEIPT_SPOOL": folder}
+            spawned = []
+            ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                   seconds=1, post=lambda u, d: (403, b"no"), env=env, spawn=lambda: spawned.append(1))
+            self.assertEqual((spawned, list(Path(folder).glob("*.json"))), ([], []))
+            ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                   seconds=1, post=lambda u, d: (502, b""), env=env, spawn=lambda: None)
+            later = time.time() + ci_receipt.SPOOL_FOR_S + 1
+            self.assertEqual(ci_receipt.flush(env=env, post=lambda u, d: (502, b""), sleep=lambda s: None,
+                                              now=lambda: later), 0)
+            self.assertEqual(list(Path(folder).glob("*.json")), [])
 
 
 if __name__ == "__main__":

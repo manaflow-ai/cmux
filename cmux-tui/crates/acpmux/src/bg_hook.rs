@@ -15,16 +15,18 @@
 //! beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
 //! lock so parallel calls never lose one), one file per chat, removed with the config.
 //!
-//! It also turns away a known-slow command run in the foreground ([`SLOW`]: builds and test
-//! runs, CI waits, dev servers and follows that never end), naming the background call that
-//! runs it instead, `bg_start` where the chat has it, else `run_in_background: true`, so the
-//! turn goes on while it runs. Leo, 2026-11-02, on a session that sat about 80 minutes in one
-//! turn of foreground shell calls: "but why not in cmux". The same call again runs as asked, and
-//! so does a command with [`FOREGROUND_OK`] or a trailing `&`. Any other
-//! command still in the foreground after five minutes goes to the background on its own
-//! (`hub/auto_background.rs`), since no list knows a person's own scripts.
+//! With [`SLOW_SETTING`] on (off by default), it also moves a known-slow command run in the
+//! foreground ([`SLOW`]: builds and test runs, CI waits, dev servers and follows that never end)
+//! to a daemon task where the chat has `bg_start`, else turns it away once towards
+//! `run_in_background: true`, so the turn goes on while it runs. Leo, 2026-11-02, on a session
+//! that sat about 80 minutes in one turn of foreground shell calls: "but why not in cmux". The
+//! same call again runs as asked, and so does a command with [`FOREGROUND_OK`] or a trailing `&`.
+//! The list is the fleet's own habits (its CI wait tools among them), so cmux ships it off and
+//! the fleet turns it on in its settings (Leo, 2026-11-26: "identify all the weird opinoinated
+//! fleet things we shipped into the app and remove them"). With it off, a command still in the
+//! foreground after five minutes goes to the background on its own (`hub/auto_background.rs`).
 //!
-//! A CI wait (`glaeda-gh wait`, `lane-gh call ci_wait`, `gh run watch`) in the foreground is
+//! With it on, a CI wait (`glaeda-gh wait`, `lane-gh call ci_wait`, `gh run watch`) in the foreground is
 //! rewritten too, a subagent's included, so no wait runs as a shell under the harness. Before,
 //! a background subagent's foreground `glaeda-gh wait` (with a 90-minute Bash `timeout`, so
 //! neither `hub/auto_background.rs` nor Claude Code moved it) kept its chat's idle harness up:
@@ -149,6 +151,38 @@ const QUICK: &[&str] = &[
 /// The comment that lets a known-slow command run in the foreground.
 pub const FOREGROUND_OK: &str = "# fg-ok";
 
+/// The setting that turns the known-slow handling ([`SLOW`]) on: off unless `true`.
+pub const SLOW_SETTING: &str = "agents.slowForeground.enabled";
+/// The environment switch over [`SLOW_SETTING`]: `1` (or `true`, `on`, `yes`) on, `0` (or
+/// `false`, `off`, `no`) off. The hook runs under the harness, so it sees the daemon's env.
+pub const SLOW_ENV: &str = "ACPMUX_SLOW_FOREGROUND";
+
+/// Whether a known-slow foreground command is moved or turned away ([`SLOW_SETTING`],
+/// [`SLOW_ENV`]). Read only for a call [`slow_reason`] names, so other calls read no file.
+pub fn slow_foreground_on() -> bool {
+    let env = std::env::var(SLOW_ENV).ok();
+    if let Some(on) = env.as_deref().and_then(switch_word) {
+        return on;
+    }
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => slow_foreground_in(&doc),
+        _ => false,
+    }
+}
+
+/// Whether the settings document turns [`SLOW_SETTING`] on.
+fn slow_foreground_in(doc: &Value) -> bool {
+    crate::user_settings::value(doc, SLOW_SETTING).and_then(|v| v.as_bool()) == Some(true)
+}
+
+fn switch_word(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => Some(true),
+        "0" | "false" | "off" | "no" => Some(false),
+        _ => None,
+    }
+}
+
 /// Why `command` would hold the turn for long, if one of its simple commands is known to
 /// ([`SLOW`]), or None. A command that puts itself in the background (a trailing `&`) or
 /// carries [`FOREGROUND_OK`] holds nothing; `nohup` or `setsid` alone still runs in the
@@ -239,6 +273,8 @@ pub struct TaskCli {
     /// The command the task runs instead of the call's own: the call wrapped in
     /// `acpmux run-vm` when it goes to a run VM (`placement/run_vm.rs`, RFD 0144 piece 3).
     pub run_vm: Option<String>,
+    /// Whether a known-slow foreground command is handled ([`slow_foreground_on`]).
+    pub slow: bool,
 }
 
 /// The `--route` word of `process start` for each [`Route`], and back: the CLI's answer names
@@ -286,14 +322,19 @@ pub fn read_call(route: Option<&Route>, id: &str) -> String {
 /// interruptions/not useful enough tools are big".
 ///
 /// With no route, a known-slow foreground command is still turned away towards
-/// `run_in_background: true`, and a background shell runs as asked.
+/// `run_in_background: true`, and a background shell runs as asked. With `cli.slow` off a
+/// foreground command always runs as asked.
 pub fn decide(input: &Value, route: Option<Route>, cli: &TaskCli) -> Option<Value> {
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
         return None;
     }
     let command = input.pointer("/tool_input/command")?.as_str()?;
     let background = input.pointer("/tool_input/run_in_background") == Some(&json!(true));
-    let slow = if background { None } else { Some(slow_reason(command)?) };
+    let slow = match (background, cli.slow) {
+        (true, _) => None,
+        (false, true) => Some(slow_reason(command)?),
+        (false, false) => return None,
+    };
     let Some(route) = route else {
         let why = slow?;
         let reason = format!(
@@ -624,7 +665,7 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         }
         _ => {}
     }
-    let command = input.pointer("/tool_input/command").and_then(Value::as_str)?;
+    input.pointer("/tool_input/command").and_then(Value::as_str)?;
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
         return None;
     }
@@ -635,6 +676,13 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         words.extend(this.args_lossy::<&str>(&[]));
         words
     };
+    // Harness magic `sharedCache` (RFD 0158 §9, `ci_log_cache.rs`): a CI log read goes through
+    // this machine's cache of finished logs. The rewritten call is the one every later rule
+    // reads; with nothing else to say, the answer is the rewrite itself.
+    let mut input = input;
+    let shared = shared_cache(&mut input, &self_words);
+    let shared_answer = |input: &Value| shared.then(|| updated_answer(input)).flatten();
+    let command = input.pointer("/tool_input/command").and_then(Value::as_str)?;
     // A heavy build or test on a Cloud machine with AutoCloud on runs on a fork (RFD 0144
     // piece 3): the class is read from the text first, so no other call reads the settings.
     // With `CMUX_WORK_PLACER=1` the work placer decides instead, from this host's samples
@@ -651,8 +699,11 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         .map(|_| crate::placement::run_vm::wrap(&self_words(), command));
     let background =
         input.pointer("/tool_input/run_in_background").and_then(Value::as_bool) == Some(true);
-    if !background && slow_reason(command).is_none() {
-        let Some(wrapped) = run_vm else { return subagent_mark(&input) };
+    let slow = !background && slow_reason(command).is_some() && slow_foreground_on();
+    if !background && !slow {
+        let Some(wrapped) = run_vm else {
+            return subagent_mark(&input).or_else(|| shared_answer(&input));
+        };
         return run_vm_answer(&input, &wrapped);
     }
     let config = crate::agent_tools::mcp_config_path(home, session);
@@ -670,8 +721,13 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         // No daemon task to run it in: the call itself runs on the fork, as asked otherwise.
         return run_vm_answer(&input, wrapped);
     }
-    let cli =
-        TaskCli { words: self_words(), denied: denied_path(&config), key, run_vm: run_vm.clone() };
+    let cli = TaskCli {
+        words: self_words(),
+        denied: denied_path(&config),
+        key,
+        run_vm: run_vm.clone(),
+        slow,
+    };
     if let Some(answer) = decide(&input, route, &cli) {
         // The same call turned away, or rewritten into a task that did not start, just before
         // runs as asked (the replacement may be unusable). A task that started forgets the key
@@ -692,8 +748,43 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     }
     match &run_vm {
         Some(wrapped) => run_vm_answer(&input, wrapped),
-        None => subagent_mark(&input),
+        None => subagent_mark(&input).or_else(|| shared_answer(&input)),
     }
+}
+
+/// Rewrites `input`'s command through the shared CI log cache when the feature is on and the
+/// command reads a log (`ci_log_cache::rewrite`); whether it did.
+fn shared_cache(input: &mut Value, self_words: &dyn Fn() -> Vec<String>) -> bool {
+    let Some(command) = input.pointer("/tool_input/command").and_then(Value::as_str) else {
+        return false;
+    };
+    // The text test first, so no other call reads the settings.
+    if !command.contains("gh run view") || !crate::ci_log_cache::enabled() {
+        return false;
+    }
+    let mut words = self_words();
+    words.extend([crate::ci_log_cache::SUBCOMMAND.to_owned(), "--".to_owned()]);
+    let Some(rewritten) =
+        crate::ci_log_cache::rewrite(command, &crate::agent_tools::quoted(&words))
+    else {
+        return false;
+    };
+    match input.pointer_mut("/tool_input/command") {
+        Some(slot) => {
+            *slot = json!(rewritten);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The answer that runs `input`'s tool input as it now is, permission as before.
+fn updated_answer(input: &Value) -> Option<Value> {
+    let tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
+    Some(json!({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "updatedInput": tool_input,
+    }}))
 }
 
 /// The call rewritten to run `wrapped` (`acpmux run-vm -- CMD`) in its place, everything else
