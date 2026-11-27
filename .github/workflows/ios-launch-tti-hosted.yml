@@ -7,6 +7,10 @@
 # (cmux#58989's fix for the cold-cache SwiftPM race that left a leg with no test run), so only the app
 # under test differs between the legs. The warm suite runs each of its two flows (chat, terminal) 10 times: 20 samples of
 # list_ms (process start to the workspaces list usable) per leg, the probe's first_connect samples.
+# On a pull request the after leg is the PR's head. Each leg also launches a minimal SwiftUI app
+# (scripts/ci/ios-launch-floor.sh, from this workflow's commit) 20 times warm on the same iPhone type,
+# with the same process-start clock: the runner's and the simulator's floor under list_ms. The app's
+# pre_main_init / pre_main_cpu / pre_main_pageins marks (a head that takes them) split its share.
 name: iOS launch TTI (hosted)
 
 on:
@@ -43,7 +47,7 @@ jobs:
           - leg: before
             ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'feat-cmux-next' }}
           - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'd04607cef7046138aabe5bd5d01d517dc9450078' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -58,11 +62,19 @@ jobs:
           sparse-checkout: scripts/ci/cmux-next-ios-sim.sh
           sparse-checkout-cone-mode: false
 
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: .floor
+          sparse-checkout: scripts/ci/ios-launch-floor.sh
+          sparse-checkout-cone-mode: false
+
       - name: One harness for both legs
         run: |
           set -euo pipefail
           cp .harness/scripts/ci/cmux-next-ios-sim.sh scripts/ci/cmux-next-ios-sim.sh
           rm -rf .harness
+          mkdir -p "$RUNNER_TEMP/floor" && cp .floor/scripts/ci/ios-launch-floor.sh "$RUNNER_TEMP/floor/" && rm -rf .floor
           echo "harness: scripts/ci/cmux-next-ios-sim.sh at 3281c18a (cmux#58989)"
 
       - name: Select Xcode
@@ -100,9 +112,16 @@ jobs:
           def rank(p):
               s = sorted(samples)
               return s[max(0, math.ceil(p / 100 * len(s)) - 1)] if s else None
+          def split(key):
+              xs = [r[key] for r in warm if isinstance(r.get(key), (int, float))]
+              s = sorted(xs)
+              q = lambda p: round(s[max(0, math.ceil(p / 100 * len(s)) - 1)]) if s else None
+              return {"n": len(xs), "p50": q(50), "p90": q(90)}
           out = {"leg": os.environ["LEG"], "sha": os.environ["SHA"], "n": len(samples), "samples_ms": samples,
                  "p50_ms": rank(50), "p90_ms": rank(90), "runner": os.environ.get("RUNNER_NAME", ""),
-                 "run_url": os.environ["RUN_URL"]}
+                 "run_url": os.environ["RUN_URL"],
+                 "split": {k: split(k) for k in ("pre_main_init", "pre_main_cpu", "pre_main_pageins", "main",
+                                                 "app_init", "first_frame", "workspaces_list_frame")}}
           pathlib.Path("artifacts/ios-sim/first-connect.json").parent.mkdir(parents=True, exist_ok=True)
           pathlib.Path("artifacts/ios-sim/first-connect.json").write_text(json.dumps(out, indent=1) + "\n")
           print("FIRSTCONNECT " + json.dumps(out))
@@ -111,8 +130,28 @@ jobs:
               f.write(f"list_ms (process start to workspaces list usable), warm, n={out['n']}: "
                       f"p50 {out['p50_ms']} ms, p90 {out['p90_ms']} ms (nearest rank)\n\n")
               f.write(f"samples_ms: {samples}\n\n")
+              f.write("| mark | n | p50 | p90 |\n|---|---|---|---|\n")
+              for k, v in out["split"].items():
+                  f.write(f"| {k} | {v['n']} | {v['p50']} | {v['p90']} |\n")
+              f.write("\n")
           PY
           if [ -f artifacts/ios-sim/SUMMARY.md ]; then cat artifacts/ios-sim/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Launch floor (minimal SwiftUI app, warm)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          bash "$RUNNER_TEMP/floor/ios-launch-floor.sh" artifacts/ios-sim/launch-floor.json artifacts/ios-sim/SUMMARY.md
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("artifacts/ios-sim/launch-floor.json"))
+          print(f"### launch floor ({d['device_type'].split('.')[-1]}, {d['runtime'].split('.')[-1]}, {d['launch']}, n={d['n']})\n")
+          print("| span | p50 | p90 |\n|---|---|---|")
+          for k in ("main_ms", "main_cpu_ms", "first_frame_ms"):
+              print(f"| {k} | {d[k]['p50']} | {d[k]['p90']} |")
+          print()
+          PY
 
       - name: Upload launch samples
         if: ${{ !cancelled() }}
@@ -122,6 +161,7 @@ jobs:
           path: |
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
+            artifacts/ios-sim/launch-floor.json
             artifacts/ios-sim/SUMMARY.md
           retention-days: 3
           if-no-files-found: warn
