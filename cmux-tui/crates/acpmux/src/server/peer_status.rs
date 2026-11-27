@@ -22,6 +22,11 @@ use std::time::{Duration, Instant};
 // timeout: status callers need a bounded fallback row for a dead peer.
 const PEER_BUDGET: Duration = Duration::from_secs(5);
 
+/// The first one-daemon health experiment: surface an over-large daemon RSS in host health.
+/// `labs.previewFeatures` is off by default, so this does not change existing health replies.
+const PREVIEW_FEATURES_SETTING: &str = "labs.previewFeatures";
+const RSS_LIMIT_BYTES: u64 = 4_000_000_000;
+
 /// The next step an unreachable or unknown peer's row names.
 const NEXT: &str = "acpmux machine doctor";
 
@@ -111,9 +116,25 @@ pub(crate) async fn host_health_with(
     let saved = hub.config.read().await.auto_cloud_enroll.clone();
     v.set("autoCloud", json!(crate::autocloud_enroll::report_now(saved.as_ref())));
     // What the machine health loop found wrong and could not fix
-    // (`machine_health.rs`); none on a machine without the loop.
-    if let Some(problems) = super::machine_health::problems().await {
-        v.set("problems", problems);
+    // (`machine_health.rs`); none on a machine without the loop. The RSS
+    // experiment is deliberately opt-in and reuses the same bounded problem
+    // list, so peer and app callers see one consistent health payload.
+    let machine_problems = super::machine_health::problems().await;
+    match (machine_problems, daemon_rss_problem()) {
+        (Some(mut problems), Some(rss)) => {
+            if let Some(list) = problems.as_array_mut() {
+                // Keep the experiment visible even when the existing list is at its cap.
+                list.insert(0, rss);
+            }
+            v.set("problems", super::machine_health::sanitize(&problems));
+        }
+        (Some(problems), None) => {
+            v.set("problems", problems);
+        }
+        (None, Some(rss)) => {
+            v.set("problems", json!([rss]));
+        }
+        (None, None) => {}
     }
     if !origin.web_class() {
         v.set("host", json!(crate::hub::host_label()));
@@ -130,6 +151,31 @@ pub(crate) async fn host_health_with(
         v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
     }
     v
+}
+
+/// The opt-in RSS problem for the one-daemon experiment.
+fn daemon_rss_problem() -> Option<Value> {
+    let enabled = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => {
+            crate::user_settings::value(&doc, PREVIEW_FEATURES_SETTING).and_then(|v| v.as_bool())
+                == Some(true)
+        }
+        crate::user_settings::Settings::Missing | crate::user_settings::Settings::Unreadable(_) => {
+            false
+        }
+    };
+    daemon_rss_problem_for(enabled, crate::gauges::memory()["rssBytes"].as_u64())
+}
+
+fn daemon_rss_problem_for(enabled: bool, rss: Option<u64>) -> Option<Value> {
+    let rss = rss.filter(|rss| *rss > RSS_LIMIT_BYTES)?;
+    enabled.then(|| {
+        json!({
+            "check": "acpmux-rss",
+            "detail": format!("acpmux RSS is {rss} bytes (over 4 GB)"),
+            "severity": "warning"
+        })
+    })
 }
 
 /// `link` of `host_health`: the install this machine's cmux link runs as, so a daemon that
@@ -356,17 +402,38 @@ pub(crate) fn swap() -> Option<(u64, u64)> {
     Some((total.saturating_sub(free).saturating_mul(1024), total.saturating_mul(1024)))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub(crate) fn swap() -> Option<(u64, u64)> {
-    None
-}
-
 /// The 1, 5 and 15 minute load averages.
 #[cfg(unix)]
 pub(crate) fn load() -> Option<[f64; 3]> {
     let mut l = [0f64; 3];
     // SAFETY: a writable array of the three entries asked for.
     (unsafe { libc::getloadavg(l.as_mut_ptr(), 3) } == 3).then_some(l)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub(crate) fn swap() -> Option<(u64, u64)> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RSS_LIMIT_BYTES, daemon_rss_problem_for};
+    use serde_json::json;
+
+    #[test]
+    fn rss_problem_is_default_off_and_only_reports_over_four_gb() {
+        assert_eq!(daemon_rss_problem_for(false, Some(RSS_LIMIT_BYTES + 1)), None);
+        assert_eq!(daemon_rss_problem_for(true, None), None);
+        assert_eq!(daemon_rss_problem_for(true, Some(RSS_LIMIT_BYTES)), None);
+        assert_eq!(
+            daemon_rss_problem_for(true, Some(RSS_LIMIT_BYTES + 1)),
+            Some(json!({
+                "check": "acpmux-rss",
+                "detail": format!("acpmux RSS is {} bytes (over 4 GB)", RSS_LIMIT_BYTES + 1),
+                "severity": "warning"
+            }))
+        );
+    }
 }
 
 #[cfg(not(unix))]
