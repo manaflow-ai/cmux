@@ -40,6 +40,8 @@ async fn held_admission() -> (Arc<Hub>, Arc<Admission>) {
     tokio::time::pause();
     let admission = admit(&s, &hub.scope, Instant::now()).await;
     assert!(admission.held(), "an uncontended prompt holds its admission");
+    // Its lease task arms its first timer before the clock moves.
+    settle().await;
     (hub, admission)
 }
 
