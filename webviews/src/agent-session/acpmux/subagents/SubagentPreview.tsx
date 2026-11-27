@@ -35,7 +35,7 @@ export function SubagentCardBody({
   name: ReactNode;
   status: SubagentStatus;
   /// Its state, time, kind and progress, one muted line.
-  state?: string;
+  state?: ReactNode;
   /// What it does now, or the last line it said.
   latest?: string;
   /// Its whole task, when its name is not that.
