@@ -2,7 +2,7 @@
 //! request asks, at most once per `sample_seconds`, on a blocking thread and one
 //! sample at a time, and keeps the last verdict and the swap baseline. No timer.
 
-use super::{Budget, HostProbe, Probe, Verdict, evaluate, host_name, load_budget};
+use super::{Budget, HostProbe, Probe, Sample, Verdict, evaluate, host_name, load_budget};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -36,6 +36,9 @@ struct MeterState {
     cached: Option<(Instant, Verdict)>,
     /// The swap-out counter at the last sample that had one.
     swap: Option<(Instant, u64)>,
+    /// The readings the last verdict was made from: RFD 0072's signals (CPU busy, thermal, HID
+    /// idle, timer lateness) are read into the sample but not into the verdict.
+    sample: Option<Sample>,
 }
 
 /// Clears [`Meter::sampling`] when a sample ends, however it ends.
@@ -88,6 +91,11 @@ impl Meter {
     /// The last verdict, however old.
     pub fn last(&self) -> Option<Verdict> {
         self.lock().cached.as_ref().map(|(_, v)| v.clone())
+    }
+
+    /// The readings of the last sample, however old (RFD 0072's reserve rule reads them).
+    pub fn last_sample(&self) -> Option<Sample> {
+        self.lock().sample.clone()
     }
 
     /// The last verdict and how long before `now` its sample was taken.
@@ -190,6 +198,7 @@ impl Meter {
         let v = evaluate(&self.host, &sample, rate, &budget);
         let was_ok = state.cached.as_ref().is_none_or(|(_, before)| before.ok);
         state.cached = Some((now, v.clone()));
+        state.sample = Some(sample);
         // Logged after the lock is released: a slow log writer never holds a turn.
         drop(state);
         if let Some(line) = v.warning.as_deref().filter(|_| was_ok) {

@@ -120,3 +120,22 @@ async fn peek_repeats_a_verdict_for_a_minute_only() {
     m.sample_at(older).unwrap();
     assert_eq!(m.peek(), None, "a 61 s old verdict is not");
 }
+
+#[test]
+fn the_meter_keeps_the_readings_of_its_last_sample() {
+    let probe = Arc::new(FakeProbe::default());
+    let m = meter(&probe);
+    assert_eq!(m.last_sample(), None);
+    *probe.sample.lock().unwrap() =
+        Sample { cpu_busy: Some(0.95), hid_idle_seconds: Some(4.0), ..calm() };
+    let t0 = Instant::now();
+    m.sample_at(t0).unwrap();
+    let kept = m.last_sample().unwrap();
+    assert_eq!((kept.cpu_busy, kept.hid_idle_seconds), (Some(0.95), Some(4.0)));
+    // A fresh verdict is reused and the readings with it; the next sample replaces them.
+    *probe.sample.lock().unwrap() = Sample { cpu_busy: Some(0.10), ..calm() };
+    m.sample_at(t0 + Duration::from_secs(1)).unwrap();
+    assert_eq!(m.last_sample().unwrap().cpu_busy, Some(0.95));
+    m.sample_at(t0 + Duration::from_secs(3)).unwrap();
+    assert_eq!(m.last_sample().unwrap().cpu_busy, Some(0.10));
+}
