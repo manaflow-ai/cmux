@@ -659,6 +659,10 @@ path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secret_jobs_secret_jit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
