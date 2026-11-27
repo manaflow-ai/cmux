@@ -361,6 +361,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_BG_REARM, Request),
         untyped(method::MUX_RUN_ELSEWHERE_PLAN, Request),
         untyped(method::MUX_RUN_ELSEWHERE_START, Request),
         untyped(method::MUX_GOAL_SET, Request),
@@ -645,6 +646,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
+        untyped(method::MUX_WATCHDOG_HOLD, Request),
         untyped(method::MUX_HEAP_PROFILE, Request),
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),

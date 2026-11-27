@@ -1071,6 +1071,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/bg/rearm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/run_elsewhere/plan",
       "params": true,
       "result": true
@@ -1208,6 +1214,12 @@
     {
       "kind": "request",
       "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/lifecycle",
       "params": true,
       "result": true
     },
