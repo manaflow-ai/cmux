@@ -4488,6 +4488,16 @@ export function machinesByState(rows: any[]): string {
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
+/**
+ * Whether a GET /v1/cloud/inference-gateway answer shows a team stranded in gateway mode: mode "gateway" with no
+ * gateway online. Off, joined, an online gateway or an answer that does not read are left alone.
+ */
+export function strandedGatewayMode(body: any): boolean {
+  const g = body?.gateway;
+  if (!g || typeof g !== "object") return false;
+  return g.mode === "gateway" && g.online !== true;
+}
+
 export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
@@ -5766,6 +5776,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(tok.body.access_token);
       return { token: tok.body.access_token as string, expiresAt: expiresAtMs(Number(tok.body.expires_at)) };
     };
+
+    // A run that is not a --gateway run reads the team's gateway mode before any spare claim or create: the edge gives
+    // a machine the gateway rule while its team is in gateway mode, so a team left there (a --gateway run killed
+    // before "team gateway mode restored") sent every real leg's turn to "No cmux inference gateway is online for
+    // this team" (production real legs, 11-25 to 11-27; run 46001955422). Stranded (gateway mode, none online): set
+    // back to off. Recorded either way, so a run shows the mode its machine was made under.
+    if (!gatewayAny) {
+      await J.step("team gateway mode (before create)", async () => {
+        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+        if (g.status !== 200) return { value: null, detail: `unread: GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}` };
+        const mode = String(g.body?.gateway?.mode ?? "off");
+        if (!strandedGatewayMode(g.body)) return { value: null, detail: `${mode}${g.body?.gateway?.online ? ", gateway online" : ""}` };
+        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
+        if (r.status !== 200) throw new Error(`stranded in gateway mode with no gateway online; PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        return { value: null, detail: "was gateway with no gateway online (a killed --gateway run's); set back to off" };
+      }).catch(() => undefined);
+    }
 
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
