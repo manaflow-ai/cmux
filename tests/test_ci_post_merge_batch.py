@@ -1046,3 +1046,76 @@ class ListRunsLookbackTest(unittest.TestCase):
         calls: list = []
         self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 250, calls))), 100)
         self.assertEqual(len(calls), 1)
+
+
+class SameRedTest(unittest.TestCase):
+    """A probe is red only when it reproduces the origin's red (its failing step), and a new red's matrix legs are one
+    bisect (gallery-health run 45942875725: 22 legs red on gallery:build, probes failing on composer layout flakes)."""
+
+    job = "gallery-health / health (3)"
+
+    def probe(self, step: str = "Build gallery") -> "pmb.Probe":
+        return pmb.Probe("gallery-health", self.job, "health", "e" * 40, "c" * 40, "d" * 40, "60", step=step)
+
+    def failed(self, *steps: str, job: str = "gallery-health / health (3)") -> list:
+        return [{"name": job, "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": n, "conclusion": "failure"} for n in steps] + [{"name": "Set up job", "conclusion": "success"}]}]
+
+    def conclusion(self, probe, jobs) -> str:
+        verdicts = {j["name"]: ("gallery-health", j["conclusion"]) for j in jobs}
+        return pmb.probe_conclusion(verdicts, probe, pmb.failing_steps(jobs))
+
+    def test_failure_on_the_origins_step_is_red(self) -> None:
+        self.assertEqual(self.conclusion(self.probe(), self.failed("Build gallery")), "failure")
+        # Legs merge: another leg of the same job failing the origin's step counts.
+        jobs = self.failed("Judge the red states against the base") + self.failed("Build gallery", job="gallery-health / health (4)")
+        verdicts = {j["name"]: ("gallery-health", j["conclusion"]) for j in jobs}
+        p = self.probe()
+        p.job = "gallery-health / health (9)"
+        self.assertEqual(pmb.probe_conclusion(verdicts, p, pmb.failing_steps(jobs)), "failure")
+
+    def test_failure_on_another_step_is_good_for_this_red(self) -> None:
+        self.assertEqual(self.conclusion(self.probe(), self.failed("Judge the red states against the base")), "success")
+
+    def test_no_origin_step_or_no_failed_step_keeps_the_old_verdict(self) -> None:
+        self.assertEqual(self.conclusion(self.probe(""), self.failed("Judge the red states against the base")), "failure")
+        self.assertEqual(self.conclusion(self.probe(), self.failed()), "failure")  # lost runner: no step to compare
+        self.assertEqual(pmb.probe_conclusion({self.job: ("gallery-health", "failure")}, self.probe()), "failure")
+
+    def test_the_step_travels_with_the_probe(self) -> None:
+        p = self.probe("Build gallery|Other")
+        self.assertEqual(p.inputs()["step"], "Build gallery|Other")
+        self.assertNotIn("step", self.probe("").inputs())
+        nxt = pmb.next_step(p, "failure", ["a" * 40, "b" * 40, "c" * 40, "d" * 40])
+        self.assertEqual((nxt[0], nxt[1].step), ("probe", p.step))
+        self.assertTrue(all(c.step == p.step for c in pmb.confirm_probes(p, "d" * 40, "c" * 40)))
+
+    def test_confirm_round_reads_a_different_red_as_a_pass(self) -> None:
+        p = self.probe()
+        p.confirm = "red-1"
+        title = lambda other: pmb.probe_title(other)
+        others = pmb.confirm_probes(p, p.bad, p.good)
+        runs = [{"id": 80 + n, "status": "completed", "display_title": title(o)} for n, o in enumerate(others) if o.confirm != "red-1"]
+        steps = {80 + n: {self.job: frozenset({"Build gallery" if o.confirm.startswith("red") else "Judge the red states against the base"})}
+                 for n, o in enumerate(others)}
+        jobs_of = lambda rid: ({self.job: ("gallery-health", "failure")}, True)
+        got, _ = pmb.judge_confirm(p, "failure", 90, runs, jobs_of, lambda rid: steps[rid])
+        # Green runs fail on another step: they read as passes, so the round holds. Without steps they read as failures.
+        self.assertEqual(got, "culprit")
+        self.assertEqual(pmb.judge_confirm(p, "failure", 90, runs, jobs_of)[0], "flake")
+
+    def test_matrix_legs_of_a_new_red_are_one_bisect(self) -> None:
+        suites = {"gallery-health": pmb.Suite("gallery-health", "g.yml", ["x/**"], {"health": "health"}),
+                  "web": pmb.Suite("web", "w.yml", ["web/**"], {"check": "check"})}
+        legs = {f"gallery-health / health ({n})": ("gallery-health", "failure") for n in range(22)}
+        verdicts = {**legs, "web / check": ("web", "failure")}
+        runs = [run(1, "c" * 40, "2026-11-21T08:00:00Z")]
+        older = {1: {**{k: ("gallery-health", "success") for k in legs}, "web / check": ("web", "success")}}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], suites)
+        self.assertEqual([f[0] for f in found], ["gallery-health / health (0)", "web / check"])
+        self.assertEqual(len(pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])[0]), 2)
+
+    def test_the_workflow_passes_the_step_input(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertIn('--step "$STEP"', text)
+        self.assertIn("STEP: ${{ inputs.step }}", text)

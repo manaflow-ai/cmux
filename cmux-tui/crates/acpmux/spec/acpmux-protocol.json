@@ -4355,6 +4355,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4365,6 +4366,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true,
         "text": true
       },

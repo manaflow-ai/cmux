@@ -18459,6 +18459,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "vm-hassle.yml", "zero-to-going.yml",
             # RFD 0166's cas/1 replay: cmux-cas's tests and the web bundle replay (reports, does not gate).
             "cas-replay.yml",
+            # Its W1 row (RFD 0166): the web OTA bundles replayed through cas/1, path-gated on cmux-cas (reports).
+            "cmux-cas-replay.yml",
+            # The pool's first compile (#60943): `cargo check` of the app FFI workspace a change reaches.
+            "pool-build-path.yml",
             # The degenerate lab (#57434): one job per daemon part, scale and load; a red is the product's panic.
             "cmux-next-degenerate-lab.yml",
             # The Windows RD host's build (path-gated on its crates), as cmux-rd-windows.yml.

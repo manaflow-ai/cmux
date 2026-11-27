@@ -95,6 +95,7 @@ pub(crate) mod dead_letters;
 pub(crate) mod desktop_bridge;
 mod digest;
 pub(crate) mod dispatch;
+pub(crate) mod draft_attachments;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
 mod acp_version;
@@ -503,9 +504,10 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
+mod wake_place;
 mod warm;
 mod watch;
-mod watch_events;
+pub(crate) mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
@@ -3332,9 +3334,10 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
-        // keeps the chat's agent awake.
-        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+        // Bookkeeping never keeps the chat's agent awake (`idle.rs`): what its harness spent,
+        // read after a turn (`usage_view.rs`), a restarted daemon taking its host back, and a
+        // read mark (`seen.rs`), which a look writes whoever looked.
+        if !idle::bookkeeping(&record.dir, &record.kind, &record.msg) {
             self.touch(session);
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).

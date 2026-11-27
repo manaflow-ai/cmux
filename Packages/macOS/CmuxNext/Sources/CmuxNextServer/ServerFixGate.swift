@@ -5,14 +5,14 @@ import Foundation
 /// the revert that should undo it. The holder runs in its caller's task, so
 /// a cancelled fix sees its own cancellation.
 @MainActor
-final class ServerFixGate {
-    static let shared = ServerFixGate()
+public final class ServerFixGate {
+    public static let shared = ServerFixGate()
 
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     /// Waits for the gate. Pair each call with one `release()`.
-    func acquire() async {
+    public func acquire() async {
         guard busy else {
             busy = true
             return
@@ -21,7 +21,7 @@ final class ServerFixGate {
     }
 
     /// Hands the gate to the next waiter, or opens it.
-    func release() {
+    public func release() {
         if waiters.isEmpty {
             busy = false
         } else {

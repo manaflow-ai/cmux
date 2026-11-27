@@ -878,10 +878,17 @@ def work_machine(j):
 # phases' ms and providerTimingsMs's {fixed word: ms}; the VM's id and the mesh's id are dropped. Without it a
 # snapshot boot that stalled at the provider read as no line at all (cmux-platform live-fork create_overdue,
 # cmuxterm-hq run 45883744191: 3076 cmux-vm events scanned, the copy's create invisible).
-VM_EVENTS = frozenset({"vm_create"})
+#
+# The provider create queue (workers/cmux-vm src/limits/create-admission.ts, cmux#61073) adds its wait and the queue it
+# met (admitWaitMs, admitQueueMs, admitInFlight, admitQueued), and on a refusal its fixed reason and estimated wait;
+# vm_create_admission_unavailable is the line of a create sent without the queue because the queue could not be
+# reached. Without them a staging burst after the deploy could not say whether the queue held creates back at all.
+VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
-               "providerTotalMs", "totalMs")
+               "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
+               "admitQueued")
 VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
 
 
 def vm_event(j):
@@ -897,6 +904,8 @@ def vm_event(j):
     variant = j.get("imageVariant")
     if variant in ("large", "base", "unlisted"):
         out["imageVariant"] = variant
+    if j.get("admission") in VM_ADMISSION_REASONS:
+        out["admission"] = j["admission"]
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings

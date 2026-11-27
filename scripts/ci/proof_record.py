@@ -30,6 +30,8 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Iterable
 
@@ -154,6 +156,29 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
     return out
 
 
+def read_error(error: Exception) -> str:
+    """Log only diagnostic metadata: never response bodies, URL credentials or query strings."""
+    kind = type(error).__name__
+    details = {"error": kind}
+    if isinstance(error, urllib.error.HTTPError):
+        details["status"] = error.code
+        kind += f" {error.code}"
+        path = urllib.parse.urlsplit(error.url).path
+        if re.fullmatch(r"/repos/[\w.-]+/[\w.-]+/(?:pulls/\d+|issues/\d+/comments)", path):
+            details["endpoint"] = path
+        headers = error.headers or {}
+        for header, field, pattern in (
+                ("X-GitHub-Request-Id", "request_id", r"[A-Za-z0-9:-]{1,128}"),
+                ("X-RateLimit-Remaining", "rate_remaining", r"\d{1,20}"),
+                ("X-RateLimit-Reset", "rate_reset", r"\d{1,20}"),
+                ("Retry-After", "retry_after", r"\d{1,20}")):
+            value = headers.get(header, "")
+            if re.fullmatch(pattern, value):
+                details[field] = value
+    print(json.dumps(details, sort_keys=True), file=sys.stderr)
+    return kind
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -178,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         record = find(pr_comments(repo, pr, token), a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
-        print(f"error\tproof record not read ({type(e).__name__}): rerun this job")
+        print(f"error\tproof record not read ({read_error(e)}): see job log")
         return 0
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")

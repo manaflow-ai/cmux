@@ -5197,6 +5197,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
   // --wake-echo N: right after the machine runs, N platform pause/wake cycles timed to the first echo of a typed
   // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
+  const cleanupCreatedIdsOnly = argv.includes("--cleanup-created-ids-only");
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
@@ -5425,7 +5426,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (deleted) return;
     let id = machine;
-    if (!id) {
+    if (!id && !cleanupCreatedIdsOnly) {
       // Every page: the machine may sit past the first (a shared account's list).
       const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
@@ -5505,7 +5506,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Installs that killed runs left live fill the account's state until install.register is refused
       // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
       const name = "sweep leaked journey installs";
@@ -5644,7 +5645,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
       // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
       const name = "sweep leaked journey machines";
@@ -5846,8 +5847,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
           },
-          wake: () => startWithRetry(
-            (key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000),
+          wake: (recordAttempt) => startWithRetry(
+            async (key) => {
+              const sent = Date.now();
+              const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000);
+              const answered = Date.now();
+              const timing = parseServerTiming(r.headers?.get("server-timing"));
+              const metrics = Object.fromEntries(Object.entries(timing ?? {}).filter(([name, ms]) =>
+                ["provider", "vmapi", "bind", "pre", "finish", "total"].includes(name) && Number.isFinite(ms)));
+              recordAttempt?.({ sent_at_ms: sent, answered_at_ms: answered, http_status: r.status,
+                machine_status: r.body?.value?.machine?.status ?? null, timing_ms: metrics });
+              return r;
+            },
             () => `${tag}-we-start-${k++}`,
             async () => String((await row())?.status ?? "unread"),
             180_000,
