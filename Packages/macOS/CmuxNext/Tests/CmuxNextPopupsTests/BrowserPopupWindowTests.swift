@@ -247,6 +247,20 @@ import Testing
         #expect(!window.addressBar.isEditing)
     }
 
+    /// AppKit put a new popup's keyboard in its omnibar (address selected, focus ring) when the page view
+    /// declined first responder (Lawrence 2026-11-27); the first key turn ends that edit.
+    @Test func aNewPopupBecomingKeyLeavesTheOmnibarUnfocused() {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        window.addressBar.focus()
+        #expect(window.addressBar.isEditing)
+        window.becomeKey()
+        #expect(!window.addressBar.isEditing, "a new popup shows no omnibar focus ring")
+        window.focusAddressBar()
+        window.becomeKey()
+        #expect(window.addressBar.isEditing, "Cmd-L afterwards still focuses the omnibar")
+    }
+
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
         let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)
