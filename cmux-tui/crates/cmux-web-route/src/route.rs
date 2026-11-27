@@ -126,8 +126,9 @@ pub fn parse(address: &str) -> Result<Route, RouteError> {
         return parse_path(address);
     }
     if let Some(rest) = address.strip_prefix("https://") {
-        let host_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-        return match &rest[..host_end] {
+        // The host is everything before the first path, query or fragment mark.
+        let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        return match host {
             "cmux.com" | "www.cmux.com" => agent(agent_link::find(address)),
             _ => Err(RouteError::NotARoute),
         };
