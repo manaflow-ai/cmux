@@ -404,7 +404,11 @@ test("motionMode asks one reduced-motion query per window, and a new matchMedia 
   const win = new JSDOM("<!doctype html>").window as unknown as Window & typeof globalThis;
   let built = 0;
   let reduced = false;
-  const query = { get matches() { return reduced; } };
+  const query = {
+    get matches() {
+      return reduced;
+    },
+  };
   win.matchMedia = (() => ((built += 1), query)) as never;
   expect(motionMode(win.document)).toBe("full");
   // The first call also builds the token cache's change listener (motionTokens.ts), once.

@@ -371,11 +371,20 @@ test("a row the intersection observer saw wholly in view costs no box read per t
   class FakeIntersection {
     watched = new Set<Element>();
     constructor(private readonly callback: (entries: Array<Partial<IntersectionObserverEntry>>) => void) {
-      observers.push({ fire: (target, ratio) => this.callback([{ target, isIntersecting: ratio > 0, intersectionRatio: ratio }]), watched: this.watched });
+      observers.push({
+        fire: (target, ratio) => this.callback([{ target, isIntersecting: ratio > 0, intersectionRatio: ratio }]),
+        watched: this.watched,
+      });
     }
-    observe(target: Element) { this.watched.add(target); }
-    unobserve(target: Element) { this.watched.delete(target); }
-    disconnect() { this.watched.clear(); }
+    observe(target: Element) {
+      this.watched.add(target);
+    }
+    unobserve(target: Element) {
+      this.watched.delete(target);
+    }
+    disconnect() {
+      this.watched.clear();
+    }
   }
   (sheet.window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = FakeIntersection;
   const live = sheet.add(sheet.scroller, "acpmux-row", { top: 100, height: 60 });
@@ -392,7 +401,8 @@ test("a row the intersection observer saw wholly in view costs no box read per t
     expect(io?.watched.has(live)).toBe(true);
     io!.fire(live, 1);
     // A streamed token: a word appended in the live row, whose fade plays.
-    for (let token = 0; token < 5; token += 1) sheet.plays(sheet.add(live, "acpmux-word", { top: 120, height: 20 }), sheet.fade());
+    for (let token = 0; token < 5; token += 1)
+      sheet.plays(sheet.add(live, "acpmux-word", { top: 120, height: 20 }), sheet.fade());
     await sheet.flush();
     expect(reads).toBe(0);
     // The row grows past the view's edge: the observer says so and the box reads return.

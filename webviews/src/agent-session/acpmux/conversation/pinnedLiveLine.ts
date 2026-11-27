@@ -278,8 +278,7 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     return undefined;
   }
   // The line the pin holds is still the thread's live row: no query for it. O(1).
-  const still =
-    pin && was?.live.parentElement === thread && was.live.dataset.rowId === LIVE_THINKING ? was.live : null;
+  const still = pin && was?.live.parentElement === thread && was.live.dataset.rowId === LIVE_THINKING ? was.live : null;
   const found =
     still ?? (pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null);
   // A line that plays a translate of its own (a send's rise, a carry home) finishes it first: taken
