@@ -1720,6 +1720,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate workflow routing and iOS guard fixtures
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          status=0
+          python3 tests/test_ci_post_merge_call_concurrency.py || status=1
+          python3 tests/test_ci_pr_router_handoff_queue.py || status=1
+          python3 tests/test_ios_internal_archive_mirror_fetch.py || status=1
+          python3 tests/test_iphone_clips_priority.py || status=1
+          python3 tests/test_whats_new_gallery_triggers.py || status=1
+          exit "$status"
+
       - name: Validate workflow apt installs survive a mirror that is mid-sync
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         # "E: Failed to fetch ... File has unexpected size ... Mirror sync in progress?" was 10 false reds in 24 h
