@@ -558,7 +558,10 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn(".head.ref] | @tsv", body)
         self.assertIn("headRefName", body)
         self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
-        self.assertIn('repos/$GITHUB_REPOSITORY/git/commits/$head" --jq .tree.sha', body)
+        # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
+        self.assertNotIn("git/commits/$head", body)
+        self.assertIn('head_tree="$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=1 --filter=tree:0", body)
         self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
         self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
         verify = step_named(steps, "Verify the local test receipt")
