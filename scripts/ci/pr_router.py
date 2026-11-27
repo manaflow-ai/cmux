@@ -121,6 +121,9 @@ def full_ci_kept(event: dict) -> bool:
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
+# Reusable workflows called reactively by a routed callee are intentionally absent from the PR route manifest.
+# Keep this allowlist exact: any other unmanifested caller is a routing coverage bug.
+REACTIVE_CALLERS = {"head-fail-fast.yml": frozenset({"pipeline-fail-fast"})}
 
 
 def load_manifest(path: Path = MANIFEST) -> dict:
@@ -526,8 +529,8 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
             else:
                 if unknown:
                     problems.append(f"{name}: table_jobs {unknown} are not jobs of ci/steps.toml")
-    for name in jobs:
-        if name not in callees:
+    for name, caller in jobs.items():
+        if name not in callees and caller not in REACTIVE_CALLERS.get(name, ()):
             problems.append(f"{name}: pr-router.yml calls it but pr_router.json does not route it")
     for name in callees:
         path = workflows / name
