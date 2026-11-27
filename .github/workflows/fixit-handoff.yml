@@ -34,8 +34,8 @@ concurrency:
 
 jobs:
   find:
-    if: ${{ vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    if: ${{ (vars.FIXIT_HANDOFF || '1') != '0' && github.ref_name == 'feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # About 15 type checks at most (a bisect over up to 64 commits, the tip, the revert), each an install and a check.
     timeout-minutes: 45
     permissions:
@@ -79,8 +79,8 @@ jobs:
 
   land:
     needs: find
-    if: ${{ vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && needs.find.outputs.culprit != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    if: ${{ (vars.FIXIT_HANDOFF || '1') != '0' && github.ref_name == 'feat-cmux-next' && needs.find.outputs.culprit != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     environment: ci-routing-agent
     permissions:
