@@ -18,8 +18,10 @@ pub(super) fn tool() -> Value {
             "properties": {
                 "items": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "object", "properties": {
                     "name": {"type": "string"}, "path": {"type": "string"}
+                // skew: strict model-facing tool schema, advertised with this tool; not a peer wire decoder.
                 }, "required": ["name", "path"], "additionalProperties": false}}
             },
+            // skew: strict model-facing tool schema; call() reads named fields and ignores other object keys.
             "required": ["items"], "additionalProperties": false
         }
     })
