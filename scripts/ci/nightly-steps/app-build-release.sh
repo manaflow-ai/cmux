@@ -150,10 +150,14 @@ if ! spm_artifact_preflight 2>&1 | tee "$spm_preflight_log" >&2; then
   spm_artifact_preflight >&2
 fi
 rm -f "$spm_preflight_log"
+# run_release_build 0: the fleet cache; 1: Xcode's local cache; 2: no compilation cache at all.
 run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()
-  if [[ "$disable_fleet_cache" != 1 ]]; then
+  local caching=YES
+  if [[ "$disable_fleet_cache" == 2 ]]; then
+    caching=NO
+  elif [[ "$disable_fleet_cache" != 1 ]]; then
     settings=("${fleet_cache_settings[@]}")
   else
     settings=("${local_cache_settings[@]}")
@@ -170,7 +174,7 @@ run_release_build() (
     -showBuildTimingSummary \
     ARCHS="$archs" \
     ONLY_ACTIVE_ARCH="$only_active" \
-    COMPILATION_CACHE_ENABLE_CACHING=YES \
+    COMPILATION_CACHE_ENABLE_CACHING="$caching" \
     COMPILATION_CACHE_LIMIT_SIZE="$cas_limit_bytes" \
     ${settings[@]+"${settings[@]}"} \
     COMPILER_INDEX_STORE_ENABLE=NO \
@@ -213,6 +217,7 @@ run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
 release_status=${PIPESTATUS[0]}
 set -e
 release_retry=""
+retry_mode=1
 # Status 124: run-xcodebuild-with-diagnostics.sh ended a build that had stopped. In run 43673773157 the build
 # service deadlocked and held the nightly-next slot for hours. A new build service gets one more try.
 if [[ "$release_status" -eq 124 ]]; then
@@ -221,12 +226,23 @@ elif [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
   release_retry="the Release build failed on the managed fleet compilation cache"
 elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   release_retry="the compilation cache failed"
+# Xcode's build service crashed ("Build again to continue"; run 46020152626): a compile error never
+# prints that line, so the retry is one more build with a new build service, not a masked red.
+elif [[ "$release_status" -ne 0 ]] && cmux_next_build_service_crashed "$RUNNER_TEMP/nightly-release-build.log"; then
+  release_retry="Xcode's build service crashed"
+fi
+# Xcode 27.2's build service crashes replaying a cached compile's diagnostics (swiftscan_cache_replay_compilation >
+# replayCachedDiagnostics > bad_optional_access), on the local cache as on the fleet one: nightly-next runs
+# 46024218260, 46026219141 and 46033303025, the last after its local CAS was emptied. A cached retry replays the
+# same entries, so a crashed build service's retry, whichever cache the first build used, builds without one.
+if [[ -n "$release_retry" ]] && cmux_next_build_service_crashed "$RUNNER_TEMP/nightly-release-build.log"; then
+  retry_mode=2
 fi
 if [[ -n "$release_retry" ]]; then
-  echo "::warning::$release_retry (status $release_status); retrying the Release build once with the local cache"
+  echo "::warning::$release_retry (status $release_status); retrying the Release build once $([[ $retry_mode == 2 ]] && echo 'without the compilation cache' || echo 'with the local cache')"
   # The one retry. Its failure ends the step red; there is no third build.
   set +e
-  run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
+  run_release_build "$retry_mode" 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
   retry_status=${PIPESTATUS[0]}
   set -e
   if [[ "$retry_status" -eq 124 ]]; then

@@ -38,8 +38,8 @@ pub struct LinkTimings {
     pub rtt_adaptive: bool,
     /// `ACPMUX_PEER_REPLACE_SECS`: a silent link dials its replacement (while it still reads)
     /// after this much silence, when that is under the silence budget. Off (`None`) by
-    /// default: the replacement dials when the budget runs out. The link is still dropped at
-    /// twice the budget, as without it.
+    /// default: the replacement dials when the budget runs out. The link is still dropped when
+    /// a probe's wait past the budget passes with no replacement open (`dial_replacement!`).
     pub replace_after: Option<Duration>,
     /// The link is dropped when one send cannot go out for this long (a peer that stops
     /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
