@@ -61,7 +61,7 @@ LEGACY = {
     ".github/workflows/gateway-e2e.yml": 1,
     ".github/workflows/internal-token-staging.yml": 1,
     ".github/workflows/ios-link-ffi-linux.yml": 1,
-    ".github/workflows/machine-join-e2e.yml": 1,
+    ".github/workflows/machine-vault-e2e.yml": 1,
     ".github/workflows/migrate-journey-pr.yml": 1,
     ".github/workflows/nightly.yml": 1,
     ".github/workflows/pool-build-path.yml": 1,
