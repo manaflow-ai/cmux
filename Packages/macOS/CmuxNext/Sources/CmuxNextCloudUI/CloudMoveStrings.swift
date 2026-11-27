@@ -8,6 +8,10 @@ public struct CloudMoveStrings {
     public static var moving: String {
         String(localized: "cloud.move.moving", defaultValue: "Moving this chat to Cloud…", table: "Cloud", bundle: .localizedModule)
     }
+    /// A moving chat's sidebar row before the move's first step line (``ChatMoves``).
+    public static var movingRow: String {
+        String(localized: "cloud.move.movingRow", defaultValue: "Moving…", table: "Cloud", bundle: .localizedModule)
+    }
     public static func moved(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.moved", defaultValue: "This chat now runs on %@.", table: "Cloud", bundle: .localizedModule), machine)
     }
@@ -22,6 +26,13 @@ public struct CloudMoveStrings {
         default: String(localized: "cloud.move.vmCouldNotStart", defaultValue: "Its Cloud VM could not start.", table: "Cloud", bundle: .localizedModule)
         }
     }
+    /// The palette's place and Evacuate actions while Settings > Experiments' Cloud Toggle (`experiments.cloudToggle`) is off.
+    public static var placeExperimentOff: String {
+        String(localized: "cloud.place.experimentOff", defaultValue: "Turn on Cloud Toggle in Settings > Experiments first.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// Why the palette's place and Evacuate actions are refused while Settings > Experiments' Cloud Toggle
+    /// (`experiments.cloudToggle`, default off) is off, as the page's controls are hidden; nil while it is on.
+    public static func placeOff(_ switches: [String: Bool]?) -> String? { switches?["cloudToggle"] == true ? nil : placeExperimentOff }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
     /// An agent's or a socket's run of a chat place action (Local, Cloud, Auto, Evacuate, Bring Back All, Cancel, Retry).
     public static var placeIsPersons: String {
@@ -141,6 +152,7 @@ public struct CloudMoveStrings {
     /// any other one a ``CloudMoveFailure``.
     public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
+            if answer.0.errorCode == "environment_mismatch" { throw CloudStartSessionStrings.environmentMismatch }
             if let code = answer.0.errorCode, CloudSizeLocked.isCode(code) { throw CloudSizeLocked(details: answer.0.sizeLocked) }
             if let tooSmall = CloudSeedRefusal.planRefusal(answer.0) { throw tooSmall } // the folder is more than its machine has room for
             throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""), sendAgain: answer.0.retryable)
@@ -154,6 +166,12 @@ public struct CloudMoveStrings {
     public static func loginFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.loginFailed", defaultValue: "The chat stays here: your agent login for %1$@ couldn't be read: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)
+    }
+    /// The move can read the chosen connection, but cannot carry it to the machine.
+    package static var loginUnsupported: String {
+        String(localized: "cloud.move.loginUnsupported",
+               defaultValue: "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again.",
+               table: "Cloud", bundle: .localizedModule)
     }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -63,7 +64,10 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
 
     def test_the_mac_job_regenerates_the_settings_exports_into_the_artifact(self):
         regenerate = step(PR, "action-exports", "Regenerate the settings exports")
-        self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
+        # A skipped Linux job or its explicit fallback needs a Mac; an ordinary failure does not.
+        self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true' && "
+                                           "(needs.settings-exports-linux.result == 'skipped' || "
+                                           "needs.settings-exports-linux.outputs.fallback == 'true')")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
         work = Path(tempfile.mkdtemp())
         temp = work / "runner-temp"
@@ -87,7 +91,9 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("needs.action-areas.outputs.settings", env["SETTINGS"])
         # A pack from the same merge commit's cmux-next generated-files job counts as verified exports too
         # (tests/test_base_autofix_pushed_exports.py PrAutofixTakesTheGeneratedFilesPack).
-        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.generated-exports.outputs.hit == 'true' && 'true' || "
+        # So does the Linux settings exports job's own verdict.
+        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ (needs.generated-exports.outputs.hit == 'true' || "
+                                                   "needs.settings-exports-linux.outputs.verified == 'true') && 'true' || "
                                                    "needs.action-exports.outputs.settings-verified }}")
 
 
@@ -324,7 +330,8 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         repo, bin_dir = work / "repo", work / "bin"
         for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh",
                     "scripts/cmux-next/lib/warm-swiftpm.sh", "scripts/ci/swift-test-debug-info.sh",
-                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/cmux-next/settings-exports.txt"):
+                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/ci/github-egress-direct.sh",
+                    "scripts/cmux-next/settings-exports.txt"):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_bytes((ROOT / rel).read_bytes())
             (repo / rel).chmod(0o755)
@@ -347,13 +354,19 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         # This fixture supplies a fake Swift compiler, not a Mac toolchain.
         (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
         (bin_dir / "uname").chmod(0o755)
-        # swift test writes the exports from the package directory, as the export tests do.
+        # swift build builds the CmuxNextSettingsExport tool, which writes the exports under the root it is given
+        # (#56009: a small export tool, not the whole test bundle).
+        swift_bin = work / "swift-bin"
+        swift_bin.mkdir()
+        (swift_bin / "CmuxNextSettingsExport").write_text(
+            "#!/usr/bin/env bash\n"
+            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
+            + '; do echo new > "$1/$f"; done\n')
+        (swift_bin / "CmuxNextSettingsExport").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
-            'if [[ " $* " == *" --show-bin-path "* ]]; then echo /nonexistent; exit 0; fi\n'
-            '[[ "$1" == test ]] || exit 0\n'
-            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
-            + '; do echo new > "../../../$f"; done\n')
+            f'if [[ " $* " == *" --show-bin-path "* ]]; then echo {shlex.quote(str(swift_bin))}; fi\n'
+            "exit 0\n")
         (bin_dir / "bun").write_text(
             '#!/usr/bin/env bash\necho "$*" > "$(git rev-parse --show-toplevel)/../bun-args"\n'
             "echo new > web/data/next-docs/settings-reference.generated.json\n")

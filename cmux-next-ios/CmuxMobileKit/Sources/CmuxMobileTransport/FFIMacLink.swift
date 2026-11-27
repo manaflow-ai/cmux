@@ -138,6 +138,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     var connectedPath: LinkPathKind? { handle.path().kind }
 
+    var ffiLinkHandle: AnyObject? { handle }
+
     var peerScope: String { handle.peerScope() }
 
     var tunnelKeys: TunnelKeys? {
@@ -313,6 +315,14 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
 
     func send(_ data: Data) async throws {
         do { try await handle.send(data: data) } catch let error as CmuxMobileError { throw error.linkError }
+    }
+
+    func observedWrite(_ data: Data) -> LinkWrite {
+        let watch = ChannelWriteWatch()
+        return LinkWrite(send: { [handle] in
+            do { try await handle.sendObserved(data: data, watch: watch) }
+            catch let error as CmuxMobileError { throw error.linkError }
+        }, takeProgress: { watch.takeProgress() }, cancel: { watch.cancel() })
     }
 
     func receive() async throws -> Data? {

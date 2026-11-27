@@ -26,7 +26,7 @@
 //! memory only, so a restart's first repeat pages again).
 
 use super::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How long a program's repeated text stays folded after it was last seen.
 pub(super) const FOLD_MS: u64 = 6 * 60 * 60 * 1000;
@@ -86,19 +86,32 @@ impl Folds {
     }
 }
 
-/// Whether chat `name` is on the coordinator list.
-pub(in crate::hub) fn listed(cfg: &crate::config::Config, name: &str) -> bool {
-    let name = name.trim();
-    let Some(rule) = cfg.page_rule.as_ref() else { return false };
-    !name.is_empty()
-        && rule
-            .sessions
-            .iter()
-            .map(|s| s.trim())
-            .any(|s| s == name || s.rsplit_once('/').is_some_and(|(_, session)| session == name))
+/// Both forms accepted by the config: an entry by itself and the session part of HOST/NAME.
+pub(in crate::hub) fn session_names(
+    rule: Option<&crate::config::PageRuleConfig>,
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Some(rule) = rule {
+        for entry in &rule.sessions {
+            let entry = entry.trim();
+            if !entry.is_empty() {
+                names.insert(entry.to_owned());
+            }
+            if let Some((_, name)) = entry.rsplit_once('/')
+                && !name.is_empty()
+            {
+                names.insert(name.to_owned());
+            }
+        }
+    }
+    names
 }
 
 impl Hub {
+    pub(in crate::hub) fn page_rule_lists(&self, name: &str) -> bool {
+        self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(name.trim())
+    }
+
     /// Leaves a background task's end that went well (`bg_notify.rs`) in the inbox of chat
     /// `session`, held as the page rule holds a result: it wakes no one, goes with the next
     /// notice, and the flush brings it by itself in time. RFD 0041 card rc-b18ea2ea: a
@@ -148,7 +161,9 @@ impl Hub {
                     report: false,
                     waited: false,
                     at: now_ms(),
-                    within: None,
+                    // A plain chat's own exit-0 end waits a short while (`bg_notify.rs`
+                    // `OWN_END_HOLD_MS`); a coordinator's its class's deadline.
+                    within: crate::prompt_provenance::within(Some(provenance)),
                     text: text.to_owned(),
                     details: None,
                     fire: false,

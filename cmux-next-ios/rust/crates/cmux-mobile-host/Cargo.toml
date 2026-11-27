@@ -36,6 +36,7 @@ cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
 # The `tabs` service's frames, producer and sessions (src/tab_snapshots.rs).
 cmux-tab-snapshots.workspace = true
+cmux-phone-page.workspace = true
 # Viewport state sync (src/viewport_sync.rs): the host's screen model and its diffs, and the
 # overlay datagram port they go on.
 cmux-terminal-projection.workspace = true

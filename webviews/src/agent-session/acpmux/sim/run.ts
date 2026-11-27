@@ -15,12 +15,12 @@ import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
 import {
+  MARK_STEP,
   ROW_GAP_LOOKS,
   TRANSCRIPT_BLOCK_GAP,
-  TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
-  MARK_STEP,
   transcriptGap,
+  TRANSCRIPT_RUN_GAP,
 } from "../transcriptGrid";
 import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
 import { SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -243,13 +243,14 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         ended = false;
       }
       if ((event.kind === "turn_end" || event.kind === "turn_result") && !turnEnds.has(turn)) turnEnds.set(turn, event);
-      if (event.kind === "turn_result") ended = true;
+      if (event.kind === "turn_result" || endsTurn(event)) ended = true;
     }
   }
   const first = scenario.steps[0]?.at ?? 0;
   let turn = 0;
   let turnEnded = true;
   let throughSeq = -Infinity;
+  const agentSent = new Set<number>();
   const settledForFolding = (own: number) =>
     own < turn || turnEnded || throughSeq >= (turnEnds.get(own)?.seq ?? Infinity);
   // Session replay never reports working (workingNow() is false while replayThrough is set), so the
@@ -301,7 +302,11 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         turnEnded = false;
       }
-      if (event?.kind === "turn_result") turnEnded = true;
+      if (event?.kind === "turn_result" || (event && endsTurn(event))) turnEnded = true;
+      // The agent sent the running turn something of its own (a thought, a call, a message): a turn
+      // that ends showing none of it lost its work (d-action-only). One it sent nothing draws its
+      // prompt and footer only, as map.ts's empty-turn case expects.
+      if (event?.dir === "in" && !turnEnded) agentSent.add(turn);
       const messageId = event?.kind === "agent_message_chunk" ? event.msg?.params?.update?.messageId : undefined;
       if (typeof messageId === "string") turnMessages.add(messageId);
       const status = event?.kind === "status" ? event.msg?.status : undefined;
@@ -653,7 +658,11 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     // A turn that ended draws more than its prompt and its action row.
     if (step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result") {
       const own = rows.filter((row) => ownTurn(row) === turn);
-      if (own.length > 0 && own.every((row) => row.kind === "user" || row.kind === "turnSummary"))
+      if (
+        agentSent.has(turn) &&
+        own.length > 0 &&
+        own.every((row) => row.kind === "user" || row.kind === "turnSummary")
+      )
         flag("d-action-only", own.at(-1)!.id, `turn ${turn} ended with only its prompt and action row`);
     }
 
@@ -854,6 +863,13 @@ export async function runSimulationAsync(
     if (rows) sim.check(index, await measure(rows, scenario.steps[index]!, index, sim.state()));
   }
   return sim.result();
+}
+
+/// acpmux's `turn_end` of a named turn: the pane draws the turn's end there, as its `turn_result` (logged a moment
+/// later, with the turn's git stats) will (direct.ts `endTurnId`), so the turn has ended for the reader. Rule b
+/// counts from it: a fold the end draws is the turn's end fold, not one before it.
+function endsTurn(event: EventRecord): boolean {
+  return event.kind === "turn_end" && typeof event.msg?.turnId === "string" && event.msg.turnId !== "";
 }
 
 /// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.
