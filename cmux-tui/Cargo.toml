@@ -470,6 +470,7 @@ cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
+cmux-cas = { path = "crates/cmux-cas" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
@@ -540,6 +541,7 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-sync = { path = "crates/cmux-sync" }
+cmux-team-messaging = { path = "crates/cmux-team-messaging" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-share-approval = { path = "crates/cmux-share-approval" }
 cmux-history = { path = "crates/cmux-history" }
@@ -627,6 +629,7 @@ ip_network = "0.4"
 # any bottleneck; CUBIC is the controller cmux-wg selects.
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "socket-tcp-bbr", "async"] }
 png = "0.17"
+jpeg-encoder = "0.6"
 libc = "0.2"
 # One poller for every idle terminal-host link (cmux-tui-core surface/idle_links.rs); tokio
 # already links mio with these features.
