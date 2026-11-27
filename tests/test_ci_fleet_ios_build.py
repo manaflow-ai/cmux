@@ -55,15 +55,19 @@ class Resp(io.BytesIO):
 class Route:
     """A fake route: answers are consumed in order per op; a download URL serves `archive`."""
 
-    def __init__(self, submit, statuses, archive=b""):
+    def __init__(self, submit, statuses, archive=b"", bearer="tok"):
         self.submit, self.statuses, self.archive = submit, list(statuses), archive
-        self.bodies = []
+        self.bodies, self.bearer = [], bearer
 
     def __call__(self, req, timeout=None):
         if req.full_url == "https://store.example/out.tgz":
             return Resp(self.archive)
         assert req.full_url == fib.ROUTE, req.full_url
-        assert req.get_header("Authorization") == "Bearer tok"
+        if req.get_header("Authorization") != f"Bearer {self.bearer}":
+            self.bodies.append("refused")
+            raise urllib.error.HTTPError(fib.ROUTE, 401, "x", {}, io.BytesIO(b"token refused: expired"))
+        # urllib's default agent gets HTTP 403 "error code: 1010" from the CDN (run 45898219170).
+        assert req.get_header("User-agent") == fib.USER_AGENT, req.get_header("User-agent")
         body = json.loads(req.data)
         self.bodies.append(body)
         ans = self.submit if body["op"] == "submit" else self.statuses.pop(0)
@@ -153,6 +157,30 @@ class FleetIOSBuild(unittest.TestCase):
                       tgz(FFI, extra=link))
         self.assertEqual(run(route, self.out), 2)
         self.assertFalse((self.out / "evil").exists())
+
+    def test_expired_token_is_minted_again(self):
+        # A job's OIDC token lives ~5 min; the poll got 401 "expired" at 344 s in run 45915442830.
+        route = Route({"job": "j1", "state": "queued"}, [{"state": "running"}, {"verdict": "fail", "reason": "x"}])
+        tokens = iter(["tok", "tok2"])
+        clock = Clock()
+
+        def sleep(s):
+            clock.sleep(s)
+            route.bearer = "tok2"  # past the first poll the first token has expired
+
+        rc = fib.run("ffi", self.out, 1500, 600, lambda: next(tokens), opener=route, clock=clock, sleep=sleep)
+        self.assertEqual(rc, 1)
+        self.assertEqual([b if b == "refused" else b["op"] for b in route.bodies],
+                         ["submit", "status", "refused", "status"])
+
+    def test_expired_token_without_a_minter_is_2(self):
+        route = Route({"job": "j1", "state": "queued"}, [{"state": "running"}], bearer="other")
+        self.assertEqual(run(route, self.out), 2)
+
+    def test_no_token_is_2(self):
+        clock = Clock()
+        self.assertEqual(fib.run("ffi", self.out, 1500, 600, lambda: None, opener=Route({}, []), clock=clock,
+                                 sleep=clock.sleep), 2)
 
     def test_no_token_without_id_token_permission(self):
         self.assertIsNone(fib.oidc_token(env={}))
