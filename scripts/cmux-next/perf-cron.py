@@ -2445,22 +2445,58 @@ def gh_shape(path):
     return re.sub(r"/[0-9a-f]{40}(\.\.\.[0-9a-f]{40})?|/\d+", "/N", path.split("?")[0].replace("https://api.github.com", ""))
 
 
+# The tokens a call may spend, in order: GH_TOKEN (the cmux-bot App's, its own call hour, when the workflow minted
+# one) and GH_TOKEN_FALLBACK (the repo's github.token, whose hour every workflow shares). A rate-limit refusal moves
+# this process to the next token for the rest of its calls; only the last one's refusal is RateLimited. On
+# 2026-11-27 every tick 12:20Z-14:51Z read no state because github.token's shared hour was spent.
+_TOKEN_AT = 0
+
+
+def gh_tokens():
+    tokens = []
+    for name in ("GH_TOKEN", "GH_TOKEN_FALLBACK"):
+        value = os.environ.get(name, "")
+        if value and value not in tokens:
+            tokens.append(value)
+    return tokens
+
+
+def gh_token():
+    tokens = gh_tokens()
+    if not tokens:
+        raise KeyError("GH_TOKEN")
+    return tokens[min(_TOKEN_AT, len(tokens) - 1)]
+
+
+def spend_next_token():
+    """The current token was refused for the limit: True when another is left (the call tries it)."""
+    global _TOKEN_AT
+    if _TOKEN_AT + 1 >= len(gh_tokens()):
+        return False
+    _TOKEN_AT += 1
+    print(f"perf-cron: token {_TOKEN_AT} of {len(gh_tokens())} refused for the rate limit; trying the next")
+    return True
+
+
 def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     url = path if path.startswith("http") else f"{api}{path}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
-    GH_CALLS[f"{method} {gh_shape(path)}"] += 1
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            payload = r.read()
-    except urllib.error.HTTPError as error:
-        if rate_limited(error):
-            raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
-        raise
-    return payload if raw else (json.loads(payload) if payload else {})
+    while True:
+        req = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": f"Bearer {gh_token()}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
+        GH_CALLS[f"{method} {gh_shape(path)}"] += 1
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                payload = r.read()
+        except urllib.error.HTTPError as error:
+            if rate_limited(error):
+                if spend_next_token():
+                    continue
+                raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
+            raise
+        return payload if raw else (json.loads(payload) if payload else {})
 
 
 def print_calls(cmd):
@@ -2561,18 +2597,22 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def download_redirected(url, timeout=120):
     """An artifact archive: GitHub answers 302 to a signed storage URL, which refuses the GitHub token, so the
     redirect is followed without it."""
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                                               "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
-    GH_CALLS[f"GET {gh_shape(url)}"] += 1
-    try:
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
-            return r.read()
-    except urllib.error.HTTPError as error:
-        if rate_limited(error):
-            raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
-        if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
-            raise
-        location = error.headers["Location"]
+    while True:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {gh_token()}",
+                                                   "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
+        GH_CALLS[f"GET {gh_shape(url)}"] += 1
+        try:
+            with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as error:
+            if rate_limited(error):
+                if spend_next_token():
+                    continue
+                raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
+            if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
+                raise
+            location = error.headers["Location"]
+            break
     with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": "cmux-perf-cron"}), timeout=timeout) as r:
         return r.read()
 

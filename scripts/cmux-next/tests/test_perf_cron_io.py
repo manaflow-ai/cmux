@@ -361,7 +361,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         _Handler.seen.append((self.path, self.headers.get("Authorization")))
-        if self.path == "/artifact":
+        if self.path in ("/limited", "/limited-api") and self.headers.get("Authorization") != "Bearer shared":
+            # The App's hour is spent: only the shared token gets an answer.
+            self.send_response(403)
+            self.send_header("x-ratelimit-remaining", "0")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == "/limited-api":
+            body = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path in ("/artifact", "/limited"):
             self.send_response(302)
             self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/storage")
             self.end_headers()
@@ -392,6 +406,24 @@ class FetchStateTests(unittest.TestCase):
             blob = cron.download_redirected(self.base + "/artifact")
         self.assertTrue(blob.startswith(b"PK"))
         self.assertEqual(_Handler.seen, [("/artifact", "Bearer secret"), ("/storage", None)])
+
+    def test_a_spent_app_hour_falls_back_to_the_shared_token(self):
+        # 2026-11-27 12:20Z-14:51Z: github.token's shared hour was spent and every tick read no state. The App token
+        # goes first; its refusal for the limit moves the process to GH_TOKEN_FALLBACK instead of giving up.
+        env = {"GH_TOKEN": "app", "GH_TOKEN_FALLBACK": "shared"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(cron, "_TOKEN_AT", 0), mock.patch("sys.stdout", io.StringIO()):
+            blob = cron.download_redirected(self.base + "/limited")
+            self.assertEqual(cron.gh_request(self.base + "/limited-api"), {"ok": True})
+        self.assertTrue(blob.startswith(b"PK"))
+        # The second call goes straight to the shared token: the spent App hour is not asked again.
+        self.assertEqual(_Handler.seen, [("/limited", "Bearer app"), ("/limited", "Bearer shared"), ("/storage", None),
+                                         ("/limited-api", "Bearer shared")])
+
+    def test_the_last_token_refused_is_rate_limited(self):
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_TOKEN_FALLBACK": "app"}), \
+                mock.patch.object(cron, "_TOKEN_AT", 0), self.assertRaises(cron.RateLimited):
+            cron.gh_request(self.base + "/limited-api")
+        self.assertEqual(_Handler.seen, [("/limited-api", "Bearer app")])
 
     def test_forged_artifacts_on_page_one_do_not_hide_the_trusted_state(self):
         repo_id = 42
