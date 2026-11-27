@@ -84,3 +84,4 @@ server.rs is 3,870 lines (27,370 at the base). What stays and why:
 - The connection entry (`handle_connection_frame`, `handle_request_with_cancellation`), vt-state responses, auth helpers, and small shared helpers (`optional_surface_size`, `get_surface`, `require_pty`, `terminal_colors_json`).
 - About 60 one-line arms that already delegate to their family modules (conversations, cloud, bookmarks, browser profiles, URL open, clipboard).
 Next candidates: the shared response/request helper types to `server/wire.rs`, and the checker change that lets the dispatch arms use the compact shape.
+- 2026-11-27 (RFD 0174 server cycle step 2): tree/pane/screen JSON views (server/tree_json.rs, screen_json.rs, home.rs, raw_tab.rs, node_json, floating and group JSON) -> crate::tree_wire, below `server`, so `mux` publishes tree deltas without the server. Gate: spec inventory (now also reads `tree_wire`) + its contract tests.
