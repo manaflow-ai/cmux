@@ -4,8 +4,8 @@
 // acpmux logs each retry as `turn_retrying` (hub/turn_retry.rs), and the live line says, in one
 // short line that stays the same from one retry to the next, that the model API is unavailable;
 // what failed, the count and the harness's error are its tooltip (Thinking.tsx `retryParts`; Leo,
-// 2026-11-26, on "Can't reach ... · retrying (1 of 14) · retrying now · 502 ser...": "this is
-// really really bad"). A retry that goes through within the shared bound draws nothing. It keeps
+// 2026-11-26, flagged "Can't reach ... · retrying (1 of 14) · retrying now · 502 ser..." as very
+// bad). A retry that goes through within the shared bound draws nothing. It keeps
 // the line's box, so nothing moves when it starts or ends. A retry that runs out ends the turn
 // failed, on the error card with Retry (TurnRows.tsx).
 // The same chat runs live in the mock daemon: `?mock&session=mock-model-retry`.

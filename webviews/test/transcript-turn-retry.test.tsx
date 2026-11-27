@@ -44,8 +44,8 @@ test("a turn whose model the harness cannot reach says so in one short line, its
   expect(line.kind).toBe(THINKING);
   expect(line.retry).toEqual({ attempt: 1, maxRetries: 14, errorStatus: 502, error: "server_error" });
   const html = drawn(line, line.at + 469_000);
-  // Leo, 2026-11-26, on "Can't reach ... · retrying (1 of 14) · retrying now · 502 ser...": "this is
-  // really really bad".
+  // Leo, 2026-11-26, flagged "Can't reach ... · retrying (1 of 14) · retrying now · 502 ser..." as
+  // very bad.
   expect(words(html)).toBe("Model API unavailable, retrying…");
   expect(html).toContain('title="retrying (1 of 14) · 502 server error"');
   // No ticking time on the line; its words shimmer as every status in the live spot does (Leo,

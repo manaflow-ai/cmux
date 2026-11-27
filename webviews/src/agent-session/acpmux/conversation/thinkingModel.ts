@@ -13,10 +13,10 @@ const UNAVAILABLE_QUIET_MS = 10_000;
 /// `turn_retrying`): one calm line whose words stay the same from one retry to the next, "Model API
 /// unavailable, retrying…" or, for a full or rate-limited model, "Waiting for capacity". What
 /// failed, the retry's count and the harness's raw error go to its tooltip (`detail`: "Can't reach
-/// api.anthropic.com · retrying (1 of 14) · 502 server error"). Leo, 2026-11-26, on the line that
-/// said all of it at once and cut off the cause ("Can't reach ... · retrying (1 of 14) · retrying
-/// now · 502 ser..."): "this is really really bad". No count, countdown or error on the line, so
-/// nothing on it changes while the harness retries.
+/// api.anthropic.com · retrying (1 of 14) · 502 server error"). Leo, 2026-11-26, flagged as very
+/// bad the line that said all of it at once and cut off the cause ("Can't reach ... · retrying (1
+/// of 14) · retrying now · 502 ser..."). No count, countdown or error on the line, so nothing on it
+/// changes while the harness retries.
 export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; detail?: string } {
   const label = t(retryBusy(retry) ? "capacity.live" : "turn.live.retry.unavailable");
   // A connection failure acpmux classified (hub/outage.rs) names what it could not reach.

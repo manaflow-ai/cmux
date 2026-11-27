@@ -124,8 +124,8 @@ fn http_status(info: &Value) -> Option<u64> {
 
 /// How long a model the harness cannot reach retries before the chat says so (`showAfterMs` on
 /// `turn_retrying`): the shared connection bound (schemas/notice-timing `connectionQuietMs`), so a
-/// retry that goes through within a few seconds draws nothing at all (Leo, 2026-11-26, on "Can't
-/// reach ... · retrying (1 of 14) · retrying now · 502 ser...": "this is really really bad").
+/// retry that goes through within a few seconds draws nothing at all (Leo, 2026-11-26, flagged the
+/// line "Can't reach ... · retrying (1 of 14) · retrying now · 502 ser..." as very bad).
 pub(super) const UNAVAILABLE_QUIET_MS: u64 = 10_000;
 
 /// What the chat's live line says of a retry (`line` on `turn_retrying`): `busy`, a rate limit or a
