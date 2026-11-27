@@ -267,7 +267,10 @@ test("a prompt is the person's unless an agent, a notice, bookkeeping or a task 
   const { isPersonPrompt } = await import("../src/agent-session/acpmux/threadMinimap/model");
   const prompt = (extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({ ...row("user-1", "user", "hi"), ...extra });
   const message = (fromPerson?: true) =>
-    ({ kind: "message", message: { name: "guest", text: "hi", raw: "hi", ...(fromPerson && { fromPerson }) } }) as AcpmuxRow["incoming"];
+    ({
+      kind: "message",
+      message: { name: "guest", text: "hi", raw: "hi", ...(fromPerson && { fromPerson }) },
+    }) as AcpmuxRow["incoming"];
   expect(isPersonPrompt(prompt())).toBe(true);
   expect(isPersonPrompt(prompt({ incoming: message(true) }))).toBe(true);
   expect(isPersonPrompt(prompt({ incoming: message() }))).toBe(false);
