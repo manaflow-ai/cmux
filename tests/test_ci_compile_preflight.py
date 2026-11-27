@@ -242,13 +242,17 @@ class SharedWebArtifact(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "scripts/cmux-next").mkdir(parents=True)
-            checker = root / "scripts/build-webviews-app.sh"
+            (root / "webviews").mkdir()
+            checker = root / "scripts/check-webviews-bun-version.sh"
             checker.write_text("#!/bin/bash\necho checked >> source-checks\n")
             checker.chmod(0o755)
+            bun = root / "scripts/bun"
+            bun.write_text('#!/bin/bash\ntest "$*" = "run verify:tanstack-router"\n')
+            bun.chmod(0o755)
             builder = root / "scripts/cmux-next/build-web-bundles.sh"
             builder.write_text("#!/bin/bash\nif [ \"$1\" = --from ]; then echo install >> events; else echo build >> events; fi\n")
             builder.chmod(0o755)
-            env = dict(os.environ, CMUX_WEB_BUNDLES_FROM="")
+            env = dict(os.environ, CMUX_WEB_BUNDLES_FROM="", PATH=str(root / "scripts") + os.pathsep + os.environ["PATH"])
             subprocess.run(["bash", "-c", body + "\nbuild\nbuild"], cwd=root, env=env, check=True)
             self.assertEqual((root / "events").read_text().splitlines().count("build"), 2)
             (root / "events").write_text("")

@@ -61,7 +61,9 @@ lane() {
 ok() { [ "$(cat "$out/logs/$1.status" 2> /dev/null)" = 0 ]; }
 
 build() {
-  ./scripts/build-webviews-app.sh --check --skip-typecheck || return
+  # The shared bundle already ran vp build, HTML generation and output normalization. Keep the
+  # source checks that its --skip-checks mode omits; typecheck is a separate routed step.
+  ./scripts/check-webviews-bun-version.sh && (cd webviews && bun run verify:tanstack-router) || return
   if [ -n "${CMUX_WEB_BUNDLES_FROM:-}" ]; then
     ./scripts/cmux-next/build-web-bundles.sh --from "$CMUX_WEB_BUNDLES_FROM"
   else
