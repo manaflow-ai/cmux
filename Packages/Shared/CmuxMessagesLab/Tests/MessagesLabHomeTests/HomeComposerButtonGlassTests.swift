@@ -44,9 +44,9 @@ import Testing
         container.layoutSubtreeIfNeeded()
     }
 
-    /// The glass container that draws `glass`.
+    /// The glass container that draws `glass`: the nearest ancestor that is one.
     private func glassContainer(of glass: NSView) -> NSView? {
-        sequence(first: glass.superview, next: { $0.superview }).first { $0 is any LabGlassContainer }
+        sequence(first: glass, next: { $0.superview }).dropFirst().first { $0 is any LabGlassContainer }
     }
 
     /// Each button's container size, and its glass's rect in that container.
