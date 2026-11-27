@@ -1,33 +1,48 @@
 //! Opening a chat on the `acpmux` channel: `initialize`, `_acpmux/watch` and
 //! `_acpmux/attach`, and the first page of the chat in the attach reply.
 //!
-//! Serial (the default, what the app does today): `initialize` and the watch go
-//! out together, and the attach only once both are answered. First content costs
-//! two round trips on the channel, one for the pair and one for the attach.
+//! Serial (the default): `initialize` and the watch go out together, and the
+//! attach only once both are answered. First content costs two round trips on the
+//! channel, one for the pair and one for the attach.
 //!
 //! Pipelined (`CMUX_PIPELINED_CHAT_OPEN=1`, off by default): all three go out in
-//! one flight right after the channel opens, so first content costs one. acpmux
-//! answers each request on a connection in order, so the attach is read after
-//! `initialize` succeeded. If `initialize` is refused, the watch and attach sent
-//! with it are dropped (their replies are ignored), `initialize` is sent once
-//! more, and once it succeeds the watch and attach are sent again, once. A second
-//! refusal fails the open as the serial one does.
+//! one flight right after the channel opens, so first content costs one round
+//! trip. acpmux answers a connection's requests in order, so the attach is
+//! answered after `initialize`. The iOS app's Swift hub already sends its chats'
+//! attaches in this burst (`AcpmuxHub.pipelineAttaches`); this is the same order
+//! for Rust clients, and for the ios-mac bench to measure.
 //!
-//! The requests are the caller's ([`ChatRpc`]), so the app's link and a bench's
-//! fake share this sequence.
+//! A refused `initialize` is handled the same way in both modes, so the two
+//! differ only in the round trip. Whatever went out with it is dropped and its
+//! replies are ignored. After [`RETRY_BACKOFF`], the whole open is sent once more
+//! in the same mode, under new ids (`init.retry`, `watch.retry`,
+//! `attach.retry`), so a late reply to the first try is never taken for the
+//! retry's. A second refusal fails the open. There is one retry and no loop.
+//!
+//! The requests go through the caller's [`ChatRpc`], so a link and a bench's fake
+//! share this sequence.
 
 use std::future::Future;
+use std::time::Duration;
 
 use serde_json::Value;
 
 /// The environment variable that turns pipelining on ("1", "on" or "true").
 pub const PIPELINED_CHAT_OPEN_ENV: &str = "CMUX_PIPELINED_CHAT_OPEN";
 
-/// Whether [`PIPELINED_CHAT_OPEN_ENV`] asks for the pipelined open. Off when unset.
+/// The wait before the one retry after a refused `initialize`.
+pub const RETRY_BACKOFF: Duration = Duration::from_millis(200);
+
+/// Whether a value of [`PIPELINED_CHAT_OPEN_ENV`] turns pipelining on: "1",
+/// "on" or "true", in any case and with surrounding spaces. Off when unset or
+/// anything else.
+pub fn pipelined_flag(value: Option<&str>) -> bool {
+    value.is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "on" | "true"))
+}
+
+/// [`pipelined_flag`] of the process environment.
 pub fn pipelined_from_env() -> bool {
-    std::env::var(PIPELINED_CHAT_OPEN_ENV)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "on" | "true"))
-        .unwrap_or(false)
+    pipelined_flag(std::env::var(PIPELINED_CHAT_OPEN_ENV).ok().as_deref())
 }
 
 /// JSON-RPC over one `acpmux` channel, as the opener needs it.
@@ -53,11 +68,26 @@ pub struct ChatOpened {
     pub initialize: Value,
     pub watch: Value,
     pub attach: Value,
-    /// The id the attach reply answered (`attach`, or `attach.retry` after a
-    /// refused `initialize`).
+    /// The id the attach reply answered: `attach`, or `attach.retry` after a
+    /// refused `initialize`.
     pub attach_id: &'static str,
     /// `initialize` was refused once and the open went through on the retry.
     pub retried: bool,
+}
+
+struct Ids {
+    init: &'static str,
+    watch: &'static str,
+    attach: &'static str,
+}
+
+const FIRST: Ids = Ids { init: "init", watch: "watch", attach: "attach" };
+const RETRY: Ids = Ids { init: "init.retry", watch: "watch.retry", attach: "attach.retry" };
+
+enum Attempt {
+    Opened(ChatOpened),
+    /// `initialize` was refused; the error.
+    Refused(String),
 }
 
 fn refusal(id: &str, reply: &Value) -> Option<String> {
@@ -72,37 +102,43 @@ async fn checked<R: ChatRpc>(rpc: &mut R, id: &str) -> Result<Value, String> {
     }
 }
 
-/// Open the chat: serial, or pipelined when `pipelined` (see the module docs).
+async fn attempt<R: ChatRpc>(
+    rpc: &mut R,
+    requests: &ChatOpenRequests,
+    pipelined: bool,
+    ids: &Ids,
+) -> Result<Attempt, String> {
+    rpc.post(ids.init, "initialize", requests.initialize.clone()).await?;
+    rpc.post(ids.watch, "_acpmux/watch", requests.watch.clone()).await?;
+    if pipelined {
+        rpc.post(ids.attach, "_acpmux/attach", requests.attach.clone()).await?;
+    }
+    let initialize = rpc.answer(ids.init).await?;
+    if let Some(error) = refusal(ids.init, &initialize) {
+        return Ok(Attempt::Refused(error));
+    }
+    let watch = checked(rpc, ids.watch).await?;
+    if !pipelined {
+        rpc.post(ids.attach, "_acpmux/attach", requests.attach.clone()).await?;
+    }
+    let attach = checked(rpc, ids.attach).await?;
+    Ok(Attempt::Opened(ChatOpened { initialize, watch, attach, attach_id: ids.attach, retried: false }))
+}
+
+/// Open the chat, serial or pipelined (see the module docs).
 pub async fn open_chat<R: ChatRpc>(
     rpc: &mut R,
     requests: &ChatOpenRequests,
     pipelined: bool,
 ) -> Result<ChatOpened, String> {
-    rpc.post("init", "initialize", requests.initialize.clone()).await?;
-    rpc.post("watch", "_acpmux/watch", requests.watch.clone()).await?;
-    if !pipelined {
-        let initialize = checked(rpc, "init").await?;
-        let watch = checked(rpc, "watch").await?;
-        rpc.post("attach", "_acpmux/attach", requests.attach.clone()).await?;
-        let attach = checked(rpc, "attach").await?;
-        return Ok(ChatOpened { initialize, watch, attach, attach_id: "attach", retried: false });
+    if let Attempt::Opened(opened) = attempt(rpc, requests, pipelined, &FIRST).await? {
+        return Ok(opened);
     }
-    rpc.post("attach", "_acpmux/attach", requests.attach.clone()).await?;
-    let initialize = rpc.answer("init").await?;
-    if refusal("init", &initialize).is_none() {
-        let watch = checked(rpc, "watch").await?;
-        let attach = checked(rpc, "attach").await?;
-        return Ok(ChatOpened { initialize, watch, attach, attach_id: "attach", retried: false });
+    tokio::time::sleep(RETRY_BACKOFF).await;
+    match attempt(rpc, requests, pipelined, &RETRY).await? {
+        Attempt::Opened(opened) => Ok(ChatOpened { retried: true, ..opened }),
+        Attempt::Refused(error) => Err(error),
     }
-    // Refused: what went with it is dropped. New ids, so a late reply to the
-    // first watch or attach is never taken for the retry's.
-    rpc.post("init.retry", "initialize", requests.initialize.clone()).await?;
-    let initialize = checked(rpc, "init.retry").await?;
-    rpc.post("watch.retry", "_acpmux/watch", requests.watch.clone()).await?;
-    rpc.post("attach.retry", "_acpmux/attach", requests.attach.clone()).await?;
-    let watch = checked(rpc, "watch.retry").await?;
-    let attach = checked(rpc, "attach.retry").await?;
-    Ok(ChatOpened { initialize, watch, attach, attach_id: "attach.retry", retried: true })
 }
 
 #[cfg(test)]
@@ -113,17 +149,20 @@ mod tests {
 
     use super::*;
 
-    /// A fake acpmux that answers in order and records what it saw, refusing the
-    /// first `refusals` initializes; requests before a successful initialize are
-    /// refused too, as an uninitialized connection would.
+    /// A fake acpmux. It refuses the first `refusals` initializes, and refuses
+    /// any other request made before an initialize succeeded, as an
+    /// uninitialized connection would. It answers in order, or in reverse order
+    /// within each flight when `reverse` is set. It records every flight (the
+    /// requests posted between two reads).
     #[derive(Default)]
     struct Fake {
         refusals: usize,
+        reverse: bool,
         initialized: bool,
         sent: Vec<(String, String)>,
-        /// Requests posted since the last `answer` (one flight).
         flights: Vec<Vec<String>>,
         in_flight: Vec<String>,
+        pending: Vec<(String, Value)>,
         replies: VecDeque<(String, Value)>,
         stash: HashMap<String, Value>,
     }
@@ -146,13 +185,18 @@ mod tests {
                 }
                 _ => json!({"id": id, "result": {"method": method}}),
             };
-            self.replies.push_back((id.to_owned(), reply));
+            self.pending.push((id.to_owned(), reply));
             Ok(())
         }
 
         async fn answer(&mut self, id: &str) -> Result<Value, String> {
             if !self.in_flight.is_empty() {
                 self.flights.push(std::mem::take(&mut self.in_flight));
+                let mut flight = std::mem::take(&mut self.pending);
+                if self.reverse {
+                    flight.reverse();
+                }
+                self.replies.extend(flight);
             }
             if let Some(reply) = self.stash.remove(id) {
                 return Ok(reply);
@@ -175,75 +219,113 @@ mod tests {
         }
     }
 
-    fn block<F: Future>(future: F) -> F::Output {
-        tokio::runtime::Builder::new_current_thread().build().expect("runtime").block_on(future)
+    /// On a paused clock: the backoff passes at once, and the time it took is
+    /// returned.
+    fn block<F: Future>(future: F) -> (F::Output, Duration) {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .start_paused(true)
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let began = tokio::time::Instant::now();
+                let out = future.await;
+                (out, began.elapsed())
+            })
+    }
+
+    fn methods(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    fn attaches(fake: &Fake) -> usize {
+        fake.sent.iter().filter(|(_, method)| method == "_acpmux/attach").count()
     }
 
     #[test]
     fn serial_waits_for_initialize_and_watch_before_attach() {
         let mut fake = Fake::default();
-        let opened = block(open_chat(&mut fake, &requests(), false)).expect("open");
-        assert_eq!(opened.attach_id, "attach");
+        let (opened, _) = block(open_chat(&mut fake, &requests(), false));
+        assert_eq!(opened.expect("open").attach_id, "attach");
         assert_eq!(
             fake.flights,
-            vec![
-                vec!["initialize".to_owned(), "_acpmux/watch".to_owned()],
-                vec!["_acpmux/attach".to_owned()]
-            ]
+            vec![methods(&["initialize", "_acpmux/watch"]), methods(&["_acpmux/attach"])]
         );
     }
 
     #[test]
     fn pipelined_sends_all_three_in_one_flight() {
         let mut fake = Fake::default();
-        let opened = block(open_chat(&mut fake, &requests(), true)).expect("open");
+        let (opened, _) = block(open_chat(&mut fake, &requests(), true));
+        let opened = opened.expect("open");
         assert!(!opened.retried);
         assert_eq!(opened.attach["result"]["method"], "_acpmux/attach");
-        assert_eq!(
-            fake.flights,
-            vec![vec!["initialize".to_owned(), "_acpmux/watch".to_owned(), "_acpmux/attach".to_owned()]]
-        );
+        assert_eq!(fake.flights, vec![methods(&["initialize", "_acpmux/watch", "_acpmux/attach"])]);
     }
 
     #[test]
-    fn refused_initialize_drops_the_attach_and_resends_it_once() {
+    fn replies_out_of_order_still_match_their_requests() {
+        for pipelined in [false, true] {
+            let mut fake = Fake { reverse: true, ..Fake::default() };
+            let (opened, _) = block(open_chat(&mut fake, &requests(), pipelined));
+            let opened = opened.expect("open");
+            assert_eq!(opened.watch["result"]["method"], "_acpmux/watch", "pipelined={pipelined}");
+            assert_eq!(opened.attach["result"]["method"], "_acpmux/attach", "pipelined={pipelined}");
+            assert_eq!(opened.initialize["id"], "init");
+        }
+    }
+
+    #[test]
+    fn refused_initialize_drops_the_attach_and_resends_it_once_after_backoff() {
         let mut fake = Fake { refusals: 1, ..Fake::default() };
-        let opened = block(open_chat(&mut fake, &requests(), true)).expect("open");
+        let (opened, took) = block(open_chat(&mut fake, &requests(), true));
+        let opened = opened.expect("open");
         assert!(opened.retried);
         assert_eq!(opened.attach_id, "attach.retry");
         assert_eq!(opened.attach["result"]["method"], "_acpmux/attach");
-        let attaches = fake.sent.iter().filter(|(_, method)| method == "_acpmux/attach").count();
-        assert_eq!(attaches, 2, "the first attach and one resend");
-        // The resend goes only after the retried initialize was answered.
-        let retry_init =
-            fake.flights.iter().position(|f| f == &vec!["initialize".to_owned()]).expect("retry");
+        assert_eq!(attaches(&fake), 2, "the first attach and one resend");
+        assert!(took >= RETRY_BACKOFF, "retried after {took:?}");
+        // The first try's attach was refused (sent before initialize succeeded)
+        // and dropped; the retry's went in its own flight.
         assert_eq!(
-            fake.flights[retry_init + 1],
-            vec!["_acpmux/watch".to_owned(), "_acpmux/attach".to_owned()]
+            fake.flights,
+            vec![
+                methods(&["initialize", "_acpmux/watch", "_acpmux/attach"]),
+                methods(&["initialize", "_acpmux/watch", "_acpmux/attach"]),
+            ]
         );
     }
 
     #[test]
-    fn initialize_refused_twice_fails_the_open() {
-        let mut fake = Fake { refusals: 2, ..Fake::default() };
-        let error = block(open_chat(&mut fake, &requests(), true)).expect_err("refused");
-        assert!(error.starts_with("init.retry:"), "{error}");
-        let attaches = fake.sent.iter().filter(|(_, method)| method == "_acpmux/attach").count();
-        assert_eq!(attaches, 1, "no resend without a successful initialize");
-    }
-
-    #[test]
-    fn serial_refused_initialize_fails_without_attach() {
+    fn serial_retries_a_refused_initialize_the_same_way() {
         let mut fake = Fake { refusals: 1, ..Fake::default() };
-        assert!(block(open_chat(&mut fake, &requests(), false)).is_err());
-        assert!(fake.sent.iter().all(|(_, method)| method != "_acpmux/attach"));
+        let (opened, took) = block(open_chat(&mut fake, &requests(), false));
+        let opened = opened.expect("open");
+        assert!(opened.retried);
+        assert_eq!(opened.attach_id, "attach.retry");
+        assert_eq!(attaches(&fake), 1, "serial sends no attach before initialize succeeds");
+        assert!(took >= RETRY_BACKOFF);
     }
 
     #[test]
-    fn env_flag_defaults_off() {
-        // Only reads; the variable is not set in the test environment.
-        if std::env::var_os(PIPELINED_CHAT_OPEN_ENV).is_none() {
-            assert!(!pipelined_from_env());
+    fn initialize_refused_twice_fails_the_open_with_one_retry() {
+        for pipelined in [false, true] {
+            let mut fake = Fake { refusals: 5, ..Fake::default() };
+            let (error, _) = block(open_chat(&mut fake, &requests(), pipelined));
+            let error = error.expect_err("refused");
+            assert!(error.starts_with("init.retry:"), "{error}");
+            let inits = fake.sent.iter().filter(|(_, method)| method == "initialize").count();
+            assert_eq!(inits, 2, "one retry, no loop (pipelined={pipelined})");
+        }
+    }
+
+    #[test]
+    fn flag_parses_on_values_and_defaults_off() {
+        for on in ["1", "on", "true", "TRUE", " On "] {
+            assert!(pipelined_flag(Some(on)), "{on:?}");
+        }
+        for off in [None, Some("0"), Some("off"), Some("false"), Some(""), Some("yes"), Some("2")] {
+            assert!(!pipelined_flag(off), "{off:?}");
         }
     }
 }

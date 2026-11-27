@@ -1238,3 +1238,57 @@ async fn pair_matrix_ios_mac() {
         }
     }
 }
+
+/// [`ChatRpc`] straight over a WebSocket to the bench's fake acpmux. Replies are kept by id,
+/// and their arrival order is recorded.
+struct WsRpc {
+    socket: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    stash: HashMap<String, Value>,
+    order: Vec<String>,
+}
+
+impl ChatRpc for WsRpc {
+    async fn post(&mut self, id: &str, method: &str, params: Value) -> Result<(), String> {
+        let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        self.socket.send(Message::Text(request.to_string().into())).await.map_err(|e| format!("{e}"))
+    }
+
+    async fn answer(&mut self, id: &str) -> Result<Value, String> {
+        if let Some(reply) = self.stash.remove(id) {
+            return Ok(reply);
+        }
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(10), self.socket.next())
+                .await
+                .map_err(|_| format!("no reply to {id}"))?
+                .ok_or("closed")?
+                .map_err(|e| format!("{e}"))?;
+            let Message::Text(text) = frame else { continue };
+            let reply: Value = serde_json::from_str(&text).map_err(|e| format!("{e}"))?;
+            let Some(got) = reply["id"].as_str().map(str::to_owned) else { continue };
+            self.order.push(got.clone());
+            if got == id {
+                return Ok(reply);
+            }
+            self.stash.insert(got, reply);
+        }
+    }
+}
+
+/// The pipelined open against the bench's fake acpmux: the attach sent before `initialize` is
+/// answered is answered after it, in request order, with the chat's page.
+#[tokio::test]
+async fn pipelined_open_against_fake_acpmux_answers_in_order() {
+    let acpmux = FakeAcpmux::start(2, 3, 3).await;
+    let (socket, _) = tokio_tungstenite::connect_async(acpmux.url.as_str()).await.expect("connect");
+    let mut rpc = WsRpc { socket, stash: HashMap::new(), order: Vec::new() };
+    let requests = ChatOpenRequests {
+        initialize: json!({"protocolVersion": 1}),
+        watch: json!({"enabled": true, "limit": WATCH_LIMIT}),
+        attach: json!({"sessionId": acpmux.session_id(0), "limit": PAGE_SIZE, "kinds": ["transcript"]}),
+    };
+    let opened = open_chat(&mut rpc, &requests, true).await.expect("open");
+    assert_eq!(rpc.order, ["init", "watch", "attach"], "answered in request order");
+    let rows = opened.attach["result"]["events"].as_array().map(Vec::len).unwrap_or_default();
+    assert!(rows > 0, "attach page: {}", opened.attach);
+}
