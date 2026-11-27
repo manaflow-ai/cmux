@@ -5,9 +5,9 @@
 use serde_json::{Value, json};
 
 use super::ids::{
-    has_text, is_absolute_path, is_bundle_id, is_chief_id, is_cloud_environment_id, is_editor_id,
-    is_handoff_token, is_harness_id, is_store_session, is_symbol_name, is_token, is_uuid,
-    is_well_formed_folder,
+    has_text, is_absolute_path, is_bundle_id, is_chief_id, is_cloud_environment_id, is_cloud_pick,
+    is_editor_id, is_github_owner, is_github_repo, is_handoff_token, is_harness_id,
+    is_store_session, is_symbol_name, is_token, is_uuid, is_well_formed_folder,
 };
 use super::url::is_preview_url;
 use super::value::{
@@ -97,6 +97,8 @@ pub fn decode(method: &str, params: Params<'_>, home: &str) -> Option<Decoded> {
             [
                 ("fromKeptTail", json!(params.boolean("drewKeptTail").unwrap_or(false))),
                 ("settled", json!(params.boolean("settled").unwrap_or(false))),
+                ("copy", json!(params.is_true("copy"))),
+                ("live", json!(params.is_true("live"))),
             ],
         ),
         "pane.launchSettle" => launch_settle(method, params),
@@ -280,13 +282,16 @@ pub fn decode(method: &str, params: Params<'_>, home: &str) -> Option<Decoded> {
                 ("terminalSwitch", json!(params.is_true("terminalSwitch"))),
             ],
         ),
-        "pane.tabRowTools" => match params
-            .double("width")
-            .filter(|width| width.is_finite() && (0.0..=2000.0).contains(width))
-        {
-            Some(width) => case_with("tabRowTools", [("width", json!(width))]),
-            None => unsupported(method),
-        },
+        "pane.tabRowTools" => {
+            let dimension = |key| params.double(key).filter(|value| (0.0..=2000.0).contains(value));
+            match dimension("width") {
+                Some(width) => case_with(
+                    "tabRowTools",
+                    [("width", json!(width)), ("need", json!(dimension("need")))],
+                ),
+                None => unsupported(method),
+            }
+        }
         "pane.toast" => match params.string("message").filter(|message| !message.is_empty()) {
             Some(message) => case_with(
                 "toast",
@@ -352,7 +357,7 @@ pub fn decode(method: &str, params: Params<'_>, home: &str) -> Option<Decoded> {
             Some(kind) => case_with("editShortcut", [("_0", json!(kind))]),
             None => unsupported(method),
         },
-        "action.run" => run_action(method, params),
+        "action.run" => run_action(params).unwrap_or_else(|| unsupported(method)),
         "file.open" => match (
             params.string("path").filter(|path| !path.is_empty()),
             params.string("where").filter(|target| ["tab", "editor", "finder"].contains(target)),
@@ -600,50 +605,40 @@ fn shell_run(method: &str, params: Params<'_>) -> Value {
     }
 }
 
-/// `newTab.remember {agent, model?, folder?}`, `{started}` or `{harnessHint: "dismissed"}`.
+/// Remember the first valid New Tab pick, in the same order as the page's Swift decoder.
 fn remember_new_tab(method: &str, params: Params<'_>) -> Value {
-    if let Some(agent) = id_chars(params.string("agent"), 128) {
-        let model = id_chars(params.string("model"), 256);
-        let folder = id_chars(params.string("folder"), 4096);
-        return case_with(
-            "rememberNewTab",
-            [
-                ("agent", json!(agent)),
-                ("model", json!(model)),
-                ("folder", json!(folder)),
-                ("started", Value::Null),
-                ("dismissesHarnessHint", json!(false)),
-            ],
-        );
-    }
-    if let Some(started) = params
-        .string("started")
-        .filter(|started| started.starts_with('/') && count_within(started, 4096))
+    let mut agent = "";
+    let mut model = None;
+    let mut folder = None;
+    let mut started = None;
+    let mut cloud_started = None;
+    let mut dismisses_harness_hint = false;
+    if let Some(pick) = id_chars(params.string("agent"), 128) {
+        agent = pick;
+        model = id_chars(params.string("model"), 256);
+        folder = id_chars(params.string("folder"), 4096);
+    } else if let Some(pick) =
+        params.string("started").filter(|value| value.starts_with('/') && count_within(value, 4096))
     {
-        return case_with(
-            "rememberNewTab",
-            [
-                ("agent", json!("")),
-                ("model", Value::Null),
-                ("folder", Value::Null),
-                ("started", json!(started)),
-                ("dismissesHarnessHint", json!(false)),
-            ],
-        );
+        started = Some(pick);
+    } else if let Some(pick) = params.string("cloudStarted").filter(|value| is_cloud_pick(value)) {
+        cloud_started = Some(pick);
+    } else if params.string("harnessHint") == Some("dismissed") {
+        dismisses_harness_hint = true;
+    } else {
+        return unsupported(method);
     }
-    if params.string("harnessHint") == Some("dismissed") {
-        return case_with(
-            "rememberNewTab",
-            [
-                ("agent", json!("")),
-                ("model", Value::Null),
-                ("folder", Value::Null),
-                ("started", Value::Null),
-                ("dismissesHarnessHint", json!(true)),
-            ],
-        );
-    }
-    unsupported(method)
+    case_with(
+        "rememberNewTab",
+        [
+            ("agent", json!(agent)),
+            ("model", json!(model)),
+            ("folder", json!(folder)),
+            ("started", json!(started)),
+            ("cloudStarted", json!(cloud_started)),
+            ("dismissesHarnessHint", json!(dismisses_harness_hint)),
+        ],
+    )
 }
 
 /// `sandbox.run {task, agent?, key}`.
@@ -733,36 +728,80 @@ fn open_menu(method: &str, params: Params<'_>) -> Value {
     }
 }
 
-/// `action.run {id, session?, environment?, handoff?, app?}`: an optional field that is there must
-/// be usable, never dropped.
-fn run_action(method: &str, params: Params<'_>) -> Value {
-    let Some(id) = id_chars(params.string("id"), 128) else { return unsupported(method) };
-    let optional = |key: &str, usable: &dyn Fn(&str) -> bool| -> Option<Option<String>> {
-        match params.present_string(key) {
-            Present::Absent => Some(None),
-            Present::Is(Some(text)) if usable(text) => Some(Some(text.to_owned())),
-            Present::Is(_) => None,
-        }
+/// Decode action arguments before dispatch. Invalid targets reject the action; GitHub context is optional.
+fn run_action(params: Params<'_>) -> Option<Value> {
+    let id = id_chars(params.string("id"), 128)?;
+    let optional = |key: &str, usable: &dyn Fn(&str) -> bool| match params.present_string(key) {
+        Present::Absent => Some(None),
+        Present::Is(Some(text)) if usable(text) => Some(Some(text)),
+        Present::Is(_) => None,
     };
-    let session = optional("session", &|text| !text.is_empty() && count_within(text, 256));
+    let session = optional("session", &|text| !text.is_empty() && count_within(text, 256))?;
     let environment =
-        optional("environment", &|text| id == "newCloudMachine" && is_cloud_environment_id(text));
+        optional("environment", &|text| id == "newCloudMachine" && is_cloud_environment_id(text))?;
     let handoff =
-        optional("handoff", &|text| id == "palette.newCloudChat" && is_handoff_token(text));
-    let app = optional("app", &|text| EDITOR_ACTIONS.contains(&id) && is_editor_id(text));
-    match (session, environment, handoff, app) {
-        (Some(session), Some(environment), Some(handoff), Some(app)) => case_with(
-            "runAction",
-            [
-                ("_0", json!(id)),
-                ("session", json!(session)),
-                ("environment", json!(environment)),
-                ("handoff", json!(handoff)),
-                ("app", json!(app)),
-            ],
-        ),
-        _ => unsupported(method),
-    }
+        optional("handoff", &|text| id == "palette.newCloudChat" && is_handoff_token(text))?;
+    let app = optional("app", &|text| EDITOR_ACTIONS.contains(&id) && is_editor_id(text))?;
+    let mode = optional("mode", &|mode| {
+        id == "chatPlace.set" && matches!(mode, "local" | "cloud" | "auto")
+    })?;
+    let priority = optional("priority", &|priority| {
+        id == "chatPriority.set" && matches!(priority, "normal" | "high")
+    })?;
+    let carries_draft = matches!(id, "chatPlace.set" | "chatMove.retry");
+    let queued = match params.get("queued") {
+        Some(_) => {
+            Some(params.int("queued").filter(|n| carries_draft && (0..=100_000).contains(n))?)
+        }
+        None => None,
+    };
+    let has_draft = match params.get("hasDraft") {
+        Some(_) => Some(params.boolean("hasDraft").filter(|_| carries_draft)?),
+        None => None,
+    };
+    let sessions = match params.get("sessions") {
+        Some(value) => {
+            let targets = value.as_array()?;
+            let valid_count = match id {
+                "cloudEvacuate" | "cloudBringBackAll" => (1..=500).contains(&targets.len()),
+                "chatPlace.set" | "chatPriority.set" | "chatMove.cancel" | "chatMove.retry" => {
+                    targets.len() == 1 && session.is_none()
+                }
+                _ => false,
+            };
+            if !valid_count
+                || !targets.iter().all(|target| {
+                    id_chars(target.as_str(), 256).is_some_and(|id| !id.contains(','))
+                })
+            {
+                return None;
+            }
+            Some(targets)
+        }
+        None => None,
+    };
+    let github = id == "accounts.githubConnect";
+    let repo = params.string("repo").filter(|repo| github && is_github_repo(repo));
+    let org = params.string("org").filter(|org| github && is_github_owner(org));
+    let return_to = params.string("returnTo").filter(|link| github && bytes_within(link, 512));
+    Some(case_with(
+        "runAction",
+        [
+            ("_0", json!(id)),
+            ("session", json!(session)),
+            ("environment", json!(environment)),
+            ("handoff", json!(handoff)),
+            ("app", json!(app)),
+            ("mode", json!(mode)),
+            ("priority", json!(priority)),
+            ("queued", json!(queued)),
+            ("hasDraft", json!(has_draft)),
+            ("sessions", json!(sessions)),
+            ("repo", json!(repo)),
+            ("org", json!(org)),
+            ("returnTo", json!(return_to)),
+        ],
+    ))
 }
 
 /// `cloud.preview.open {port}`: the one key, a whole number from 1 to 65535 (not a boolean).

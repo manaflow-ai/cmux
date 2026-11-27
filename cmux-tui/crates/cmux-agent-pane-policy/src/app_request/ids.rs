@@ -25,6 +25,44 @@ pub fn is_cloud_environment_id(id: &str) -> bool {
         && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
+/// A Cloud New Tab pick: an absolute path or a `github:owner/repository` without spaces.
+pub fn is_cloud_pick(value: &str) -> bool {
+    if !count_within(value, 4096) {
+        return false;
+    }
+    if value.starts_with('/') {
+        return true;
+    }
+    let Some((owner, repo)) = value.strip_prefix("github:").and_then(|path| path.split_once('/'))
+    else {
+        return false;
+    };
+    !owner.is_empty()
+        && !repo.is_empty()
+        && !repo.contains('/')
+        && !owner.chars().chain(repo.chars()).any(char::is_whitespace)
+}
+
+/// A Connect GitHub account name consists of ASCII letters, digits and inner dashes.
+pub fn is_github_owner(owner: &str) -> bool {
+    (1..=39).contains(&owner.len())
+        && !owner.starts_with('-')
+        && !owner.ends_with('-')
+        && owner.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+/// The optional repository context from the Connect GitHub card.
+pub fn is_github_repo(value: &str) -> bool {
+    let Some((owner, repo)) = value.split_once('/') else { return false };
+    value.len() <= 140
+        && is_github_owner(owner)
+        && (1..=100).contains(&repo.len())
+        && !matches!(repo, "." | "..")
+        && repo
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
 /// An editor id: 1 to 32 lowercase ASCII letters, digits or dashes.
 pub fn is_editor_id(id: &str) -> bool {
     !id.is_empty()

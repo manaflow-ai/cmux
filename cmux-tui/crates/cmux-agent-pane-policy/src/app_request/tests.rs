@@ -93,7 +93,13 @@ fn lists_and_numbers_keep_their_bounds() {
     rejects("harness.update", json!({"ids": vec!["a"; 33]}));
     accepts("harness.update", json!({"ids": ["a", "b"]}), "harnessUpdate");
     rejects("pane.tabRowTools", json!({"width": 2001}));
-    accepts("pane.tabRowTools", json!({"width": 2000}), "tabRowTools");
+    let out = accepts("pane.tabRowTools", json!({"width": 2000, "need": 1500}), "tabRowTools");
+    assert_eq!(*field(&out, "need"), json!(1500.0));
+    let out = accepts("pane.tabRowTools", json!({"width": 2000, "need": 2001}), "tabRowTools");
+    assert_eq!(*field(&out, "need"), Value::Null);
+    let out = accepts("pane.painted", json!({"copy": true, "live": true}), "painted");
+    assert_eq!(*field(&out, "copy"), json!(true));
+    assert_eq!(*field(&out, "live"), json!(true));
     rejects("pane.launchSettle", json!({"settledEpochMs": 1, "maxMovePx": -1, "shifts": 0}));
     rejects("cloud.preview.open", json!({"port": 0}));
     rejects("cloud.preview.open", json!({"port": 65536}));
@@ -128,6 +134,7 @@ fn previews_stay_local() {
     accepts("browser.open", json!({"url": "http://localhost:3000/x"}), "openPreview");
     rejects("browser.open", json!({"url": "https://example.com"}));
     rejects("browser.open", json!({"url": "http://user@localhost/"}));
+    rejects("browser.open", json!({"url": "https://user@example.com/"}));
     rejects("browser.open", json!({"url": "file:///etc/passwd"}));
     rejects("browser.open", json!({"url": format!("http://localhost/{}", "a".repeat(8200))}));
 }
@@ -142,6 +149,51 @@ fn run_action_checks_each_optional_field() {
     rejects("action.run", json!({"id": "agentPane.openCwdInApp", "app": "com.apple.Terminal"}));
     rejects("action.run", json!({"id": "agentPane.openCwdInApp", "app": "a".repeat(33)}));
     accepts("action.run", json!({"id": "agentPane.openCwdInApp", "app": "vs-code"}), "runAction");
+    let out = accepts(
+        "action.run",
+        json!({
+            "id": "chatPlace.set",
+            "mode": "cloud",
+            "queued": 7,
+            "hasDraft": true,
+            "sessions": ["chat-1"]
+        }),
+        "runAction",
+    );
+    assert_eq!(*field(&out, "mode"), json!("cloud"));
+    assert_eq!(*field(&out, "queued"), json!(7));
+    assert_eq!(*field(&out, "hasDraft"), json!(true));
+    assert_eq!(*field(&out, "sessions"), json!(["chat-1"]));
+    let out = accepts(
+        "action.run",
+        json!({"id": "chatPriority.set", "priority": "high", "sessions": ["chat-1"]}),
+        "runAction",
+    );
+    assert_eq!(*field(&out, "priority"), json!("high"));
+    rejects("action.run", json!({"id": "chatPlace.set", "mode": "remote"}));
+    rejects("action.run", json!({"id": "chatPlace.set", "sessions": ["chat-1"], "session": "tab"}));
+    rejects("action.run", json!({"id": "x", "queued": 1}));
+    rejects("action.run", json!({"id": "cloudEvacuate", "sessions": []}));
+    let out = accepts(
+        "action.run",
+        json!({
+            "id": "accounts.githubConnect",
+            "repo": "owner/repo",
+            "org": "owner",
+            "returnTo": "https://example.com/return"
+        }),
+        "runAction",
+    );
+    assert_eq!(*field(&out, "repo"), json!("owner/repo"));
+    assert_eq!(*field(&out, "org"), json!("owner"));
+    assert_eq!(*field(&out, "returnTo"), json!("https://example.com/return"));
+    let out = accepts(
+        "action.run",
+        json!({"id": "accounts.githubConnect", "repo": "bad repo", "org": "-bad"}),
+        "runAction",
+    );
+    assert_eq!(*field(&out, "repo"), Value::Null);
+    assert_eq!(*field(&out, "org"), Value::Null);
 }
 
 #[test]
@@ -180,6 +232,14 @@ fn replies_keep_their_keys_and_caps() {
         "reply",
     );
     assert_eq!(field(&out, "name").as_str().map(str::len), Some(512));
+    let combining = format!("{}e\u{301}tail", "a".repeat(511));
+    let out = accepts(
+        "image.copy",
+        json!({"src": "data:image/png;base64,AA", "name": combining}),
+        "reply",
+    );
+    let expected = "a".repeat(511);
+    assert_eq!(field(&out, "name").as_str(), Some(expected.as_str()));
     rejects("image.reveal", json!({"src": "data:x", "name": "n", "path": ""}));
     rejects("pr.inspect", json!({"url": "https://github.com/a/b/commit/1"}));
     rejects("pr.inspect", json!({"url": "https://github.com/-a/b/pull/1"}));
@@ -196,6 +256,15 @@ fn replies_keep_their_keys_and_caps() {
     );
     rejects("environment.list", json!({"x": 1}));
     assert_eq!(run("environment.save", json!({})), json!({"delegate": true}));
+}
+
+#[test]
+fn new_tab_remembers_cloud_picks() {
+    let out =
+        accepts("newTab.remember", json!({"cloudStarted": "github:owner/repo"}), "rememberNewTab");
+    assert_eq!(*field(&out, "cloudStarted"), json!("github:owner/repo"));
+    rejects("newTab.remember", json!({"cloudStarted": "github:owner/repo\n"}));
+    rejects("newTab.remember", json!({"cloudStarted": "github:owner/re po"}));
 }
 
 #[test]
