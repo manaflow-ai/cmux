@@ -22,6 +22,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -31,6 +32,11 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/pr-router.yml"
 
 FAKE_GH = """#!/bin/sh
+if [ "$2" = rate_limit ]; then
+  echo "$GH_TOKEN rate_limit" >> "$CALLS.rl"
+  [ -n "$RATE" ] && echo "$RATE"
+  exit 0
+fi
 echo "$GH_TOKEN $*" >> "$CALLS"
 case " $FAIL_TOKENS " in *" $GH_TOKEN "*)
   echo "gh: API rate limit exceeded for installation." >&2; exit 1;;
@@ -51,7 +57,7 @@ def step(name: str) -> dict:
 
 class LandTierStatusPost(unittest.TestCase):
     def run_post(self, app_token: str, fail: str, state: str = "success", rounds: str = "",
-                 script: str = "", pools: str = "") -> tuple[int, list[str], str]:
+                 script: str = "", pools: str = "", rate: str = "", retry_s: str = "0") -> tuple[int, list[str], str]:
         script = script or step("Post the land tier status")["run"]
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
@@ -60,7 +66,7 @@ class LandTierStatusPost(unittest.TestCase):
             calls = Path(tmp, "calls")
             env = {"PATH": f"{tmp}:{os.environ['PATH']}", "CALLS": str(calls), "FAIL_TOKENS": fail,
                    "APP_TOKEN": app_token, "JOB_TOKEN": "job", "REPO": "manaflow-ai/cmux", "SHA": "a" * 40,
-                   "STATE": state, "RUN_URL": "https://example.invalid/run", "LAND_STATUS_RETRY_S": "0",
+                   "STATE": state, "RUN_URL": "https://example.invalid/run", "LAND_STATUS_RETRY_S": retry_s, "RATE": rate,
                    "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(Path(tmp, "output")), "POOL_TOKENS": pools}
             if rounds:
                 env["LAND_STATUS_ROUNDS"] = rounds
@@ -113,6 +119,31 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertIn("last: gh: API rate limit exceeded for installation.", said)
         self.assertIn("gh run rerun 123 --failed", said)
         self.assertEqual(self.output.strip(), "unposted=true")
+
+    def test_every_budget_spent_past_the_retries_left_stops_without_sleeping(self) -> None:
+        # the regression: the land tier status post job slept 60+120+...+300 s (15 runner-minutes) into a red it
+        # could have read from GET rate_limit, which costs no budget, at its first refusal
+        far = f"0 {int(time.time()) + 3600}"
+        start = time.monotonic()
+        code, calls, said = self.run_post("app", fail="app job", rounds="6", rate=far, retry_s="60")
+        self.assertLess(time.monotonic() - start, 10)
+        self.assertEqual((code, len(calls)), (1, 2), said)
+        self.assertIn("past the 900s of retries left", said)
+        self.assertIn("after 1 of 6 rounds", said)
+        self.assertEqual(self.output.strip(), "unposted=true")
+
+    def test_every_budget_spent_resetting_soon_sleeps_to_the_reset_not_the_schedule(self) -> None:
+        soon = f"0 {int(time.time())}"
+        start = time.monotonic()
+        code, calls, said = self.run_post("app", fail="app job", rounds="3", rate=soon, retry_s="60")
+        self.assertLess(time.monotonic() - start, 15, "slept the 60 s schedule instead of the 2 s to the reset")
+        self.assertEqual((code, len(calls)), (1, 6), said)
+
+    def test_a_token_with_budget_left_keeps_the_rounds_wait(self) -> None:
+        # a secondary limit or a 5xx: rate_limit shows budget left, so the round's own wait (0 here) applies
+        code, calls, said = self.run_post("app", fail="app job", rate="4000 1", retry_s="0")
+        self.assertEqual((code, len(calls)), (1, 6), said)
+        self.assertIn("after 3 of 3 rounds", said)
 
     def test_a_post_that_gets_through_sets_no_unposted_output(self) -> None:
         code, _, _ = self.run_post("app", fail="")

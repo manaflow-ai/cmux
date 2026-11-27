@@ -240,11 +240,37 @@ jobs:
               fi
               cat "$err" >&2
             done
-            [ "$round" = "$rounds" ] || sleep "$((LAND_STATUS_RETRY_S * round))"
+            [ "$round" != "$rounds" ] || break
+            wait_s="$((LAND_STATUS_RETRY_S * round))"
+            left=0
+            for r in $(seq "$round" "$((rounds - 1))"); do left="$((left + LAND_STATUS_RETRY_S * r))"; done
+            # Every token's hourly budget spent: GET rate_limit (free) says when the first comes back. Sleep to it, or
+            # stop now when it is past the retries left: the retry job slept 15 runner-minutes into the same red.
+            # A token with budget left (a secondary limit, a 5xx) keeps the round's own wait.
+            reset=""
+            spent=1
+            # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
+            for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
+              [ -n "$token" ] || continue
+              rl="$(GH_TOKEN="$token" gh api rate_limit -q '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null || true)"
+              case "$rl" in
+                "0 "[0-9]*) at="${rl#0 }"; if [ -z "$reset" ] || [ "$at" -lt "$reset" ]; then reset="$at"; fi ;;
+                *) spent=0 ;;
+              esac
+            done
+            if [ "$spent" = 1 ] && [ -n "$reset" ]; then
+              wait_s="$((reset - $(date +%s) + 2))"
+              [ "$wait_s" -ge 0 ] || wait_s=0
+              if [ "$wait_s" -gt "$left" ]; then
+                echo "every token's budget resets in ${wait_s}s, past the ${left}s of retries left: not sleeping into it" >&2
+                break
+              fi
+            fi
+            sleep "$wait_s"
           done
           last="$(tail -n 1 "$err" | cut -c1-200)"
           echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
+          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after $round of $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
       # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
       # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
@@ -265,7 +291,7 @@ jobs:
   land-tier-status:
     # Runs only when the route job's post did not get through (spent budget, a refused description): it retries
     # for about 15 minutes, long enough for an installation's hourly budget to come back, and fails red when it
-    # still cannot, so the PR shows a red check instead of a `pending` that nothing will move. `gh run rerun --failed`
+    # still cannot (at once when GET rate_limit shows every token spent until past those 15 minutes), so the PR shows a red check instead of a `pending` that nothing will move. `gh run rerun --failed`
     # posts it again. Same script as the route job's step (the land-tier-post anchor).
     name: land tier status post
     needs: [route]
