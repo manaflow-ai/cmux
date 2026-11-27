@@ -13,7 +13,16 @@ const agent = (over: Partial<Subagent>): Subagent =>
 function rows(agents: Subagent[], resume: SubagentsSectionInput["resume"], sessions: StartedSession[] = []) {
   const actions = new NativeInfoActions();
   const section = subagentsSection(
-    { open: true, agents, waiting: new Set(), sessions, now: 3, endedOpen: true, ...(resume && { resume }) },
+    {
+      open: true,
+      agents,
+      waiting: new Set(),
+      sessions,
+      now: 3,
+      connectionQuiet: () => true,
+      endedOpen: true,
+      ...(resume && { resume }),
+    },
     actions,
     t,
   );

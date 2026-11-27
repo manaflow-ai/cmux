@@ -1478,6 +1478,89 @@ class WebCache(unittest.TestCase):
         self.assertFalse(self.hot.web_unchanged(Live(), "e" * 64))
 
 
+class SwapLayers(unittest.TestCase):
+    """RFD 0174 slice 1: every receipt names each layer's swap time, and `layers` gives their p95."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("hot_apply_layers_under_test", SCRIPT)
+        cls.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_layers_under_test"] = cls.hot
+        spec.loader.exec_module(cls.hot)
+
+    def receipt(self, **over):
+        base = {"action": "apply", "applied": ["rust"], "platform": "mac",
+                "phases": {"plan": 0.2, "handoff": 1.38, "acpmux": 2.1, "verify": 0.1},
+                "steps": {"rust": {"daemon": "app handoff", "old_pid": 1, "new_pid": 2},
+                          "acpmux": [{"home": "/h", "old_pid": 10, "new_pid": 11}]}}
+        base.update(over)
+        return base
+
+    def test_an_apply_times_the_daemon_handoff_and_the_acpmux_restart_apart(self):
+        self.assertEqual(self.hot.swap_layers(self.receipt()), {
+            "daemon": {"ms": 1380, "state_kept": True},
+            "acpmux": {"ms": 2100, "homes": 1, "state_kept": True}})
+
+    def test_an_acpmux_home_answering_from_its_old_pid_kept_no_state(self):
+        r = self.receipt()
+        r["steps"]["acpmux"][0]["new_pid"] = 10
+        self.assertFalse(self.hot.swap_layers(r)["acpmux"]["state_kept"])
+
+    def test_the_ffi_part_is_quit_plus_launch_and_loses_the_layout(self):
+        r = self.receipt(applied=["ffi"], phases={"quit": 0.6, "swap": 0.05, "launch": 0.42},
+                         steps={"ffi": {"launch": {"pid": 5}}})
+        self.assertEqual(self.hot.swap_layers(r), {"ffi": {"ms": 1020, "state_kept": False, "kept": "sessions"}})
+        r["steps"]["ffi"]["launch"] = None  # the app was not running: nothing the person waited on
+        self.assertEqual(self.hot.swap_layers(r), {})
+
+    def test_dry_runs_failures_and_no_ops_have_no_layers(self):
+        self.assertEqual(self.hot.swap_layers(self.receipt(action="dry-run")), {})
+        self.assertEqual(self.hot.swap_layers(self.receipt(error="boom")), {})
+        self.assertEqual(self.hot.swap_layers(self.receipt(applied=[])), {})
+
+    def test_a_receipt_from_before_the_split_gives_its_reload_as_the_daemon_only_when_alone(self):
+        old = {"action": "apply", "applied": ["rust"], "phases": {"reload": 1.6},
+               "steps": {"rust": {"daemon": "app handoff"}}}
+        self.assertEqual(self.hot.swap_layers(old), {"daemon": {"ms": 1600, "state_kept": True}})
+        old["steps"]["acpmux"] = [{"home": "/h"}]  # reload then held both: neither layer's own time
+        self.assertEqual(self.hot.swap_layers(old), {})
+
+    def test_quantile_is_nearest_rank(self):
+        q = self.hot.quantile
+        self.assertIsNone(q([], 0.95))
+        self.assertEqual(q([5], 0.95), 5)
+        self.assertEqual(q(list(range(1, 21)), 0.95), 19)
+        self.assertEqual(q(list(range(1, 21)), 0.5), 10)
+        self.assertEqual(q([3, 1, 2], 0.0), 1)
+
+    def test_layers_reads_history_and_names_the_now_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            history = Path(tmp) / "history.jsonl"
+            lines = [json.dumps(self.receipt(phases={"handoff": s, "acpmux": 2.0})) for s in (1.0, 1.2, 1.4)]
+            lines += ["not json", json.dumps(self.receipt(action="dry-run")), json.dumps([1])]
+            history.write_text("\n".join(lines) + "\n")
+            out = subprocess.run([sys.executable, str(SCRIPT), "layers", "--json", "--history", str(history)],
+                                 capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            got = json.loads(out.stdout)
+            self.assertEqual(got["layers"]["mac"]["daemon"],
+                             {"n": 3, "p50_ms": 1200, "p95_ms": 1400, "max_ms": 1400, "state_kept": 3})
+            self.assertEqual(got["rows"], {"hot_swap_mac_daemon_handoff_p95_ms": 1400,
+                                           "hot_swap_mac_acpmux_restart_p95_ms": 2000})
+            missing = subprocess.run([sys.executable, str(SCRIPT), "layers", "--history", str(Path(tmp) / "none")],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 1)
+
+    def test_record_writes_the_layers_and_the_platform(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(open(os.devnull, "w")):
+            self.hot.PHASES.seconds = {"handoff": 0.5}
+            receipt = self.receipt(phases=None, steps={"rust": {"daemon": "app handoff"}})
+            self.hot.record(Path(tmp), receipt)
+            line = json.loads((Path(tmp) / "history.jsonl").read_text())
+        self.assertEqual(line["layers"], {"daemon": {"ms": 500, "state_kept": True}})
+        self.assertEqual(line["platform"], "mac")
+
+
 class Phases(unittest.TestCase):
     def test_an_inner_phase_pauses_the_outer_one(self):
         spec = importlib.util.spec_from_file_location("hot_apply_phases_under_test", SCRIPT)

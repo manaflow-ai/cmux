@@ -3023,6 +3023,52 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(json.loads(route.package_runs_on), MINI)
         self.assertEqual(json.loads(route.retry_runs_on), SMALL)
 
+    def test_pipeline_uses_a_configured_idle_simulator_in_pool_order(self):
+        aws = MINI.replace("glaeda-", "glaeda-aws-")
+        wrong = aws.replace("26.6", "26.5")
+        office = mini_runner("office", 0, MINI, IOS_SIM)
+        cloud = mini_runner("cloud", 0, MINI, aws, IOS_SIM)  # AWS also advertises the office alias.
+        host_only = mini_runner("office", 1, MINI)
+        order = f"{MINI},{aws}"
+        for name, runners, labels, expected in (
+            ("office first", [office, cloud], order, MINI),
+            ("AWS first", [office, cloud], f"{aws},{MINI}", aws),
+            ("office busy", [{**office, "busy": True}, cloud], order, aws),
+            ("office absent", [cloud], order, aws),
+            ("AWS absent", [office], order, MINI),
+            ("AWS lacks runtime", [host_only, mini_runner("cloud", 0, aws)], order, SMALL),
+            ("AWS busy", [host_only, {**cloud, "busy": True}], order, SMALL),
+            ("AWS offline", [host_only, {**cloud, "status": "offline"}], order, SMALL),
+            ("AWS opt-in required", [host_only, cloud], MINI, SMALL),
+            ("other Xcode", [host_only, mini_runner("cloud", 0, wrong, IOS_SIM)], f"{MINI},{wrong}", SMALL),
+        ):
+            with self.subTest(name=name), unittest.mock.patch.object(pool, "GitHub") as github:
+                client = github.return_value
+                client.runners.return_value = runners
+                client.runs_since.return_value = []
+                client.get.return_value = {"artifacts": []}
+                out = io.StringIO()
+                args = ["--lane", "pipeline", "--requested", "auto", "--owned", "1", "--ios-owned", "1",
+                        "--owned-slots", json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", labels]
+                env = {"GH_TOKEN": "job", "ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}
+                with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(ios_pool.main(args, env=env), 0)
+                output = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(json.loads(output["runs_on"]), SMALL if expected == SMALL else [expected, IOS_SIM])
+                self.assertEqual(json.loads(output["retry_runs_on"]), SMALL)
+                client.runners.assert_called_once_with()
+
+    def test_pipeline_aws_shares_the_simulator_limit_with_office_jobs(self):
+        aws = MINI.replace("glaeda-", "glaeda-aws-")
+        runner = mini_runner("cloud", 0, aws, IOS_SIM)
+        kit = {"id": 1, "path": ".github/workflows/cmux-next-ios-kit.yml", "run_attempt": 1}
+        job = {"name": "CmuxMobileKit tests (macOS swift test, iOS simulator)", "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "office-glaeda"}
+        for capacity, expected in ((1, 0), (2, 1)):
+            free = ios_pool.live_free([runner], aws, [kit], now=NOW, capacity=capacity,
+                                      jobs={1: [job]}, idle_sim_only=True)
+            self.assertEqual(free.sim, expected)
+
     def test_a_simulator_job_never_asks_for_the_pool_label_alone(self):
         for route in (ios_route(sim_fleet())[0], ios_route(requested="owned")[0],
                       ios_route(lane="screenshots", requested="owned")[0]):
@@ -3762,6 +3808,32 @@ class IOSRouting(unittest.TestCase):
         for event in ("pull_request", "pull_request_target"):
             self.assertEqual(ios_pool.granted_default(ios_pool.ephemeral(SMALL), **{**base, "event": event}).label,
                              "cmux-mac", event)
+
+    def test_no_free_runner_keeps_the_default_it_logged_instead_of_the_grant(self):
+        # cmux#53546: the picker logged "staying on blacksmith-6vcpu-macos-26" and the job still took
+        # cmux-mac + glaeda-ios-sim + xcode-26.6, a 39 min queue. With 0 runners free the labels match the log.
+        base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
+                    pr_xcode_app=PR_XCODE, event="pull_request")
+        for pool_free, sim_free in ((0, 0), (2, 0), (0, 2)):
+            messages = []
+            route = self.live(pool_free, sim_free, log=messages.append)
+            self.assertTrue(route.starved, (pool_free, sim_free))
+            self.assertIn(f"staying on {SMALL}", messages[-1])
+            granted = ios_pool.granted_default(route, **{**base, "log": messages.append})
+            self.assertIs(granted, route)
+            self.assertEqual((json.loads(granted.runs_on), json.loads(granted.package_runs_on), granted.grant_labels),
+                             (SMALL, SMALL, ()))
+            self.assertIn(f"staying on {SMALL}, not cmux-mac", messages[-1])
+        # The snapshot path: no simulator free keeps the default as well.
+        busy = ios_route(sim_fleet(), device_family="iphone", ios_since=2)[0]
+        self.assertTrue(busy.starved)
+        self.assertIs(ios_pool.granted_default(busy, **base), busy)
+        # A route the picker did not measure (no token, an unread queue) is still granted.
+        unread = ios_route(measure=lambda: (_ for _ in ()).throw(RuntimeError("no token")))[0]
+        self.assertFalse(unread.starved)
+        self.assertEqual(ios_pool.granted_default(unread, **base).label, "cmux-mac")
+        # Free runners still take the owned pool.
+        self.assertTrue(self.live(2, 2).persistent)
 
     def test_main_grants_the_same_repository_default_and_keeps_a_forks(self):
         def run(args, env):

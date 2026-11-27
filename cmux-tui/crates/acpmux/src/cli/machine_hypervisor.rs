@@ -1,13 +1,16 @@
 //! `acpmux machine hypervisor serve | apply | ls`: the host agent (`crate::hypervisor`).
 //! No daemon: the host agent is its own process (a systemd unit on the host).
 
-use crate::cli::command_host::{HypervisorCmd, HypervisorDriverKind, HypervisorOpts};
+use crate::cli::command_host::{
+    HypervisorCmd, HypervisorDriverKind, HypervisorOpts, HypervisorSourceKind,
+};
 use crate::cli::output::print_json;
 use crate::hypervisor::HypervisorDriver;
+use crate::hypervisor::hub::{HubSource, JoinedHub};
 use crate::hypervisor::libvirt::{LibvirtConfig, LibvirtDriver, ProcessRunner};
 use crate::hypervisor::pods::PodsDriver;
 use crate::hypervisor::serve::{HostAgent, action_line};
-use crate::hypervisor::source::{Command, SpoolSource};
+use crate::hypervisor::source::{Command, CommandSource, SpoolSource};
 use anyhow::{Context, Result};
 use std::io::Read;
 use std::path::PathBuf;
@@ -64,7 +67,16 @@ pub async fn run(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
 
 fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
     match cmd {
-        HypervisorCmd::Serve { opts, base_image, network, template, interval_secs, once } => {
+        HypervisorCmd::Serve {
+            opts,
+            base_image,
+            network,
+            template,
+            interval_secs,
+            once,
+            source,
+            lease_max,
+        } => {
             let dir = private_state_dir(&opts)?;
             let mut config = libvirt(&opts);
             config.base_image = base_image;
@@ -74,7 +86,14 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
                     .with_context(|| format!("read template {}", path.display()))?;
             }
             let driver = driver(&opts, config);
-            let source = SpoolSource::new(dir.join("spool"));
+            let source: Box<dyn CommandSource> = match source {
+                HypervisorSourceKind::Spool => Box::new(SpoolSource::new(dir.join("spool"))),
+                HypervisorSourceKind::Hub => {
+                    let hub = JoinedHub::open()?;
+                    eprintln!("hypervisor: leasing commands from {}", hub.origin());
+                    Box::new(HubSource::new(hub, lease_max))
+                }
+            };
             let mut agent = HostAgent::open(driver, source, dir)?;
             loop {
                 match agent.tick(now_ms()) {

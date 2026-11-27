@@ -1,3 +1,4 @@
+import CmuxNextHomeModel
 import Darwin
 public import Foundation
 import os
@@ -9,6 +10,10 @@ import os
 /// instead. A host that `cmux chief shutdown` stopped (its marker,
 /// `ChiefHome.shutdownMarker`) is not started again until asked. A host that dies three times within a minute is not started
 /// again until Home or Settings asks, so a host that cannot start never loops.
+///
+/// The decisions (what to arm, cancel, read, report, restart or terminate) are
+/// `chief_brain.watch_step` in cmux-home-rules; this class keeps the kernel sources, the lock
+/// reads, the `kill` calls and the restart, and runs the step's effects in order.
 @MainActor
 public final class ChiefBrainWatch {
     /// Starts the host; the pid to watch next, nil when it did not start.
@@ -30,22 +35,18 @@ public final class ChiefBrainWatch {
     /// How many descriptors the lock watch has opened. An arm that replaces a source it already
     /// holds raises it, which is the window ``armOnLock`` must not open; the tests read it.
     private(set) var lockSourceOpens = 0
-    /// The watched host whose lock does not name it yet (see ``watch(_:)``); nil when the lock is
-    /// readable, which is every case but a launch that printed its pid.
-    private var pendingLockPID: pid_t?
-    /// The process the armed source watches; an event for another pid is stale.
-    private var watchedPID: pid_t?
-    private var deaths: [ContinuousClock.Instant] = []
-    private var stopped = false
-    private var restarting = false
-    /// It stopped restarting a host that kept dying (``deathLimit`` within ``deathWindow``), until
+    /// The rules' state between steps.
+    private var state = WatchState()
+    /// It stopped restarting a host that kept dying (``deathLimit`` within a minute), until
     /// the next ask or a host it finds; Home's Auto then gives the Hosted Chief (``ChiefHome/isOn(canStart:gaveUp:isChiefHost:)``).
-    public private(set) var hasGivenUp = false
+    public var hasGivenUp: Bool { state.hasGivenUp == true }
     private let clock = ContinuousClock()
+    /// The origin of the death times the rules keep, in milliseconds since it.
+    private let origin: ContinuousClock.Instant
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
+    /// The rules' `DEATH_LIMIT` (`chief_brain::watch`); the tests read it.
     static let deathLimit = 3
-    static let deathWindow: Duration = .seconds(60)
 
     public init(home: ChiefHome, restart: @escaping Restart, watching: Watching? = nil,
                 isChiefHost: @escaping (pid_t) -> Bool = ChiefHostStop.isChiefHost,
@@ -55,64 +56,90 @@ public final class ChiefBrainWatch {
         self.watching = watching
         self.isChiefHost = isChiefHost
         self.isFilesHostLauncher = isFilesHostLauncher
+        origin = clock.now
     }
 
-    /// The host the lock names when it is the one `launched` stands for: itself, or any host when
-    /// `launched` is the "cmux Files (dev)" launcher, which only runs the host it started and exits
-    /// with it. Another host holding the lock makes the launched one exit at once (it cannot take
-    /// the lock), and the watch then follows the lock's host anyway (``exited(_:)``); nil else.
-    private func lockedHost(startedBy launched: pid_t, locked: pid_t?) -> pid_t? {
-        guard let locked, locked == launched || isFilesHostLauncher(launched) else { return nil }
-        return locked
-    }
-
-    private func lockedHost(startedBy launched: pid_t) -> pid_t? {
-        lockedHost(startedBy: launched, locked: ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost))
+    private var lockedPID: pid_t? {
+        ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost)
     }
 
     /// Watches `pid`, or the host that holds the lock now when `pid` is nil.
     public func watch(_ pid: pid_t?) {
-        guard !stopped else { return }
-        source?.cancel()
-        source = nil
-        let locked = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost)
-        guard let pid = pid ?? locked else {
-            logger.info("chief brain watch: no host process to watch")
-            pendingLockPID = nil
-            setWatched(nil)
-            armOnLock()
-            return
-        }
-        hasGivenUp = false
-        // A launch that printed its pid is watched before the host writes that pid into the lock,
-        // and a reader of the brain's liveness reads the lock, not this process source. So the lock
-        // watch stays armed until the lock names this host, and the write that names it tells the
-        // reader again (``lockChanged(folder:)``).
-        //
-        // Under "cmux Files (dev)" the printed pid is the helper launcher's, and the lock names the
-        // host it started: the watch moves to that host, which is what stops and exits are about.
-        if locked == pid {
-            pendingLockPID = nil
-            cancelLockSources()
-        } else if let host = lockedHost(startedBy: pid, locked: locked) {
-            watch(host)
-            return
-        } else {
-            // Arm before reading again, and read again: the host writes its pid a moment after the
-            // launch printed it, and a write that lands between a read and the arming would raise
-            // its event on a source that does not exist yet, with nothing left to read the lock.
+        guard state.stopped != true else { return }
+        step(WatchEvent(kind: "watch", pid: pid, locked: lockedPID, launcher: pid.map(isFilesHostLauncher) ?? false))
+    }
+
+    /// Quit stopped it for good.
+    public var isStopped: Bool { state.stopped == true }
+
+    /// Whether a host process is watched now.
+    public var isWatching: Bool { source != nil || state.restarting == true }
+
+    /// Quit: the brain stops on purpose and is not started again.
+    public func stop() {
+        step(WatchEvent(kind: "stop"))
+    }
+
+    /// A launch whose pid the shell did not print leaves nothing to watch until the host takes the
+    /// home's lock, which it does a moment later. So while no host is watched, the kernel says when
+    /// the lock changes and the watch looks again: no polling and no timer.
+    ///
+    /// Two sources, because the host writes its pid into the lock file in place: a modified lock
+    /// raises an event on the **file**, never on the folder that holds it. The folder's event is for
+    /// the lock's first creation on a fresh home. Arming only ever **adds** the source it lacks,
+    /// and a host that is already watched arms nothing.
+    ///
+    /// The tests call this directly. The rules reach it only through a folder change with no
+    /// pending host, so it is the rules' `arm_on_lock` run here: arm, then the `mayHaveHost` read.
+    func armOnLock() {
+        guard state.stopped != true, state.sourcePid == nil else { return }
+        ensureLockSources()
+        guard state.restarting != true, state.sourcePid == nil, let pid = lockedPID else { return }
+        watch(pid)
+    }
+
+    /// One step of `chief_brain.watch_step`; the state is kept before the effects run, since an
+    /// effect may step again. A failed call changes nothing.
+    private func step(_ event: WatchEvent) {
+        guard let reply: WatchReply = try? HomeRules.chiefBrain("watch_step", WatchRequest(state: state, event: event))
+        else { return }
+        state = reply.state
+        for effect in reply.effects { run(effect) }
+    }
+
+    private func run(_ effect: WatchEffect) {
+        switch effect.kind {
+        case "cancelExitSource":
+            source?.cancel()
+            source = nil
+        case "armExitSource":
+            if let pid = effect.pid { armExitSource(pid) }
+        case "ensureLockSources":
             ensureLockSources()
-            if let host = lockedHost(startedBy: pid) {
-                cancelLockSources()
-                guard host == pid else {
-                    watch(host)
-                    return
-                }
+        case "cancelLockSources":
+            cancelLockSources()
+        case "readLock":
+            step(WatchEvent(kind: "lockRead", locked: lockedPID))
+        case "report":
+            watching?(effect.pid)
+        case "restart":
+            restartHost()
+        case "terminate":
+            if let pid = effect.pid { kill(pid, SIGTERM) }
+        case "log":
+            let message = effect.message ?? ""
+            if effect.level == "error" {
+                logger.error("\(message, privacy: .public)")
             } else {
-                pendingLockPID = pid
+                logger.info("\(message, privacy: .public)")
             }
+        default:
+            logger.error("chief brain watch: unknown effect \(effect.kind, privacy: .public)")
         }
-        setWatched(pid)
+    }
+
+    private func armExitSource(_ pid: pid_t) {
+        source?.cancel()
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         weak let weakSelf = self
         source.setEventHandler {
@@ -123,43 +150,6 @@ public final class ChiefBrainWatch {
         source.resume()
         // An exit before the source was armed raises no event.
         if kill(pid, 0) != 0, errno == ESRCH { exited(pid) }
-    }
-
-    /// Quit stopped it for good.
-    public var isStopped: Bool { stopped }
-
-    /// Whether a host process is watched now.
-    public var isWatching: Bool { source != nil || restarting }
-
-    /// Quit: the brain stops on purpose and is not started again.
-    public func stop() {
-        stopped = true
-        source?.cancel()
-        source = nil
-        cancelLockSources()
-        setWatched(nil)
-    }
-
-    /// A launch whose pid the shell did not print leaves nothing to watch until the host takes the
-    /// home's lock, which it does a moment later. So while no host is watched, the kernel says when
-    /// the lock changes and the watch looks again: no polling and no timer.
-    ///
-    /// Two sources, because the host writes its pid into the lock file in place (optchat-chief's
-    /// `lock.rs` truncates it and writes, and never removes the file): a modified lock raises an
-    /// event on the **file**, never on the folder that holds it. The folder's event is for the
-    /// lock's first creation on a fresh home, where there is no file to watch yet; it arms again,
-    /// which then adds the file. They end when a host is watched and at ``stop()``, and a reader
-    /// of the brain's liveness (Home's default Chief) hears the host through ``Watching``.
-    ///
-    /// Arming only ever **adds** the source it lacks, and a host that is already watched arms
-    /// nothing: cancelling the folder source to reopen it would leave a window where a lock
-    /// created in it raises no event, and a folder event that the main actor runs after
-    /// ``watch(_:)`` found a host must not open these descriptors again for that host's lifetime.
-    func armOnLock() {
-        guard !stopped, source == nil else { return }
-        ensureLockSources()
-        // The host may have taken the lock between the read that found none and this arming.
-        lockMayHaveAHost()
     }
 
     /// Opens the lock file's source and the state folder's, each only when it is missing.
@@ -176,32 +166,11 @@ public final class ChiefBrainWatch {
         }
     }
 
-    /// The lock, or the folder holding it, changed.
-    ///
-    /// The lock read runs here on the main actor, as it does in ``watch(_:)`` and ``exited(_:)``:
-    /// it is one line of a small local file plus a `proc_pidpath`, once per lock change, and these
-    /// sources exist only while no host is watched, so there is no stream of events to read on. Off
-    /// the main actor it would need a generation check, and `isChiefHost` to cross isolation; Home's
-    /// own repeated reads are the ones that go off it (``HomeService/localChiefRuns(_:canStart:gaveUp:)``).
+    /// The lock, or the folder holding it, changed. The lock read it may need runs on the main
+    /// actor: one line of a small local file plus a `proc_pidpath`, once per lock change.
     private func lockChanged(folder: Bool) {
-        guard !stopped else { return }
-        guard let pending = pendingLockPID else {
-            // A folder change may be the lock's creation: arm again, which adds the file.
-            if folder { armOnLock() } else { lockMayHaveAHost() }
-            return
-        }
-        // A host is watched, but its lock did not name it yet. Once it does, a reader that reads
-        // the lock (Home's default Chief) hears it; the pid has not changed, so ``setWatched`` would
-        // drop it and `watching` is told directly.
-        //
-        // The arming comes first: a lock created empty is read as naming nobody, and the pid the
-        // host writes a moment later would raise its event on a file source that did not exist yet.
-        if folder { ensureLockSources() }
-        guard let host = lockedHost(startedBy: pending) else { return }
-        cancelLockSources()
-        // The launch's own pid: tell the reader directly. A host the helper's launcher started:
-        // watch it, which tells the reader through ``setWatched``.
-        if host == pending { watching?(pending) } else { watch(host) }
+        guard state.stopped != true else { return }
+        step(WatchEvent(kind: "lockChanged", folder: folder))
     }
 
     /// One `.write` source on `url`, or nil when it cannot be opened (no such file yet).
@@ -229,70 +198,85 @@ public final class ChiefBrainWatch {
     }
 
     private func cancelLockSources() {
-        pendingLockPID = nil
         lockFileSource?.cancel()
         lockFileSource = nil
         lockFolderSource?.cancel()
         lockFolderSource = nil
     }
 
-    /// The home's lock changed while nothing was watched: watch the host that holds it now, if one
-    /// does. ``watch(_:)`` cancels these sources once it has a host.
-    private func lockMayHaveAHost() {
-        guard !stopped, !restarting, source == nil,
-              let pid = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else { return }
-        watch(pid)
-    }
-
-    /// The watched host changed: `watching` hears it once per change, so a
-    /// reader of the brain's liveness (Home's default Chief) follows a host
-    /// that started or died without asking for it.
-    private func setWatched(_ pid: pid_t?) {
-        guard watchedPID != pid else { return }
-        watchedPID = pid
-        watching?(pid)
+    private var shutdownMarkerExists: Bool {
+        // concurrency-allow: one small stat at a brain exit or after a restart
+        FileManager.default.fileExists(atPath: home.shutdownMarker.path)
     }
 
     private func exited(_ pid: pid_t) {
-        // One event per watched process: a late event of an older watch, or a
-        // second report of the same exit, does nothing.
-        guard !stopped, !restarting, pid == watchedPID else { return }
-        setWatched(nil)
-        source?.cancel()
-        source = nil
-        if let other = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost), other != pid {
-            logger.info("chief brain \(pid, privacy: .public) exited; host \(other, privacy: .public) holds the lock")
-            watch(other)
-            return
-        }
-        // concurrency-allow: one small stat at a brain exit
-        if FileManager.default.fileExists(atPath: home.shutdownMarker.path) {
-            logger.info("chief brain \(pid, privacy: .public) stopped by cmux chief shutdown; not restarting until asked")
-            return
-        }
-        let now = clock.now
-        deaths = deaths.filter { now - $0 < Self.deathWindow } + [now]
-        guard deaths.count < Self.deathLimit else {
-            hasGivenUp = true
-            logger.error("chief brain exited \(self.deaths.count, privacy: .public) times within a minute; not restarting until asked again")
-            return
-        }
-        logger.info("chief brain \(pid, privacy: .public) exited; starting it again")
-        restarting = true
+        // The rules drop a late event of an older watch, or a second report of the same exit.
+        guard state.stopped != true, state.restarting != true, pid == state.watchedPid else { return }
+        let nowMs = Double((clock.now - origin) / .milliseconds(1))
+        step(WatchEvent(kind: "exited", pid: pid, locked: lockedPID, shutdownMarker: shutdownMarkerExists, nowMs: nowMs))
+    }
+
+    private func restartHost() {
         // task-owner: one restart; ends when the host is started
         Task { [weak self] in
             guard let self else { return }
             let next = await restart()
-            restarting = false
-            // Quit, or `cmux chief shutdown`, came while it started: this
-            // host must not outlive it.
-            // concurrency-allow: one small stat after a restart
-            let shutdown = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
-            if stopped || shutdown, let next, isChiefHost(next) || ChiefHostStop.isFilesHostLauncher(next) {
-                kill(next, SIGTERM)
-                return
-            }
-            watch(next)
+            let shutdown = shutdownMarkerExists
+            // Quit, or `cmux chief shutdown`, came while it started: this host must not outlive it.
+            let nextIsHost = (state.stopped == true || shutdown)
+                && next.map { isChiefHost($0) || ChiefHostStop.isFilesHostLauncher($0) } == true
+            step(WatchEvent(kind: "restarted", locked: lockedPID, launcher: next.map(isFilesHostLauncher) ?? false,
+                            shutdownMarker: shutdown, next: next, nextIsHost: nextIsHost))
         }
     }
+}
+
+/// `chief_brain::watch::WatchState`; every field is defaulted on the Rust side.
+private nonisolated struct WatchState: Codable {
+    nonisolated struct ReadFor: Codable {
+        var kind: String
+        var pid: Int32?
+        var launcher: Bool?
+    }
+
+    var stopped: Bool?
+    var restarting: Bool?
+    var hasGivenUp: Bool?
+    var sourcePid: Int32?
+    var watchedPid: Int32?
+    var pendingLockPid: Int32?
+    var pendingLauncher: Bool?
+    var deathsMs: [Double]?
+    var readFor: ReadFor?
+}
+
+/// `chief_brain::watch::WatchEvent`, flat: `kind` names the case.
+private nonisolated struct WatchEvent: Encodable {
+    var kind: String
+    var pid: Int32?
+    var locked: Int32?
+    var launcher: Bool?
+    var folder: Bool?
+    var shutdownMarker: Bool?
+    var nowMs: Double?
+    var next: Int32?
+    var nextIsHost: Bool?
+}
+
+/// `chief_brain::watch::WatchEffect`, flat.
+private nonisolated struct WatchEffect: Decodable {
+    var kind: String
+    var pid: Int32?
+    var level: String?
+    var message: String?
+}
+
+private nonisolated struct WatchRequest: Encodable {
+    var state: WatchState
+    var event: WatchEvent
+}
+
+private nonisolated struct WatchReply: Decodable {
+    var state: WatchState
+    var effects: [WatchEffect]
 }

@@ -43,6 +43,8 @@ thread_local! {
     /// Tests: the metadata bytes this thread's saves wrote (parts files, `session.json` by
     /// `LocalStore::save`, journal `meta` records), for the before and after of a save's cost.
     pub(crate) static WRITTEN: Cell<u64> = const { Cell::new(0) };
+    /// Tests: the parts this thread hashed for a fingerprint, in bytes.
+    pub(crate) static HASHED: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Counts `n` bytes in [`WRITTEN`] (no-op outside tests).
@@ -158,6 +160,8 @@ pub(super) fn fingerprint(meta: &SessionMeta) -> String {
     // A writer that never fails: an error here is a value that does not serialize, which the
     // metadata's own write reports.
     let _ = serde_json::to_writer(&mut hash, &hashed);
+    #[cfg(test)]
+    HASHED.with(|h| h.set(h.get().saturating_add(hash.1)));
     format!("{:016x}{:x}", hash.0, hash.1)
 }
 
@@ -194,19 +198,45 @@ fn stamp_metadata(meta: &std::fs::Metadata) -> Stamp {
 /// stamp then. A save whose parts have that fingerprint, with that same file there, writes none.
 #[derive(Default)]
 pub struct PartsMemo {
-    seen: Mutex<HashMap<String, (String, Option<Stamp>)>>,
+    seen: Mutex<HashMap<String, Seen>>,
+}
+
+#[derive(Clone)]
+struct Seen {
+    fingerprint: String,
+    stamp: Option<Stamp>,
+    /// The parts `fingerprint` was computed from, when this run computed it: the chat's own
+    /// shared copies, held so an edit of either detaches it (`Arc::make_mut` of a shared copy)
+    /// and is a different copy, never the same one changed in place. A save whose parts are these
+    /// copies has this fingerprint without hashing them again: before, every save of a chat
+    /// serialized its commands and tool rows (up to ~1 MB) only to hash them, the same bytes each
+    /// turn (sessions-2000-attached, `write_snapshot`).
+    from: Option<(Option<SharedValue>, SharedRows)>,
+}
+
+impl Seen {
+    fn made_from(&self, meta: &SessionMeta) -> bool {
+        self.from.as_ref().is_some_and(|(commands, rows)| {
+            rows.shares(&meta.tools.rows)
+                && match (commands, &meta.available_commands) {
+                    (Some(had), Some(has)) => had.shares(has),
+                    (None, None) => true,
+                    _ => false,
+                }
+        })
+    }
 }
 
 impl PartsMemo {
-    fn get(&self, id: &str) -> Option<(String, Option<Stamp>)> {
+    fn get(&self, id: &str) -> Option<Seen> {
         self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned()
     }
 
-    fn set(&self, id: &str, fingerprint: String, stamp: Option<Stamp>) {
+    fn set(&self, id: &str, seen: Seen) {
         self.seen
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(id.to_owned(), (fingerprint, stamp));
+            .insert(id.to_owned(), seen);
     }
 
     /// Forgets `id` (a store that wrote nothing it can vouch for).
@@ -214,20 +244,38 @@ impl PartsMemo {
         self.seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(id);
     }
 
+    /// `meta`'s parts' fingerprint: hashed only when its parts are not the copies the memo last
+    /// hashed for this chat.
+    pub fn fingerprint(&self, meta: &SessionMeta) -> String {
+        match self.get(&meta.id) {
+            Some(seen) if seen.made_from(meta) => seen.fingerprint,
+            _ => fingerprint(meta),
+        }
+    }
+
     /// Writes `dir`'s parts file for `meta` unless it holds these parts already; the fingerprint
-    /// for the split `session.json`. One `lstat` when nothing changed.
+    /// for the split `session.json`. One `lstat` when nothing changed, and no hash of the parts
+    /// when they are the copies the last save had.
     pub fn write(&self, dir: &Path, meta: &SessionMeta) -> Result<String> {
-        let fingerprint = fingerprint(meta);
+        let known = self.get(&meta.id);
+        let fingerprint = match &known {
+            Some(seen) if seen.made_from(meta) => seen.fingerprint.clone(),
+            _ => fingerprint(meta),
+        };
+        let from = Some((meta.available_commands.clone(), meta.tools.rows.clone()));
         let path = dir.join(PARTS_FILE);
         let now = stamp(&path);
-        if let Some((seen, at)) = self.get(&meta.id)
-            && seen == fingerprint
-            && at == now
+        if let Some(seen) = known
+            && seen.fingerprint == fingerprint
+            && seen.stamp == now
         {
+            if seen.from.is_none() {
+                self.set(&meta.id, Seen { fingerprint: fingerprint.clone(), stamp: now, from });
+            }
             return Ok(fingerprint);
         }
         if !has_parts(meta) && now.is_none() {
-            self.set(&meta.id, fingerprint.clone(), None);
+            self.set(&meta.id, Seen { fingerprint: fingerprint.clone(), stamp: None, from });
             return Ok(fingerprint);
         }
         let out = PartsOut {
@@ -238,7 +286,7 @@ impl PartsMemo {
         let bytes = serde_json::to_vec(&out)?;
         crate::config::write_atomic(&path, &bytes)?;
         note_written(bytes.len());
-        self.set(&meta.id, fingerprint.clone(), stamp(&path));
+        self.set(&meta.id, Seen { fingerprint: fingerprint.clone(), stamp: stamp(&path), from });
         Ok(fingerprint)
     }
 
@@ -247,7 +295,7 @@ impl PartsMemo {
     /// wrote or read this chat's already, which a newer save then owns. The mark's fingerprint.
     pub fn ensure(&self, dir: &Path, meta: &SessionMeta) -> Result<String> {
         match self.get(&meta.id) {
-            Some((fingerprint, _)) => Ok(fingerprint),
+            Some(seen) => Ok(seen.fingerprint),
             None => self.write(dir, meta),
         }
     }
@@ -308,7 +356,8 @@ impl PartsMemo {
         };
         meta.available_commands = parts.available_commands;
         meta.tools.rows = parts.tool_rows;
-        self.set(&meta.id, parts.fingerprint, at);
+        // The file's own fingerprint; the next save hashes what it read once.
+        self.set(&meta.id, Seen { fingerprint: parts.fingerprint, stamp: at, from: None });
     }
 }
 

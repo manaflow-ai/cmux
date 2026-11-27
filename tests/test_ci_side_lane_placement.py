@@ -1579,8 +1579,6 @@ class GatewayRoute(unittest.TestCase):
             values = env(SIDE_LABEL=LIGHT_SIDE, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
                          GITHUB_REPOSITORY="manaflow-ai/cmux", **overrides)
             free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
-            # #55061 reads the live build fleet's queue p90 (FLEET_CONTROLLER): unread here, so a busy fleet
-            # on the runner's network does not drop the fast tier's listing.
             with mock.patch.object(placement.pool, "GitHub") as github, \
                     mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
                     mock.patch.object(placement, "fleet_queue_p90", return_value=None), \
@@ -1970,7 +1968,7 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready",
-                                                            # #57329: the jobs read the PR's live labels here.
+                                                            # The PR's live labels (#57329), as path_route exports them.
                                                             "labels": ",full-ci,",
                                                             # The generated-files job runs here, for its own label.
                                                             "generated_host": "generated-files"}},
@@ -2030,8 +2028,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(name):
                 context = self.context(attempt=attempt, fork=fork)
                 context["github"]["event"]["pull_request"]["labels"] = labels
-                # #57329: the jobs read path_route's live labels (",a,b,"), not the event's.
-                context["needs"]["path_route"]["outputs"]["labels"] = f",{','.join(l['name'] for l in labels)},"
+                context["needs"]["path_route"]["outputs"]["labels"] = "," + ",".join(l["name"] for l in labels) + ","
                 context["github"]["event_name"] = event_name
                 self.assertEqual(evaluate(expression, context), want)
         idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
@@ -2591,10 +2588,9 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run takes
-    cmux-mac behind vars.CI_OVERFLOW_MAC; a fork pull request keeps Blacksmith macOS."""
+    """Host-only checks use the shared Mac pool on same-repository runs and an ephemeral Mac on forks."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"), ("pr-pipeline.yml", "ios-macos"))
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:

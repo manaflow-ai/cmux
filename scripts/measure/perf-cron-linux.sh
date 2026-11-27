@@ -78,7 +78,10 @@ case "$part" in
     # (scripts/ci/run-webviews-tests.sh does the same on these workers).
     playwright_version="$(cd webviews && python3 -I -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2>/dev/null || echo unknown)"
     export PLAYWRIGHT_BROWSERS_PATH="$cache/playwright-$playwright_version"
-    (cd webviews && ./node_modules/.bin/playwright install webkit) 2>&1 | tee -a "$setup_log" || setup_yield "playwright webkit"
+    # --with-deps: a fresh pool worker lacks WebKit's system libraries (libavif, libmanette, libenchant ...), and the
+    # composer-typing bench exited 1 on "Host system is missing dependencies" (step 82df1fc7c16a5ae083bacd8b,
+    # 2026-11-26); react-apps-check-fleet.sh and the nightly workflow install the same way.
+    (cd webviews && ./node_modules/.bin/playwright install --with-deps webkit) 2>&1 | tee -a "$setup_log" || setup_yield "playwright webkit"
     # Required, as on the runner job (its "Install Playwright" step).
     chrome_out="$(cd webviews && "$root/scripts/ci/ensure-system-chrome.sh" 2>>"$setup_log")" || setup_yield "system Chrome"
     printf '%s\n' "$chrome_out"

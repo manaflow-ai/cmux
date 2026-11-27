@@ -98,6 +98,7 @@ import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices, cloudPickChoices, rememberCloudPick } from "./startedProject";
 import { callNative } from "../callNative";
 import {
+  attachedRows,
   exactMatch,
   canonicalAddress,
   defaultSelection,
@@ -141,6 +142,7 @@ import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
+import { useEmojiCompletion } from "../composer/useEmojiCompletion";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "../savedPrompts";
 import { NEW_TAB_STASH } from "../composer/draftStash";
 import { StashedChip } from "../composer/StashedChip";
@@ -792,7 +794,7 @@ export function NewTabScreen(props: Props) {
   }, []);
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = () => fieldElement()?.closest(".nt-box") ?? null;
-  const submitNow = useRef((_beside?: boolean) => {});
+  const submitNow = useRef((_beside?: boolean, _heldForFiles?: boolean) => {});
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
@@ -1345,6 +1347,9 @@ export function NewTabScreen(props: Props) {
   const menuWord = menuQuery === undefined ? undefined : `${atOpen ? "@" : (commandAt?.mark ?? "/")}${menuQuery}`;
   if (commandArrowedAt !== undefined && (!commandsOpen || menuWord !== commandArrowedAt))
     setCommandArrowedAt(undefined);
+  // The chat composer's `:` emoji list, the same lifecycle (composer/useEmojiCompletion.tsx). Leo,
+  // 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here."
+  const emoji = useEmojiCompletion({ field, off: shell || commandsOpen || profilePick !== undefined });
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
   const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
@@ -1480,10 +1485,14 @@ export function NewTabScreen(props: Props) {
   // title too): Return still goes there.
   const exactRow = exactMatch(typed.trim(), suggested, omnibar);
   // An address (a path, a URL) is never a prompt: its rows stay whatever the text names.
-  const offered =
-    toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home) && !profilePick
-      ? suggested.filter((row) => row.type === "ask" || row === exactRow)
-      : suggested;
+  // Staged files (or files still reading) go to an agent: only the Ask rows stay (screenModel attachedRows).
+  const offered = profilePick
+    ? suggested
+    : attachments.length > 0 || reading.length > 0
+      ? attachedRows(suggested)
+      : toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home)
+        ? suggested.filter((row) => row.type === "ask" || row === exactRow)
+        : suggested;
   const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
@@ -1652,6 +1661,13 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // The emoji table loads when the field is first focused (idle), so a first paste converts too.
+  const requestEmoji = emoji.request;
+  useEffect(() => {
+    if (!box) return;
+    box.addEventListener("focusin", requestEmoji);
+    return () => box.removeEventListener("focusin", requestEmoji);
+  }, [box, requestEmoji]);
   // Focus-visible in the box (focusVisibleMark.ts), the box's own state: the box, the composer around
   // it and the suggestions' popover read it as `data-focused` (and the popover's `nt-popover-focused`,
   // a class since Popover takes no attributes), never a `body:has(.nt-box :focus-visible)` checked
@@ -1816,6 +1832,7 @@ export function NewTabScreen(props: Props) {
   };
   const edit = (next: string) => {
     touch();
+    emoji.request();
     setTouched(true);
     // The profile search's text names a profile: no shell mode, no prompt to warm an agent for.
     if (profilePick) {
@@ -1842,7 +1859,12 @@ export function NewTabScreen(props: Props) {
     );
   };
   /// Return on the field; `beside` is Option-Return (an address or search opens as a new tab).
-  const submit = (beside = false) => {
+  /// `heldForFiles`: the send that waited for files still reading (below).
+  const submit = (beside = false, heldForFiles = false) => {
+    // Return pressed while files read saw only the Ask rows (attachedRows). Files removed before they
+    // settle leave the full rows, whose top can be a command or an address: that send is dropped, and
+    // the draft stays.
+    if (heldForFiles && attachments.length === 0 && reading.length === 0) return;
     // A dictation session still running ends first, keeping its words; this goes once they land.
     if (listening && props.dictation && !dictationEnded.current) {
       // The session is over even if this render has not heard so yet.
@@ -1873,7 +1895,7 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     if (!shell && !navigates && holdsSend(prompt)) return;
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
-    if (holdForAttachments(() => resumeSend(() => submitNow.current(beside)))) return;
+    if (holdForAttachments(() => resumeSend(() => submitNow.current(beside, true)))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
@@ -2177,6 +2199,8 @@ export function NewTabScreen(props: Props) {
         return;
       }
     }
+    // The emoji list owns arrows, Return, Tab and Esc while it shows, as in the chat composer.
+    if (emoji.keyDown(event)) return;
     if (isStashKey(event) && !shell) {
       event.preventDefault();
       toggleStash();
@@ -2194,12 +2218,15 @@ export function NewTabScreen(props: Props) {
       }
       return;
     }
-    const placed = new Set(input.inlineIds());
-    const backspaced = backspacedAttachment(
-      event,
-      input.atStart(),
-      attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-    );
+    // In the inline view only: the strip's attachments go by their × (ComposerBox's Backspace).
+    const placed = attachmentView === "strip" ? undefined : new Set(input.inlineIds());
+    const backspaced = placed
+      ? backspacedAttachment(
+          event,
+          input.atStart(),
+          attachments.filter((chip) => !placed.has(chip.id)),
+        )
+      : undefined;
     if (backspaced) {
       event.preventDefault();
       inline.remove(backspaced.id);
@@ -2930,17 +2957,21 @@ export function NewTabScreen(props: Props) {
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
-          {commandsOpen && (
+          {(commandsOpen || emoji.menu) && (
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
-                <SlashMenu
-                  mark={atOpen ? "@" : (commandAt?.mark ?? "/")}
-                  matches={menuMatches}
-                  active={commandIndex}
-                  empty={t("composer.noMatchingCommands")}
-                  onHover={setCommandActive}
-                  onPick={pickCommand}
-                />
+                {commandsOpen ? (
+                  <SlashMenu
+                    mark={atOpen ? "@" : (commandAt?.mark ?? "/")}
+                    matches={menuMatches}
+                    active={commandIndex}
+                    empty={t("composer.noMatchingCommands")}
+                    onHover={setCommandActive}
+                    onPick={pickCommand}
+                  />
+                ) : (
+                  emoji.menu
+                )}
               </ComposerListLayer>
             </ComposerListAnchor>
           )}
@@ -3029,7 +3060,11 @@ export function NewTabScreen(props: Props) {
                   setReadyField(field.current);
                 }}
                 onBeforeInput={(data, state) =>
-                  !shell && state.paste && !state.composing ? pastedChips.take(data) : false
+                  shell
+                    ? false
+                    : state.paste && !state.composing
+                      ? pastedChips.take(data)
+                      : emoji.beforeInput(data, state)
                 }
                 onCaret={() => {
                   const current = field.current;
@@ -3055,25 +3090,30 @@ export function NewTabScreen(props: Props) {
                 onFirstInput={touch}
                 slashNames={commandNames}
                 onSlash={setCommandTrigger}
+                onEmoji={emoji.onEmoji}
+                transformPaste={shell ? undefined : emoji.transformPaste}
                 onInlineViews={!shell ? inline.onInlineViews : undefined}
                 isInlineAttachment={!shell ? inline.known : undefined}
+                inlineHidden={attachmentView === "strip"}
                 attributes={{
                   [WEB_SWAP_KEPT_TEXT]: "",
                   "data-focus-ring": "none",
                   "aria-label": shell ? t("composer.shell") : placeholder,
                   "data-dictation-listening": dictating && !shell ? "" : undefined,
-                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
+                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : emoji.at ? "acpmux-emoji-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current]
-                      ? `nt-row-${current}`
-                      : undefined,
+                    : emoji.at
+                      ? `acpmux-emoji-${emoji.selected}`
+                      : rows[current]
+                        ? `nt-row-${current}`
+                        : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off
                   // while the slash list shows, as in the chat composer.
-                  spellcheck: spellChecking && !shell && !commandsOpen ? "true" : "false",
+                  spellcheck: spellChecking && !shell && !commandsOpen && !emoji.at ? "true" : "false",
                   autocapitalize: "off",
                   autocorrect: "off",
-                  writingsuggestions: commandsOpen ? "false" : undefined,
+                  writingsuggestions: commandsOpen || emoji.at ? "false" : undefined,
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages

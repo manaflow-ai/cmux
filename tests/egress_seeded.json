@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 31,
+ "todo_max": 22,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
@@ -45,7 +45,7 @@
    "test": "cmux-tui/crates/cmux-coderouter/tests/seeded_secret.rs::the_scoped_key_stays_local_and_the_bearer_rides_only_in_authorization"
   },
   "cmux_git_cache::server": {
-   "none": "the fleet's git and crates cache server, not the app: it fetches what its git and cargo clients ask for from the upstreams its operator configured (--upstream, --edge, --peer, --crates-index, --crates-dl), passing on only each client's own request and credential; it adds no secret of its own"
+   "test": "cmux-tui/crates/cmux-git-cache/tests/seeded_secret.rs::the_callers_credential_rides_only_in_authorization_to_github"
   },
   "cmux_mobile_host::auth": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
@@ -65,6 +65,9 @@
   "cmux_mobile_link::signaling": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::signaling_upgrade_sends_the_token_only_in_authorization"
   },
+  "cmux_no_checkout::github": {
+   "test": "cmux-tui/crates/cmux-no-checkout/src/github_seeded_tests.rs::the_token_rides_only_in_authorization"
+  },
   "cmux_projection::peers": {
    "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_seed_token_rides_only_in_authorization"
   },
@@ -72,31 +75,34 @@
    "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_s3_secret_key_never_leaves_only_its_signature_does"
   },
   "cmux_server::cloud_http_transport": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-server/tests/seeded_secret.rs::the_poster_sends_its_bearer_only_in_authorization"
   },
   "cmux_server::pairing::network": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-server/tests/seeded_secret.rs::pairing_sends_the_collect_secret_only_in_the_wait_protocol"
   },
   "cmux_server::store::fetch": {
-   "todo": true
+   "none": "header-less GETs of the signed channel's manifest, signature and package URLs (HttpsFetcher::open sets no auth, cookie or custom header): the request carries no person data"
   },
   "cmux_session_cloud::store": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-session-cloud/tests/seeded_secret.rs::a_chat_goes_out_sealed_and_the_credential_only_in_authorization"
   },
   "cmux_stack_auth::wire": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-stack-auth/tests/seeded_secret.rs::each_token_and_address_rides_only_where_its_call_needs_it"
   },
   "cmux_tailnet::localapi": {
-   "todo": true
+   "none": "the node's own LocalAPI, plain http to the 127.0.0.1 port tsnet serves in this process (the gate classes it Local, capture never redirects it): its password never leaves the machine"
   },
   "cmux_tui::carrier::adopt": {
-   "todo": true
+   "none": "a header-less GET of the signed machine channel file (CHANNEL_URL), no auth, no redirect: the request carries no person data"
   },
   "cmux_tui::carrier::answer": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_carrier_source_sends_its_bearer_and_team_only_in_their_headers"
   },
   "cmux_tui::carrier::tunnel": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
+  },
+  "cmux_tui::cli::api_tokens": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
@@ -121,6 +127,9 @@
   },
   "cmux_tui::cli::customize::pr": {
    "todo": true
+  },
+  "cmux_tui::cli::device_login": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/device_login_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::ext::share": {
    "todo": true

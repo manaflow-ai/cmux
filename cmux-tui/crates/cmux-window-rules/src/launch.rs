@@ -202,6 +202,76 @@ pub fn landing(facts: &LandingFacts) -> Landing {
     }
 }
 
+/// The relaunch's front saved window, as the app reads it off its record and the live tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FrontFacts {
+    /// The window's top page (`home`, `settings`, `history`); None on a workspace.
+    pub page: Option<String>,
+    /// The workspace it showed.
+    pub workspace: Option<String>,
+    /// Its focused pane in that workspace, and the tab that pane showed.
+    pub pane: Option<String>,
+    pub tab: Option<String>,
+    /// That workspace in the live tree; None when the daemon lacks it.
+    pub live: Option<FrontLive>,
+}
+
+/// The front window's workspace in the live tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FrontLive {
+    /// The home workspace (either kind).
+    pub home: bool,
+    /// The saved tab in the saved pane, when the tree lists it.
+    pub tab: Option<SavedTab>,
+}
+
+/// The saved tab as the live tree lists it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SavedTab {
+    pub dead: bool,
+    /// The daemon relaunches it (its process ended after a reboot).
+    pub relaunch: bool,
+}
+
+/// [`landing`] for the relaunch's front saved window: its top page Home, or the home workspace, is
+/// Home; else its workspace and the tab its focused pane showed (a tab whose process ended is
+/// `Ended`: the daemon relaunches it). None for a window on another top page (Settings, History),
+/// which reopens on that page as saved.
+pub fn front_landing(facts: &FrontFacts) -> Option<Landing> {
+    if facts.page.as_deref().is_some_and(|page| page != "home") {
+        return None;
+    }
+    let (None, Some(workspace)) = (&facts.page, &facts.workspace) else {
+        let last = if facts.page.is_none() { LastFront::Nothing } else { LastFront::Home };
+        return Some(landing(&LandingFacts {
+            last,
+            workspace_live: false,
+            tab: TabStanding::Gone,
+        }));
+    };
+    if facts.live.as_ref().is_some_and(|live| live.home) {
+        return Some(landing(&LandingFacts {
+            last: LastFront::Home,
+            workspace_live: true,
+            tab: TabStanding::Gone,
+        }));
+    }
+    let tab = match facts.live.as_ref().and_then(|live| live.tab) {
+        Some(saved) if saved.dead || saved.relaunch => TabStanding::Ended,
+        Some(_) => TabStanding::Live,
+        None => TabStanding::Gone,
+    };
+    let last = LastFront::Workspace {
+        workspace: workspace.clone(),
+        pane: facts.pane.clone(),
+        tab: facts.tab.clone(),
+    };
+    Some(landing(&LandingFacts { last, workspace_live: facts.live.is_some(), tab }))
+}
+
 /// A relaunch's Home landing for a saved workspace the daemon lacks (`HomeWhy::UnknownWorkspace`) that Home's
 /// workspace was not listed for yet when the restore ended: the app asks again each time what it reads changes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
