@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_BOOT_LIMIT, oversizedBoot } from "../scripts/cmux-vm-image/probes";
+import { BASE_BOOT_LIMIT, oversizedBoot } from "../scripts/cmux-vm-image/boot-size";
 
 // smoke.ts boots-at-base-size: a clone of the image, read before the resize probe grows it, is at most the chat start
 // size. An image whose snapshot carries a grown builder's size would boot every default create larger than asked.
