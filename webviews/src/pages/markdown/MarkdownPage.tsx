@@ -31,6 +31,22 @@ const LinkOverlayHost = lazy(() => import("./linkOverlays").then((module) => ({ 
 // The Reading Settings popover loads on its first open.
 const ReadingSettings = lazy(() => import("./ReadingSettings").then((module) => ({ default: module.ReadingSettings })));
 
+/**
+ * Keeps `--md-pane-width` on the pane (`.md-scroll`) at its width without its scrollbar: the wide
+ * table breakout (styles.css) reaches to it. It replaced a size container (`container-type`, 100cqw),
+ * which laid out the whole document on every keystroke (90 ms at 10,000 lines). Written when the
+ * pane mounts, before its first paint, and in the observer's callback, which runs before the paint
+ * of the frame that resized it. The pane is not the viewport in a split, so not 100vw.
+ */
+function paneWidth(element: HTMLElement | null): (() => void) | void {
+  if (!element) return;
+  const write = (width: number) => element.style.setProperty("--md-pane-width", `${width}px`);
+  write(element.clientWidth);
+  const observer = new ResizeObserver(([entry]) => entry && write(entry.contentRect.width));
+  observer.observe(element);
+  return () => observer.disconnect();
+}
+
 export interface MarkdownPageProps {
   store: MarkdownStore;
   strings: Strings;
@@ -241,7 +257,7 @@ export function MarkdownPage({
       {outline && state.mode === "rich" && state.phase === "ready" ? (
         <OutlineRail outline={outline} strings={strings} />
       ) : null}
-      <main className="md-scroll">
+      <main className="md-scroll" ref={paneWidth}>
         <div className="md-doc selectable" ref={editorRef} hidden={state.mode !== "rich"} />
         {state.mode === "source" ? (
           <SourceEditor

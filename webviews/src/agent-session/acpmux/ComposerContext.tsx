@@ -30,6 +30,9 @@ import {
   withCloudMachines,
   withCloudSleep,
   type CloudMachine,
+  currentCloudLastSeenAt,
+  freshCloudMachine,
+  useCloudLastSeenAt,
 } from "./cloudMachines";
 import {
   environmentReady,
@@ -43,6 +46,7 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  type PeerGroup,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
@@ -139,6 +143,7 @@ const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_GROUPS: Record<string, PeerGroup> = {};
 const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
@@ -155,6 +160,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerGroups = NO_PEER_GROUPS,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -222,6 +228,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's group (`AcpmuxSnapshot.peerGroups`): an agent machine is behind the picker's Agent
+  /// machines list, an own one inline.
+  peerGroups?: Record<string, PeerGroup>;
   /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
   /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
   peerLinks?: Record<string, PeerLinkDetail>;
@@ -380,6 +389,9 @@ export function ComposerContext({
   const pageGitHub = useGitHubPicker();
   const github = githubSeam ?? pageGitHub;
   const shownMachines = cloudMachines ?? accountMachines;
+  // The kept list's age (cloudMachines.ts lastSeenAt): only the app's list has one, never a seam's.
+  const accountLastSeenAt = useCloudLastSeenAt();
+  const cloudLastSeenAt = cloudMachines ? undefined : accountLastSeenAt;
   // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
   const ownName = ownMachineName(summary, localName, peerKinds, route);
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
@@ -399,6 +411,7 @@ export function ComposerContext({
         peerStates,
         peerResources,
         peerLinks,
+        peerGroups,
       ),
       shownMachines,
       newChat,
@@ -417,6 +430,7 @@ export function ComposerContext({
     peerStates,
     peerResources,
     peerLinks,
+    peerGroups,
     ownName,
     newChat,
     shownMachines,
@@ -769,13 +783,22 @@ export function ComposerContext({
   // paused machine is one pick, not a pick, a wait and the same pick again.
   const pickCloudMachine = (id: string, folder?: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
-    if (machine && !readOnly) {
-      onCloudMachinePicked?.(machine);
+    const run = (picked: CloudMachine) => {
+      onCloudMachinePicked?.(picked);
       // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
       if (extraFolders?.draft) extraFolders.onChange(undefined);
-      onCloudMachine(machine);
-      setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder });
+      onCloudMachine(picked);
+      setWaiting({ key: pickKey, id: picked.id, name: picked.name, folder });
       if (folder) onCloudFolderWaiting?.(true);
+    };
+    // A row of the list kept from the last launch (cloudMachines.ts lastSeenAt) never acts on it: one
+    // fresh read first, then the machine as that read lists it; still kept, or gone, does nothing.
+    if (machine && !readOnly) {
+      if (!cloudMachines && currentCloudLastSeenAt() !== undefined)
+        void freshCloudMachine(machine).then((fresh) => {
+          if (fresh) run(fresh);
+        });
+      else run(machine);
     }
     return machine !== undefined;
   };
@@ -974,6 +997,7 @@ export function ComposerContext({
     // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
     // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
+    ...(cloudLastSeenAt !== undefined ? { cloudLastSeenAt } : {}),
     ...(savedRows ? { saved: savedRows } : {}),
     ...(onRefreshMachines ? { onOpen: onRefreshMachines } : {}),
     ...(runMode && !readOnly
@@ -1114,6 +1138,7 @@ export function ComposerContext({
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}
         {...(machineSleep ? { sleep: machineSleep } : {})}
+        {...(machineLive === false && !machineSleep ? { liveWords: t("composer.envNotConnected") } : {})}
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
@@ -1488,6 +1513,7 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
   peerLinks: Record<string, PeerLinkDetail>,
+  peerGroups: Record<string, PeerGroup>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1502,6 +1528,7 @@ function availableComputers(
       detail,
       ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
       ...(downSince !== undefined ? { downSince } : {}),
+      ...(peerGroups[machine.id] ? { group: peerGroups[machine.id] } : {}),
     });
   }
   return computers;
@@ -1604,7 +1631,8 @@ export function LocationFace({
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
   /// The live dot's words for screen readers in place of Connected / Paused (the machine card's
-  /// Awake / Asleep).
+  /// Awake / Asleep). A ring that is neither live nor asleep says only what its caller passes: the
+  /// machine chip passes Not connected once its hold (computerDipSaid) is past.
   liveWords?: string;
   /// The folder chip's state (folderlessCloud.ts), for tests.
   state?: FolderChipState;
@@ -1641,10 +1669,7 @@ export function LocationFace({
       {live !== undefined && sleep !== "resuming" && (
         <span className="acpmux-env-live" data-connected={String(live)} data-sleep={sleep}>
           <span className="acpmux-env-status-text">
-            {liveWords ??
-              t(
-                live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected",
-              )}
+            {liveWords ?? (live ? t("composer.envConnected") : sleep === "paused" ? t("composer.envPaused") : null)}
           </span>
         </span>
       )}
