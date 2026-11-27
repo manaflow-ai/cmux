@@ -10,7 +10,7 @@ import {
 import { browserMutationOriginAllowed } from "@/services/vms/routeHelpers";
 import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 import { LINK_PAGE_PATH, type LinkDeps, type SessionResult, json, personalTeamId, platformBaseUrl, signInRequired } from "./link";
-import { loadAuthorListings } from "./registry";
+import { fetchFreshAuthorListings } from "./registry";
 
 /** Sign-in that comes back to the link page. */
 export const LINK_SIGN_IN_URL = vaultSignInHref(LINK_PAGE_PATH);
@@ -57,6 +57,6 @@ export function linkDeps(): LinkDeps {
     session: resolveLinkSession,
     fetch: (input, init) => fetch(input, init),
     baseUrl: platformBaseUrl(),
-    authorListings: (owner) => loadAuthorListings(owner),
+    authorListings: (owner) => fetchFreshAuthorListings(owner),
   };
 }

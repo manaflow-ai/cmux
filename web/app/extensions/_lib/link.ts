@@ -203,10 +203,10 @@ async function listedRepos(deps: LinkDeps, owners: readonly string[]): Promise<M
   const answers = await Promise.all([...new Set(owners.map((owner) => owner.toLowerCase()))].map((owner) => deps.authorListings(owner)));
   for (const listings of answers) {
     for (const listing of listings ?? []) {
-      if (listing.host !== GITHUB_HOST) continue;
+      if (listing.host !== GITHUB_HOST || listing.path !== "") continue;
       const key = `${listing.owner}/${listing.repo}`.toLowerCase();
-      // The repo root's listing wins over one in a folder.
-      if (!listed.has(key) || listing.path === "") listed.set(key, listing);
+      // This page manages root manifests; folder listings are separate targets.
+      listed.set(key, listing);
     }
   }
   return listed;

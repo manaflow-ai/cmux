@@ -250,8 +250,9 @@ export function parseListingPage(json: unknown, kind: ListingKind = "extension")
 
 const COLLECTION: Record<ListingKind, string> = { extension: "/v1/extensions", setup: "/v1/setups" };
 
-async function registryJson(path: string): Promise<{ status: number; body: unknown }> {
+async function registryJson(path: string, cache?: RequestCache): Promise<{ status: number; body: unknown }> {
   const response = await fetch(`${registryBaseUrl()}${path}`, {
+    cache,
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
@@ -302,7 +303,12 @@ export async function fetchAllListings(kind: ListingKind): Promise<Listing[]> {
 export async function fetchAuthorListings(owner: string, host = GITHUB_HOST): Promise<Listing[]> {
   "use cache";
   cacheLife({ stale: 60, revalidate: 300, expire: 3_600 });
-  const { status, body } = await registryJson(`/v1/authors/${encodeURIComponent(owner)}?${new URLSearchParams({ host })}`);
+  return fetchFreshAuthorListings(owner, host);
+}
+
+/** Management pages need current link/unlink state without the public-page cache. */
+export async function fetchFreshAuthorListings(owner: string, host = GITHUB_HOST): Promise<Listing[]> {
+  const { status, body } = await registryJson(`/v1/authors/${encodeURIComponent(owner)}?${new URLSearchParams({ host })}`, "no-store");
   if (status === 404) return [];
   const items = (body as { items?: unknown } | null)?.items;
   if (!Array.isArray(items)) throw new Error("the registry author has no items");

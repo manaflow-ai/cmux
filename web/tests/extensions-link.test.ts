@@ -157,6 +157,16 @@ describe("link routes: forwarding", () => {
     });
   });
 
+  test("a folder listing does not expose root refresh or unlink actions", async () => {
+    const { deps: d } = deps({
+      "GET /v1/connectors/github/repos": ok({ repos: [{ fullName: "octo-dev/cmux-pomodoro", private: false }] }),
+    }, { listings: { "octo-dev": [{ ...pomodoroListing, path: "plugins/timer", status: "community" }] } });
+    const response = await link.handleRepos(new Request("https://cmux.com/api/extensions/link/repos"), d, SIGN_IN);
+    expect((await response.json()).repos).toEqual([
+      { fullName: "octo-dev/cmux-pomodoro", owner: "octo-dev", name: "cmux-pomodoro" },
+    ]);
+  });
+
   test("link posts the repo and answers its cmux.com page, or the problem keeping it hidden", async () => {
     const { deps: d, calls } = deps({
       "POST /v1/extensions/link": ok({
