@@ -47,6 +47,22 @@ echo "GAMUT host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" m
 # ab: build base and head, run the gamut on each, rounds times, interleaved; print each side's medians.
 ab() {
   local here want side i rc=0 sides=(base head)
+  # A release build writes its detailed log to build-$side.log and can run long enough to trip the
+  # controller's silent-measurement guard. Keep the managed step alive while that log is being written.
+  build_with_heartbeat() {
+    local build_out="$1" build_name="$2" build_config="$3" heartbeat
+    (
+      while sleep 30; do
+        echo "GAMUT build $build_name still-running"
+      done
+    ) &
+    heartbeat=$!
+    build_dmg "$build_out" "$build_name" "$build_config"
+    local build_rc=$?
+    kill "$heartbeat" 2>/dev/null || true
+    wait "$heartbeat" 2>/dev/null || true
+    return "$build_rc"
+  }
   # nightly-fresh-launch.sh's build_dmg, without running its main (as launch-ready.sh sources it).
   sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
   source "$out/nightly-fresh-launch-lib.sh"
@@ -66,7 +82,7 @@ ab() {
     want="$base"; [[ "$side" == head ]] && want="$headsha"
     echo "GAMUT build $side $want"
     git -c advice.detachedHead=false checkout --quiet --detach "$want" || exit 3
-    build_dmg "$out" "$side" release; rc=$?
+    build_with_heartbeat "$out" "$side" release; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || { echo "GAMUT build $side failed (build-$side.log)"; exit "$rc"; }
   done
