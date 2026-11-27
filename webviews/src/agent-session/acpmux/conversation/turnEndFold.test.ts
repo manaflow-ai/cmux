@@ -78,7 +78,7 @@ test("a turn's end drawn with the next prompt and its line still ends the turn",
   ).toBe(true);
   // The next prompt another agent's message, drawn as a line (model.ts `isLineRow`).
   const line: AcpmuxRow = { ...next, incoming: { kind: "message" } as AcpmuxRow["incoming"] };
-  const lineTurn = [
+  const lineTurn: AcpmuxRow[] = [
     { ...row("worked-user-5886", "worked"), turnPhase: "running" },
     line,
     row("activity-5889", "activity"),
