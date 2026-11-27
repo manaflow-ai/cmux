@@ -23,15 +23,23 @@
 # (default 300) it reads each candidate's cmux-tui artifacts runs (pin-cmux-tui.sh runs-state)
 # and then pin-cmux-tui.sh active-publisher <key>, and two answers
 # in a row of "no active cmux-tui artifacts run has this tree" end the wait
-# (an unreadable runs list keeps waiting). An active run counts only while it makes
-# progress (pin-cmux-tui.sh run-progress): a build failed on its last retry attempt, or a job queued with no runner
-# past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is "not building" too. Otherwise it waits up to
+# (an unreadable runs list keeps waiting, for at most CMUX_TUI_TREE_CLIENT_BLIND_SECONDS when set). An active
+# run counts only while it makes progress (pin-cmux-tui.sh run-progress): a build failed on its last retry
+# attempt, a job queued with no runner past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), or a failed
+# build on an attempt before the last (tree-publisher "retrying": a retry re-runs it only once the run ends,
+# and if that retry starts within the two checks the wait goes on) is "not building" too. Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
 # CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20). CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0
 # looks once (the tree, then each candidate's manifest) and exits 1 on a miss
 # without reading any runs list. app-bundle-cmux-tui-client.sh, when it has a fallback tree,
 # waits CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500) here, then bundles the
 # newest published tree on a miss instead of failing (RFD 0021, row 1).
+# CMUX_TUI_TREE_CLIENT_BLIND_SECONDS (default 0: no bound) ends the wait once tree-publisher has
+# answered "unknown" at every check for that long: the CDN looks go on meanwhile, but nothing
+# shows whether a run will publish. app-bundle-cmux-tui-client.sh sets it to 600 when it has a
+# fallback tree (nightly 46048169625, 2026-11-27: the job's GitHub token was out of REST requests
+# from 18:20Z to 18:54Z, every check read "unknown", and the wait sat blind the whole 1500 s on a
+# tree whose run had a failed Linux leg and never published).
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN
@@ -51,7 +59,10 @@ base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 wait_seconds="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-2700}"
 poll_seconds="${CMUX_TUI_TREE_CLIENT_POLL_SECONDS:-20}"
 check_seconds="${CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS:-300}"
+blind_seconds="${CMUX_TUI_TREE_CLIENT_BLIND_SECONDS:-0}"
 [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+[[ "$blind_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_BLIND_SECONDS must be whole seconds" >&2; exit 2; }
+blind_seconds=$((10#$blind_seconds))
 for value in "$poll_seconds" "$check_seconds"; do
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: the CMUX_TUI_TREE_CLIENT_*_SECONDS values must be positive whole seconds" >&2; exit 2; }
 done
@@ -68,6 +79,9 @@ manifest_exists() {
 started=$(date +%s)
 next_check=0
 idle_checks=0
+blind_since=""
+publisher_err="$(mktemp "${TMPDIR:-/tmp}/await-tree-client.XXXXXX")"
+trap 'rm -f "$publisher_err"' EXIT
 while :; do
   rc=0
   out="$(bash "$script_dir/pin-cmux-tui.sh" verify-key "$key" 2>/dev/null)" || rc=$?
@@ -102,23 +116,33 @@ while :; do
     # builds sat queued on Blacksmith while nightly 44243166776 waited blind).
     # pin-cmux-tui.sh tree-publisher is the reading resolve-tree-pending.sh also uses.
     publisher="" stuck=""
-    found="$(bash "$script_dir/pin-cmux-tui.sh" tree-publisher "$key" "$@" 2>/dev/null || echo unknown)"
+    found="$(bash "$script_dir/pin-cmux-tui.sh" tree-publisher "$key" "$@" 2>"$publisher_err" || echo unknown)"
     case "$found" in
       building\ *) publisher="${found#building }" ;;
       stuck\ *) stuck="${found#stuck }" ;;
+      retrying\ *) stuck="${found#retrying }" ;;
       ended|none) ;;
       *) publisher=unknown ;;
     esac
     case "$publisher" in
-      unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
+      unknown)
+        idle_checks=0
+        [[ -n "$blind_since" ]] || blind_since=$elapsed
+        why="$(grep -E 'rate limit|HTTP [0-9]{3}|gave up' "$publisher_err" | tail -1 | cut -c1-300 || true)"
+        echo "the cmux-tui artifacts runs could not all be read for $(( elapsed - blind_since )) s${why:+ ($why)}; waiting on" >&2
+        if (( blind_seconds > 0 && elapsed - blind_since >= blind_seconds )); then
+          echo "error: tree $key is not published, no candidate manifest is uploaded, and its cmux-tui artifacts runs could not be read for $(( elapsed - blind_since )) s (CMUX_TUI_TREE_CLIENT_BLIND_SECONDS=$blind_seconds); not waiting on blind" >&2
+          exit 1
+        fi ;;
       "")
+        blind_since=""
         idle_checks=$(( idle_checks + 1 ))
         if [[ -n "$stuck" ]]; then
           echo "no cmux-tui artifacts run with tree $key is making progress: $stuck (check $idle_checks of 2)" >&2
         else
           echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2
         fi ;;
-      *) idle_checks=0; echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2 ;;
+      *) idle_checks=0; blind_since=""; echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2 ;;
     esac
     if (( idle_checks >= 2 )); then
       if [[ -n "$stuck" ]]; then
