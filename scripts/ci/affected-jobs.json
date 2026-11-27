@@ -79,11 +79,12 @@
           "compile_only": true,
           "crates": [
             "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
-            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host"
+            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host",
+            "cmux-tui/crates/cmux-tui-platform", "cmux-tui/bindings/rust", "cmux-tui/bindings/rust-daemon-client"
           ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
-            "scripts/cmux-next/cargo-locks.py"
+            "scripts/cmux-next/cargo-locks.py", "scripts/ci/cargo-test-wine.sh", "scripts/ci/cargo-test-selected.sh"
           ]
         }
       }
