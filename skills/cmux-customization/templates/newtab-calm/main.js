@@ -4,7 +4,7 @@
 // The pane's other actions stay in the Command Palette and the toolbar, not on the page.
 //
 // This was cmux's built-in "Calm" New Tab template (the "default" id). It no longer ships in
-// Settings: it is now yours to edit. Install: copy this folder to ~/.config/cmux/customize (cmux
+// Settings: it is now yours to edit. Install: copy this folder to the views folder from `cmux customize paths` (cmux
 // reloads it on each save), then run `cmux settings set tabs.newTabApp local/customize`. To get
 // cmux's own page back: `cmux settings unset tabs.newTabApp`.
 //

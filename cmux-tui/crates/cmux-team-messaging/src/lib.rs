@@ -27,6 +27,14 @@
 //! - [`backend`]: the seams to the forum, rooms and presence as traits; [`forum`] and [`presence`]
 //!   adapt the existing `cmux-forum-hosted` and `cmux-sync` types to this model; [`fake`] holds
 //!   in-memory backends for tests.
+//! - [`knowledge`] (phase 2): typed `tip`, `finding`, `ask`, `feedback` and `receipt` templates
+//!   that build a thread with its refs; the RFD reader's `Discuss in thread`, `Open session`,
+//!   feedback summary and implementation PRs, and a thread's `Open RFD` back-link, never naming a
+//!   target the viewer cannot read; search-before-work, offering an existing open thread instead of
+//!   a duplicate post.
+//! - [`shared_doc`]: phase 3's shared-document projection: RFD 0077 roles capped by space grants,
+//!   suggestions with a one-way state machine, RFD drafts that land through a PR, and bounded,
+//!   deduplicated live updates.
 //! - [`service::Messenger`]: preview a draft (destination, audience, wake mode, before send), then
 //!   send it once: the same idempotency key is the same message.
 //!
@@ -34,11 +42,14 @@
 //! no visible default change. Phase 1 wires it behind `team_messaging`.
 
 pub mod backend;
+pub mod customization;
 pub mod delivery;
 pub mod fake;
 pub mod feedback;
 pub mod forum;
+pub mod handoff;
 pub mod identity;
+pub mod knowledge;
 pub mod model;
 pub mod navigator;
 pub mod permission;
@@ -47,11 +58,15 @@ pub mod presence;
 pub mod refs;
 pub mod service;
 pub mod session_info;
+pub mod shared_doc;
 
 pub use backend::{BackendError, ForumBackend, PresenceBackend, RoomBackend, StoredMessage};
 pub use delivery::{AnswerState, DeliveryMode, DeliveryState, Route, route};
 pub use feedback::{FeedbackKind, VoteBoard, VoteSummary};
 pub use identity::{Bridge, IdentityError, PrincipalKind, Resolved, resolve_handle};
+pub use knowledge::{
+    Corpus, ReaderAction, RfdReader, Similar, Template, TemplateDraft, TemplateError, ThreadLinks,
+};
 pub use model::{
     Feedback, Message, Principal, RootKind, SharedDocument, Space, SpaceKind, Team, Thread,
     ThreadState,

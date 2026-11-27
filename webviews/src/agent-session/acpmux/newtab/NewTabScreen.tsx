@@ -99,6 +99,7 @@ import { startedProjectChoices, cloudPickChoices, rememberCloudPick } from "./st
 import { callNative } from "../callNative";
 import {
   attachedRows,
+  commandRows,
   exactMatch,
   canonicalAddress,
   defaultSelection,
@@ -158,6 +159,7 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
+  usesCommand,
   withSkillDollars,
   type SlashCommand,
   type SlashTrigger,
@@ -1087,7 +1089,7 @@ export function NewTabScreen(props: Props) {
     // Held for Computer Use before anything starts (an Ask row's click too): the prompt stays.
     // cmux's own commands first (`/import @computer-use` opens its picker), and an address is no prompt.
     if (command.intercept(prompt, agent, attachments.length, true)) return false;
-    if (prompt && !isAddress(prompt, home) && holdsSend(prompt)) return false;
+    if (prompt && !isAddress(prompt, home, commandNames.leading) && holdsSend(prompt)) return false;
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
@@ -1280,6 +1282,9 @@ export function NewTabScreen(props: Props) {
       ),
     [snapshot.commands, keptCommands],
   );
+  // The names the field draws blue. A `/name` among them is the agent's, never a file at the disk's
+  // root (screenModel isAddress); shell mode has none, so its `/usr/bin` stays a path.
+  const commandNames = useSlashNames(shell ? undefined : slashCommands);
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
   const commandOpening = commandAt !== undefined;
   const savedPrompts = useSavedPrompts(commandOpening);
@@ -1329,7 +1334,7 @@ export function NewTabScreen(props: Props) {
   const fieldMention = promptMention?.text === text ? promptMention : undefined;
   // An address (a path, a URL) is never a prompt: no plugin picker over `My @computer-use notes.md`.
   const atWord: { query: string; start?: number } | undefined =
-    shell || commandAt || profilePick || isAddress(withoutInlineTokens(text).trim(), home)
+    shell || commandAt || profilePick || isAddress(withoutInlineTokens(text).trim(), home, commandNames.leading)
       ? undefined
       : fieldMention
         ? fieldMention.query === undefined
@@ -1353,7 +1358,6 @@ export function NewTabScreen(props: Props) {
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
   const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
-  const commandNames = useSlashNames(shell ? undefined : slashCommands);
   /// The Codex skills picked into this draft, by shown name.
   const pickedSkills = useRef(new Set<string>());
   const onCommands = props.onCommands;
@@ -1438,7 +1442,11 @@ export function NewTabScreen(props: Props) {
   const profiles = props.onOpenInProfile && props.onOpenInNewProfile ? omnibar.profiles : undefined;
   // The omnibar's agent sources (launchRows.ts): the folders and agents it starts. A typed path's
   // folder listing answers later (omnibarReads.ts), never in the keystroke's turn.
-  const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
+  // A draft that uses a skill or command (blue) is for an agent: it offers only Ask (``offered``), so no
+  // folder of the disk is read for its `/name` either. An address stays one (a URL pasted with its
+  // wrap breaks, a line of it `/emil-color/docs`), as with a plugin.
+  const usingCommand = usesCommand(typed, commandNames) && !isAddress(typed.trim(), home, commandNames.leading);
+  const barText = touched && !shell && !commandTyping && !profilePick && !usingCommand ? typed : "";
   // The chats' folders newest first, kept as the chats change (sessionList.ts `FolderRecency`):
   // another chat working sorts no chat again.
   const [barRecency] = useState(() => new FolderRecency(omnibarFolder));
@@ -1486,13 +1494,16 @@ export function NewTabScreen(props: Props) {
   const exactRow = exactMatch(typed.trim(), suggested, omnibar);
   // An address (a path, a URL) is never a prompt: its rows stay whatever the text names.
   // Staged files (or files still reading) go to an agent: only the Ask rows stay (screenModel attachedRows).
+  // So does a skill or command the field draws blue (`/emil-color`, `use /emil-color now`): screenModel commandRows.
   const offered = profilePick
     ? suggested
     : attachments.length > 0 || reading.length > 0
       ? attachedRows(suggested)
-      : toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home)
-        ? suggested.filter((row) => row.type === "ask" || row === exactRow)
-        : suggested;
+      : usingCommand
+        ? commandRows(suggested)
+        : toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home, commandNames.leading)
+          ? suggested.filter((row) => row.type === "ask" || row === exactRow)
+          : suggested;
   const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
@@ -1512,7 +1523,7 @@ export function NewTabScreen(props: Props) {
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
   const returns = returnRow(rows, offered, current, {
-    address: isAddress(typed.trim(), home),
+    address: isAddress(typed.trim(), home, commandNames.leading),
     attachments: attachments.length,
   });
   const returnAction =
@@ -1885,10 +1896,13 @@ export function NewTabScreen(props: Props) {
     // when it goes to a tab or workspace the text names): the prompt stays.
     const navigates = (() => {
       const chosen = returnRow(rows, offered, current, {
-        address: isAddress(prompt, home),
+        address: isAddress(prompt, home, commandNames.leading),
         attachments: attachments.length,
       });
-      return (chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask") || isAddress(prompt, home);
+      return (
+        (chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask") ||
+        isAddress(prompt, home, commandNames.leading)
+      );
     })();
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
@@ -1901,18 +1915,24 @@ export function NewTabScreen(props: Props) {
     // address with no row selected (↑ from the top row): there is no prompt to send.
     // Navigation keeps staged files in chat. An explicit creation command keeps its own action.
     const { row, takes: keeps } = returnRow(rows, offered, current, {
-      address: isAddress(typed.trim(), home),
+      address: isAddress(typed.trim(), home, commandNames.leading),
       attachments: attachments.length,
     });
     // With no harness, a default text suggestion would search before setup can open. A row
     // explicitly selected with the keyboard, and navigation matches, keep their own actions.
-    if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
+    if (
+      !harness &&
+      prompt &&
+      !isAddress(prompt, home, commandNames.leading) &&
+      row?.type === "search" &&
+      selected === undefined
+    ) {
       openSetup();
       return;
     }
     if (row && keeps) return activate(row, beside);
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
-    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
+    if (attachments.length === 0 && (!prompt || isAddress(prompt, home, commandNames.leading))) {
       // A fresh install has no harness to ask yet. Return on the empty composer should take the
       // person to the same setup surface as the visible Add harness chip instead of silently doing
       // nothing; addresses still follow their normal New Tab path above.
@@ -1999,7 +2019,7 @@ export function NewTabScreen(props: Props) {
     const prompt = empty || shell ? "" : typed.trim();
     const asked = askChat(
       agent,
-      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      prompt && !isAddress(prompt, home, commandNames.leading) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       model,
     );
