@@ -51,6 +51,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudSignIn: "cloudSignIn"
         case .cloudSetUp: "cloudSetUp"
         case .cloudSetupState: "cloudSetupState"
+        case .cloudConnect: "cloudConnect"
+        case .cloudPickerSetupState: "cloudSetupState"
         case .cloudSignInCancel: "cloudSignInCancel"
         case .cloudPlanSubscribe: "cloudPlanSubscribe"
         case .cloudReservation: "cloudReservation"
