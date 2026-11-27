@@ -237,9 +237,25 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
     }
 
     @Test func ordinarySameDocumentHistoryKeepsBackForwardAndDropsTheReplacedBranch() async throws {
-        let model = BrowserTabModel(url: nil, guardsMacAddresses: true)
-        model.webView.loadHTMLString("<title>Same document</title>", baseURL: URL(string: "https://example.com/history"))
-        await until { model.title == "Same document" && model.webView.backForwardList.currentItem != nil }
+        let native = NativeBrowserTabs(defaults: defaults())
+        let forwarder = LocalhostForwarder { _, _ in
+            DevServerChannel(page: "<title>Same document</title>")
+        }
+        native.forwarder = forwarder
+        native.macForwardsLocalhost = { _ in true }
+        defer { forwarder.retain(ports: []) }
+        await Self.warmWebKit()
+        let model = native.open(tab: "history", macID: "mac-a", at: nil)
+        let window = UIWindow(frame: model.webView.frame)
+        window.addSubview(model.webView)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        // loadHTMLString does not create the initial native history item. Use a
+        // real navigation so these assertions exercise WebKit's back/forward list.
+        model.load(URL(string: "http://127.0.0.1:\(try freePort())/history")!)
+        for _ in 0..<2000 where model.title != "Same document" || model.webView.backForwardList.currentItem == nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(model.title == "Same document")
         let original = try #require(model.webView.backForwardList.currentItem)
         _ = try await model.webView.evaluateJavaScript("history.pushState({}, '', '#one'); history.pushState({}, '', '#two')")
@@ -266,20 +282,35 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
 
     @Test func backAndForwardCrossTheOrdinaryAndPrivateViews() async throws {
         let native = NativeBrowserTabs(defaults: defaults())
-        let forwarder = LocalhostForwarder(openHost: { _, _, _ in
-            DevServerChannel(page: "<title>Private history</title>")
+        let forwarder = LocalhostForwarder(openHost: { _, host, _ in
+            DevServerChannel(page: host == nil ? "<title>Ordinary history</title>" : "<title>Private history</title>")
         })
         native.forwarder = forwarder
+        native.macForwardsLocalhost = { _ in true }
         native.macForwardsPrivateHost = { _ in true }
-        defer { forwarder.retain(proxies: []) }
+        defer {
+            forwarder.retain(ports: [])
+            forwarder.retain(proxies: [])
+        }
+        await Self.warmWebKit()
         let model = native.open(tab: "history", macID: "mac-a", at: nil)
         let ordinary = model.webView
-        ordinary.loadHTMLString("<title>Ordinary history</title>", baseURL: URL(string: "https://example.com/history"))
-        await until { model.title == "Ordinary history" && ordinary.backForwardList.currentItem != nil }
+        let window = UIWindow(frame: ordinary.frame)
+        window.addSubview(ordinary)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        model.load(URL(string: "http://127.0.0.1:\(try freePort())/history")!)
+        for _ in 0..<2000 where model.title != "Ordinary history" || ordinary.backForwardList.currentItem == nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(model.title == "Ordinary history")
         let originalItem = try #require(ordinary.backForwardList.currentItem)
         model.load(URL(string: "http://studio.local:8080/history")!)
-        await until { model.title == "Private history" }
+        await until { model.webView !== ordinary }
+        window.addSubview(model.webView)
+        for _ in 0..<2000 where model.title != "Private history" {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(model.title == "Private history")
         let privateView = model.webView
         #expect(privateView !== ordinary)
