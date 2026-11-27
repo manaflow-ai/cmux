@@ -252,6 +252,12 @@ def budget_fails(switch, label):
     if switch.get("error"):
         fails.append(f"{label}: {switch['error']}")
         return fails
+    cold = switch.get("cold_evidence")
+    if cold is not None:
+        if cold["changed_frames"]:
+            fails.append(f"{label}: {cold['changed_frames']} changed frames in unchanged source regions")
+        if cold["source_blank_frames"]:
+            fails.append(f"{label}: {cold['source_blank_frames']} blank source-content frames")
     to, frame = switch.get("to_content_ms"), switch.get("display_frame_ms") or 0
     if to is None:
         fails.append(f"{label}: never showed the expected content")

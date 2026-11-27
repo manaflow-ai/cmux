@@ -17,6 +17,24 @@ extension PaneController {
         if leftEmptyByMove, !view.hostsContent { leftEmptyByMove = false; services.presentation.showNow(self) } else { services.presentation.setNeedsShowSelected(self) }
     }
 
+    /// Keep both panes as drawn until the source can replace the moving content. The scheduler
+    /// retries the destination's current selection, so selection changes and teardown cancel the
+    /// transfer without retaining a request for the old tab.
+    func canTakeContent(_ key: String) -> Bool {
+        guard let source = services.cache.lastPresenter(of: key) as? PaneController,
+              source !== self, !source.isSuspended else { return true }
+        if let moving = source.existingContent(for: key)?.view,
+           source.view.paintHold.kept === moving {
+            return false
+        }
+        guard source.currentTabKey == key,
+              source.stripIsStale || !source.selectedContentIsAlive else { return true }
+        // Do not show recursively: reciprocal warm transfers must keep progressing, and a cold
+        // source uses the same one-surface budget as every other pane.
+        services.presentation.setNeedsShowSelected(source)
+        return false
+    }
+
     /// A move took `key`'s view after this pane selected another tab: it shows before the commit (not inline: the cache is mid-change).
     func showSelectionAfterDisplacement(of key: String) {
         guard !isSuspended, let selected = stripModel.selectedID?.rawValue, selected != key, currentTabKey == nil else { return }

@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
@@ -375,7 +376,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
         if selectNew != nil {
             // A tab this window created: show it now (focus is the coordinator's expectation, not decided here). A New Tab page with no view yet goes by the frame rule (decision 2026-11-16): its view is made at the next frame, for the tab selected then, so a run of New Tab keys makes no page for a tab that no frame shows.
-            if let selectedID, services.agentTabs.isNewTabPage(selectedID.rawValue), !selectedContentIsAlive { presentSelection() } else { showSelected() }
+            if let selectedID, services.agentTabs.isNewTabPage(selectedID.rawValue), !selectedContentIsAlive { presentSelection() } else { services.presentation.showNow(self) }
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
         } else {
@@ -458,6 +459,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A stale strip takes its record first, as `select` does: its selection can name a tab the record dropped (a new chat's provisional tab, just replaced), and showing that hid the chat until the strip's apply a turn later (SPLIT OPEN CHAT).
         if stripIsStale, workspace?.isApplying != true { syncStripFromStore(); services.presentation.cancel(self); if stripIsStale { return } } // this call shows it: a show that apply queued would stay in a draining scheduler; still stale: the layout removed this pane
         let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey
+        // Before withdrawing this pane or rebinding Chromium's window: the source may still need
+        // the moving view while its cold replacement waits for the shared presentation budget.
+        if let key, key != takesHere, !(isGuestView && pane.tabs.first(where: { $0.id == key })?.kind == .pty),
+           paneShowingElsewhere(key) == nil,
+           !canTakeContent(key) {
+            services.presentation.setNeedsShowSelected(self)
+            return
+        }
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
@@ -589,6 +598,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {
+        // A stale strip can still name the warm tab that moved away. Reserve the frame's
+        // creation slot before showSelected applies the record and reveals its cold successor.
+        guard !stripIsStale else { return false }
         guard let key = stripModel.selectedID?.rawValue else { return true }
         // A guest view's terminal is its own (`guestTerminal`): the owner window's surface is not this pane's content.
         return (key == currentTabKey && view.hostsContent) || (isGuestView ? guestTerminal?.key == key : services.cache.hasContent(for: key))

@@ -848,8 +848,8 @@ class Harness:
             handle.write(png)
         return os.path.relpath(path, self.args.out)
 
-    def keep_sheet(self, switch, frames, mark, label, reference=None):
-        if not judge.budget_fails(switch, label):
+    def keep_sheet(self, switch, frames, mark, label, reference=None, force=False):
+        if not force and not judge.budget_fails(switch, label):
             return
         png, tiles = judge.contact_sheet(frames, mark, self.rec.w, self.rec.h, reference=reference)
         if png:
@@ -1061,7 +1061,17 @@ class Harness:
                 reference = self.at(frames, flips[item["ref_flip"]]) if item.get("ref_flip") in flips else None
             else:
                 reference = self.refs.get(item.get("neighbor"))
-            switch = self.judge(window, mark, reference=reference, strip=strip)
+            if item.get("cold_evidence"):
+                switch = judge.judge_switch(window, mark, self.rec.w, item["source_content"],
+                                            self.rec.frame_ms, tolerance=self.args.tolerance)
+                try:
+                    switch["cold_evidence"] = matrix.cold.analyze(window, mark, self.rec.w, item, self.args.tolerance)
+                except ValueError as error:
+                    switch["error"] = f"cold capture unmeasurable: {error}"
+                switch["cold_setup"] = item["cold_setup"]
+                switch["cold_tab"] = item["cold_tab"]
+            else:
+                switch = self.judge(window, mark, reference=reference, strip=strip)
             if kind == "close":
                 switch["neighbor"] = item.get("neighbor")
             if item.get("strip") == "sidebar" and getattr(self, "sidebar", None):
@@ -1069,7 +1079,7 @@ class Harness:
                                          self.args.tolerance, tab_points=40, axis="y")
                 switch.update({"sidebar_" + k: v for k, v in side.items()})
             self.add_settle(switch, frames, window, leave, mark, end, reference, label)
-            self.keep_sheet(switch, window, mark, label, reference)
+            self.keep_sheet(switch, window, mark, label, reference, force=bool(item.get("cold_evidence")))
             judged.append((item, switch))
         return judged
 
@@ -1122,7 +1132,7 @@ class Harness:
             blocks = []  # (that block's pending, frames, flips)
             # The matrix records a block per round: CuaDriver ends a session with no tool call for a while, and one
             # block of five rounds at Leo's scale (about 20 minutes) lost every row on a CI mini (2026-11-18).
-            per_round = any(s in scenarios for s in matrix.MATRIX_SCENARIOS)
+            per_round = any(s in scenarios for s in matrix.AVAILABLE_SCENARIOS)
             setup = []
             try:
                 setup = self.enter_load(spec, agents, cpu)
@@ -1145,7 +1155,7 @@ class Harness:
                         pending += self.workspace_round(load, r)
                     if any(s in scenarios for s in ("rapid-open-5", "rapid-close-3", "open-while-close")):
                         pending += self.rapid_round(load, r)
-                    if any(s in scenarios for s in matrix.MATRIX_SCENARIOS if s not in ("new-workspace", "launch-restore")):
+                    if any(s in scenarios for s in matrix.AVAILABLE_SCENARIOS if s not in ("new-workspace", "launch-restore")):
                         pending += matrix.matrix_round(self, load, r, scenarios, agents)
                     say(f"  round {r} driven")
                     if per_round:
@@ -1246,6 +1256,7 @@ def main(argv=None):
                         help="seconds recorded after each action: the settled time's cap is this less 300 ms")
     parser.add_argument("--load-settle", type=float, default=5.0)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/tab-switch"))
+    parser.add_argument("--retain-captures", action="store_true", help="keep every raw MP4, decoded frame stream and marker receipt")
     parser.add_argument("--no-gate", action="store_true", help="exit 0 when the report is written, budgets or not")
     parser.add_argument("--scale", default="none",
                         help="the settle matrix's scale (tab_switch_matrix.py): leo (10,789 sessions, 206 workspaces), "
@@ -1259,7 +1270,7 @@ def main(argv=None):
     # Decoded h264 frames of one picture differ in the low bits: 16 gray levels, not 32, so noise is not a change.
     judge.QUANT = bytes(v >> 4 for v in range(256))
     loads = [x for x in args.loads.split(",") if x]
-    known = judge.ALL_SCENARIOS + tuple(s for s in matrix.MATRIX_SCENARIOS if s not in judge.ALL_SCENARIOS)
+    known = judge.ALL_SCENARIOS + tuple(s for s in matrix.AVAILABLE_SCENARIOS if s not in judge.ALL_SCENARIOS)
     scenarios = (list(judge.ALL_SCENARIOS) if args.scenarios == "all" else list(matrix.MATRIX_SCENARIOS)
                  if args.scenarios == "matrix" else [x for x in args.scenarios.split(",") if x])
     bad = [x for x in scenarios if x not in known]
@@ -1321,7 +1332,9 @@ def main(argv=None):
             if agents is None and (spec.get("bg_chats") or spec.get("chat100k") or spec.get("live")):
                 load_notes[load] = "agents setup: no agent harness" + (f" ({setup['chat']})" if setup.get("chat") else "")
         extra["setup_errors"] = {**setup, **load_notes}
-        recorder = capture.Capture(args.tools, app.process.pid, args.width, os.path.join(root, "capture"))
+        retain = args.retain_captures or any(s in matrix.cold.SCENARIOS for s in scenarios)
+        capture_root = os.path.join(args.out if retain else root, "capture")
+        recorder = capture.Capture(args.tools, app.process.pid, args.width, capture_root, retain=retain)
         hz = recorder.hz
         extra["capture"] = {"window": recorder.window, "display": recorder.display, "display_hz": recorder.hz,
                             "permissions": recorder.permissions, "recorder": "CuaDriver"}
@@ -1362,6 +1375,7 @@ def main(argv=None):
             watch.close()
         if recorder is not None:
             recorder.close()
+            extra.setdefault("capture", {})["retained"] = recorder.retained
         if app is not None:
             app.end()
         dialog.__exit__(None, None, None)
@@ -1402,9 +1416,9 @@ def main(argv=None):
     for line in lines:
         print("TSW-TABLE", json.dumps(line), flush=True)
     print(settle.table_markdown(lines), flush=True)
-    if any(s in matrix.MATRIX_SCENARIOS for s in scenarios):
+    if any(s in matrix.AVAILABLE_SCENARIOS for s in scenarios):
         # The settle matrix: trigger to truly settled over the window, the page side and the sidebar (SETTLE lines).
-        settled = matrix.table([r for r in rows if r["name"] in matrix.MATRIX_SCENARIOS])
+        settled = matrix.table([r for r in rows if r["name"] in matrix.AVAILABLE_SCENARIOS])
         out["matrix"] = settled
         with open(os.path.join(args.out, "report.json"), "w") as handle:
             json.dump(out, handle, indent=1)
