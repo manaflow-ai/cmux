@@ -1202,7 +1202,8 @@ impl Session {
         let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
         let servers = self.stun_servers().await;
         let asked = servers.len();
-        if asked > 0 && self.control.send(Control::Gather { stun: servers, reflexive: reflexive_tx }).is_err() {
+        if asked > 0 && self.control.send(Control::Gather { stun: servers, reflexive: reflexive_tx }).is_err()
+        {
             return;
         }
         let mut clock = StunClock::new(asked > 0, None);
