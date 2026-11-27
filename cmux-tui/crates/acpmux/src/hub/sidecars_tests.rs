@@ -206,6 +206,6 @@ fn a_remote_tip_is_read_from_loose_and_packed_refs() {
 
 #[test]
 fn the_feature_is_listed_with_its_switches() {
-    assert!(super::super::harness_magic::FEATURES.contains(&FEATURE));
+    assert!(super::super::harness_magic::FEATURES.iter().any(|f| f.name == FEATURE));
     assert_eq!(super::super::harness_magic::env_key(FEATURE), "ACPMUX_HM_SIDECARS");
 }

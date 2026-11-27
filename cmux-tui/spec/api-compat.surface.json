@@ -2087,6 +2087,23 @@
         "required": true
       }
     },
+    "event:phone-open-link": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"phone-open-link\""
+        ]
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/url": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "event:program-status-changed": {
       "/event": {
         "ty": "literal",
@@ -11442,6 +11459,16 @@
         "required": true
       }
     },
+    "request:offer-link-to-phone": {
+      "/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/url": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:page-credential": {
       "/page": {
         "ty": "string",
@@ -20343,6 +20370,12 @@
     "response:notify": {
       "/data/notification": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:offer-link-to-phone": {
+      "/data/offered": {
+        "ty": "boolean",
         "required": true
       }
     },
