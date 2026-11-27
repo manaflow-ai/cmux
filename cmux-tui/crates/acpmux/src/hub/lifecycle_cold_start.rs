@@ -130,10 +130,13 @@ impl Hub {
             meta.created_by.as_ref(),
             session.person.load(std::sync::atomic::Ordering::SeqCst),
         );
-        let profile = &crate::subrouter_priority::profile_with(
-            profile,
-            self.subrouter_priority(session, &meta, for_person),
-        );
+        // A lane started while a coordinator waits on it asks at the coordinator's class
+        // (`wait_edges.rs`).
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let own = self.subrouter_priority(session, &meta, for_person);
+        let priority = self.inherit_priority(session, own);
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let profile = &crate::subrouter_priority::profile_with(profile, priority);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
@@ -640,7 +643,16 @@ impl Hub {
         // A guarded relay import may retire the source ACP id when its native agent files are
         // absent. Its carried choices still need replaying after the fresh session/new, just as
         // they do for an ordinary respawn or fork.
-        if saved.agent_session_id.is_some() || saved.fork_before.is_some() || saved.remote_origin {
+        // A transcript fork has no agent session yet, but its first agent still inherits
+        // its parent's settings; the same applies to a fork of that fork.
+        if saved.agent_session_id.is_some()
+            || saved.fork_before.is_some()
+            || saved.remote_origin
+            || (saved.parent_id.is_some()
+                && (saved.modes.is_some()
+                    || saved.config_options.is_some()
+                    || saved.models.is_some()))
+        {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
