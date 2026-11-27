@@ -239,7 +239,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
         /// last arrangement, which is the full read's.
         func finishFirstFrame() -> [PaletteItem] {
             let arranged = RegistryPaletteProvider.arranged(items, tierList: tiers)
-            return provider.curatedRootItems(arranged, eligible: eligible)
+            return provider.curatedRootItems(arranged, eligible: eligible, isFullRead: false)
         }
 
         /// The rows read, in the palette's order (the last arrangement when the same rows list with the same faces).

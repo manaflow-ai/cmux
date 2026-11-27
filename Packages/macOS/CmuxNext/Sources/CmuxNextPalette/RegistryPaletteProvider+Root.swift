@@ -62,7 +62,10 @@ extension RegistryPaletteProvider {
     /// A family's page is made from the root list itself (``rootFamilyMembers(_:sections:folded:)``), which the rows
     /// keep (`RegistryPaletteRows.arranged`), not from `items`: each family row's command captured `items` whole, so
     /// the idle app kept a second copy of every command row (1,162 rows, 2 MB) beside the root's (CMUX-571).
-    func curatedRootItems(_ items: [PaletteItem], eligible: Set<ActionID>) -> [PaletteItem] {
+    ///
+    /// `isFullRead`: `items` are every listed catalog action (``makeItems()``), not a first frame's few
+    /// (``firstFrameItems``). A family's page reads the full read's root list and what it folded when its row runs.
+    func curatedRootItems(_ items: [PaletteItem], eligible: Set<ActionID>, isFullRead: Bool = true) -> [PaletteItem] {
         // The family rows are appended after the action rows: sized for them up front, the list is not copied into a
         // buffer twice its size by the first append (a 4 MB buffer for 1,170 rows, CMUX-571).
         var root: [PaletteItem] = []
@@ -73,8 +76,9 @@ extension RegistryPaletteProvider {
             } ?? true
             root.append(item)
         }
-        // What `items` hid on the empty query (folded family members): a family's page shows them so again.
-        let folded = Set(items.lazy.filter(\.hidesWhenQueryEmpty).map(\.id))
+        // What `items` hid on the empty query (folded family members): a family's page shows them so again. A first
+        // frame's rows lack most members, so only a full read's set is kept for the page.
+        if isFullRead { rows.rootFolded = Set(items.lazy.filter(\.hidesWhenQueryEmpty).map(\.id)) }
         let section = PaletteSection(id: "rootFamilies", title: PaletteStrings.commandsTitle, order: -100)
         for (family, sections) in zip(Self.rootFamilies, Self.rootFamilySectionIDs) {
             // Retain the existing detailed families and their folded members in the drilldown.
@@ -98,7 +102,8 @@ extension RegistryPaletteProvider {
                                                 id: id, title: family.category.title, placeholder: PaletteStrings.searchPlaceholder,
                                                 symbol: family.symbol,
                                                 providers: [StaticPaletteProvider(id: id, items: Self.rootFamilyMembers(
-                                                    rows?.arranged[true]?.items ?? [], sections: sections, folded: folded))]
+                                                    rows?.arranged[true]?.items ?? [], sections: sections,
+                                                    folded: rows?.rootFolded ?? []))]
                                             ))
                                         })
             )

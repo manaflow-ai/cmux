@@ -229,4 +229,61 @@ struct PaletteFirstFrameReadsTests {
         #expect(!early.rows.isEmpty)
         #expect(early.rows == late.rows, "a family page opened before the frame differs by \(Set(early.rows).symmetricDifference(late.rows).count) rows")
     }
+
+    /// A family row the first frame listed, run after the open's after-frame load as the row it shows (the Actions menu
+    /// runs that row's command, not the full read's), opens the family's page as the full read's row does: every
+    /// member, folded as the full read folds it, not as the first frame's few rows did.
+    @Test func aFirstFrameFamilyRowRunAfterTheFrameFoldsAsTheFullRead() async throws {
+        let reads = Reads()
+        let palette = Self.palette(Self.registry(reads))
+        defer { palette.closeForTest() }
+        palette.show(.commands)
+        let early = try #require(palette.model.current?.providerItems["registry"]?.first { $0.id.hasPrefix("rootFamily:") && $0.isEnabled },
+                                 "the first frame lists a family row")
+        await palette.model.settle()
+        let late = try #require(palette.model.current?.providerItems["registry"]?.first { $0.id == early.id })
+        func members(_ row: PaletteItem) throws -> [String] {
+            guard case .push(let page) = row.primary.effect.resolved() else {
+                Issue.record("\(row.id) opens no page")
+                return []
+            }
+            let provider = try #require(page.providers.first as? StaticPaletteProvider)
+            return provider.itemsList.map { "\($0.id)|\($0.hidesWhenQueryEmpty)" }
+        }
+        let fromFirstFrame = try members(early), fromFullRead = try members(late)
+        #expect(!fromFullRead.isEmpty)
+        #expect(fromFirstFrame == fromFullRead,
+                "the first frame's \(early.id) page differs by \(Set(fromFirstFrame).symmetricDifference(fromFullRead).count) rows")
+    }
+
+    /// A palette closed before its after-frame load keeps no rank of the first frame's rows: the page's last full rank
+    /// stays for the next open, and a change of usage ranks the page's full rows again (`prewarmEmptyRanks`), not the
+    /// first frame's few.
+    @Test func aCloseBeforeTheFrameKeepsTheLastFullRank() async throws {
+        let reads = Reads()
+        let palette = Self.palette(Self.registry(reads))
+        defer { palette.closeForTest() }
+        palette.show(.commands)
+        await palette.model.settle()
+        guard case .list(let page) = palette.model.current?.kind else {
+            Issue.record("the commands page is not a list")
+            return
+        }
+        let full = try #require(palette.model.emptyRanks[page.id], "the open kept its empty rank").input.ids
+        palette.hide()
+        palette.show(.commands)
+        let first = try #require(palette.model.emptyRankRequests[page.id]?.task, "the first frame ranks its rows")
+        #expect(palette.model.current?.items.count ?? 0 < full.count, "the first frame lists every row")
+        // Closed before the after-frame load: the first frame's rank lands after the close.
+        palette.hide()
+        _ = await first.value
+        #expect(palette.model.emptyRanks[page.id]?.input.ids == full,
+                "the page kept a rank of \(palette.model.emptyRanks[page.id]?.input.ids.count ?? 0) rows, not its \(full.count)")
+        // A use ranks the kept page again for the next open.
+        palette.model.recordUse("action:newTab")
+        let warm = try #require(palette.model.emptyRankRequests[page.id]?.task, "a use ranks the kept page again")
+        _ = await warm.value
+        #expect(palette.model.emptyRanks[page.id]?.input.ids == full,
+                "the use ranked \(palette.model.emptyRanks[page.id]?.input.ids.count ?? 0) rows, not the page's \(full.count)")
+    }
 }
