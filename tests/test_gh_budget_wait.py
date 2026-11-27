@@ -554,6 +554,9 @@ SHARED_TOKEN_ONLY = {
     # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
     ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
+    # A git fetch of the notes span with the job token (#58154), like published-in's "Fetch the published span":
+    # git's own limit, not the REST core budget.
+    ("sign-release-notes", "Fetch the commits since the newest published notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
     ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
@@ -614,7 +617,9 @@ class WorkflowTests(unittest.TestCase):
     def test_the_failure_report_waits_through_a_rate_limit(self) -> None:
         # Run 45776501690: report-nightly-failure's github-script died on "API rate limit exceeded", so the
         # failed nightly opened no issue. Every github-script step of the job retries a rate-limited request.
-        scripts = [s for s in self.jobs["report-nightly-failure"]["steps"] if "github-script" in str(s.get("uses", ""))]
+        # close-nightly-failure-issue too: run 45823496118's close died on one (2026-11-26).
+        scripts = [s for job in ("report-nightly-failure", "close-nightly-failure-issue")
+                   for s in self.jobs[job]["steps"] if "github-script" in str(s.get("uses", ""))]
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]
