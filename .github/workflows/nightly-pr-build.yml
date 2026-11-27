@@ -6,6 +6,8 @@
 #              arm64 and x86_64: Release with -DCMUX_BLOCKING_CHECKS and -Osize, as app-build-release.sh.
 #   - helpers: cargo check --release of each Rust helper the Nightly bundles, with its features and profile.
 # Advisory: every job name says so, no rule requires it, and a fleet that does not answer is a warning.
+# The swift job submits its fleet step and ends; the controller posts the verdict as its own check run
+# (DETACH below), so no runner waits on the fleet queue.
 # Each job keys its inputs (scripts/ci/job_input_fingerprint.py) and saves the key on a pass, so a push
 # that changes nothing it builds from skips the build. Off switch: repository variable CI_NIGHTLY_PR_BUILD=0.
 name: nightly pr build
@@ -80,6 +82,14 @@ jobs:
       # That was about 2.2k of the job's 4.4k runner-min. Past this wait the job cancels the queued step (a
       # step left queued keeps its place and builds for no reader), and the check reads "not judged" as before.
       QUEUE_WAIT_S: "1200"
+      # Detached (the default): the job submits the step, hands its verdict to the controller as the check run
+      # REPORT_CHECK on the PR head (cmux-ci run --report-check --detach, report_check.go) and ends in about a
+      # minute, so no runner waits on the fleet queue. Run 46030977376 job 140614747339 (11-27): the job held
+      # runner cmux13s-mac-mini-glaeda-18 for 20.8 min while step a15a82e4b0c1617329eb48ec sat queued, then
+      # "no verdict"; the two arches billed ~20k runner-min/day that way. CI_NIGHTLY_PR_BUILD_DETACH=0 waits
+      # here as before (and records the input-key pass); a client or controller without --detach waits too.
+      DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}
+      REPORT_CHECK: nightly app compile ${{ matrix.arch }} fleet verdict (advisory)
     steps:
       - name: Look up a pass with the same inputs
         id: cache
@@ -108,14 +118,30 @@ jobs:
           # (run 45969778703 attempt 2). The client's default key is per run and attempt; the cache step above
           # is what skips a build whose inputs already passed.
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--report-check "$REPORT_CHECK" --detach)
+          fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
-            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 \
+            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" ${detach[@]+"${detach[@]}"} 2>&1 \
             | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            # Submitted: the check run REPORT_CHECK on the head carries the verdict; nothing passed here yet.
+            echo "::notice title=nightly app compile::the fleet posts the $ARCH verdict as check run \"$REPORT_CHECK\" on ${SHA:0:12}"
+            exit 0
+          fi
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           if [[ "$status" == 75 && -n "$step" ]] && grep -q 'is still queued after' "$log"; then
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
             "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
+          fi
+          if [[ "$status" != 0 ]] && grep -q 'source depot full' "$log"; then
+            # The controller refused admission because its source depot was full (HTTP 503, or a step that
+            # "failed on no worker"): no Mac built anything, so this is no verdict on the PR, like 69. Exit 1
+            # here blocked land-judge on runs 46033734368 (#61459) and 46031330461 (#61407).
+            status=69
           fi
           case "$status" in
             0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;

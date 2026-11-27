@@ -1,5 +1,5 @@
 // A daemon task (`_acpmux/bg/start`, which a Claude `run_in_background` Bash call becomes through
-// bg_hook) is a process-registry row of origin `daemon_task` (acpmux `hub/bg_processes.rs`). The
+// bg_hook) is a process-registry row of origin `daemon` (acpmux `hub/bg_registry.rs`). The
 // hat reads it as a running command with a process id, so it shows with no turn running, once.
 import { expect, test } from "bun:test";
 import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
@@ -21,7 +21,7 @@ const row = {
   signal: null,
   reason: null,
   detail: null,
-  origin: "daemon_task",
+  origin: "daemon",
   outputBytes: null,
 };
 
