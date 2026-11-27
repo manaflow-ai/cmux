@@ -9,7 +9,9 @@
 //! same kept, multiplexed circuit and service hellos ([`super::mux`]). The iroh key is a pipe key
 //! only.
 //!
-//! - Off unless `irohDirect` is set ([`crate::config::Config::iroh_direct`]): then the carrier
+//! - On where `irohDirect` is true, or unset on a machine whose `directPort` names a port (it
+//!   opted into direct links already; every lane VM has) ([`crate::config::Config::iroh_on`]);
+//!   off on any other machine and wherever `irohDirect` is false. On, the carrier
 //!   binds one iroh endpoint (its key kept in `~/.acpmux/iroh.key`) and hands each accepted
 //!   connection's stream to the same [`super::Incoming`] a relay circuit reaches.
 //! - Upgrade, not a race: a machine's first dial rides the relay. Beside it the carrier asks the
@@ -304,12 +306,14 @@ impl HubCarrier {
         if kept.live.as_ref().is_some_and(|mux| !mux.is_closed()) {
             return Ok(());
         }
-        let (mux, said, stages) = self.open_kept(daemon, super::Path::Iroh).await?;
+        let (mux, said, stages) = self.open_kept(daemon, lane, super::Path::Iroh).await?;
         match tokio::time::timeout(self.timings.handshake, said).await {
             Ok(Ok(Ok(()))) => {
                 stages.log(daemon, "iroh");
                 self.stats.kept_circuits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 kept.live = Some(mux);
+                // So the reopen loop opens it again over iroh if it ends.
+                kept.path = Some(super::Path::Iroh);
                 Ok(())
             }
             Ok(Ok(Err(refusal))) => {
@@ -400,15 +404,5 @@ fn scope() -> &'static cmux_scope::Scope {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_miss_holds_a_machine_off_the_iroh_path() {
-        let iroh = Iroh::default();
-        assert!(!iroh.held_off("k"));
-        iroh.miss("k");
-        assert!(iroh.held_off("k"));
-        assert!(!iroh.held_off("other"));
-    }
-}
+#[path = "hub_carrier_iroh_tests.rs"]
+mod tests;

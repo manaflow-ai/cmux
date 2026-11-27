@@ -127,7 +127,7 @@ struct SubagentGroupCard: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
-            Divider().padding(.leading, 16)
+            Divider().overlay(Color.cmuxMobileContentLine(.card)).padding(.leading, 16)
             ForEach(agents) { agent in
                 Button { open(agent.id) } label: {
                     HStack(spacing: 10) {
@@ -151,7 +151,9 @@ struct SubagentGroupCard: View {
                 .accessibilityHint("Opens its transcript")
             }
         }
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        // A content card in the page (the design system's card level): the theme's ink over the
+        // Mac's picture, never an opaque slab.
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
@@ -253,7 +255,7 @@ struct SubagentTranscriptScreen: View {
                             .font(.body)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
-                            .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                            .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
@@ -272,7 +274,8 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
-            .background(Color.cmuxMobileBackground)
+            .background { CmuxMobileChatBackdrop() }
+            .cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -315,8 +318,6 @@ struct SubagentRowView: View {
                     await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
         case .steer(let message):
@@ -341,6 +342,12 @@ enum ParityLoad<Value> {
     case loaded(Value)
     case unavailable(String)
     case failed(String)
+
+    /// A transient failure (retried on its own); `unavailable` is deterministic and is not.
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 /// Repository checkpoints around the session's turns (web acpmux/checkpoints):
@@ -355,6 +362,7 @@ struct CheckpointsScreen: View {
     @State private var restoring: String?
     @State private var toast: CmuxMobileToast?
     @State private var restoredTrigger = 0
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -368,12 +376,17 @@ struct CheckpointsScreen: View {
                     Text(message)
                 }
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load checkpoints", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    RetryButton("Try Again") { await reload() }
+                // Retried on its own (AutoRetry): the spinner stays, then one quiet line.
+                if autoRetry.isQuietLineShown {
+                    ContentUnavailableView {
+                        Label("Couldn't load checkpoints", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                } else {
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .loaded(let checkpoints):
                 List {
@@ -402,6 +415,7 @@ struct CheckpointsScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
+        .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .cmuxMobileToast($toast)
         .cmuxMobileSensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
@@ -475,7 +489,7 @@ struct CheckpointsScreen: View {
                 restoredTrigger += 1
                 await reload()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: UserFacingError.message(error, fallback: "Couldn't restore the checkpoint. Try again."))
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: UserFacingError.message(error, fallback: "Couldn't restore the checkpoint."))
             }
             restoring = nil
         }
@@ -493,6 +507,7 @@ struct HandoffScreen: View {
     let surface: AgentChatSurface
     @State private var load: ParityLoad<[AgentHandoffTarget]> = .loading
     @State private var selected: AgentHandoffTarget?
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -506,12 +521,17 @@ struct HandoffScreen: View {
                     Text(message)
                 }
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load agents", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    RetryButton("Try Again") { await reload() }
+                // Retried on its own (AutoRetry): the spinner stays, then one quiet line.
+                if autoRetry.isQuietLineShown {
+                    ContentUnavailableView {
+                        Label("Couldn't load agents", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                } else {
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .loaded(let targets):
                 List {
@@ -547,6 +567,7 @@ struct HandoffScreen: View {
             }
         }
         .chatDemoReceiver(store: store, surface: surface)
+        .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .navigationTitle("Continue in…")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selected) { target in
@@ -750,7 +771,7 @@ struct HandoffReviewScreen: View {
             do {
                 receipt = try await store.source.startHandoff(reviewed)
             } catch {
-                self.error = UserFacingError.message(error, fallback: "Couldn't start the handoff. Try again.")
+                self.error = UserFacingError.message(error, fallback: "Couldn't start the handoff.")
             }
             starting = false
         }

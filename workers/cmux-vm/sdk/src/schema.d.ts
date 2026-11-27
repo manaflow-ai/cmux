@@ -1593,10 +1593,10 @@ export interface components {
         Conflict: {
             message: string;
             /**
-             * @description mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+             * @description mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it.
              * @enum {string}
              */
-            code?: "mesh.device.intent_revoked";
+            code?: "mesh.device.intent_revoked" | "creation.intent_refused";
             creationKey?: components["schemas"]["VmCreationKey"];
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             pendingSnapshotId?: string;

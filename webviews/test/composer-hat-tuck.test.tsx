@@ -85,7 +85,7 @@ function Stack({ agents = [], waiting = new Set<string>() }: { agents?: Subagent
   const side = useTrayHandle();
   const items = trayItems(agents, commands, [], true);
   return tucked
-    ? createElement(TrayPullTab, { chat: CHAT, ...pullTabCounts(items, waiting), working: false, side })
+    ? createElement(TrayPullTab, { chat: CHAT, ...pullTabCounts(items, waiting), side })
     : createElement(SubagentTray, {
         chat: CHAT,
         items,

@@ -3,7 +3,8 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, place, priority, progress, seed, settle, targets, wait,
+    autosize, chat_moves, cli, folder, ledger, pin, place, priority, progress, seed, settle,
+    targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -48,6 +49,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             cli::read(request.reading, &request.output)
         }
         // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_chat_move" => {
+            #[derive(Deserialize)]
+            struct Request {
+                prior: Option<chat_moves::Move>,
+                event: chat_moves::Event,
+            }
+            let request: Request = read(request)?;
+            json!({ "next": to_value(chat_moves::step(request.prior, request.event))? })
+        }
         b"cloud_move_progress" => {
             let facts: progress::Facts = read(request)?;
             to_value(progress::line(&facts))?
@@ -337,7 +347,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             // One machine's transient states for every caller that needs it running (ask-259986a6c4).
             let mut look: settle::SettleLook = read(request)?;
             look.killed |= settle::killed(std::env::var(settle::KILL_SWITCH).ok().as_deref());
-            to_value(settle::settle(look))?
+            let act = settle::settle(look);
+            let mut answer = to_value(act)?;
+            if let Value::Object(fields) = &mut answer {
+                fields.insert("waking".to_owned(), Value::Bool(act.waking()));
+            }
+            answer
         }
         b"cloud_move_link_look" => {
             let look: wait::LinkLook = read(request)?;

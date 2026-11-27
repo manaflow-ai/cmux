@@ -1270,3 +1270,18 @@ test("a Save begun and answered while cancel and edit reads the row's images kee
   expect(run.editor()).toBe("first, reworded");
   expect(run.lost).toEqual([]);
 });
+
+test("a prompt listed twice draws one row, and the list carries no summary tooltip", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+    [
+      { id: "p-1", prompt: "first" },
+      { id: "p-2", prompt: "second" },
+      { id: "p-1", prompt: "first" },
+    ],
+  );
+  expect(container.querySelectorAll('[data-prompt-id="p-1"]').length).toBe(1);
+  expect(container.querySelectorAll(".acpmux-queued").length).toBe(2);
+  expect(container.querySelector("ol")?.hasAttribute("title")).toBe(false);
+});

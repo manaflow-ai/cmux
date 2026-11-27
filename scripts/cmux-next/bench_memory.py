@@ -95,8 +95,10 @@ import os
 import plistlib
 import re
 import shlex
+import hashlib
 import shutil
 import signal
+import stat
 import socket
 import subprocess
 import sys
@@ -104,6 +106,11 @@ import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+
+try:
+    import vmmap_regions  # noqa: E402  (--vmmap-breakdown: each picked process's vmmap --summary, parsed)
+except ModuleNotFoundError:  # a harness copy without it: --vmmap-breakdown is then an error, the rest runs
+    vmmap_regions = None
 
 try:
     import chat_renderer_crash  # noqa: E402  (CMUX_BENCH_CHAT_RENDERER_CRASH: the chat renderer crash test)
@@ -453,6 +460,10 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
+            files_before = store_files(bundle)
+            # The files each process holds open for writing, digested: a write through a mapping moves no mtime.
+            held = open_for_write({pid: kind for pid, (kind, _) in owned(app_pid, bundle).items()})
+            held_before = file_digests(held_paths(held))
         time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -505,7 +516,200 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
               "processes": rows}
     if gpu is not None:
         result["gpu"] = gpu.finish()
+        result["files_written"] = files_written(files_before, store_files(bundle))
+        # A write that lands outside the roots, or in a file deleted before the window ends, moves no mtime the
+        # census reads: the files each process holds open for writing name it.
+        result["files_written"]["open_for_write"] = open_for_write({row["pid"]: row["kind"] for row in rows})
+        result["files_written"]["rewritten_in_place"] = rewritten_in_place(held_before, file_digests(held_before))
     return result
+
+
+# The launch's scratch HOME (`launch`), whose stores an idle window's writes land in; None for an attached app.
+STORE_HOME: str | None = None
+
+
+def store_roots(bundle: str) -> list[str]:
+    """Where the app and its acpmux keep state: the launch's scratch HOME (all of it: it holds only this launch's
+    files), the bundle's saved daemon state under the account's real home (saved_state_dir: the app reads that home,
+    not HOME), and the real home's cmux folders."""
+    home = os.path.expanduser("~")
+    # The whole scratch (HOME and TMPDIR: acpmux's sockets and spool sit in TMPDIR, outside HOME).
+    roots = [os.path.dirname(STORE_HOME)] if STORE_HOME else []
+    roots.append(f"/tmp/acpmux-{os.getuid()}")
+    saved = saved_state_dir(bundle)
+    if saved:
+        roots.append(saved)
+    roots += [os.path.join(home, ".acpmux"), os.path.join(home, ".cmux")]
+    # The account's per-user cache and temp folders too: Metal's shader cache and the app's caches sit there,
+    # keyed by bundle id, outside every home (a 107 MB/h launch-window app write moved no file under the rest).
+    for parent in [os.path.join(home, "Library/Application Support"), os.path.join(home, "Library/Caches"),
+                   *darwin_user_dirs()]:
+        try:
+            roots += [os.path.join(parent, name) for name in os.listdir(parent) if "cmux" in name.lower()]
+        except OSError:
+            pass
+    # Nested roots are walked once (the saved state sits under Application Support/cmux-next).
+    roots = sorted({os.path.realpath(r) for r in roots if os.path.isdir(r)})
+    return [r for r in roots if not any(r != o and r.startswith(o + os.sep) for o in roots)]
+
+
+
+def darwin_user_dirs() -> list[str]:
+    """The account's per-user cache and temp folders (`getconf DARWIN_USER_CACHE_DIR`, `DARWIN_USER_TEMP_DIR`):
+    Metal's shader cache and the app's caches under its bundle id sit there, outside HOME and ~/Library."""
+    found = []
+    for name in ("DARWIN_USER_CACHE_DIR", "DARWIN_USER_TEMP_DIR"):
+        try:
+            out = subprocess.run(["getconf", name], capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if out:
+            found.append(out)
+    return found
+
+
+# A file a process holds open for writing is digested when it is at most this big (a mapped write moves no mtime).
+DIGEST_MAX_BYTES = 64 << 20
+
+
+def file_digests(paths, limit: int = DIGEST_MAX_BYTES) -> dict[str, tuple[int, int, str]]:
+    """Path -> (size, mtime ns, blake2b) for each regular file at most `limit` bytes; others are left out."""
+    found = {}
+    for path in paths:
+        try:
+            st = os.stat(path)
+            if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+                continue
+            h = hashlib.blake2b(digest_size=16)
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+        except OSError:
+            continue
+        found[path] = (st.st_size, st.st_mtime_ns, h.hexdigest())
+    return found
+
+
+def held_paths(held: dict[str, list[str]]) -> list[str]:
+    """Every path in an open_for_write() answer, once."""
+    return sorted({path for paths in held.values() for path in paths})
+
+
+def rewritten_in_place(before: dict, after: dict) -> list[dict]:
+    """Files held open for writing whose bytes changed in the window, the ones whose mtime stayed first: a write
+    through a mapping (Chromium's BrowserMetrics, a disk cache index, an mmap'd store) moves no mtime, so
+    files_written cannot see it, but the account's disk writes still count its page-outs."""
+    changed = []
+    for path, (size, mtime, digest) in after.items():
+        old = before.get(path)
+        if old is not None and old[2] != digest:
+            changed.append({"path": path, "bytes": size, "grew": size - old[0], "mtime_moved": old[1] != mtime})
+    changed.sort(key=lambda row: (row["mtime_moved"], -row["bytes"]))
+    return changed
+
+
+def store_files(bundle: str, limit: int = 200_000) -> dict[str, tuple[int, int]]:
+    """Path -> (size, mtime ns) under store_roots(), at most `limit` files (a busy fleet home has many)."""
+    files = {}
+    for root in store_roots(bundle):
+        for top, _, names in os.walk(root):
+            for name in names:
+                path = os.path.join(top, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                files[path] = (st.st_size, st.st_mtime_ns)
+                if len(files) >= limit:
+                    return files
+    return files
+
+
+def files_written(before: dict, after: dict, top: int = 25) -> dict:
+    """Files the window created or modified (mtime moved), largest growth first: which store the idle writes go
+    to. `grew` is the size change (an append's bytes); `bytes` the size now (a rewrite of a 100 KB file reads 100 KB)."""
+    home = os.path.expanduser("~")
+    changed = []
+    for path, (size, mtime) in after.items():
+        old = before.get(path)
+        if old is None or old[1] != mtime:
+            changed.append((path, size, size - (old[0] if old else 0)))
+    changed.sort(key=lambda item: (-item[2], -item[1]))
+    def short(path: str) -> str:
+        if STORE_HOME and path.startswith(os.path.realpath(STORE_HOME)):
+            return "$HOME" + path[len(os.path.realpath(STORE_HOME)):]
+        if STORE_HOME and path.startswith(os.path.realpath(os.path.dirname(STORE_HOME))):
+            return "$SCRATCH" + path[len(os.path.realpath(os.path.dirname(STORE_HOME))):]
+        return path.replace(home, "~", 1)
+    return {"count": len(changed), "bytes": sum(size for _, size, _ in changed),
+            "grew": sum(max(grew, 0) for _, _, grew in changed), "scanned": len(after),
+            "top": [{"path": short(path), "bytes": size, "grew": grew} for path, size, grew in changed[:top]]}
+
+
+def open_for_write(kinds: dict[int, str]) -> dict[str, list[str]]:
+    """kind -> the regular files its processes hold open for writing (`lsof`; deleted ones keep their path)."""
+    if not kinds:
+        return {}
+    try:
+        out = subprocess.run(["lsof", "-n", "-P", "-F", "patn", "-p", ",".join(str(pid) for pid in sorted(kinds))],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return parse_open_for_write(out, kinds)
+
+
+def parse_open_for_write(out: str, kinds: dict[int, str]) -> dict[str, list[str]]:
+    """`lsof -F patn` records: p<pid> starts a process, f/a/t/n fields one file each (a=access, t=type)."""
+    found: dict[str, set[str]] = {}
+    pid = None
+    access = kind_type = ""
+    for line in out.splitlines():
+        if not line:
+            continue
+        tag, value = line[0], line[1:]
+        if tag == "p":
+            pid = int(value) if value.isdigit() else None
+        elif tag == "f":
+            access = kind_type = ""
+        elif tag == "a":
+            access = value
+        elif tag == "t":
+            kind_type = value
+        elif tag == "n" and pid in kinds and kind_type == "REG" and access in ("w", "u"):
+            found.setdefault(kinds[pid], set()).add(value)
+    return {kind: sorted(paths) for kind, paths in sorted(found.items())}
+
+
+def keep_daemon_logs(bundle: str, out: str | None) -> None:
+    """Copies acpmux's daemon.log (scratch HOME and the saved state) beside --out before the scratch goes, and
+    prints how often its sessions hibernated and woke: a wake and hibernate cycle is the idle disk suspect."""
+    if not out:
+        return
+    dest = os.path.join(os.path.dirname(os.path.abspath(out)), "acpmux-logs")
+    counts = {"hibernated": 0, "woke": 0, "causes": {}}
+    for root in store_roots(bundle):
+        if not (STORE_HOME and root.startswith(os.path.realpath(os.path.dirname(STORE_HOME)))) and root != os.path.realpath(saved_state_dir(bundle) or "/nonexistent"):
+            continue
+        for top, _, names in os.walk(root):
+            for name in names:
+                if not name.startswith("daemon.log"):
+                    continue
+                path = os.path.join(top, name)
+                os.makedirs(dest, exist_ok=True)
+                shutil.copy2(path, os.path.join(dest, path.replace(os.sep, "_").strip("_")[-150:]))
+                try:
+                    with open(path, errors="replace") as handle:
+                        for line in handle:
+                            if "hibernated:" in line:
+                                counts["hibernated"] += 1
+                            elif " woke" in line:
+                                counts["woke"] += 1
+                                cause = re.search(r"cause=(\S+)", line)
+                                key = cause.group(1) if cause else "?"
+                                counts["causes"][key] = counts["causes"].get(key, 0) + 1
+                except OSError:
+                    pass
+    print(f"PERF-IDLE-WAKES {json.dumps(counts)} logs={dest}", flush=True)
 
 
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
@@ -675,6 +879,55 @@ def print_attribution(label: str, found: dict):
             print(f"PERF-ATTR {label} sthread {key} {line}")
         if stack.get("error"):
             print(f"PERF-ATTR {label} sample {key} error={stack['error']}")
+    sys.stdout.flush()
+
+
+def chief_processes(app_pid: int, bundle: str) -> int:
+    """How many of the app's processes are the Chief's brain (optchat-chief in the command line)."""
+    return sum(1 for _kind, cmd in owned(app_pid, bundle).values() if "optchat-chief" in cmd)
+
+
+def wait_chief_steady(app_pid: int, bundle: str, bound: float, quiet: float = 10.0, step: float = 2.0) -> dict:
+    """--chief-steady: before the window, wait (at most `bound` s) until the Chief's process count has not
+    changed for `quiet` s. An idle launch lands in one of two states, the Chief up (its acpmux daemon,
+    router, __agent-host, `cmux mcp serve`, optchat-chief, a second WebContent: about +145 MB) or not, and
+    a window that the Chief starts in mixes them. Returns {chief_processes, steady, waited_s}."""
+    start = last_change = time.monotonic()
+    count = chief_processes(app_pid, bundle)
+    while time.monotonic() - last_change < quiet and time.monotonic() - start < bound:
+        time.sleep(step)  # sleep-ok: a bounded wait for the Chief's process count to stop changing (no event for it)
+        now = chief_processes(app_pid, bundle)
+        if now != count:
+            count, last_change = now, time.monotonic()
+    return {"chief_processes": count, "steady": time.monotonic() - last_change >= quiet,
+            "waited_s": round(time.monotonic() - start, 1)}
+
+
+def launch_state(result: dict, before: dict | None) -> dict:
+    """The state an idle window measured: whether the Chief was up (at the window's end, and whether that
+    changed in it) and how many agent pages were on screen (attribution's page list; None without it)."""
+    chief = sum(1 for row in result["processes"] if "optchat-chief" in (row.get("command") or ""))
+    pages = (result.get("attribution") or {}).get("pages")
+    visible = None if pages is None else sum(
+        1 for p in pages if not p.get("hidden") and str(p.get("origin") or "").startswith("cmux-page://cmux.agent"))
+    state = {"chief_up": chief > 0, "chief_processes": chief, "visible_agent_pages": visible}
+    if before is not None:
+        state.update(chief_before=before["chief_processes"], chief_steady=before["steady"],
+                     chief_wait_s=before["waited_s"], chief_changed_in_window=before["chief_processes"] != chief)
+    return state
+
+
+def record_vmmap_breakdown(result: dict) -> None:
+    """--vmmap-breakdown: after the window (vmmap suspends its target while it reads, so never inside it),
+    `vmmap --summary` of the app, the two largest renderers, the acpmux daemons, `cmux mcp serve` and
+    optchat-chief, each bounded (vmmap_regions.TIMEOUT_S), stored as the row's `vmmap` and printed."""
+    for row, why in vmmap_regions.targets(result["processes"]):
+        got = vmmap_regions.breakdown(row["pid"])
+        got["why"] = why
+        row["vmmap"] = got
+        top = [(name, r["dirty_swapped_mb"]) for name, r in list((got.get("regions") or {}).items())[:6]]
+        print(f"VMMAP-BREAKDOWN {result['label']} {why} pid {row['pid']} footprint {row['footprint_mb']} "
+              f"vmmap_footprint {got.get('physical_footprint_mb')} top {json.dumps(top)} error {got.get('error')}")
     sys.stdout.flush()
 
 
@@ -1698,7 +1951,7 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
-        json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
+        json.dump(merged({"updates": {"automatic": "off"}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
     launched_at = time.time()
     if direct:
@@ -2140,6 +2393,13 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--vmmap-breakdown", action="store_true",
+                        help="after each sample's window, vmmap --summary of the app, the 2 largest renderers, the acpmux "
+                             "daemons, cmux mcp serve and optchat-chief (each bounded at 20 s), parsed into the row's `vmmap`: "
+                             "per region type dirty+swapped MB, per malloc zone allocated and fragmented MB")
+    parser.add_argument("--chief-steady", type=float, default=0, metavar="SECONDS",
+                        help="before each window, wait at most SECONDS until the Chief's process count has not changed "
+                             "for 10 s (the sample's launch_state records it); 0 does not wait")
     parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
                         "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
@@ -2218,6 +2478,8 @@ def main():
         parser.error("--relaunch-restored needs an app that this run launches (no --socket)")
     if any("=" not in pair or not pair.split("=", 1)[0] for pair in args.env):
         parser.error("--env takes NAME=VALUE")
+    if args.vmmap_breakdown and vmmap_regions is None:
+        parser.error("--vmmap-breakdown needs vmmap_regions.py beside bench_memory.py")
     global SAMPLE_GPU
     SAMPLE_GPU = args.gpu
     if args.axis and args.axis.startswith("chat-") and not args.fake_agent:
@@ -2277,6 +2539,8 @@ def main():
             config = merged(config, chat_renderer_crash.CONFIG)
         extra.update(pair.split("=", 1) for pair in args.env)
         launched, socket_path, scratch = launch(bundle, config, extra)
+        global STORE_HOME
+        STORE_HOME = os.path.join(scratch, "home")
         if args.relaunch_restored:
             try:
                 launched, socket_path, relaunch = relaunch_restored(bundle, config, extra, socket_path, scratch,
@@ -2307,6 +2571,7 @@ def main():
         # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
         # same age, so the duration is the measured condition, not a stand-in for an event. --settled-at passes its own.
         time.sleep(args.settle if settle is None else settle)
+        chief_before = wait_chief_steady(app_pid, bundle, args.chief_steady) if args.chief_steady > 0 else None
         measure, scroller = args.measure, None
         if diff_tab is not None:
             # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
@@ -2374,6 +2639,10 @@ def main():
             print_app_vm(label, result["app_vm"])
         if args.soak_vm and args.idle_minutes > 0:
             result["soak_vm"] = soak_vm(result, label)
+        result["launch_state"] = launch_state(result, chief_before)
+        print(f"   launch state: {json.dumps(result['launch_state'])}", flush=True)
+        if args.vmmap_breakdown:
+            record_vmmap_breakdown(result)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
@@ -2523,6 +2792,8 @@ def main():
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)
             print(f"bench-memory: wrote {args.out}")
+        if scratch and SAMPLE_GPU:
+            keep_daemon_logs(bundle, args.out)
         if scratch:
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:

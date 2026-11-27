@@ -121,7 +121,7 @@ struct Entry {
 }
 
 /// Which end of a kept circuit this is.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Role {
     Dialer,
     Server,
@@ -147,6 +147,13 @@ pub(crate) struct Mux {
     ended: Mutex<Option<String>>,
     /// `gauges.links.hubKeptOpen`: given back at `close`, or when the circuit drops unclosed.
     open: Mutex<Option<crate::gauges::Held>>,
+    /// Cleared when the dialer closed the circuit on purpose (no stream for `kept_idle`, its
+    /// carrier gone): any other end (the far machine restarted, the relay or the hub dropped it,
+    /// the keepalive heard nothing) has the carrier open it again at once (`reopen_closed`).
+    reopen: AtomicBool,
+    /// A held circuit (`hub_carrier_hold.rs`): it never idles out, so the next dial to the
+    /// machine is a stream on it however long nobody dialed.
+    held: AtomicBool,
 }
 
 /// The most early bytes a stream open carries behind its OPEN ([`Mux::open`]): well inside a
@@ -182,6 +189,8 @@ impl Mux {
             hello: Mutex::new(None),
             ended: Mutex::new(None),
             open: Mutex::new(Some(crate::gauges::Held::on(&crate::gauges::links().hub_kept_open))),
+            reopen: AtomicBool::new(role == Role::Dialer),
+            held: AtomicBool::new(false),
         })
     }
 
@@ -194,9 +203,43 @@ impl Mux {
         self.streams.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
+    /// How long since a record of any kind came in on this circuit.
+    pub(crate) fn heard_age(&self) -> Duration {
+        self.heard().elapsed()
+    }
+
+    /// Whether the circuit ended under its dialer, not by the dialer's choice: the carrier opens
+    /// it again rather than leave the next dial a whole new handshake.
+    pub(crate) fn wants_reopen(&self) -> bool {
+        self.is_closed() && self.reopen.load(Ordering::SeqCst)
+    }
+
+    /// Hold the circuit: no idle close and no idle give-up on reopen (`hub_carrier_hold.rs`).
+    pub(crate) fn hold(&self) {
+        self.held.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_held(&self) -> bool {
+        self.held.load(Ordering::SeqCst)
+    }
+
+    /// How long the circuit has had no stream (since its last one ended, or it opened); zero
+    /// while it is held.
+    pub(crate) fn quiet_for(&self) -> Duration {
+        if self.streams() > 0 || self.is_held() {
+            return Duration::ZERO;
+        }
+        self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
+    }
+
     /// Why the circuit ended before its `mux` hello was answered, if it did.
     pub(crate) fn ended(&self) -> Option<String> {
         self.ended.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Whether the circuit heard a record of any kind after `at`.
+    pub(crate) fn heard_since(&self, at: Instant) -> bool {
+        self.heard() > at
     }
 
     fn heard(&self) -> Instant {
@@ -271,7 +314,7 @@ impl Mux {
                     break;
                 }
                 Err(e) => {
-                    tracing::debug!("hub carrier: a kept circuit ended: {e}");
+                    tracing::info!(role = ?self.role, "hub carrier: a kept circuit ended: {e}");
                     self.end_before_hello(&e.to_string());
                     break;
                 }
@@ -414,11 +457,27 @@ impl Mux {
                 Ok(local) => self.carry_admitted(id, local, events, credit).await,
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::Echo) => {
+                self.carry_admitted(id, super::echo_stream(), events, credit).await
+            }
             Ok(CircuitService::LaneGhBroker) => {
                 match broker::open(incoming.carrier.lane_gh_broker_gate(), from).await {
                     Ok(local) => self.carry_admitted(id, local, events, credit).await,
                     Err(refusal) => refuse(refusal).await,
                 }
+            }
+            // A punch's candidates (`hub_carrier_punch.rs`): served while this machine listens
+            // for punched connections, else refused as a daemon from before it refuses it.
+            Ok(CircuitService::DirectOffer) if incoming.carrier.punch_listening() => {
+                let (ours, theirs) = tokio::io::duplex(super::DUPLEX_BYTES);
+                let carrier = incoming.carrier.clone();
+                tokio::join!(
+                    carrier.serve_offer(theirs),
+                    self.carry_admitted(id, ours, events, credit)
+                );
+            }
+            Ok(CircuitService::DirectOffer) => {
+                refuse(ServiceRefusal::new("service.unknown", "no such service")).await
             }
             Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
                 Ok((local, serving)) => {
@@ -660,18 +719,37 @@ impl Mux {
             if self.is_closed() {
                 return;
             }
-            let quiet = self.streams() == 0
-                && self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= idle;
-            if owner.upgrade().is_none() || quiet || self.heard().elapsed() >= every * 2 {
+            let quiet = self.quiet_for() >= idle;
+            // Every close says why at info: a kept circuit that ends early costs the next dial a
+            // whole new handshake (0.6 s against 0.07 s), and the reason was debug-only.
+            let why = if owner.upgrade().is_none() {
+                self.reopen.store(false, Ordering::SeqCst);
+                Some("its carrier is gone".to_owned())
+            } else if quiet {
+                self.reopen.store(false, Ordering::SeqCst);
+                Some(format!("no stream for {} s", idle.as_secs()))
+            } else if self.heard().elapsed() >= every * 2 {
+                Some(format!("nothing heard for {} s", self.heard().elapsed().as_secs()))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                tracing::info!("hub carrier: closing a kept circuit: {why}");
                 self.close().await;
                 return;
             }
-            if self.send(PING, 0, &[]).await.is_err() {
+            if let Err(e) = self.send(PING, 0, &[]).await {
+                tracing::info!("hub carrier: closing a kept circuit: its keepalive failed: {e}");
                 self.close().await;
                 return;
             }
         }
     }
+}
+
+/// Run the carrier's reopen loop ([`super::HubCarrier::keep_reopening`]) under this scope.
+pub(crate) fn spawn_reopening(task: impl std::future::Future<Output = ()> + Send + 'static) {
+    scope().spawn_named("hub carrier kept circuit reopen", task);
 }
 
 /// Start the dialer's end of a kept circuit whose `mux` hello was just sent: streams may open on
@@ -712,7 +790,19 @@ pub(crate) struct Kept {
     /// Set when the machine's kept circuit refused an acpmux stream `service.unknown` (it
     /// predates them): acpmux dials go plain to it until then.
     pub(crate) no_acpmux_until: Option<Instant>,
+    /// The path `live` runs on, so a circuit that ends under it is opened again on the same one.
+    pub(crate) path: Option<super::Path>,
+    /// A failed reopen waits until then, doubling to [`REOPEN_BACKOFF_MAX`].
+    pub(crate) reopen_at: Option<Instant>,
+    pub(crate) reopen_wait: Duration,
+    /// The slot is held (`hub_carrier_hold.rs`): every circuit opened on it is held.
+    pub(crate) held: bool,
 }
+
+/// The longest wait between two tries to open a kept circuit again that ended under its dialer.
+pub(crate) const REOPEN_BACKOFF_MAX: Duration = Duration::from_secs(60);
+/// The first wait after a failed reopen.
+pub(crate) const REOPEN_BACKOFF_MIN: Duration = Duration::from_secs(1);
 
 /// Every kept circuit of a carrier, by machine (`daemonId`) and [`Lane`](super::CircuitLane).
 #[derive(Default)]
@@ -745,10 +835,48 @@ impl KeptCircuits {
         }
     }
 
+    /// Every machine's slot whose kept circuit ended under it and wants opening again.
+    pub(crate) fn to_reopen(&self) -> Vec<(String, Lane, Arc<tokio::sync::Mutex<Kept>>)> {
+        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        by_machine
+            .iter()
+            .filter(|(_, slot)| {
+                slot.try_lock()
+                    .is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| mux.wants_reopen()))
+            })
+            .map(|((daemon, lane), slot)| (daemon.clone(), *lane, slot.clone()))
+            .collect()
+    }
+
     /// The live kept circuits to `daemon` that heard no record at all for `silent`: no byte on
     /// any stream, no keepalive PONG.
     pub(crate) fn silent_for(&self, daemon: &str, silent: Duration) -> Vec<Arc<Mux>> {
         self.live(daemon).into_iter().filter(|mux| mux.heard().elapsed() >= silent).collect()
+    }
+
+    /// The live kept circuit to `daemon` on `lane`, when one is open now.
+    pub(crate) fn live_on(&self, daemon: &str, lane: Lane) -> Option<Arc<Mux>> {
+        let slot = self
+            .by_machine
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&(daemon.to_owned(), lane))
+            .cloned()?;
+        slot.try_lock().ok()?.live.clone().filter(|mux| !mux.is_closed())
+    }
+
+    /// Every live kept circuit with the path it runs on and how long it has carried no stream:
+    /// what [`super::saved`] writes down so a restart of this daemon opens them again.
+    pub(crate) fn kept_now(&self) -> Vec<(String, Lane, super::Path, Duration)> {
+        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        by_machine
+            .iter()
+            .filter_map(|((daemon, lane), slot)| {
+                let kept = slot.try_lock().ok()?;
+                let mux = kept.live.as_ref().filter(|mux| !mux.is_closed())?;
+                Some((daemon.clone(), *lane, kept.path?, mux.quiet_for()))
+            })
+            .collect()
     }
 
     /// The live kept circuits to `daemon` open now, cheap first.

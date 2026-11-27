@@ -16,7 +16,7 @@
 // experiment serves, and the sidebar's "N experiments on" mark (native, so a broken layer cannot
 // take it down) opens this card and turns them off too.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useLayoutEffect, useRef, useState, Fragment, memo, useContext, useMemo } from "react";
+import { Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { CardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
@@ -24,19 +24,19 @@ import { useStore } from "../context";
 import {
   beatenByEntry,
   beatenLine,
-  codeCanTurnOn,
-  codeTitle,
   entryDetail,
-  prUrl,
-  shortSha,
   sourceLabel,
   step,
   type Beaten,
+  codeCanTurnOn,
+  codeTitle,
+  prUrl,
+  shortSha,
 } from "../customizeLibrary";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
-import type { LibraryCode, LibraryEntry, LibraryListing, LibraryRun } from "../ops";
-import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
+import type { LibraryEntry, LibraryListing, LibraryRun, LibraryCode } from "../ops";
+import { LIBRARY_KEY, libraryQuery, type LibraryRead, STANDUP_KEY } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
 import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
@@ -77,6 +77,8 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
         if (answer.library)
           queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
         setRefusal(answer.refusal);
+        // The Standup panel shares this library's words and must not retain the pre-change report.
+        void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
       })
       .finally(() => {
         setBusy(false);
@@ -182,6 +184,13 @@ export function CustomizeLibraryView({
       ref={card}
     >
       <h3 className="group-title">{t("settingsPage.customizeLibrary.title")}</h3>
+      {/* The card's description, above its rows as Agents on This Mac's is: a row of its own drew it the
+          row's full width, past the 60% a row's text keeps to (settings-cohesive-look). */}
+      {listing && !(drawn && entries.length === 0) && (
+        <div className="row-help" data-library-help="">
+          {t("settingsPage.customizeLibrary.help")}
+        </div>
+      )}
       <div
         className="rows"
         ref={windowed ? rowWindow.list : undefined}
@@ -200,9 +209,6 @@ export function CustomizeLibraryView({
           </div>
         ) : listing ? (
           <>
-            <div className="row" data-library-help="">
-              <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
-            </div>
             <LibraryList
               listing={listing}
               entries={entries}

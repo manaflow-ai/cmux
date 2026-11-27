@@ -4,13 +4,13 @@
 //!
 //! ```text
 //! cmux-tui.json, mux.json      the terminal daemon's own config: what it sets
-//! cmux.json agents.harnesses   classic's file: acpmux still adds its harnesses
+//! cmux-next.json agents.harnesses  the settings file can add agent harnesses
 //! harnesses/*.toml             agent harness profiles that replace the found ones
 //! host-budget.json             the host pressure formula
 //! agent-pane/layout.json       the chat header's quick actions
 //! agent-pane/registry.js       a script every chat pane runs
 //! diff/languages/**.json       extra diff grammars
-//! the classic Ghostty layer    Application Support/com.cmuxterm.app/config.ghostty, over your Ghostty config
+//! classic-ghostty/config.ghostty   the terminal layer copied by a Classic import
 //! managed preferences          an organization's forced settings, over cmux-next.json
 //! CMUX_* in the environment    a variable that moves or turns off a customization
 //! anything else *.json         at the top of the config folder: cmux does not read it
@@ -52,7 +52,6 @@ impl Customize {
     pub(super) fn stray_findings(&self, out: &mut Found) {
         let config = self.roots().config_dir.clone();
         self.daemon_config(&config, out);
-        self.classic_harnesses(&config, out);
         harness_profiles(&config.join("harnesses"), self, out);
         self.json_file(
             &config.join("host-budget.json"),
@@ -99,24 +98,21 @@ impl Customize {
                 vec![Fix::open(true)],
             );
         }
+        let ghostty = config.join("classic-ghostty/config.ghostty");
+        if ghostty.is_file() {
+            out.push(
+                FindingKind::Override,
+                Level::Info,
+                "ghostty:config.ghostty",
+                "Imported Classic terminal settings change the terminal".to_owned(),
+                "This file loads after your Ghostty config, so its font, colors and keys win over ~/.config/ghostty.".to_owned(),
+                display_dir(&ghostty, self.roots()),
+                Some(&ghostty),
+                None,
+                vec![Fix::open(false)],
+            );
+        }
         if let Some(home) = home_of(&config) {
-            let support = home.join("Library/Application Support/com.cmuxterm.app");
-            for name in ["config.ghostty", "config"] {
-                let path = support.join(name);
-                if path.is_file() {
-                    out.push(
-                        FindingKind::Override,
-                        Level::Info,
-                        &format!("ghostty:{name}"),
-                        format!("cmux's own Ghostty file {name} changes the terminal"),
-                        "It loads after your Ghostty config, so its font, colors and keys win over ~/.config/ghostty.".to_owned(),
-                        format!("~/Library/Application Support/com.cmuxterm.app/{name}"),
-                        Some(&path),
-                        None,
-                        vec![Fix::open(false)],
-                    );
-                }
-            }
             for managed in [
                 PathBuf::from("/Library/Managed Preferences/com.manaflow.cmux.plist"),
                 home.join("Library/Managed Preferences/com.manaflow.cmux.plist"),
@@ -165,7 +161,19 @@ impl Customize {
                 Vec::new(),
             );
         }
-        // Random JSON at the top of the config folder that nothing reads.
+        // writeBeside resolves the settings symlink before naming its migration records.
+        let settings_file = &self.roots().settings_file;
+        let target = cmux_config::fsio::resolve_symlinks(settings_file);
+        let target_in_config = target.parent().is_some_and(|dir| {
+            dir == config
+                || dir
+                    .canonicalize()
+                    .is_ok_and(|dir| config.canonicalize().is_ok_and(|config| dir == config))
+        });
+        let settings_name = super::file_name(settings_file);
+        let target_name = super::file_name(&target);
+        let settings_names =
+            [Some(settings_name.as_str()), target_in_config.then_some(target_name.as_str())];
         for name in dir_names(&config) {
             let path = config.join(&name);
             let lower = name.to_lowercase();
@@ -175,8 +183,14 @@ impl Customize {
             if !config_like
                 || !path.is_file()
                 || KNOWN_TOP_FILES.contains(&name.as_str())
+                || settings_names.iter().flatten().any(|base| {
+                    name == *base
+                        || matches!(
+                            name.strip_prefix(*base),
+                            Some(".defaults-forgotten.json" | ".defaults-restored.json")
+                        )
+                })
                 || secret_name(&name)
-                || path == self.roots().settings_file
                 || looks_like_theme(&path)
             {
                 continue;
@@ -224,14 +238,8 @@ impl Customize {
         }
     }
 
-    /// Classic cmux.json's `agents.harnesses`: acpmux adds them on every load.
-    fn classic_harnesses(&self, config: &Path, out: &mut Found) {
-        let path = config.join("cmux.json");
-        if path == self.roots().settings_file {
-            return;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else { return };
-        let Ok(value) = jsonc::parse(&text) else { return };
+    pub(super) fn settings_harnesses(&self, value: &Value, out: &mut Found) {
+        let path = &self.roots().settings_file;
         let Some(harnesses) = value.pointer("/agents/harnesses").and_then(Value::as_object) else {
             return;
         };
@@ -242,11 +250,12 @@ impl Customize {
         out.push(
             FindingKind::Override,
             Level::Info,
-            "cmux.json#agents.harnesses",
-            format!("Classic cmux.json adds agent harnesses: {}", names.join(", ")),
-            "cmux NEXT still reads agents.harnesses from classic cmux's cmux.json, over the harnesses it finds by itself.".to_owned(),
-            "cmux.json".to_owned(),
-            Some(&path),
+            "settings#agents.harnesses",
+            format!("Your settings add agent harnesses: {}", names.join(", ")),
+            "agents.harnesses in your settings overrides harnesses cmux finds by itself."
+                .to_owned(),
+            display_dir(path, self.roots()),
+            Some(path),
             None,
             vec![Fix::open(false)],
         );

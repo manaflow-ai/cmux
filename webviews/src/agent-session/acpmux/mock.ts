@@ -62,10 +62,16 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** The pause before each step of an unscripted turn (mockTurn), 350 ms when unset. A gallery play that
+   *  only needs finished turns behind its scene sets it low, so its setup turns cost no seconds of play. */
+  cmuxAcpmuxMockStepMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
   /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
   cmuxAcpmuxMockListShape?: "fleet";
+  /** bench/sim-ladder.bench.ts: page the list by the client's `limit` (`_acpmux/watch`, then `_acpmux/sessions`
+   *  from `nextCursor`), as acpmux does (list_reply.rs), so each page holds the first page, as the app's do. */
+  cmuxAcpmuxMockPaged?: boolean;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -203,6 +209,14 @@ const done = (toolCallId: string, extra: Update = {}): Update => ({
 
 /// A turn shaped like a real agent's: text, a tool call, more text, file edits, a closing answer.
 export function mockTurn(prompt: string, turn: number): Step[] {
+  // `/compact` compacts, as Claude Code does: a running note, Claude Code's 30-second repeat, then its end
+  // (snappy-bench's compaction transition: Leo 2026-11-25, "layout shifts and awkward looking animations").
+  if (/^\/compact\b/.test(prompt.trim()))
+    return [
+      { update: { sessionUpdate: "compaction", state: "running" } },
+      { update: { sessionUpdate: "compaction", state: "running" } },
+      { update: { sessionUpdate: "compaction", state: "completed", preTokens: 152_000, postTokens: 18_000 } },
+    ];
   const greeting = "/mock/project/src/greeting.ts";
   const notes = "/mock/project/NOTES.md";
   return [
@@ -253,11 +267,14 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
+/// `kind`: what each delta is: reply text (the default), a thought's text (`agent_thought_chunk`), or
+/// a status change alone (`usage_update`: the context ring's count moves, no row changes).
 export type LoadStreamOptions = {
   seconds: number;
   chunkChars: number;
   chunkMs: number;
   toolEvery: number;
+  kind?: "text" | "thought" | "status";
   /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
   prefixWords?: number;
   prefixSettleMs?: number;
@@ -388,6 +405,24 @@ export class MockAcpmuxSocket {
       this.readyState = 1;
       this.onopen?.();
     });
+  }
+
+  /// The list, or with `cmuxAcpmuxMockPaged` one page of it as acpmux answers one: at most `limit` rows, newest
+  /// first, from `cursor`, with `nextCursor` while more remain; with no `limit`, the rest. Unpaged (the default),
+  /// the whole list with no cursor: a daemon that ignores `limit`.
+  private listPage(params: Record<string, unknown>): { sessions: Record<string, any>[]; nextCursor?: string } {
+    if (!(globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged) return { sessions: this.sessions };
+    const cursor = typeof params.cursor === "string" ? params.cursor : undefined;
+    const from = cursor?.startsWith("mock:") ? Number(cursor.slice(5)) : 0;
+    const start = Number.isInteger(from) && from > 0 ? from : 0;
+    const limit = typeof params.limit === "number" && params.limit > 0 ? Math.floor(params.limit) : undefined;
+    const ordered = [...this.sessions].sort(
+      (a, b) =>
+        (typeof b.updatedAt === "number" ? b.updatedAt : 0) - (typeof a.updatedAt === "number" ? a.updatedAt : 0),
+    );
+    const end = limit === undefined ? ordered.length : Math.min(ordered.length, start + limit);
+    const sessions = ordered.slice(start, end);
+    return end < ordered.length ? { sessions, nextCursor: `mock:${end}` } : { sessions };
   }
 
   /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
@@ -563,7 +598,12 @@ export class MockAcpmuxSocket {
       }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
-      this.emit(target, { update: text(chunk) });
+      const kind = options.kind ?? "text";
+      if (kind === "thought")
+        this.emit(target, { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: chunk } } });
+      else if (kind === "status")
+        this.emit(target, { update: { sessionUpdate: "usage_update", used: 20_000 + at * 4, size: 200_000 } });
+      else this.emit(target, { update: text(chunk) });
       deltas += 1;
       const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
       if (due > toolLines) {
@@ -678,7 +718,7 @@ export class MockAcpmuxSocket {
   /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
   async addLoadTools(
     target: string,
-    options: { count: number; gapMs: number; keepOpen: boolean },
+    options: { count: number; gapMs: number; keepOpen: boolean; reply?: string },
   ): Promise<{ tools: number; events: number }> {
     let open = this.openToolTurns.get(target);
     if (!open) {
@@ -704,6 +744,17 @@ export class MockAcpmuxSocket {
       events += 2;
       await this.delay(options.gapMs);
     }
+    // `reply`: the turn's closing answer, marked the final one (`_meta.codex.phase`, read by
+    // direct.ts), so the rows only a concluded turn draws -- its walkthrough, its tagged ask card --
+    // are in play. Without it a turn ends on its calls alone and those rows never appear, which is
+    // how the judged scenario missed the append Leo kept finding (turns.ts `concluding`). It arrives
+    // whether or not the turn then ends: with `keepOpen` the turn sits on its marked final answer,
+    // which is the state the end has to swap out of without moving anything.
+    if (options.reply) {
+      this.emit(target, { update: { ...text(options.reply), _meta: { codex: { phase: "final_answer" } } } });
+      events += 1;
+      await this.delay(options.gapMs);
+    }
     if (!options.keepOpen) {
       this.openToolTurns.delete(target);
       this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
@@ -723,12 +774,13 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error & { code?: string; details?: unknown; data?: unknown }) =>
+      (error: Error & { code?: string; rpcCode?: number; details?: unknown; data?: unknown }) =>
         this.deliver({
           jsonrpc: "2.0",
           id: request.id,
           error: {
-            code: -32000,
+            // A test's own JSON-RPC code (acpmux's not found, -32002) when it sets one.
+            code: typeof error.rpcCode === "number" ? error.rpcCode : -32000,
             message: error.message,
             data:
               error.data ??
@@ -788,7 +840,10 @@ export class MockAcpmuxSocket {
       // until a watch turns it on again; it answers no list (server/list_reply.rs `watch`).
       case "_acpmux/watch":
         this.watching = params.enabled !== false;
-        return this.watching ? { sessions: this.sessions } : {};
+        return this.watching ? this.listPage(params) : {};
+      // The pages after the first (`nextCursor`), as acpmux answers them (list_reply.rs).
+      case "_acpmux/sessions":
+        return (globalThis as MockAuthGlobals).cmuxAcpmuxMockPaged ? this.listPage(params) : {};
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -1440,7 +1495,10 @@ export class MockAcpmuxSocket {
     if (failure) return this.failTurn(target, running, failure);
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
-      if (!this.script) await this.delay(350);
+      if (!this.script) {
+        const { cmuxAcpmuxMockStepMs: stepMs } = globalThis as MockAuthGlobals;
+        await this.delay(typeof stepMs === "number" ? stepMs : 350);
+      }
       if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }

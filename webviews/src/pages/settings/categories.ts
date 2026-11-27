@@ -30,6 +30,7 @@ export const CATEGORY_CARDS = [
   "chiefPet",
   "density",
   "textSize",
+  "replayIntro",
   "importSuggestions",
   "channels",
   "appUpdate",
@@ -38,6 +39,7 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
+  "cloudCompute",
   "cloudModels",
   "worktreeSetup",
   "extensions",
@@ -45,6 +47,7 @@ export const CATEGORY_CARDS = [
   "sharedLinks",
   "archivedWorkspaces",
   "customizeLibrary",
+  "looksGallery",
   "customizeProgress",
   "customizeChecklist",
   "tailnet",
@@ -52,6 +55,7 @@ export const CATEGORY_CARDS = [
   "keys",
   "mcpServers",
   "integrationsHub",
+  "developerTokens",
   "automationsCloud",
 ] as const;
 

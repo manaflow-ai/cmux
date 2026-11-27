@@ -65,6 +65,9 @@ public enum CmuxMobilePreferences {
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
         public static let followUp = "cmuxMobile.settings.followUp"
+        /// Settings → Composer → Session Facts (RFD 0130, off by default): `off`, `pulse` (live
+        /// counters beside the context meter) or `door` (an info mark); either opens the Session card.
+        public static let composerFooterFacts = "cmuxMobile.settings.composerFooterFacts"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
         /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
@@ -91,11 +94,11 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
-    /// Off until Leo picks it up (UI merges default-off).
-    public static let defaultTerminalPlainScroll = false
+    /// Off again (iOS regression row 18, Aziz 2026-11-26, Leo "Ok"); `TerminalScrollDefault` holds the value Settings reads too.
+    public static let defaultTerminalPlainScroll = TerminalScrollDefault.plainScroll
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
-    public static let defaultTerminalHistoryFind = false
+    public static let defaultTerminalHistoryFind = true
     public static let defaultDismissKeyboardAfterSend = true
     public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
