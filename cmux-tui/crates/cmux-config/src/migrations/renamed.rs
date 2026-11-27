@@ -37,7 +37,8 @@ fn owned(path: &[&str]) -> Vec<String> {
 pub fn legacy_path(path: &[String]) -> Option<Vec<String>> {
     // A retired key with `replaced_by` (schemas/settings/retired-keys.json): the
     // Session Info placement, computerUse.mode and the workspace-row toggles among them.
-    if let Some(replaced) = replaced_by_row(path) {
+    // A row may replace several (`updates.automatic`): the first, in read order.
+    if let Some(replaced) = replaced_by_row(path).next() {
         return Some(replaced.old.clone());
     }
     // `appearance.background` replaced the paintings-only `appearance.backdropArt`.
@@ -84,7 +85,7 @@ pub fn legacy_value(path: &[String], root: &Value) -> Option<Value> {
         return (value == &Value::Bool(false)).then(|| Value::String("off".to_owned()));
     }
     // As the retired-keys table maps it; any other old value is the row's default.
-    if let Some(replaced) = replaced_by_row(path) {
+    if let Some(replaced) = replaced_by_row(path).find(|replaced| replaced.old == legacy) {
         return replaced.read(value).cloned();
     }
     if legacy == BACKDROP_ART {
