@@ -61,13 +61,13 @@ public final class AgentPaneTogglePlace {
         var at: Int?
     }
 
-    private static func seconds(_ duration: Duration) -> Double {
+    static func seconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
     /// `work`'s answer, or nil once `deadline` passes first: a page script cannot be cancelled
     /// (WebKit's ignores a timeout), so the swap stops waiting on it instead.
-    private static func answer<T: Sendable>(by deadline: ContinuousClock.Instant,
+    static func answer<T: Sendable>(by deadline: ContinuousClock.Instant,
                                             _ work: @escaping @MainActor () async -> T?) async -> T? {
         guard ContinuousClock.now < deadline else { return nil }
         let answer = TogglePlaceAnswer<T>()

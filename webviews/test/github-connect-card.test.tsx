@@ -71,6 +71,21 @@ test("git's and gh's refusal line ask for a connect with no repository; the MCP 
   expect(githubConnectCall(mcp(mcpRefusal()))).toEqual({ reason: "not-connected", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("needs_reauth")))).toEqual({ reason: "needs-reauth", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("policy.denied")))).toEqual({ reason: "not-covered", repo: "acme/web" });
+  // The App asked for more (contents: read & write) and this installation has not accepted it yet.
+  expect(githubConnectCall(mcp(mcpRefusal("github.permissions_pending")))).toEqual({
+    reason: "permissions-pending",
+    repo: "acme/web",
+  });
+  expect(
+    githubConnectCall(
+      shell(
+        gitRefusal.replace(
+          "integration.not_found: no GitHub connection",
+          "github.permissions_pending: GitHub needs you to accept cmux's updated permissions",
+        ),
+      ),
+    ),
+  ).toEqual({ reason: "permissions-pending" });
   // The structured error alone (a harness that keeps only structuredContent), the repository from the call's args.
   const structured = JSON.parse(mcpRefusal()).structuredContent;
   expect(
