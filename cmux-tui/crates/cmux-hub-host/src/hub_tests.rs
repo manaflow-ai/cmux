@@ -113,6 +113,7 @@ fn a_joined_machine_renews_with_its_credential_and_learns_its_person() {
     extra.insert("shareByJoin".into(), json!(true));
     // An extra never replaces the device's own fields.
     extra.insert("platform".into(), json!("ios"));
+    extra.insert("kind".into(), json!("not-this-machine"));
     hub.register_with("macos", extra).unwrap();
     assert_eq!(hub.user_id().as_deref(), Some("p:u"));
     let received = server.join().unwrap();
@@ -124,6 +125,7 @@ fn a_joined_machine_renews_with_its_credential_and_learns_its_person() {
     // Then the call itself, with the machine session and the device's signature.
     assert_eq!(received[1].line, "POST /v1/devices HTTP/1.1");
     assert_eq!(received[1].body["platform"], "macos");
+    assert_eq!(received[1].body["kind"], json!(cmux_device_kind::this_device().kind.as_str()));
     assert_eq!(received[1].body["shareByJoin"], true);
     assert_eq!(received[1].body["id"], json!(id));
     assert_eq!(received[1].header("authorization"), Some("Bearer sess-1"));
@@ -146,6 +148,7 @@ fn an_anchored_device_renews_with_its_signed_user_id() {
     assert_eq!(received[0].body, json!({"userId": "p:u"}));
     assert!(received[0].header("x-device-sig").is_some());
     assert_eq!(received[1].body["platform"], "linux");
+    assert_eq!(received[1].body["kind"], json!(cmux_device_kind::this_device().kind.as_str()));
     assert_eq!(received[1].header("authorization"), Some("Bearer sess-2"));
 }
 

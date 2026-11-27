@@ -72,6 +72,8 @@ public final class DeviceHub {
     @ObservationIgnored public var deviceKind: String?
     /// The kind the last successful registration sent.
     @ObservationIgnored private var registeredKind: String?
+    /// One worker coalesces kind updates; stop and restart cancel and join it before resetting the client.
+    @ObservationIgnored private var kindTask: Task<Void, Never>?
 
     @ObservationIgnored public let client: DeviceHubClient
     @ObservationIgnored let socket: DeviceHubSocket
@@ -181,19 +183,27 @@ public final class DeviceHub {
         return sendKind()
     }
 
-    /// One registration with ``deviceKind``; a failure leaves it for the next start.
+    /// Serial registrations with the latest ``deviceKind``; a failure leaves it for the next start.
     @discardableResult
     private func sendKind() -> Task<Void, Never> {
-        let client = client, name = deviceName, platform = platform, kind = deviceKind, run = generation
-        let machineKey = machineKey, appId = appId
         guard ownsDevice else { return Task {} }
-        // task-owner: one re-registration; an answer from an older run is dropped
-        return Task { [weak self] in
-            guard (try? await client.registerDevice(name: name, platform: platform, kind: kind,
-                                                    machineKey: machineKey, appId: appId)) != nil else { return }
-            guard let self, run == generation else { return }
-            registeredKind = kind
+        if let kindTask { return kindTask }
+        let run = generation
+        let task = Task { [weak self] in // task-owner: stop/start cancel and join kindTask
+            guard let self else { return }
+            defer { kindTask = nil }
+            // wakeup-allow: each iteration awaits URLSession registration; success drains the pending kind,
+            // repeating only for a newer report received during that await. Failure, cancellation or restart ends it.
+            while !Task.isCancelled, run == generation, status == .ready, ownsDevice,
+                  let kind = deviceKind, kind != registeredKind {
+                guard (try? await client.registerDevice(name: deviceName, platform: platform, kind: kind,
+                                                        machineKey: machineKey, appId: appId)) != nil else { return }
+                guard !Task.isCancelled, run == generation else { return }
+                registeredKind = kind
+            }
         }
+        kindTask = task
+        return task
     }
 
     #if DEBUG
@@ -217,6 +227,10 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        let previousKind = kindTask
+        previousKind?.cancel()
+        await previousKind?.value
+        guard run == generation else { return }
         let kind = deviceKind
         devicesListError = nil
         var registered: HubDevice?
@@ -261,9 +275,10 @@ public final class DeviceHub {
 
     /// Signed out: closes the socket and forgets the account and every record.
     public func stop() {
-        let (client, socket) = resetForStop()
+        let (client, socket, kind) = resetForStop()
         Task(priority: .utility) {
             await socket?.value
+            await kind?.value
             await client.signOut()
         } // task-owner: a one-shot reset of the client's cached session
     }
@@ -272,8 +287,9 @@ public final class DeviceHub {
     /// capture cleanup uses this instead of `stop()` so no actor hop can write
     /// after the keychain namespace has been verified absent.
     public func stopAndWait() async {
-        let (client, socket) = resetForStop()
+        let (client, socket, kind) = resetForStop()
         await socket?.value
+        await kind?.value
         await vault.awaitIdle()
         await client.signOut()
     }
@@ -285,10 +301,12 @@ public final class DeviceHub {
     }
 
     @discardableResult
-    private func resetForStop() -> (client: DeviceHubClient, socket: Task<Void, Never>?) {
+    private func resetForStop() -> (client: DeviceHubClient, socket: Task<Void, Never>?, kind: Task<Void, Never>?) {
         let client = self.client
         generation += 1
         let socket = stopSocket()
+        let kind = kindTask
+        kind?.cancel()
         status = .idle
         connection = .disconnected
         me = nil
@@ -304,7 +322,7 @@ public final class DeviceHub {
         audit = []
         lastError = nil
         pushCount = 0
-        return (client, socket)
+        return (client, socket, kind)
     }
 
     @discardableResult
