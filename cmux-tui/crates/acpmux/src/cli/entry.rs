@@ -64,6 +64,8 @@ pub unsafe fn process_main() -> Result<()> {
     // SAFETY: as above, before any thread exists.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -687,10 +689,33 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             Ok(())
         }
         // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
-        Some(Command::RunVm { command }) => {
-            match crate::placement::run_vm::main(&command.join(" ")).await {
-                // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
-                Ok(code) => std::process::exit(code),
+        // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
+        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+            let code = match cmd {
+                Command::RunVm { shim, command } => {
+                    let ran = match shim {
+                        Some(program) => {
+                            crate::placement::exec_router::shim_main(&program, &command).await
+                        }
+                        None if command.is_empty() => {
+                            Err(anyhow::anyhow!("run-vm: no command after --"))
+                        }
+                        None => crate::placement::run_vm::main(&command.join(" ")).await,
+                    };
+                    match ran {
+                        Ok(code) => code,
+                        Err(e) => errors::exit_with(&e, cli.json),
+                    }
+                }
+                Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                _ => 1,
+            };
+            // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
+            std::process::exit(code)
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
+            match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
             }
         }
