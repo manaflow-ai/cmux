@@ -75,7 +75,7 @@ export function draftAttachmentsStore(
   const queues = new Map<string, Promise<void>>();
   const ordered = <T>(sessionId: string, operation: () => Promise<T>): Promise<T> => {
     const previous = queues.get(sessionId) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(operation);
+    const next = previous.then(operation);
     const completion = next.then(
       () => undefined,
       () => undefined,
@@ -98,7 +98,8 @@ export function draftAttachmentsStore(
       contents.delete(oldest);
     }
   };
-  const hostRead = async (sessionId: string): Promise<ComposerAttachment[]> => host.read(sessionId);
+  const authorityFor = (sessionId: string) =>
+    readAuthority(sessionId) ?? (hostNewer.has(sessionId) ? "host" : undefined);
   const toHost = async (sessionId: string, attachments: ComposerAttachment[]) => {
     const result = await host.write(sessionId, contents.get(sessionId) ?? attachments);
     hostNewer.add(sessionId);
@@ -128,11 +129,13 @@ export function draftAttachmentsStore(
     write: NonNullable<DraftAttachmentActions["write"]>,
     sessionId: string,
     chips: ComposerAttachment[],
-  ): Promise<boolean> => {
+  ): Promise<void> => {
     try {
       await write(sessionId, chips);
     } catch {
-      return false;
+      hostNewer.add(sessionId);
+      rememberAuthority(sessionId, "host");
+      return;
     }
     hostNewer.delete(sessionId);
     rememberAuthority(sessionId, "daemon");
@@ -147,14 +150,13 @@ export function draftAttachmentsStore(
       // The successful empty host read already confirmed there is nothing to clean up.
       forgetAuthority(sessionId);
     }
-    return true;
   };
   const readSession = async (sessionId: string): Promise<ComposerAttachment[]> => {
     const { read, write } = await connected();
     if (!read) {
-      const authority = readAuthority(sessionId);
+      const authority = authorityFor(sessionId);
       if (authority === "daemon") throw new Error("acpmux is unavailable while its draft is authoritative");
-      const fromHost = await hostRead(sessionId);
+      const fromHost = await host.read(sessionId);
       if (fromHost.length || !options.actionsChanged || authority === "host") return fromHost;
       throw new Error("acpmux connection is unavailable and draft authority is unknown");
     }
@@ -163,10 +165,10 @@ export function draftAttachmentsStore(
     const answer = await read(sessionId);
     const held = (answer as { attachments?: unknown } | null | undefined)?.attachments;
     // An older daemon (or one that did not answer): the host's, as before.
-    if (!Array.isArray(held)) return hostRead(sessionId);
+    if (!Array.isArray(held)) return host.read(sessionId);
     const daemonChips = held as ComposerAttachment[];
-    const authority = readAuthority(sessionId);
-    const hostIsNewer = authority ? authority === "host" : hostNewer.has(sessionId);
+    const authority = authorityFor(sessionId);
+    const hostIsNewer = authority === "host";
     // A non-empty acpmux answer is authoritative after a reload. hostNewer is process-local, so
     // a reloaded page cannot safely tell whether a non-empty host copy is newer or stale. Only a
     // successful host fallback (persisted as `host`) permits the host to supersede acpmux.
@@ -174,7 +176,7 @@ export function draftAttachmentsStore(
     if (!daemonChips.length && authority === "daemon" && !hostIsNewer) return daemonChips;
     // Reaching this point means the host copy is needed to decide whether migration is required.
     // A rejected read is a storage/link failure, not an empty draft.
-    const fromHost = await hostRead(sessionId);
+    const fromHost = await host.read(sessionId);
     if (!fromHost.length && !hostIsNewer) return daemonChips;
     if (write) await migrate(write, sessionId, fromHost);
     return fromHost;
@@ -193,10 +195,10 @@ export function draftAttachmentsStore(
         const { write } = actions();
         if (!write) return toHost(sessionId, attachments);
         // The last write went to the host: acpmux may not hold the contents of a chip named without them.
-        const sent = hostNewer.has(sessionId) ? (contents.get(sessionId) ?? attachments) : attachments;
+        const sent = authorityFor(sessionId) === "host" ? (contents.get(sessionId) ?? attachments) : attachments;
         try {
           const answer = (await write(sessionId, sent)) as { held?: unknown } | null | undefined;
-          const authority = readAuthority(sessionId);
+          const authority = authorityFor(sessionId);
           const hadHost = hostNewer.delete(sessionId);
           rememberAuthority(sessionId, "daemon");
           if (hadHost || authority === "host") {

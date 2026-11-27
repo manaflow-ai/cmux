@@ -5,7 +5,7 @@
 // whose inline tokens mark each chip's place; the host's store is only where an older daemon keeps
 // them, and where they move from once. Each transition below reads every chip back in its order
 // with its contents, its token where it was in the draft.
-import { beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import {
   draftAttachmentsStore,
@@ -108,17 +108,22 @@ function page(daemon: Daemon | undefined) {
 const openStore = (map: ReturnType<typeof page>, host: KeptAttachments, connectWaitMs = 2_000) =>
   draftAttachmentsStore(map.actions, host, { actionsChanged: map.actionsChanged, connectWaitMs });
 
+let priorStorage: PropertyDescriptor | undefined;
 beforeEach(() => {
-  try {
-    const storage = globalThis.localStorage;
-    if (!storage) return;
-    for (let index = storage.length - 1; index >= 0; index -= 1) {
-      const key = storage.key(index);
-      if (key?.startsWith("cmux.draft-attachments.authority.")) storage.removeItem(key);
-    }
-  } catch {
-    // The browser may not expose web storage in a test worker.
-  }
+  priorStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+});
+afterEach(() => {
+  if (priorStorage) Object.defineProperty(globalThis, "localStorage", priorStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
 const shot = (index: number): ComposerAttachment => ({
@@ -208,6 +213,28 @@ test("(a) a marked host fallback supersedes stale acpmux after a reload", async 
   const reopened = openStore(page(daemon), host);
   expect((await reopened.read("chat-a")).map((chip) => chip.id)).toEqual(["paste-1"]);
   expect(daemon.disk["chat-a"]?.chips.map((chip) => chip.id)).toEqual(["paste-1"]);
+  expect(host.chats.has("chat-a")).toBe(false);
+});
+
+test("a failed migration after reload sends the host's contents on the next write", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  daemon.older = true;
+  await openStore(page(daemon), host).write("chat-a", [shot(1)]);
+  daemon.older = false;
+  const map = page(daemon);
+  map.install({
+    ...connect(daemon),
+    write: async () => {
+      throw new Error("disconnected");
+    },
+  });
+  const reopened = openStore(map, host);
+  const [restored] = await reopened.read("chat-a");
+  expect(restored?.data).toBe(shot(1).data);
+  map.install(connect(daemon));
+  await reopened.write("chat-a", [{ ...restored!, data: undefined }]);
+  expect(daemon.disk["chat-a"]?.chips[0]?.data).toBe(shot(1).data);
   expect(host.chats.has("chat-a")).toBe(false);
 });
 
