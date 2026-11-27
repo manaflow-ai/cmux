@@ -71,6 +71,7 @@ fn the_configured_hub_passes_the_egress_gate_and_nothing_else_does() {
         team_messaging: true,
         credential: None,
         control_from: Vec::new(),
+        direct_send: false,
     };
     assert!(config.origin().is_ok());
     assert!(cmux_egress::check("mesh-relay-named-test.org", "test").is_ok());
