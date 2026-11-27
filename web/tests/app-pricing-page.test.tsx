@@ -158,6 +158,8 @@ describe("app pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
+      expect(first).toContain("Get Plus");
+      expect(first).toContain("md:grid-cols-2 lg:grid-cols-4");
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("/api/billing/checkout")).toBe(false);
       expect(first.includes("/api/billing/portal")).toBe(false);

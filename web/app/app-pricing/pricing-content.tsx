@@ -234,7 +234,7 @@ export function AppPricingContent({
                 <DisabledButton>{pricing.currentPlan}</DisabledButton>
               )}
             </div>
-          ) : appStorePaymentGated ? (
+          ) : appStorePaymentGated || pending ? (
             <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
           ) : (
             <PricingCheckoutButton
