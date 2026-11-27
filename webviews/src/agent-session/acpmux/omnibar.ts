@@ -1,4 +1,5 @@
 import type { TabKind } from "./newTabModel";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 
 /// What the omnibar can suggest besides the typed text: the window's open tabs and
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,
@@ -7,7 +8,7 @@ export type OmnibarContext = {
   /// `icon`: a browser tab's or page's favicon, a `data:image/` URL from the host.
   tabs: { id: string; kind: TabKind; title: string; detail?: string; workspace?: string; icon?: string }[];
   workspaces: { id: string; name: string; detail?: string }[];
-  sessions: { sessionId: string; title: string; harness?: string; detail?: string }[];
+  sessions: { sessionId: string; title: string; harness?: string; icon?: HarnessIconSpec; detail?: string }[];
   folders: string[];
   commands: string[];
   history: { url: string; title?: string; icon?: string }[];
@@ -181,7 +182,7 @@ export function omnibarActions(value: unknown): OmnibarAction[] {
 export type OmnibarRow =
   | { type: "tab"; id: string; kind: TabKind; title: string; detail?: string; icon?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "session"; id: string; title: string; harness?: string; detail?: string }
+  | { type: "session"; id: string; title: string; harness?: string; sessionIcon?: HarnessIconSpec; detail?: string }
   | { type: "folder"; path: string }
   | { type: "command"; command: string }
   | { type: "history"; url: string; title?: string; icon?: string }
@@ -258,6 +259,7 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     id: session.sessionId,
     title: session.title,
     ...(session.harness ? { harness: session.harness } : {}),
+    ...(session.icon ? { sessionIcon: session.icon } : {}),
     ...(session.detail ? { detail: session.detail } : {}),
   }));
   const folders = context.folders.map((path): OmnibarRow => ({ type: "folder", path }));

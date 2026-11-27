@@ -93,7 +93,7 @@ continue_stapled() {
     if [ "$left" -gt 0 ] && [ "$left" -le "$DEADLINE_WAIT_SECONDS" ]; then
       # A bounded wait to the recorded deadline (the poll decided it due).
       echo "Waiting ${left}s for the 6 h deadline of the stapled-app DMG"
-      sleep "$left"
+      sleep "$left"  # sleep-ok: waits to a wall-clock deadline, nothing to observe
     fi
   fi
   "$RESUME_TOOL" "$state" "$APP_PATH" "$dmg" "$DMG_IMMUTABLE" || status=$?

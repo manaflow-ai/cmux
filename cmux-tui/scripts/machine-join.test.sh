@@ -5,13 +5,19 @@
 # and whether CMUX_JOIN or any cmj_ value is in its environment) before the
 # real tool runs; curl is a fake that serves a fixture channel, and the
 # acpmux it "downloads" is a fake that records its argv and stdin. Runs the
-# script under sh, and under bash --posix and dash when present.
+# script under sh, and under bash --posix and dash when present. On Linux the
+# CLI (and, in phase 1b, acpmux) come from a signed release file: the script
+# runs with a generated test key in place of the release keys
+# (linux-release-verify-gen.py --render), and serve_dir signs the fixture.
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
-script="$here/machine-join.sh"
 root="$(mktemp -d "${TMPDIR:-/tmp}/machine-join-test.XXXXXX")"
 trap 'rm -rf "$root"' EXIT INT TERM
+. "$here/linux-release-fixture.sh"
+lrf_key "$root/key"
+script="$root/machine-join.sh"
+python3 "$here/linux-release-verify-gen.py" --render "$here/machine-join.sh" --keys "$root/key/keys.json" >"$script"
 
 token="cmj_TestToken-0123456789_abcdefXYZ"
 origin="https://platform.example.test"
@@ -39,8 +45,8 @@ fi
 shims="$root/shims"
 fakes="$root/fakes"
 mkdir -p "$shims" "$fakes"
-for tool in awk basename bash cat chmod cp grep head hostname id install loginctl \
-  mkdir mktemp mv rm sed shasum sha256sum tr launchctl systemctl; do
+for tool in awk basename bash cat chmod cp cut date dirname grep head hostname id install loginctl \
+  mkdir mktemp mv openssl rm sed shasum sha256sum sort tr uniq wc launchctl systemctl; do
   real="$(command -v "$tool" 2>/dev/null || true)"
   case "$tool" in
     loginctl | launchctl | systemctl) real="" ;;
@@ -92,11 +98,11 @@ real_env="$(command -v env)"
 real_grep="$(command -v grep)"
 cat >"$fakes/record.sh" <<EOF
 # Sourced by every shim and fake: record argv and the environment check.
-{
-  printf '%s' "\${0##*/}"
-  for a in "\$@"; do printf ' %s' "\$a"; done
-  printf '\n'
-} >>"\$JT_LOG/argv"
+# One write per line: a pipeline's tools (curl | head) record at the same
+# time, and a line written in pieces interleaves with the other's.
+jt_line="\${0##*/}"
+for a in "\$@"; do jt_line="\$jt_line \$a"; done
+printf '%s\n' "\$jt_line" >>"\$JT_LOG/argv"
 if [ -n "\${CMUX_JOIN+x}" ] || "$real_env" | "$real_grep" -q cmj_; then
   printf '%s\n' "\${0##*/}" >>"\$JT_LOG/env-leak"
 fi
@@ -141,12 +147,13 @@ url=""
 while [ "\$#" -gt 0 ]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
-    --proto | --max-time) shift 2 ;;
+    --proto | --proto-redir | --max-filesize | --max-time) shift 2 ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
   esac
 done
 case "\$url" in
+  https://files.cmux.com/cmux-tui/channels/linux-*.json) src="\$JT_SERVE/linux-channel.json" ;;
   https://files.cmux.com/cmux-tui/channels/*.json) src="\$JT_SERVE/channel.json" ;;
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-acpmux-*) src="\$JT_SERVE/acpmux" ;;
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-rd-*) src="\$JT_SERVE/cmux-rd" ;;
@@ -329,6 +336,35 @@ EOS
   cp "$1/codex" "$1/codex dir/codex"
   c="$(sha "$1/cmux")"
   printf '{"commit": "a6d89d443f5f9ffb66c296d7a9680e307bbe6c58", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
+  sign_channel "$1" 1
+}
+
+# sign_channel DIR PHASE: DIR/linux-channel.json, the signed release file of
+# feat-cmux-next (cmuxterm-hq docs/design/linux-signed-packages.md). Phase 1
+# names cmux-tui for the gnu targets only; phase 1b adds a sequence, a
+# tree_key, URLs under tree/<key>/ and cmux-tui-acpmux for the musl targets.
+sign_channel() {
+  commit=a6d89d443f5f9ffb66c296d7a9680e307bbe6c58
+  tree=121e0512465089798aba4eea7eba48644ecac9a9
+  if [ "$2" = 1 ]; then
+    base="https://files.cmux.com/cmux-tui/$commit"
+    extra=""
+    musl=""
+  else
+    base="https://files.cmux.com/cmux-tui/tree/$tree"
+    extra='"sequence":20261102000000,'
+    musl=""
+    for t in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+      musl="$musl,\"$t\":{$(lrf_entry cmux-tui-acpmux "$base/cmux-tui-acpmux-$t" "$1/acpmux")}"
+    done
+  fi
+  targets=""
+  for t in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+    targets="$targets${targets:+,}\"$t\":{$(lrf_entry cmux-tui "$base/cmux-tui-$t" "$1/cmux")}"
+  done
+  printf '{"channel":"feat-cmux-next","commit":"%s","expires_at":%s,"purpose":"cmux-linux-release","schema":1,%s"targets":{%s%s},%s"version":"1.0.0+20261101000000.a6d89d443f5f"}' \
+    "$commit" "$(($(date +%s) + 86400))" "$extra" "$targets" "$musl" "$([ "$2" = 1 ] || printf '"tree_key":"%s",' "$tree")" >"$1/linux-payload.json"
+  lrf_sign "$1/linux-payload.json" "$root/key" "$1/linux-channel.json"
 }
 
 # A fresh case: its own HOME, log and fixtures.
@@ -1151,6 +1187,51 @@ suite() {
   check "signin step with a token: no token in output" no_token_in_output
   run_join none CMUX_JOIN_STEP=bogus
   check "unknown step: exit 2 (got $rc)" rc_is 2
+
+  # Linux: the CLI comes from the signed release file, at the URL it names.
+  new_case signed-cli
+  run_join env
+  check "signed cli: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "signed cli: read the signed file" grep -q '^curl .*channels/linux-feat-cmux-next.json' "$d/log/argv"
+  check "signed cli: not the unsigned manifest" eval '! grep -q "^curl .*latest/manifest.json" "$d/log/argv"'
+  check "signed cli: the CLI from the URL the file names" grep -q '^curl .*/a6d89d443f5f9ffb66c296d7a9680e307bbe6c58/cmux-tui-x86_64-unknown-linux-gnu' "$d/log/argv"
+  check "signed cli: recorded the build" grep -qF '"sequence":20261101000000' "$d/home/.cmux/installed.json"
+  check "signed cli: acpmux still from the channel (phase-1b pending)" fetched_binary
+
+  # Phase 1b: acpmux too comes from the signed file, under tree/<key>/.
+  new_case signed-acpmux
+  sign_channel "$d/serve" 1b
+  run_join env
+  check "phase 1b: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "phase 1b: acpmux installed" installed
+  check "phase 1b: acpmux at the URL the signed file names" grep -q '^curl .*tree/121e0512465089798aba4eea7eba48644ecac9a9/cmux-tui-acpmux-x86_64-unknown-linux-musl' "$d/log/argv"
+  check "phase 1b: recorded its sequence" grep -qF '"sequence":20261102000000' "$d/home/.cmux/installed.json"
+  # The unsigned channel's acpmux sha256 is not used once the signed file names it.
+  serve_dir "$d/serve" 0000000000000000000000000000000000000000000000000000000000000000
+  sign_channel "$d/serve" 1b
+  rm -f "$d/home/.local/bin/acpmux"
+  run_join env
+  check "phase 1b: the unsigned channel's sha256 is not used (got $rc): $(cat "$d/out")" rc_is 0
+
+  # A signed file that does not verify ends the join, with a next: line last, before any token use.
+  new_case bad-signature
+  lrf_key "$d/other"
+  lrf_sign "$d/serve/linux-payload.json" "$d/other" "$d/serve/linux-channel.json"
+  run_join env
+  check "bad signature: exit 1 (got $rc)" rc_is 1
+  check "bad signature: says why" out_has "not signed by a cmux release key"
+  check "bad signature: next: last" eval 'tail -n 1 "$d/out" | grep -q "^next: "'
+  check "bad signature: no acpmux, no join" eval '! installed && no_redeem'
+  check "bad signature: no CLI" eval '[ ! -e "$d/home/.cmux/bin/cmux" ]'
+
+  # A lower sequence than the installed build is refused too.
+  new_case lower-sequence
+  mkdir -p "$d/home/.cmux"
+  printf '{"commit":"%s","sequence":20991231000000,"version":"x"}\n' 2222222222222222222222222222222222222222 >"$d/home/.cmux/installed.json"
+  run_join env
+  check "lower sequence: exit 1 (got $rc)" rc_is 1
+  check "lower sequence: next: last" eval 'tail -n 1 "$d/out" | grep -q "^next: "'
+  check "lower sequence: no join" no_redeem
 
   new_case unsupported
   JT_OS=FreeBSD

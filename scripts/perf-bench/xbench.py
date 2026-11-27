@@ -180,7 +180,7 @@ def now_ms() -> float:
 
 
 def sleep(seconds: float):
-    time.sleep(seconds)  # bench: a deliberate settle or idle window
+    time.sleep(seconds)  # sleep-ok: the bench's fixed settle and idle points, the same for every browser compared
 
 
 def tree_states(root: str) -> dict[str, tuple[float, int]]:
@@ -488,7 +488,7 @@ class CmuxBrowser(Browser):
         config = os.path.join(profile, "cmux.json")
         if not os.path.exists(config):
             with open(config, "w") as handle:
-                json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
+                json.dump({"updates": {"automatic": "off"}}, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
@@ -731,7 +731,7 @@ class Run:
             browser.ready()
             log(f"{browser.name} r{round_no}: session (load {load})")
             if browser.name == "cmux-terminal":
-                sleep(a.settle)
+                sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the home idle window
                 self.window(browser, round_no, {"power-home-idle": "mw", "idle-cpu-home": "cpu_pct",
                                                 "idle-wakeups-home": "wakeups_per_s"}, a.idle)
             browser.adopt_first(first)
@@ -739,7 +739,7 @@ class Run:
                 painted = self.server.wait("fcp", first, timeout=30)
                 if not painted:
                     log(f"{browser.name}: first tab never painted")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before memory-1 and its idle window
             self.memory(browser, round_no, "memory-1")
             self.window(browser, round_no, {"power-idle-visible-1": "mw", "idle-cpu-1": "cpu_pct",
                                             "idle-wakeups-1": "wakeups_per_s"}, a.idle)
@@ -759,12 +759,12 @@ class Run:
                         browser.tabs.remove(handle)  # Safari keeps it open: it is one of the 20 below
                         browser.tabs.append(handle)
             self.open_to(browser, 10)
-            sleep(10)
+            sleep(10)  # sleep-ok: memory-10 is read 10 s after the tenth tab, the same for every browser
             self.memory(browser, round_no, "memory-10")
             self.open_to(browser, 20)
-            sleep(15)
+            sleep(15)  # sleep-ok: memory-20 is read 15 s after the twentieth tab, the same for every browser
             self.memory(browser, round_no, "memory-20")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the 20-tab idle window
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
             if isinstance(browser, ChromiumBrowser):
@@ -811,14 +811,14 @@ class Run:
                         browser.close(handle)
                     sleep(2)
             browser.hide()
-            sleep(10)
+            sleep(10)  # sleep-ok: 10 s hidden before the hidden power window (the OS's hidden-app throttling starts in it)
             self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
             browser.unhide()
             if browser.can_close:
                 while len(browser.tabs) > 1:
                     browser.close(browser.tabs[-1])
                     sleep(0.2)  # bench: a user's pace closing tabs
-                sleep(30)
+                sleep(30)  # sleep-ok: memory-closed is read 30 s after the closes, the same for every browser
                 self.memory(browser, round_no, "memory-closed")
         except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
             self.record(browser.name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
@@ -1131,9 +1131,36 @@ def pane_drag_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
+def transcript_fling_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from webviews/bench/transcript-fling.bench.ts's TRANSCRIPT_FLING_OUT (RFD 0121 item 2,
+    the native transcript's "before"): one JSON line per arm. Report only."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    arms = [json.loads(line) for line in open(path) if line.strip()]
+    rows, lines = {}, []
+    lines += ["## Transcript fling (headless Chromium on this Mac)", "",
+              "Report only. webviews/bench/transcript-fling.bench.ts: transcript = the shipped React transcript "
+              "(test/browser/transcript-fling.html) flung bottom to top by its debug fling; web = plain DOM rows; "
+              "bare = one text block (the floor). Frame interval p50 / p95 / max ms; late = intervals over 8.33 ms "
+              "(one 120 Hz frame); blank = frames with no row under the viewport. Headless Chromium's frame clock "
+              "is not the display's: compare arms within one run.", "",
+              "| Arm | Rows | Frames | Interval p50 / p95 / max | Late (> 8.33 ms) | Blank |",
+              "|---|---|---|---|---|---|"]
+    for arm in arms:
+        lines.append(f"| {arm['arm']} | {arm['rows']} | {arm['frames']} | {arm['frame_p50_ms']:g} / "
+                     f"{arm['frame_p95_ms']:g} / {arm['frame_max_ms']:g} | {arm['late_frames']} | "
+                     f"{arm['blank_frames']} |")
+        slug = f"transcript-fling-{arm['arm']}-{arm['rows']}"
+        rows.setdefault(f"{slug}-frame-p95", {})["headless-chromium"] = {"median": arm["frame_p95_ms"]}
+        rows.setdefault(f"{slug}-late-frames", {})["headless-chromium"] = {"median": arm["late_frames"]}
+    if not arms:
+        lines.append("| – | | not run: no arm reported | | | |")
+    return rows, lines + [""]
+
+
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
            palette: str | None = None, budgets: str | None = None,
-           panedrag: str | None = None):
+           panedrag: str | None = None, transcriptfling: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
@@ -1149,6 +1176,12 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
         drag_found, drag_lines = {}, ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
                                       f"Not read: {error!r}", ""]
     rows.update(drag_found)
+    try:  # report only, as pane drag
+        fling_found, fling_lines = transcript_fling_rows(transcriptfling)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        fling_found, fling_lines = {}, ["## Transcript fling (headless Chromium on this Mac)", "",
+                                        f"Not read: {error!r}", ""]
+    rows.update(fling_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
     # The run's budgets file decides, so samples are judged against the scenario that collected them.
@@ -1196,6 +1229,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     lines += switch_lines
     lines += palette_lines
     lines += drag_lines
+    lines += fling_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -1322,6 +1356,7 @@ def main():
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
     rep.add_argument("--panedrag", help="scripts/ci/frame-pacing/pane_drag.py's --json report")
+    rep.add_argument("--transcriptfling", help="webviews/bench/transcript-fling.bench.ts's TRANSCRIPT_FLING_OUT")
     rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
                      "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
@@ -1334,7 +1369,8 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag,
+                        args.transcriptfling)
         sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))

@@ -24,6 +24,19 @@
 // to success in place), `undo-*` the one-line toasts closing a tab or archiving a session leave.
 // Each is drawn in today's look and pinned to each v2 arm (`-mark`, `-tinted`, `-accent-bar`), and
 // the bare variants take the arm from the compare view.
+//
+// Move to Cloud's working toast (`move-*`; native, CloudMove.swift, drawn here in the same deck):
+// its headline, then Rust's line (cmux-tui moves/progress.rs), word for word from its tests: a step
+// is named from the click on, and a step past its usual time keeps a clock of how long it has run
+// (Leo, 2026-11-23: "you guys need to be absolutely exhaustively testing out what would a new user
+// be seeing here?").
+//
+// Move to Cloud's done toast (`moved-*`; hq RFD 0066 piece 1, "Say what happened"): a folder with no
+// GitHub remote the machine can clone is copied, and the toast says so, then names what stayed on
+// this Mac, grouped by why (secrets, ignored and build output, big files). The words are Rust's
+// (cmux-cloud-start-core moves/landed.rs, word for word from its tests); MoveLanded.tsx lays them
+// out three ways: `inline` (one line a group), `count` (one counted line that opens to the list),
+// `grouped` (a heading a group, the paths as chips). A clone that left nothing is today's toast.
 import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -32,6 +45,7 @@ import type { Anchor } from "../../ui/anchors";
 import type { DeckAlign, DragFeel } from "../../ui/NoticeDeck";
 import { toastsV2, type ToastLook } from "../../ui/toastsV2.experiment";
 import { ToastLayer } from "./ToastLayer";
+import { movedToast, type LandedLook, type MoveLanded } from "./MoveLanded";
 
 type Toasts =
   | "single"
@@ -43,7 +57,18 @@ type Toasts =
   | "promise-error"
   | "promise-play"
   | "undo-close-tab"
-  | "undo-archive";
+  | "undo-archive"
+  | "move-start"
+  | "move-copy"
+  | "move-longer"
+  | "moved-clean"
+  | "moved-inline"
+  | "moved-count"
+  | "moved-count-open"
+  | "moved-grouped"
+  | "moved-many"
+  | "moved-cloned-secrets"
+  | "moved-copied-nothing";
 type Props = {
   toasts: Toasts;
   layout?: StackLayout;
@@ -55,14 +80,111 @@ type Props = {
 };
 
 const noop = () => undefined;
+/** Move to Cloud's done toast (CloudMoveStrings.moved), with what Rust's `landed` said. */
+function moved(landed: MoveLanded | undefined, look: LandedLook): ToastSpec {
+  return movedToast({ id: "cloud-move", message: "This chat now runs on dev." }, landed, look);
+}
+
+const COPY_REASON = "The machine had no GitHub remote to clone, so the folder's files were copied.";
+
+// RFD 0066's fleet-run folder (case c): `.env`, `node_modules/`, an ignored `dist/`, a big file.
+const FLEET_FOLDER: MoveLanded = {
+  how: "copied",
+  headline: "Copied, not cloned",
+  reason: COPY_REASON,
+  skipped: [
+    {
+      group: "secret",
+      label: "Secrets, kept on this Mac",
+      paths: [".env"],
+      more: 0,
+      text: "Secrets, kept on this Mac: .env",
+    },
+    {
+      group: "rebuilt",
+      label: "Ignored and build output, rebuilt on the machine",
+      paths: ["node_modules/", "dist/"],
+      more: 0,
+      text: "Ignored and build output, rebuilt on the machine: node_modules/, dist/",
+    },
+    {
+      group: "big",
+      label: "Big files, kept on this Mac",
+      paths: ["big.bin"],
+      more: 0,
+      text: "Big files, kept on this Mac: big.bin",
+    },
+  ],
+  summary: "Left on this Mac: 1 secret, 2 ignored paths, 1 big file",
+};
+
+// Past what a group names: the copy counted 9 secrets and 4 files over its limits.
+const MANY: MoveLanded = {
+  how: "copied",
+  headline: "Copied, not cloned",
+  reason: "This folder is not a git repository.",
+  skipped: [
+    {
+      group: "secret",
+      label: "Secrets, kept on this Mac",
+      paths: [".env", ".env.local", "keys/0.pem", "keys/1.pem", "keys/2.pem"],
+      more: 4,
+      text: "Secrets, kept on this Mac: .env, .env.local, keys/0.pem and 6 more",
+    },
+    {
+      group: "rebuilt",
+      label: "Ignored and build output, rebuilt on the machine",
+      paths: ["node_modules/", "target/", ".next/"],
+      more: 0,
+      text: "Ignored and build output, rebuilt on the machine: node_modules/, target/, .next/",
+    },
+    {
+      group: "big",
+      label: "Big files, kept on this Mac",
+      paths: [],
+      more: 4,
+      text: "Big files, kept on this Mac: 4 big files",
+    },
+  ],
+  summary: "Left on this Mac: 9 secrets, 3 ignored paths, 4 big files",
+};
+
+// A clone that left a key and a nested repository: no copy headline, the list alone.
+const CLONED_SECRETS: MoveLanded = {
+  how: "cloned",
+  skipped: [
+    {
+      group: "secret",
+      label: "Secrets, kept on this Mac",
+      paths: ["id_rsa"],
+      more: 0,
+      text: "Secrets, kept on this Mac: id_rsa",
+    },
+    {
+      group: "repository",
+      label: "Separate repositories, kept on this Mac",
+      paths: ["vendor/lib/"],
+      more: 0,
+      text: "Separate repositories, kept on this Mac: vendor/lib/",
+    },
+  ],
+  summary: "Left on this Mac: 1 secret, 1 separate repository",
+};
+
+// A copy that left nothing: it still says it copied.
+const COPIED_NOTHING: MoveLanded = { how: "copied", headline: "Copied, not cloned", reason: COPY_REASON, skipped: [] };
+
 const FIXTURES: Record<Toasts, ToastSpec[]> = {
-  single: [{ message: "Can't find build-box/mux-rs's chat" }],
+  single: [{ message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." }],
   stack: [
     { message: "Copied the link." },
     { message: "Move to Cloud wasn't run. Try again from the chat's menu." },
-    { message: "Can't find build-box/mux-rs's chat" },
+    { message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." },
   ],
-  count: [{ message: "Can't find build-box/mux-rs's chat" }, { message: "Can't find build-box/mux-rs's chat" }],
+  count: [
+    { message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." },
+    { message: "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline." },
+  ],
   persistent: [
     { message: "Copied the link." },
     {
@@ -78,7 +200,25 @@ const FIXTURES: Record<Toasts, ToastSpec[]> = {
   "promise-play": [],
   "undo-close-tab": [{ message: "Closed “Build logs”", actions: [{ id: "undo", label: "Undo", onSelect: noop }] }],
   "undo-archive": [{ message: "Archived “Fix login race”", actions: [{ id: "undo", label: "Undo", onSelect: noop }] }],
+  "move-start": [moving("1 of 5 · Checking the folder · about 40 s left")],
+  "move-copy": [moving("3 of 5 · Copying the folder (1,204 files) · about 45 s left")],
+  "move-longer": [
+    moving("4 of 5 · Handing the agent to dev · taking longer than usual, 1 min so far (usually about 10 s)"),
+  ],
+  "moved-clean": [moved(undefined, "inline")],
+  "moved-inline": [moved(FLEET_FOLDER, "inline")],
+  "moved-count": [moved(FLEET_FOLDER, "count")],
+  "moved-count-open": [moved(FLEET_FOLDER, "count")],
+  "moved-grouped": [moved(FLEET_FOLDER, "grouped")],
+  "moved-many": [moved(MANY, "grouped")],
+  "moved-cloned-secrets": [moved(CLONED_SECRETS, "inline")],
+  "moved-copied-nothing": [moved(COPIED_NOTHING, "inline")],
 };
+
+/** Move to Cloud's working toast with `line`, Rust's words for the step it is on. */
+function moving(line: string): ToastSpec {
+  return { id: "cloud-move", state: "working", title: "Moving this chat to Cloud…", message: line };
+}
 
 /** The play's signal that the promise variant's work is done. */
 const FINISH_EVENT = "toast-gallery-finish";
@@ -184,6 +324,12 @@ const toastUp: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".ui-notice-deck-card[data-front] .ui-notice"));
 };
 
+// The counted line opened: the list it stands for.
+const openLanded: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-move-landed-disclosure .ui-disclosure-trigger" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-move-landed-disclosure .acpmux-move-landed-lines"));
+};
+
 const V2_STATES = {
   "promise-working": "A promise toast while its work runs: spinner, no timeout.",
   "promise-success": "The promise toast's success, in the same card.",
@@ -219,7 +365,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   height: 420,
   pane: true,
-  covers: ["agent-session/acpmux/ToastLayer.tsx", "ui/NoticeDeck.tsx"],
+  covers: ["agent-session/acpmux/ToastLayer.tsx", "ui/NoticeDeck.tsx", "agent-session/acpmux/MoveLanded.tsx"],
   keywords: ["toast", "notice", "stack", "deck", "drag", "anchor"],
   load: async () => ToastLayerGallery,
   styles: () =>
@@ -267,6 +413,51 @@ export default componentEntry<Props>({
     "top-right": {
       props: { toasts: "count", placement: "top-right", drag: "ghosts" },
       note: "A kind of toast dragged to the top right once shows there after.",
+    },
+    "move-start": {
+      props: { toasts: "move-start" },
+      note: "Move to Cloud, just clicked: the first step is named at once, with about how long is left.",
+    },
+    "move-copy": {
+      props: { toasts: "move-copy" },
+      note: "Move to Cloud, about 20 s in: copying the folder, its file count and a measured countdown.",
+    },
+    "move-longer": {
+      props: { toasts: "move-longer" },
+      note: "Move to Cloud past a step's usual time: it says so and keeps a clock of the time so far.",
+    },
+    "moved-clean": {
+      props: { toasts: "moved-clean" },
+      note: "Move to Cloud done, cloned and nothing left behind: today's toast, unchanged.",
+    },
+    "moved-inline": {
+      props: { toasts: "moved-inline" },
+      note: "Option A, inline: copied, not cloned, and one line a group of what stayed on this Mac. What the native toast can show as text today.",
+    },
+    "moved-count": {
+      props: { toasts: "moved-count" },
+      note: "Option B, counted: one line counts what stayed; it opens to the names.",
+    },
+    "moved-count-open": {
+      props: { toasts: "moved-count-open" },
+      play: openLanded,
+      note: "Option B opened: the counted line shows each group's names.",
+    },
+    "moved-grouped": {
+      props: { toasts: "moved-grouped" },
+      note: "Option C, grouped: a heading a group (secrets, build output, big files), the paths as chips.",
+    },
+    "moved-many": {
+      props: { toasts: "moved-many" },
+      note: "Option C past what fits: four chips a group, then how many more; a group the copy only counted shows its count.",
+    },
+    "moved-cloned-secrets": {
+      props: { toasts: "moved-cloned-secrets" },
+      note: "A clone that left a key and a nested repository: no copy headline, the list alone.",
+    },
+    "moved-copied-nothing": {
+      props: { toasts: "moved-copied-nothing" },
+      note: "A copy that left nothing behind still says it was copied, not cloned, and why.",
     },
     ...v2Variants,
   },

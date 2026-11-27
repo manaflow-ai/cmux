@@ -35,6 +35,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArtDownloads.swift	1	per 
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropImageStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesktopPicture.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	1	per build: the launch record and image store live in the folder named after the bundle id (a DEV build has its own); Library/Application Support itself is only read for this session's registry id
 Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceMachine.swift	1	shared on purpose: cmux-device-hub/machine.key is the one per-Mac key every build and cmux Remote derive this Mac's device id from (an input of this Mac, never a build's data); a dev build reads the same Mac identity, not nightly's state (base #44039)
 Packages/macOS/CmuxNext/Sources/CmuxNextFiles/MarkdownTableWidths/MarkdownTableWidthRepository.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
@@ -52,9 +53,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SimulatorHIDTransport.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineSecrets.swift	2	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteVNCCredentialStore.swift	1	debug VNC credentials of a remote Mac the person typed (CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE in tests), an input like the dev sign-in
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentGuidance.generated.swift	1	text only (help, a description, an error message), no path is read
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance2.generated.swift	2	text only (help, a description, an error message), no path is read
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift	1	text only (help, a description, an error message), no path is read
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+ConfigFiles.swift	1	an input of this Mac read by every build on purpose: the dev sign-in or a third-party app's config (Ghostty), never written
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultFiles.swift	1	reads classic cmux's and Ghostty's own config files (input, never written); classic's path is per bundle id
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
@@ -100,7 +98,7 @@ cmux-tui/crates/cmux-tui/src/cli/ext/dev.rs	1	text only (help, a description, an
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	3	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-tui/src/cli/key_broker.rs	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	1	text only (help, a description, an error message), no path is read
-cmux-tui/crates/cmux-tui/src/coderouter_usage.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-tui/src/link/access_cli.rs	1	not a read or write: a deny-list entry (SECRET_PATHS) that keeps ~/.config/cmux/auth.json from being shared out of a folder (base #40159)
 cmux-tui/crates/cmux-tui/src/link/mod.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
 cmux-tui/crates/cmux-tui/src/localization/app_control.rs	4	text only (help, a description, an error message), no path is read
+cmux-tui/crates/cmux-tui/src/machine_identity.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state

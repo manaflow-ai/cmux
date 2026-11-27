@@ -133,6 +133,23 @@ import SwiftUI
         #expect(abs(source.cardScale - 268.0 / 402) < 0.001)
     }
 
+    /// An agent card's picture was drawn at a fixed two-column card's size: on an unfolded
+    /// screen's three-column grid it was drawn about 50% too large, and a lone card on a wide
+    /// page ignored TabsKit's 300 pt cap. Now it is TabsKit's own card width.
+    @Test func cardScaleFollowsTheGridsColumnsAndTheLoneCardsCap() throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        source.pageWidth = 669
+        source.overviewColumns = 3
+        let three = TabsKitOverviewGeometry.cardWidth(pageWidth: 669, columns: 3, cards: source.tabs.count)
+        #expect(abs(source.cardScale - three / 669) < 0.0001)
+        #expect(three < (669 - 48) / 2)
+        for tab in source.tabs.dropFirst() { _ = store.removeTab(tab.id, from: "ws-cmux") }
+        source.refreshTabs()
+        // TabsKit's lone card: two thirds of the page, at most 300 pt.
+        #expect(abs(source.cardScale - 300.0 / 669) < 0.0001)
+    }
+
     /// Review finding 1: an agent tab's title comes from its chat store; a
     /// store made after the tab was built (in a page or card body) rebuilds
     /// that tab once, after the update, so its title is not frozen.
@@ -230,7 +247,7 @@ import SwiftUI
         )
         mock.chunkSize = 8
         let chat = AgentChatStore(source: mock)
-        while chat.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(chat.turns.isEmpty) }
         let feed = AgentCardFeed(store: chat)
         let start = feed.pulls
         let before = chat.turns

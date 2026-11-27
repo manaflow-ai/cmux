@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Where design mode cards are written as files for the Home composer (``BrowserDesignModeCardFiles``):
@@ -18,6 +19,21 @@ public nonisolated struct BrowserDesignModeTempFiles: Sendable {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Removes every card folder (at quit, and at launch after a crash).
+    /// After the first frame, remove only card folders that predate this launch.
+    /// A card the person has just attached can already be waiting for the composer to copy its files.
+    public func removeLeftovers(before launch: Date) {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .creationDateKey]
+        let manager = FileManager.checked
+        guard (try? root.blockingResourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == false,
+              let folders = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys)) else { return }
+        for folder in folders where UUID(uuidString: folder.lastPathComponent) != nil {
+            guard let values = try? folder.blockingResourceValues(forKeys: keys),
+                  values.isDirectory == true, values.isSymbolicLink == false,
+                  let created = values.creationDate, created < launch else { continue }
+            try? manager.removeItem(at: folder)
+        }
+    }
+
+    /// Removes every card folder at quit.
     public func removeAll() { try? FileManager.default.removeItem(at: root) }
 }

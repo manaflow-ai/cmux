@@ -173,7 +173,7 @@ fn personal_selects_the_owner_gateway() {
     with.push("--personal");
     assert!(parse(&args(&with), &no_env).unwrap().personal);
     assert_eq!(PERSONAL_CONNECT_PATH, "/v1/cloud/inference-gateway/personal/connect");
-    assert!(help().contains("cmux inference gateway status [--personal] [--json]"));
+    assert!(help().contains("cmux inference gateway status [--personal] [--token-stdin] [--json]"));
 }
 
 #[test]
@@ -492,4 +492,145 @@ fn a_login_without_chatgpt_tokens_is_refused() {
 fn formats_utc_times() {
     assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
     assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+}
+
+#[test]
+fn interactive_calls_pass_when_background_used_the_unreserved_share() {
+    let interactive = vec![(PRIORITY_HEADER.to_owned(), "interactive".to_owned())];
+    let background = vec![(PRIORITY_HEADER.to_owned(), "background".to_owned())];
+    let unreserved = MAX_CALLS - INTERACTIVE_RESERVE;
+    // Background traffic fills every slot it may take; the next background call is refused.
+    assert!(admits(unreserved - 1, &background));
+    assert!(!admits(unreserved, &background));
+    assert!(!admits(unreserved, &[]), "a call naming no priority counts as background");
+    // An interactive call still passes, up to the whole limit.
+    assert!(admits(unreserved, &interactive));
+    assert!(admits(MAX_CALLS - 1, &interactive));
+    assert!(!admits(MAX_CALLS, &interactive));
+    assert!(PASS_HEADERS.contains(&PRIORITY_HEADER), "the priority goes upstream too");
+}
+
+/// The 11-23 and 11-24 "at its call limit" bursts: the API's Worker never fires `request.signal` (its
+/// compatibility date predates request-signal-by-default), so a machine that walks away from a call (a timeout, an
+/// interrupt, a retry) never sends `cancel`, and the gateway still runs that call. Calls nobody cancels fill the
+/// background share while the API sees far fewer live ones; the next background call must wait for a freed slot,
+/// not fail at once, and a `cancel` (the task's abort) must give the slot back.
+#[tokio::test(start_paused = true)]
+async fn calls_nobody_cancels_fill_the_share_and_the_next_call_waits_for_a_freed_slot() {
+    let slots = Arc::new(Slots::default());
+    let unreserved = MAX_CALLS - INTERACTIVE_RESERVE;
+    // Ghost calls: tasks whose provider call never ends and that no `cancel` reaches.
+    let ghosts: Vec<_> = (0..unreserved)
+        .map(|_| {
+            let slot = slots.try_take(false).expect("a permit under the share");
+            tokio::spawn(async move {
+                std::future::pending::<()>().await;
+                drop(slot);
+            })
+        })
+        .collect();
+    tokio::task::yield_now().await;
+    assert_eq!(slots.in_flight(), unreserved);
+    assert!(slots.try_take(false).is_none(), "the background share is full");
+
+    let waiter = {
+        let slots = slots.clone();
+        tokio::spawn(async move { slots.take(false, BACKGROUND_WAIT).await })
+    };
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(!waiter.is_finished(), "a call past the cap waits instead of failing at once");
+    // A `cancel` aborts the call's task: dropping it frees the slot (RAII), and the waiter takes it.
+    ghosts[0].abort();
+    let taken = waiter.await.unwrap();
+    assert!(taken.is_some(), "the freed permit goes to the waiting call");
+    assert_eq!(slots.in_flight(), unreserved);
+    for ghost in &ghosts {
+        ghost.abort();
+    }
+    for _ in 0..4 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        slots.in_flight(),
+        1,
+        "every aborted call gave its permit back; the waiter's is the one left"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_full_gateway_holds_background_10_s_and_interactive_30_s() {
+    let slots = Arc::new(Slots::default());
+    let background: Vec<_> =
+        (0..MAX_CALLS - INTERACTIVE_RESERVE).map(|_| slots.try_take(false).unwrap()).collect();
+    // The reserve: an interactive call still gets a slot at once.
+    let mut reserve =
+        vec![slots.take(true, INTERACTIVE_WAIT).await.expect("the interactive reserve")];
+    while let Some(slot) = slots.try_take(true) {
+        reserve.push(slot);
+    }
+    assert_eq!(slots.in_flight(), MAX_CALLS);
+
+    let started = tokio::time::Instant::now();
+    assert!(slots.take(false, BACKGROUND_WAIT).await.is_none());
+    assert_eq!(started.elapsed(), BACKGROUND_WAIT);
+    let started = tokio::time::Instant::now();
+    assert!(slots.take(true, INTERACTIVE_WAIT).await.is_none());
+    assert_eq!(started.elapsed(), INTERACTIVE_WAIT);
+
+    // A slot freed past the background share goes to an interactive call, never to a background one.
+    drop(reserve.pop());
+    assert!(slots.try_take(false).is_none());
+    assert!(slots.take(true, INTERACTIVE_WAIT).await.is_some());
+    drop(background);
+    drop(reserve);
+    assert_eq!(slots.in_flight(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_call_past_the_wait_gets_a_529_overloaded_error_with_a_jittered_retry_after() {
+    let slots = Arc::new(Slots::default());
+    let held: Vec<_> = (0..MAX_CALLS).map(|_| slots.try_take(true).unwrap()).collect();
+    let upstream = Provider::new(
+        Upstream::Proxy { base: "http://127.0.0.1:9".into(), key_file: None },
+        test_client(),
+    );
+    let (tx, mut rx) = mpsc::channel(OUT_FRAMES);
+    admitted(&slots, &upstream, "call-1", pending("/v1/messages", "{}"), &tx).await;
+    let frames = frames(&mut rx).await;
+    assert_eq!(frames.len(), 3, "{frames:?}");
+    assert_eq!(frames[0]["t"], "head");
+    assert_eq!(frames[0]["status"], 529);
+    let retry: u64 = frames[0]["headers"]["retry-after"].as_str().unwrap().parse().unwrap();
+    assert!((1..=BUSY_RETRY_AFTER_MAX_S).contains(&retry));
+    let body = base64::engine::general_purpose::STANDARD
+        .decode(frames[1]["data"].as_str().unwrap())
+        .unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["type"], "error");
+    assert_eq!(body["error"]["type"], "overloaded_error");
+    assert_eq!(body["error"]["code"], "inference.gateway_busy");
+    assert_eq!(frames[2]["t"], "end");
+    assert_eq!(slots.in_flight(), MAX_CALLS, "a busy call takes no permit");
+    drop(held);
+}
+
+#[test]
+fn busy_retry_after_is_full_jitter_within_its_bound() {
+    let samples: Vec<u64> = (0..500).map(|_| jitter_s(BUSY_RETRY_AFTER_MAX_S)).collect();
+    assert!(samples.iter().all(|s| (1..=BUSY_RETRY_AFTER_MAX_S).contains(s)));
+    let distinct: std::collections::HashSet<_> = samples.iter().collect();
+    assert!(distinct.len() > 5, "spread out, not one value: {distinct:?}");
+}
+
+/// The call line splits the provider's wait before its head (time to first token on a pool that holds its head) from
+/// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
+#[test]
+fn call_line_splits_head_from_stream() {
+    let line = call_line("m-1", "POST", "/v1/messages", 200, 2057, 1900, Some(1902));
+    assert_eq!(line, "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms)");
+    let empty = call_line("m-1", "POST", "/v1/messages", 204, 30, 29, None);
+    assert!(empty.ends_with("-> 204 (30 ms, head 29 ms, first data none)"), "{empty}");
+    let longest =
+        call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
+    assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
 }

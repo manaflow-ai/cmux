@@ -81,7 +81,6 @@ const CARDS: Record<string, string[]> = {
   "tool output": [".cv-tool-output", ".cv-tool-output__box"],
   "MCP call": [".cv-mcp-call__body"],
   "tool fields": [".cv-tool-detail__fields"],
-  plan: [".cv-plan"],
   "permission ask": [".acpmux-ask"],
   "shell block": [".acpmux-shell-block"],
   "run elsewhere": [".cv-run-elsewhere"],

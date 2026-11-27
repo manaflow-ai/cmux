@@ -55,6 +55,9 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
     scripts/ghosttykit-checksums.txt) return 0 ;;
+    cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift) return 0 ;; # uniffi Swift bindings (ios-ffi-bindings.sh)
+    cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/actions/*|cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/removal/*) return 0 ;; # settled re-pin markers (base-autofix.sh 1a)
+    scripts/ci/job-inputs-always.json) return 0 ;; # undeclared jobs recorded as runs-always (base-autofix.sh 6, job_inputs.py fix)
     cmux-tui/*.rs|Native/OptChat/*.rs) return 0 ;; # cargo fmt
   esac
   return 1

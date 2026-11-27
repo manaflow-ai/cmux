@@ -9,7 +9,7 @@ import WebKit
 public import Observation
 
 extension PageDescriptor {
-    /// Home's Set Up cmux card (webviews/src/pages/setup-card, the React card home-messages/cards/setup), shown
+    /// Home's Set Up cmux card (webviews/src/pages/setup-card), shown
     /// in the native Home's Chief chat (``SetupCardHost``).
     public static let setupCard = PageDescriptor(
         id: "cmux.setup-card", resource: "setup-card", namespaces: [SetupCardPageProvider.prefix],
@@ -34,24 +34,24 @@ public struct SetupCardEnvironment {
     public var openAgents: @MainActor () -> Void
     /// Whether VoiceOver runs now.
     public var screenReader: @MainActor () -> Bool
-    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
-    public var agentTools: (any AgentToolsSource)?
     /// The Text Size and Density row's reads and writer; nil: the card has no such row.
     public var look: SetupCardLook?
+    /// What the account row's Sign In signs in to ("Signs in to cmux.com"), the line under it; nil shows none.
+    public var signInBackend: String?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                agentTools: (any AgentToolsSource)? = nil, look: SetupCardLook? = nil) {
+                look: SetupCardLook? = nil, signInBackend: String? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
         self.installCLI = installCLI
         self.openAgents = openAgents
         self.screenReader = screenReader
-        self.agentTools = agentTools
         self.look = look
+        self.signInBackend = signInBackend
     }
 }
 
@@ -119,8 +119,6 @@ public final class SetupCardPageProvider: PageProvider {
 
     @ObservationIgnored private let setup: FirstRunSetup
     @ObservationIgnored let agents: AgentsStepModel
-    /// The cmux Tools row: whether cmux may add its MCP server to the person's coding agents.
-    @ObservationIgnored let tools: AgentToolsStepModel
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The card's Chief form (first-run findings rows 1 and 4): only the agent Chief answers through, under a title
     /// that says Chief needs it (setupModel.ts `forChief`). Hide puts it away for this launch, and it never ends
@@ -139,15 +137,12 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
-        tools = AgentToolsStepModel(source: environment.agentTools)
-        tools.start()
         self.agents.start()
         readCLI()
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
     func stop() {
-        tools.stop()
         cliRead?.cancel()
     }
 
@@ -179,23 +174,11 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "tools": toolsRow,
+        // Signed out: what the row's Sign In signs in to ("Signs in to cmux.com"), the line under it.
+        if !account.signedIn, let backend = environment.signInBackend { wire["signInBackend"] = .string(backend) }
+        return ["agents": .array(rows),
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
                 "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]
-    }
-
-    /// The cmux Tools row (setupModel.ts `SetupState.tools`): shown while the question is open, or once
-    /// the person answered it on this card; null when nobody can be asked (no source, no coding agent
-    /// found) or it was answered elsewhere before.
-    var toolsRow: JSONValue {
-        guard environment.agentTools != nil, tools.loaded, !tools.agents.isEmpty, tools.choice == .ask || tools.answered else { return .null }
-        return ["agents": .array(tools.agents.map { .string($0.name) }), "choice": .string(tools.choice.rawValue),
-                "applying": .bool(tools.applying)]
-    }
-
-    /// The cmux Tools row is done: answered, or not shown (read, and nothing to ask).
-    var toolsDone: Bool {
-        environment.agentTools == nil || (tools.loaded && (tools.agents.isEmpty || tools.choice != .ask))
     }
 
     /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH.
@@ -206,7 +189,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
-        toolsDone && environment.account().signedIn && cli == "installed"
+        environment.account().signedIn && cli == "installed"
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -257,9 +240,6 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAgent" where Self.agentIDs.contains(id): agents.signIn(id)
         case "confirmAgent" where Self.agentIDs.contains(id): agents.confirmLogin(id)
         case "signInAccount": environment.signInAccount()
-        // cmux Tools: Turn On answers yes, Not Now answers no; neither writes an agent's own config.
-        case "addTools" where toolsRow != .null: tools.add()
-        case "declineTools" where toolsRow != .null: tools.decline()
         // Text Size and Density: only sizes the setting takes and the built-in densities, written as Settings writes them.
         case "setTextSize":
             guard let look = environment.look, !forChief else { throw PageError.invalidParams("no text size row") }

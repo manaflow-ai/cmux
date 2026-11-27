@@ -416,7 +416,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("timeout-minutes", step)
         self.assertEqual(job["outputs"]["actions_made_at"], "${{ steps.actions.outputs.made_at }}")
         push = next(s for s in DOC["jobs"]["autofix"]["steps"] if "base-autofix-land.sh" in s.get("run", ""))
-        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.actions_made_at }}")
+        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports-linux.outputs.actions_made_at || needs.action-exports.outputs.actions_made_at }}")
         self.assertIn('"$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT"', push["run"])
         self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", DOC[True]["push"]["paths"])
         self.assertGreaterEqual(job["timeout-minutes"], step["timeout-minutes"] + 40)
@@ -439,7 +439,7 @@ class BaseAutofixFinishes(unittest.TestCase):
 
     def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
         step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
-        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.settings_made_at }}")
+        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.settings-exports-linux.outputs.settings_made_at || needs.action-exports.outputs.settings_made_at }}")
         self.assertIn('"$HEAD_SHA" "$SETTINGS_MADE_AT"', step["run"])
 
     def test_the_push_script_knows_every_settings_export(self):
@@ -455,9 +455,10 @@ class BaseAutofixFinishes(unittest.TestCase):
         # 2026-10-21: a push to feat-cmux-next added a test target without the graph (Tier routing red on
         # every PR) and the graph landed 90 minutes later: autofix, which made it, needed the Mac exports
         # job, 12-15 minutes in the owned queue and 15-26 running, and two of those runs' repairs were
-        # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
+        # held. The graph is made on Linux from the manifest alone, so its own job needs only the batch
+        # window (one Linux read, cmux#49308), never the Mac exports.
         job = DOC["jobs"]["target-graph"]
-        self.assertNotIn("needs", job)
+        self.assertIn(job.get("needs", "window"), ("window", ["window"]))
         cells = workflow_jobs.runs_on_cells(job)
         self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
         self.assertTrue(cells)
@@ -649,11 +650,19 @@ else:
         condition = re.sub(r"\s+", " ", str(step.get("if")))
         self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", condition)
         self.assertIn("needs.pushed-exports.outputs.deferred != 'true'", condition)
+        # A run its batch window held (cmux#49308) skips autofix, so it uploads no marker and "since" passes it.
+        self.assertIn("window", autofix["needs"])
+        self.assertIn("needs.window.outputs.run == 'true'", re.sub(r"\s+", " ", str(autofix["if"])))
 
     def test_ci_runs_this_test(self):
-        steps = DOC_NEXT["jobs"]
-        runs = "\n".join(step.get("run", "") for job in steps.values() for step in job.get("steps", []))
-        self.assertIn("tests/test_cmux_next_base_autofix_finishes.py", runs)
+        steps = DOC_NEXT["jobs"]["checks"]["steps"]
+        (pool,) = [step for step in steps if step.get("name") == "Start the slow checks in the background"]
+        run = pool["run"]
+        manifest = "scripts/ci/cmux-next-slow-checks.txt"
+        self.assertIn("scripts/ci/run-checks-concurrently.sh --start", run)
+        self.assertIn("< " + manifest, run)
+        self.assertIn("python3 tests/test_cmux_next_base_autofix_finishes.py",
+                      (ROOT / manifest).read_text().splitlines())
 
 
 

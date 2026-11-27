@@ -40,9 +40,9 @@ final class CEFMediaBridge {
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
-    /// The media world's bindings: the media report and the protected-media refusal.
+    /// The media world's bindings: the media report, the protected-media refusal and the web notification.
     private static var bindings: [(String, [String: Any])] {
-        [BrowserMediaState.channel, BrowserProtectedMedia.channel].map {
+        [BrowserMediaState.channel, BrowserProtectedMedia.channel, BrowserWebNotificationScript.channel].map {
             ("Runtime.addBinding", ["name": $0, "executionContextName": BrowserMediaState.world])
         }
     }
@@ -86,12 +86,11 @@ final class CEFMediaBridge {
             tab?.emit(.protectedMediaUnavailable(refused))
             return true
         }
-        guard head.method == "Runtime.bindingCalled", head.contains("\"\(BrowserMediaState.channel)\""),
-              let data = head.json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              message["method"] as? String == "Runtime.bindingCalled",
-              let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
-        else { return false }
+        if let payload = Self.payload(of: head, binding: BrowserWebNotificationScript.channel) {
+            notified(payload)
+            return true
+        }
+        guard let params = Self.bindingParams(of: head, binding: BrowserMediaState.channel) else { return false }
         if let payload = params["payload"] as? String { report(payload) }
         return true
     }
@@ -108,6 +107,41 @@ final class CEFMediaBridge {
     func refused(_ payload: String) {
         guard let refused = BrowserProtectedMedia(reported: payload) else { return }
         tab?.emit(.protectedMediaUnavailable(refused))
+    }
+
+    /// A notification the main frame made (`BrowserWebNotificationScript`): untrusted JSON. It
+    /// becomes a banner only when the tab's site has notifications allowed in the prompt bar's
+    /// store, read for the page showing now, so a page cannot post for another site.
+    func notified(_ payload: String) {
+        guard let tab, let posted = BrowserWebNotificationScript.posted(json: payload),
+              let origin = tab.state.url.flatMap(PageInfoSite.origin(of:)) else { return }
+        let store = tab.sitePermissions
+        Task { [weak tab] in
+            await store.whenLoaded()
+            guard let tab, store.setting(.notifications, for: origin) == .allow,
+                  tab.state.url.flatMap(PageInfoSite.origin(of:)) == origin else { return }
+            let site = BrowserWebNotificationScript.site(of: origin)
+            tab.emit(.webNotification(BrowserWebNotification(title: posted.title, body: posted.body, site: site) { [weak tab] in
+                guard let tab else { return }
+                let script = BrowserWebNotificationScript.clickScript(id: posted.id)
+                Task { _ = try? await tab.evaluate(script, world: .page, gesture: .cmux) }
+            }))
+        }
+    }
+
+    /// The payload of a `Runtime.bindingCalled` of `binding`, nil for any other message.
+    private static func payload(of head: DevToolsMessageHead, binding: String) -> String? {
+        bindingParams(of: head, binding: binding)?["payload"] as? String
+    }
+
+    /// The params of a `Runtime.bindingCalled` of `binding`, nil for any other message. The one
+    /// parse of a binding call's message, shared by every binding this bridge answers.
+    private static func bindingParams(of head: DevToolsMessageHead, binding: String) -> [String: Any]? {
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(binding)\""), let data = head.json.data(using: .utf8),
+              let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              message["method"] as? String == "Runtime.bindingCalled",
+              let params = message["params"] as? [String: Any], params["name"] as? String == binding else { return nil }
+        return params
     }
 }
 

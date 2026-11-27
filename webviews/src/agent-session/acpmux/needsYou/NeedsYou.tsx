@@ -22,7 +22,7 @@ import {
   type RefObject,
 } from "react";
 import { useStableCallback } from "../stableCallback";
-import { AgentMark } from "../../shared/AgentMark";
+import { SessionMark } from "../../shared/AgentMark";
 import { useLabelClock } from "../clock";
 import { agentDisplayName } from "../agents";
 import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
@@ -30,7 +30,7 @@ import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useAnswerHoldSet } from "../answerHold";
-import { Keycap } from "../Keycap";
+import { KeyHint } from "../../../ui/KeyHint";
 import { nextShortAge, shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
@@ -443,7 +443,7 @@ const NeedsYouRow = memo(function NeedsYouRow({
                           ? t("needsYou.resume")
                           : choice.label}
                   </span>
-                  {key && <Keycap>{key.toUpperCase()}</Keycap>}
+                  {key && <KeyHint keys={key.toUpperCase()} aria-hidden="true" />}
                 </button>
               );
             })}
@@ -707,7 +707,7 @@ function Avatar({ item }: { item: NeedsYouItem }) {
     );
   return (
     <span className="acpmux-needs-you-avatar" title={item.who.harness ? agentDisplayName(item.who.harness) : undefined}>
-      <AgentMark agent={item.who.harness} size={14} reserve />
+      <SessionMark icon={item.who.icon} agent={item.who.harness} size={14} reserve />
     </span>
   );
 }

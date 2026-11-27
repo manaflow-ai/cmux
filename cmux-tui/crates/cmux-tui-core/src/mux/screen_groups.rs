@@ -402,10 +402,6 @@ impl Mux {
                     (to, index)
                 }
                 ScreenDestination::NewWorkspace => {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,
@@ -751,10 +747,6 @@ impl Mux {
                     None => (from, index),
                 },
                 ScreenDestination::NewWorkspace => {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,

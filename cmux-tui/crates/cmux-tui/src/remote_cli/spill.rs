@@ -19,6 +19,12 @@
 //! command's output; `null` when it ran here or printed nothing), the
 //! `placement`, the `reason`, `phases` in whole ms and `exit`.
 //!
+//! With no ROUTE (or ROUTE `cloud`, `cloud:MACHINE`) the place is the
+//! signed-in person's cmux Cloud machine ([`super::spill_cloud`]): the CLI
+//! dials its own carrier session with the app's credential and runs the same
+//! protocol on it. With no Cloud machine, or not signed in, the command runs
+//! here and the stderr line names the one step that would let it spill.
+//!
 //! Nothing spills unless this verb is used: every other command, and Auto
 //! (off by default), are unchanged.
 
@@ -37,7 +43,9 @@ use serde_json::{Map, Value, json};
 use super::exec_cp::{
     EXIT_TRANSPORT, ExecArgs, ExitWith, exec_on, open_root, parse_exec_args, run_remote,
 };
-use super::{REMOTE_VALUE_OPTIONS, parse_connect_flags, start_connected, tokio_runtime};
+use super::{
+    REMOTE_VALUE_OPTIONS, parse_connect_flags, spill_cloud, start_connected, tokio_runtime,
+};
 
 /// The verb's name in its messages.
 const VERB: &str = "cmux spill";
@@ -48,14 +56,19 @@ Run COMMAND here, or on another machine when this one is over its CPU/RAM
 budget. Spilled, one line on stderr says where and why; the output streams
 back live and the exit status is COMMAND's.
 
-ROUTE and the connect options (--state-dir, --via-machine, --carrier, ...)
-name the machine to spill to, as `cmux remote exec` takes them. Its room is
-read there first: a machine over its own budget, or one whose room cannot be
-read, is not used and COMMAND runs here.
+With no ROUTE, or ROUTE `cloud` (`cloud:MACHINE` for one by id or title),
+the machine is your cmux Cloud machine: sign in to the cmux app and have
+one running (cmux vm new). Without one COMMAND runs here and the stderr line
+says the step that would let it spill.
+
+Otherwise ROUTE and the connect options (--state-dir, --via-machine,
+--carrier, ...) name the machine to spill to, as `cmux remote exec` takes
+them. Its room is read there first: a machine over its own budget, or one
+whose room cannot be read, is not used and COMMAND runs here.
 
 OPTIONS:
   --here              Run here whatever the budget.
-  --to MACHINE        Run on MACHINE (a ROUTE) whatever the budget.
+  --to MACHINE        Run on MACHINE (a ROUTE, or `cloud`) whatever the budget.
   --timings           When COMMAND ends, print one JSON line on stderr:
                       spill_start_ms, placement, reason, phases, exit.
   --cwd PATH, --env KEY=VALUE, --tty, --timeout-seconds N
@@ -139,16 +152,60 @@ fn place_name(connect: &[String]) -> String {
 
 /// The connection to the place, kept from the room probe to the command.
 struct Link {
-    connected: super::ConnectedRuntime,
+    name: String,
     client: Arc<WorkspaceClient>,
+    carried: Carried,
 }
 
-/// Connects to the place `connect` names.
-fn connect(runtime: &tokio::runtime::Runtime, connect: &[String]) -> anyhow::Result<Link> {
-    let connected = start_connected(parse_connect_flags(connect)?)?;
-    let client =
-        runtime.block_on(WorkspaceClient::connect(connected.runtime.multiplexer().clone()))?;
-    Ok(Link { connected, client })
+/// What holds the link's connection open.
+enum Carried {
+    /// A `remote exec` route.
+    Route(super::ConnectedRuntime),
+    /// A carrier session to a Cloud machine.
+    Cloud(crate::carrier::workspace::WorkspaceSession),
+}
+
+impl Link {
+    fn close(self, runtime: &tokio::runtime::Runtime) {
+        drop(self.client);
+        match self.carried {
+            Carried::Route(connected) => {
+                let _ = connected.runtime.shutdown();
+            }
+            Carried::Cloud(session) => runtime.block_on(session.close()),
+        }
+    }
+}
+
+/// Why no link was made: a Cloud miss (run here, naming its step) or a route's error.
+enum NoLink {
+    Cloud(spill_cloud::Miss),
+    Route(anyhow::Error),
+}
+
+impl NoLink {
+    fn text(&self) -> String {
+        match self {
+            Self::Cloud(miss) => miss.step(),
+            Self::Route(error) => format!("{error:#}"),
+        }
+    }
+}
+
+/// Connects to the place `connect` names: the Cloud machine, or a `remote exec` route.
+fn connect(runtime: &tokio::runtime::Runtime, connect: &[String]) -> Result<Link, NoLink> {
+    let route = route_word(connect);
+    if spill_cloud::is_cloud(connect, route) {
+        let (name, session) = spill_cloud::open(runtime, route).map_err(NoLink::Cloud)?;
+        return Ok(Link { name, client: session.client.clone(), carried: Carried::Cloud(session) });
+    }
+    let made = (|| {
+        let connected = start_connected(parse_connect_flags(connect)?)?;
+        let client =
+            runtime.block_on(WorkspaceClient::connect(connected.runtime.multiplexer().clone()))?;
+        anyhow::Ok(Link { name: place_name(connect), client, carried: Carried::Route(connected) })
+    })();
+    made.map_err(NoLink::Route)
 }
 
 /// The place's room, read on it.
@@ -198,41 +255,50 @@ pub(super) fn run_spill(args: &[String]) -> anyhow::Result<()> {
     let runtime = tokio_runtime()?;
     let mut link: Option<Link> = None;
     let mut place_error: Option<String> = None;
-    let decision = place::decide(&inputs, || {
-        if spill.exec.connect.is_empty() {
-            return Vec::new();
-        }
-        let name = place_name(&spill.exec.connect);
+    let mut cloud_miss: Option<spill_cloud::Miss> = None;
+    let mut decision = place::decide(&inputs, || {
         let at = Instant::now();
-        let headroom = match connect(&runtime, &spill.exec.connect) {
+        match connect(&runtime, &spill.exec.connect) {
             Ok(connected) => {
                 phases.insert("connect".into(), json!(ms(at, Instant::now())));
                 let probed = Instant::now();
                 let headroom = probe(&runtime, &connected.client);
                 phases.insert("probe".into(), json!(ms(probed, Instant::now())));
+                let name = connected.name.clone();
                 link = Some(connected);
-                headroom
+                vec![Room { place: name, headroom }]
             }
-            Err(error) => {
-                place_error = Some(format!("{error:#}"));
-                Headroom::Unknown
+            // No Cloud machine is no place at all; its step is said when the command runs here.
+            Err(NoLink::Cloud(miss)) => {
+                place_error = Some(miss.step());
+                cloud_miss = Some(miss);
+                Vec::new()
             }
-        };
-        vec![Room { place: name, headroom }]
+            Err(error @ NoLink::Route(_)) => {
+                place_error = Some(error.text());
+                vec![Room { place: place_name(&spill.exec.connect), headroom: Headroom::Unknown }]
+            }
+        }
     });
     let first_output = OnceLock::new();
+    let mut kept_here = false;
     let outcome = match &decision.placement {
         Placement::Here => {
-            if matches!(decision.reason, Reason::NoRoom { .. }) {
+            if let Some(miss) = &cloud_miss {
+                eprintln!(
+                    "{VERB}: running here: {}; to spill to your Cloud machine: {}",
+                    decision.reason,
+                    miss.step()
+                );
+            } else if matches!(decision.reason, Reason::NoRoom { .. }) {
                 eprintln!("{VERB}: running here: {}", decision.reason);
             }
             if let Some(link) = link.take() {
-                let _ = link.connected.runtime.shutdown();
+                link.close(&runtime);
             }
             run_here(&spill.exec)
         }
         Placement::There(place) => {
-            eprintln!("{VERB}: running on {place}: {}", decision.reason);
             let link = match link.take() {
                 Some(link) => Ok(link),
                 None => {
@@ -244,6 +310,8 @@ pub(super) fn run_spill(args: &[String]) -> anyhow::Result<()> {
             };
             match link {
                 Ok(link) => {
+                    let shown = if place == "cloud" { link.name.as_str() } else { place.as_str() };
+                    eprintln!("{VERB}: running on {shown}: {}", decision.reason);
                     let spawned = Instant::now();
                     let exec = ExecArgs { connect: Vec::new(), ..clone_exec(&spill.exec) };
                     let status =
@@ -251,13 +319,26 @@ pub(super) fn run_spill(args: &[String]) -> anyhow::Result<()> {
                     if let Some(first) = first_output.get() {
                         phases.insert("first_output".into(), json!(ms(spawned, *first)));
                     }
-                    let _ = link.connected.runtime.shutdown();
+                    link.close(&runtime);
                     status
                 }
-                Err(error) => Err(error),
+                // Asked for the Cloud machine and there is none: run here, naming the step.
+                Err(NoLink::Cloud(miss)) => {
+                    eprintln!(
+                        "{VERB}: running here: no Cloud machine to run on; to spill to it: {}",
+                        miss.step()
+                    );
+                    place_error = Some(miss.step());
+                    kept_here = true;
+                    run_here(&spill.exec)
+                }
+                Err(NoLink::Route(error)) => Err(error),
             }
         }
     };
+    if kept_here {
+        decision.placement = Placement::Here;
+    }
     if spill.timings {
         let exit = match &outcome {
             Ok(code) => json!(code),

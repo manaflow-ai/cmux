@@ -1,7 +1,7 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { INTERNAL_CALL_TIMEOUT_MS, internalCall } from "../src/internalCall";
-import { SILENT_CLOSE, SILENT_MS } from "../src/userDo";
+import { OFFLINE_GRACE_MS, SILENT_CLOSE, SILENT_MS } from "../src/userDo";
 import { type Device, type Peer, approvedSession, hubEnv, setup, waitFor } from "./helpers";
 
 const userStub = (userId: string) => hubEnv.USER_DO.get(hubEnv.USER_DO.idFromName(userId));
@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe("User DO: a device that goes silent without closing its socket", () => {
-  it("silent right after it connects: offline at the bound, socket closed with why, sessions end peer_offline", async () => {
+  it("silent right after it connects: offline at the bound, socket closed with why, sessions end peer_offline after the grace", async () => {
     const { account, host, viewer } = await setup();
     const s = await approvedSession(host, viewer);
     const { attachment, alarm } = await socketClock(account.userId, viewer.id);
@@ -75,13 +75,17 @@ describe("User DO: a device that goes silent without closing its socket", () => 
     expect(closed.reason).toMatch(/^silent \d+ s: no ping within 75 s$/);
     expect(await host.user!.next((f) => f.type === "devices.changed")).toEqual({ type: "devices.changed" });
     expect(await online(host, viewer.id)).toBe(false);
-    // Its offline grace counts from when it was last heard, so the session ends in the same pass.
+    // Found silent, but its offline grace counts from when it was last heard: the session still stands.
+    expect(await host.user!.none((f) => f.type === "session.ended")).toBe(true);
+    // Once the grace from that frame passes, the session ends.
+    await moveClockTo(openedAt + OFFLINE_GRACE_MS + 1000, account, [host]);
+    await runDurableObjectAlarm(userStub(account.userId));
     expect(await host.user!.next((f) => f.type === "session.ended" && f.sessionId === s.sid)).toEqual({ type: "session.ended", sessionId: s.sid, reason: "peer_offline" });
     const entries = (await host.call("GET", "/v1/audit?limit=200")).json.entries as any[];
     expect(entries.find((e) => e.event === "ended" && e.sessionId === s.sid).detail).toBe("peer_offline");
   });
 
-  it("silent mid-session: offline within the bound of its last frame, signaling sockets closed, peer_offline", async () => {
+  it("silent mid-session: offline within the bound of its last frame; its sessions end once the grace from that frame passes", async () => {
     const { account, host, viewer } = await setup();
     const s = await approvedSession(host, viewer);
     const v = (await viewer.signal(s.vt)).peer!;
@@ -102,10 +106,35 @@ describe("User DO: a device that goes silent without closing its socket", () => 
     expect(await runDurableObjectAlarm(userStub(account.userId))).toBe(true);
     expect((await viewer.user!.waitClosed()).code).toBe(SILENT_CLOSE);
     expect(await online(host, viewer.id)).toBe(false);
+    // Found silent, but still inside the grace from its last frame: the session waits for it.
+    expect(await host.user!.none((f) => f.type === "session.ended")).toBe(true);
+
+    await moveClockTo(lastHeard + OFFLINE_GRACE_MS + 1000, account, [host]);
+    await runDurableObjectAlarm(userStub(account.userId));
     expect((await host.user!.next((f) => f.type === "session.ended" && f.sessionId === s.sid)).reason).toBe("peer_offline");
     // The Session DO closed both signaling sockets.
     await h.waitClosed();
     await v.waitClosed();
+  });
+
+  it("a 60 s outage that starts a ping after the last frame keeps the session when the device comes back", async () => {
+    const { account, host, viewer } = await setup();
+    const s = await approvedSession(host, viewer);
+    await moveClockTo(Date.now() + 1000, account, [host, viewer]);
+    const lastHeard = (await socketClock(account.userId, viewer.id)).attachment!.heardAt!;
+    // The viewer's next ping (30 s on) never arrives: its network is gone from then for 60 s.
+    const back = lastHeard + 30_000 + 60_000;
+    await moveClockTo(lastHeard + SILENT_MS + 1000, account, [host]);
+    await runDurableObjectAlarm(userStub(account.userId));
+    expect((await viewer.user!.waitClosed()).code).toBe(SILENT_CLOSE);
+    // The network is back: the app opens a new socket a few seconds later.
+    await moveClockTo(back + 5000, account, [host]);
+    await viewer.connect();
+    await runDurableObjectAlarm(userStub(account.userId));
+    await moveClockTo(lastHeard + OFFLINE_GRACE_MS + 1000, account, [host, viewer]);
+    await runDurableObjectAlarm(userStub(account.userId));
+    expect(await host.user!.none((f) => f.type === "session.ended" && f.sessionId === s.sid)).toBe(true);
+    expect(await online(host, viewer.id)).toBe(true);
   });
 
   it("a device that keeps talking stays online past the bound", async () => {
@@ -150,7 +179,7 @@ describe("User DO: a device that goes silent without closing its socket", () => 
     expect(await online(host, viewer.id)).toBe(false);
     expect((await viewer.user!.waitClosed()).code).toBe(1011);
     await runInDurableObject(stub, (_i, st) => {
-      st.storage.sql.exec("UPDATE offline SET since = since - 31000");
+      st.storage.sql.exec("UPDATE offline SET since = since - ?", OFFLINE_GRACE_MS + 1000);
     });
     await runDurableObjectAlarm(stub);
     expect((await host.user!.next((f) => f.type === "session.ended" && f.sessionId === s.sid)).reason).toBe("peer_offline");

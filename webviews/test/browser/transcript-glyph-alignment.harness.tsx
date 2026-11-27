@@ -11,7 +11,6 @@ import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { CommandRow } from "../../src/agent-session/acpmux/conversation/CommandRow";
 import { TurnFooter, WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
 import { ThoughtRow } from "../../src/agent-session/acpmux/conversation/ThoughtRow";
-import { PlanList } from "../../src/agent-session/acpmux/conversation/PlanList";
 import { UserBubble } from "../../src/agent-session/acpmux/conversation/UserBubble";
 import { ReadReceipt, ReceivedActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
 import { TurnActionsContext, type TurnActions } from "../../src/agent-session/acpmux/conversation/turnActions";
@@ -44,7 +43,7 @@ const row: AcpmuxRow = {
 };
 const PENDING_SENT_AT = Date.now() - 10_000;
 const PENDING_TEXT =
-  "A steer long enough to be wider than its queued note, so the note starts where this text starts and the next line wraps under it.";
+  "A prompt long enough to be wider than its pending note, so the note grows left of Copy, which stays at the bubble's right edge.";
 const item: AcpmuxActivity = {
   kind: "tool",
   text: "",
@@ -186,6 +185,12 @@ function App() {
             />
           </div>
         </div>
+        {/* The same prompt sent, in the same box: the pending row's buttons end where its do. */}
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-sent-twin-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble row={{ ...row, id: "glyph-pending-prompt" }} text={PENDING_TEXT} />
+          </div>
+        </div>
         <div className="fixture-rhythm" data-glyph-row="tool">
           <ToolRow item={item} />
         </div>
@@ -204,9 +209,6 @@ function App() {
             id="glyph-thought"
             item={{ kind: "thought", text: "Inspecting the completed checks.", startedAt: 1000, endedAt: 7000 }}
           />
-        </div>
-        <div data-glyph-row="plan">
-          <PlanList ended entries={[{ content: "The completed plan step", status: "completed" }]} />
         </div>
         <div data-glyph-row="session-info">
           <EnvironmentSection machineName="Studio" />

@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 fn connect(s: &mut Server<FakeControlPlane>, key: &str) -> Value {
     let request =
-        Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key(key);
+        Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" })).key(key);
     let answer = s.handle(&request).expect("connect");
     assert_eq!(answer["state"], "up", "{answer}");
     answer
@@ -104,19 +104,19 @@ fn a_link_that_exits_during_the_session_exchange_cannot_return_its_cached_owner(
         assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
         let reads = s.control_plane().wire.count("cloud.machine.connect_info");
         let exiting = spawner.clone();
-        s.control_plane_mut().on_next_session(move || exiting.exit("vm-alpha01", 1));
+        s.control_plane_mut().on_next_session(move || exiting.exit("vm_alpha01", 1));
         if unavailable {
             s.control_plane_mut().fail_session_unavailable();
         }
         let error = s
             .handle(
-                &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" }))
+                &Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" }))
                     .key("c-2"),
             )
             .expect_err("a carrier that exited during session() must not be returned");
         assert_eq!(error.code, "cmux.cloud.link_down");
         assert!(matches!(
-            s.attach().supervisor().state("vm-alpha01"),
+            s.attach().supervisor().state("vm_alpha01"),
             Some(cmux_cloud::link::LinkState::Down { .. })
         ));
         assert_eq!(spawner.spawns(), 1, "the failed connect does not restart the link");
@@ -137,15 +137,15 @@ fn a_link_that_exits_during_connect_info_cannot_return_or_cache_its_owner() {
     // Force an owner cache miss on the up carrier without restarting it.
     s.control_plane_mut().set_team("team_t0000000000000000002");
     let exiting = spawner.clone();
-    s.control_plane_mut().on_next_connect_info(move || exiting.exit("vm-alpha01", 1));
+    s.control_plane_mut().on_next_connect_info(move || exiting.exit("vm_alpha01", 1));
     let error = s
         .handle(
-            &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2"),
+            &Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" })).key("c-2"),
         )
         .expect_err("a carrier that exited during connect_info must not be returned");
     assert_eq!(error.code, "cmux.cloud.link_down");
     assert!(matches!(
-        s.attach().supervisor().state("vm-alpha01"),
+        s.attach().supervisor().state("vm_alpha01"),
         Some(cmux_cloud::link::LinkState::Down { .. })
     ));
     assert_eq!(spawner.spawns(), 1);
@@ -188,7 +188,7 @@ fn a_new_link_reads_the_answer_again() {
     let first = connect(&mut s, "c-1");
     s.control_plane_mut().set_vm_kind(Some("owner"));
     // The link ends; the reconnect comes before any link event is drained.
-    spawner.exit("vm-alpha01", 1);
+    spawner.exit("vm_alpha01", 1);
     let next = connect(&mut s, "c-3");
     assert_ne!(next["generation"], first["generation"], "a new link: {next}");
     assert_eq!(next["vm_kind"], "owner");
@@ -207,7 +207,7 @@ fn a_not_bound_or_protocol_error_fails_an_up_connect_closed() {
         s.control_plane_mut().fail_connect_info(code);
         let error = s
             .handle(
-                &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" }))
+                &Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" }))
                     .key("c-2"),
             )
             .expect_err("a non-transient owner read must fail closed");
@@ -231,7 +231,7 @@ fn access_that_ended_fails_the_connect_and_revokes_the_up_link() {
     s.control_plane_mut().set_team("team_t0000000000000000002");
     s.control_plane_mut().fail_connect_info("cloud.machine.not_found");
     let request =
-        Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
+        Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" })).key("c-2");
     let refused = s.handle(&request).expect_err("no carrier once access ended");
     assert_eq!(refused.code, "cmux.cloud.not_found", "{refused:?}");
     let again = s.handle(&request.clone().key("c-3")).expect_err("the link stays revoked");
@@ -248,7 +248,7 @@ fn a_sign_out_fails_the_connect_of_an_up_link_and_ends_it() {
     assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
     s.control_plane_mut().wire.signed_in = false;
     let request =
-        Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
+        Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" })).key("c-2");
     let refused = s.handle(&request).expect_err("no carrier after a sign-out");
     assert_eq!(refused.code, "cmux.cloud.auth_required", "{refused:?}");
     assert!(!spawner.log().terminated.is_empty(), "the link ended with the sign-in");
@@ -291,7 +291,7 @@ fn a_transient_owner_read_answers_unknown_and_is_read_again() {
     let unread = connect(&mut s, "c-2");
     assert!(
         matches!(
-            s.attach().supervisor().state("vm-alpha01"),
+            s.attach().supervisor().state("vm_alpha01"),
             Some(cmux_cloud::link::LinkState::Up(_))
         ),
         "the owner read failed on an up link"
@@ -326,7 +326,7 @@ fn absence_or_no_access_refuses_the_connect() {
         s.control_plane_mut().set_team("team_t0000000000000000002");
         s.control_plane_mut().fail_connect_info(code);
         let request =
-            Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
+            Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" })).key("c-2");
         let refused =
             s.handle(&request).expect_err("no carrier for a machine the caller can't reach");
         assert_eq!(refused.code, expected, "{code}: {refused:?}");

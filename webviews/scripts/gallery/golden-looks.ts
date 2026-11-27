@@ -5,15 +5,27 @@
 // from the base and its head.
 //
 //   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
-//     [--setup DIR ...] [--native DIR] [--video DIR]
+//     [--setup DIR ...] [--native DIR] [--every] [--preview] [--video DIR] [--settings appearance,chat]
+//     [--settings-window 1920x1200]
 //
+// --settings also captures the golden Settings page (looks.golden.settings.<section>, src/gallery/golden/settings.ts)
+// per look, scheme and section, each section whole, as DIR/<look>-settings-<section>-<scheme>.png, and puts them in
+// the look's row of the sheet. With it, the window scene: DIR/<look>-window-<section>-<scheme>.png, the mock app's
+// window (--settings-window, default 1920x1200) with the golden chat and the Settings section side by side, under
+// the one look. Its sidebar, tab strips and traffic lights are the web stand-in for the native chrome (the window
+// marks them `data-stand-in`); the chat with its composer and the Settings page are the real web panes.
 // --video also records DIR/looks.webm: every look and scheme in turn, its name over the window, the chat
 // scrolled from the first prompt to the composer (a demo of the looks to post or send).
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
+// --preview (with --setup) also writes each setup folder's own stills, DIR/preview/golden-light.png and
+// DIR/preview/golden-dark.png (previewPath), the files the Settings looks gallery shows; it captures only
+// the setup looks unless --looks names others.
+// --every adds every other look the checkout carries (each shipped theme file, examples/ setup folder and
+// theme file: goldenLooks.ts discoverLooks), as the golden contrast test draws them.
 // --native adds the native sidebar and tab bar captures (Swift AAGoldenLookGalleryTests, its
 // golden-look-gallery/<look>-<scheme>.png) as a column beside each look's window.
 // On a lane VM: `cmux-ci test --artifact /tmp/golden -- bun run golden:looks --out "$FAST_CHECKS_OUT/golden"`.
-import { mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { chromium, type Page } from "playwright";
@@ -29,8 +41,12 @@ const { values } = parseArgs({
     window: { type: "string", default: "1280x2000" },
     setup: { type: "string", multiple: true, default: [] },
     native: { type: "string" },
+    every: { type: "boolean", default: false },
+    preview: { type: "boolean", default: false },
     scale: { type: "string", default: "1" },
     video: { type: "string" },
+    settings: { type: "string" },
+    "settings-window": { type: "string", default: "1920x1200" },
   },
 });
 const webviews = path.resolve(import.meta.dir, "../..");
@@ -38,11 +54,19 @@ const out = path.resolve(values.out!);
 mkdirSync(out, { recursive: true });
 // The gallery's looks module reads outside setups from this (dev-server/goldenLooks.ts).
 process.env.CMUX_GOLDEN_SETUPS = values.setup!.map((dir) => path.resolve(dir)).join(",");
-const { readGoldenLooks } = await import("../../dev-server/goldenLooks");
+if (values.every) process.env.CMUX_GOLDEN_EVERY_LOOK = "1";
+const { previewPath, readGoldenLooks } = await import("../../dev-server/goldenLooks");
+if (values.preview && values.setup!.length === 0) {
+  console.error("golden: --preview writes into a setup folder: give it --setup DIR");
+  process.exit(64);
+}
+const setupDirs = new Set(values.setup!.map((dir) => path.resolve(dir)));
 const registry = readGoldenLooks();
 for (const skip of registry.skipped) console.log(`golden: skipped ${skip.id}: ${skip.reason}`);
 const wanted = values.looks?.split(",").filter(Boolean);
-const looks = registry.looks.filter((look) => !wanted || wanted.includes(look.id));
+const looks = registry.looks.filter((look) =>
+  wanted ? wanted.includes(look.id) : !values.preview || (look.setupDir !== undefined && setupDirs.has(look.setupDir)),
+);
 const schemes = values.schemes!.split(",").filter((s): s is "light" | "dark" => s === "light" || s === "dark");
 const [width, height] = values.window!.split("x").map(Number) as [number, number];
 const deviceScaleFactor = Number(values.scale) || 1;
@@ -134,7 +158,95 @@ for (const look of looks)
     await page.locator(".app-window").first().screenshot({ path: file, animations: "disabled" });
     shots.push({ look: look.id, title: look.title, note: look.note, scheme, file });
     console.log(`golden: ${file} (${width}x${tall})`);
+    if (values.preview && look.setupDir && setupDirs.has(look.setupDir)) {
+      const preview = previewPath(look.setupDir, scheme);
+      mkdirSync(path.dirname(preview), { recursive: true });
+      copyFileSync(file, preview);
+      console.log(`golden: preview ${preview}`);
+    }
   }
+
+// --settings: the golden Settings page per look, scheme and section, in its own stage at the window's width; the stage
+// grows until the section's scroller shows it whole.
+const { GOLDEN_SETTINGS_SECTIONS } = await import("../../src/gallery/golden/look");
+const settingsSections = (values.settings ?? "")
+  .split(",")
+  .filter((section): section is (typeof GOLDEN_SETTINGS_SECTIONS)[number] =>
+    (GOLDEN_SETTINGS_SECTIONS as readonly string[]).includes(section),
+  );
+if (values.settings && settingsSections.length === 0)
+  throw new Error(`golden: --settings takes ${GOLDEN_SETTINGS_SECTIONS.join(", ")}`);
+const settingsShots: { look: string; scheme: string; section: string; file: string }[] = [];
+async function loadSettings(look: (typeof looks)[number], scheme: "light" | "dark", section: string, tall: number) {
+  const query = new URLSearchParams({
+    entry: `looks.golden.settings.${section}`,
+    variant: look.id,
+    colorScheme: scheme,
+  });
+  await page.setViewportSize({ width, height: tall });
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+      await page.waitForSelector('html[data-gallery-ready="1"]', { timeout: 120_000 });
+      break;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      console.log(`golden: settings ${look.id} ${scheme} loads again (${String(error).split("\n")[0]})`);
+    }
+  }
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  // The page's tallest scroller is the section: how much more it holds than it shows.
+  return page.evaluate(() =>
+    Math.max(0, ...[...document.querySelectorAll("*")].map((node) => node.scrollHeight - node.clientHeight)),
+  );
+}
+for (const look of settingsSections.length ? looks : [])
+  for (const scheme of schemes)
+    for (const section of settingsSections) {
+      let tall = height;
+      for (let pass = 0; pass < 4; pass += 1) {
+        const more = await loadSettings(look, scheme, section, tall);
+        if (more <= 2 || tall >= MAX_HEIGHT) break;
+        tall = Math.min(MAX_HEIGHT, tall + more + 8);
+      }
+      const file = path.join(out, `${look.id}-settings-${section}-${scheme}.png`);
+      await page.screenshot({ path: file, animations: "disabled" });
+      settingsShots.push({ look: look.id, scheme, section, file });
+      console.log(`golden: ${file} (${width}x${tall})`);
+    }
+
+// The window scene: the golden chat and the Settings section in one window, two panes, under the look.
+const [sceneWidth, sceneHeight] = values["settings-window"]!.split("x").map(Number) as [number, number];
+const windowShots: { look: string; scheme: string; section: string; file: string }[] = [];
+for (const look of settingsSections.length ? looks : [])
+  for (const scheme of schemes)
+    for (const section of settingsSections) {
+      const query = new URLSearchParams({
+        fixture: `looks.golden/${look.id}`,
+        fixture2: `looks.golden.settings.${section}/${look.id}`,
+        layout: "two",
+        colorScheme: scheme,
+        window: `${sceneWidth}x${sceneHeight}`,
+        zoom: "1",
+      });
+      const density = look.schemes[scheme].density;
+      if (density) query.set("density", density);
+      await page.setViewportSize({ width: sceneWidth + 64, height: sceneHeight + 96 });
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await page.goto(`http://127.0.0.1:${port}/gallery/mock-app.html?${query}`);
+          await settled(page);
+          break;
+        } catch (error) {
+          if (attempt >= 4) throw error;
+          console.log(`golden: window ${look.id} ${scheme} loads again (${String(error).split("\n")[0]})`);
+        }
+      }
+      const file = path.join(out, `${look.id}-window-${section}-${scheme}.png`);
+      await page.locator(".app-window").first().screenshot({ path: file, animations: "disabled" });
+      windowShots.push({ look: look.id, scheme, section, file });
+      console.log(`golden: ${file} (${sceneWidth}x${sceneHeight})`);
+    }
 
 // The sheet: one row per look, its schemes side by side (and the native captures when given).
 const nativeDir = values.native ? path.resolve(values.native) : undefined;
@@ -148,7 +260,7 @@ const rows = looks.map((look) => {
     const shot = shots.find((candidate) => candidate.look === look.id && candidate.scheme === scheme);
     const nativeName = `${look.id}-${scheme}.png`;
     return [
-      cell(scheme, shot && dataUrl(shot.file)),
+      cell(`${scheme} (sidebar and tabs: web stand-in for native)`, shot && dataUrl(shot.file)),
       ...(nativeDir
         ? [
             cell(
@@ -158,11 +270,26 @@ const rows = looks.map((look) => {
             ),
           ]
         : []),
+      ...settingsSections.map((section) => {
+        const shot = settingsShots.find(
+          (candidate) => candidate.look === look.id && candidate.scheme === scheme && candidate.section === section,
+        );
+        return cell(`${scheme}, Settings: ${section}`, shot && dataUrl(shot.file));
+      }),
+      ...settingsSections.map((section) => {
+        const shot = windowShots.find(
+          (candidate) => candidate.look === look.id && candidate.scheme === scheme && candidate.section === section,
+        );
+        return cell(
+          `${scheme}, window: chat and Settings: ${section} (sidebar and tabs: web stand-in for native)`,
+          shot && dataUrl(shot.file),
+        );
+      }),
     ];
   });
   return `<section><h2>${escape(look.title)}</h2><p>${escape(look.note)}</p><div class=row>${cells.join("")}</div></section>`;
 });
-const columns = schemes.length * (nativeDir ? 2 : 1);
+const columns = schemes.length * ((nativeDir ? 2 : 1) + 2 * settingsSections.length);
 const sheet = `<!doctype html><meta charset=utf-8><style>
   body { margin: 0; padding: 24px; background: #8a8a8a; font: 14px -apple-system, system-ui, sans-serif; color: #111; }
   section { margin-bottom: 28px; }

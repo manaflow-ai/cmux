@@ -90,4 +90,29 @@ import Testing
         #expect(model.state["refusal"]?["message"]?.stringValue == "wrangler has no on/off switch")
         #expect(model.state["refusal"]?["path"]?.stringValue == Self.file)
     }
+
+    /// New Command: `commands add NAME --agent A --prompt TEXT` only on a click, then the list again; the saved
+    /// command is reported, a refusal shows in the form (`new-command`) in the CLI's words.
+    @Test func newCommandSavesOnlyOnAClick() async throws {
+        let recorder = Recorder()
+        let model = Self.model(recorder)
+        let add: JSONValue = ["action": "add", "agent": "cmux", "name": "standup", "prompt": "Write my standup.",
+                              "description": "My standup"]
+        await #expect(throws: PageError.self) { _ = try await model.run(add, context: Self.script) }
+        #expect(recorder.calls.isEmpty)
+        recorder.setReply = (0, Data(#"{"command":{"agent":"cmux","name":"standup","invocation":"/standup","description":"My standup","prompt":"Write my standup.","path":"/Users/me/.config/cmux/commands/standup.md"}}"#.utf8), Data())
+        _ = try await model.run(add, context: Self.click)
+        #expect(recorder.calls[0] == ["agent-config", "commands", "add", "standup", "--agent", "cmux", "--prompt",
+                                      "Write my standup.", "--description", "My standup", "--json"])
+        #expect(recorder.calls[1].contains("list"))
+        #expect(model.state["added"]?["invocation"]?.stringValue == "/standup")
+        #expect(model.state["refusal"] == .null)
+        recorder.setReply = (1, Data(), Data(#"{"code":"command.exists","message":"standup.md already exists"}"#.utf8))
+        _ = try await model.run(add, context: Self.click)
+        #expect(model.state["refusal"]?["path"]?.stringValue == "new-command")
+        #expect(model.state["refusal"]?["message"]?.stringValue == "standup.md already exists")
+        await #expect(throws: PageError.self) {
+            _ = try await model.run(["action": "add", "agent": "gemini", "name": "x", "prompt": "y"], context: Self.click)
+        }
+    }
 }

@@ -20,8 +20,14 @@ public final class LayoutModel {
     public private(set) var activeScreenID: ScreenID?
     /// The focused pane. Client-local; drives the focus ring and column reveal.
     public private(set) var focusedPane: PaneID?
-    /// Dims panes other than the focused one.
-    public var dimsInactivePanes = false
+    /// Pins `layout.fadeInactivePanes` (tests, the demo); nil follows cmux.json.
+    public var dimsInactivePanesOverride: Bool?
+    /// Dims panes other than the focused one (cmux.json `layout.fadeInactivePanes`): the
+    /// override, else the live setting while `followsDesignMetrics` is on, else off. Setting it pins it.
+    public var dimsInactivePanes: Bool {
+        get { dimsInactivePanesOverride ?? (followsDesignMetrics ? DesignSettings.shared.fadeInactivePanes : false) }
+        set { dimsInactivePanesOverride = newValue }
+    }
     /// Pins the column centering mode (tests, the demo); nil follows
     /// cmux.json `layout.centerFocusedColumn` through `DesignSettings`.
     public var centerFocusedColumnOverride: CenterFocusedColumn?
@@ -153,6 +159,17 @@ public final class LayoutModel {
     /// their ring blinks out, as cmux classic's dismiss flash did. A pane stays in it until it rings
     /// again, so a later pass cannot turn the blink into a fade (``setAttention(_:readByEntry:)``).
     public var attentionReadByEntry: Set<PaneID> = []
+    /// The layout just came on screen (a workspace switch): its rings wait for the frame that shows its content, so no
+    /// ring draws on the overlay before the workspace it belongs to (cmux#46908). The App lets them go after that commit.
+    /// The marks stay meanwhile: a ring read by the switch starts its dismiss blink, which shows once the hold ends.
+    public var holdsAttentionUntilShown = false {
+        didSet { if holdsAttentionUntilShown != oldValue { attentionWhileHeld = holdsAttentionUntilShown ? attention : [:] } }
+    }
+    /// The rings a held layout's chrome takes (``holdsAttentionUntilShown``): the App's newest marks, and a ring read
+    /// by going in during the hold (the switch's own entry), kept so its dismiss blink plays once the hold ends. It
+    /// follows the marks, not the chrome's parked state: a pane that rang while its workspace was parked has its ring
+    /// on the chrome before the switch reads it, or the ring never shows at all (cmux#56125).
+    public internal(set) var attentionWhileHeld: [PaneID: AttentionMark] = [:]
     /// Reads the ringing `pane` the person just went into (the focus entered it, or a click with `true`),
     /// when they look at this layout and the policy reads its ring so; true when it did
     /// (``enterAttention(_:click:)``). Set by the App.

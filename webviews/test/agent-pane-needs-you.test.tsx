@@ -728,6 +728,58 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
   expect(sourceReveals).toBe(0);
 });
 
+test("another chat's Go to source lands on its asking turn, and Ask about this starts the side chat there", async () => {
+  // Leo 2026-10-20: "being able to link to the actual context potentially of like where the
+  // original ask was would be useful ... or like have an option to maybe even make a side chat to
+  // just ask like, okay, but what is going on here?" The relay scopes `_acpmux/btw` to the chat a
+  // pane shows, so this pane never asks about another chat itself: `chat.asks.open` names the
+  // asking turn and the question, and the pane that shows that chat reveals the turn and asks.
+  const host = installDom();
+  const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  let hostAsks = true;
+  const callNative = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push({ method, ...(params ? { params } : {}) });
+    return method === "chat.asks.open" && hostAsks ? { asked: true } : undefined;
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let actions: NeedsYouActions | undefined;
+  let items: NeedsYouItem[] = [];
+  function Probe() {
+    const needsYou = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [],
+        sessions: [session("here"), session("other")],
+        asks: [ask("other", permission({ permissionId: "p-other", turnId: "target-turn" }), 1)],
+      },
+      callNative,
+      sideSession: async () => void calls.push({ method: "btw-here" }),
+    });
+    actions = needsYou.actions;
+    items = needsYou.items;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  const other = items.find((item) => item.sessionId === "other")!;
+  actions!.goTo(other);
+  await Promise.resolve();
+  expect(calls).toEqual([{ method: "chat.asks.open", params: { sessionId: "other", turnId: "target-turn" } }]);
+  calls.length = 0;
+  // The host handed the question to the pane that shows that chat: the row's ask is done.
+  await actions!.ask(other, "What is going on here?");
+  expect(calls).toEqual([
+    {
+      method: "chat.asks.open",
+      params: { sessionId: "other", turnId: "target-turn", ask: "What is going on here?" },
+    },
+  ]);
+  // An older host opens the chat and asks nothing: the row says so, as before.
+  calls.length = 0;
+  hostAsks = false;
+  await expect(actions!.ask(other, "Why?")).rejects.toThrow();
+  expect(calls.map((call) => call.method)).toEqual(["chat.asks.open"]);
+});
+
 test("the opt-in pill excludes peer and unknown target sessions", async () => {
   const host = installDom();
   let pillCount: number | undefined;

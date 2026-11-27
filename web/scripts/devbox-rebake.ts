@@ -12,8 +12,9 @@
  *       Also the version this run publishes, <UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>,
  *       and the image-stamp line the bake writes. key=value lines for $GITHUB_OUTPUT.
  *   bun scripts/devbox-rebake.ts pin-cmux-tui
- *       cmux_tui_manifest=<url>: the newest published cmux-tui manifest of this branch's
- *       cmux-tui history with acpmux (pinCmuxTuiManifest), for CMUX_VM_CMUX_TUI_MANIFEST_URL.
+ *       cmux_tui_manifest=<url>: the newest commit of this branch's cmux-tui history with a
+ *       verified signed release file and acpmux (pinCmuxTuiManifest), for
+ *       CMUX_VM_CMUX_TUI_MANIFEST_URL.
  *   bun scripts/devbox-rebake.ts record --version V
  *       Write rebake-state.json for this checkout's inputs (the publish commit carries it).
  *   bun scripts/devbox-rebake.ts settle
@@ -31,7 +32,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { VM_IMAGE_SIZE_NAMES } from "../services/vms/images/sizes";
-import { parseCmuxTuiManifest } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiSourceOfCommit, type CmuxTuiFetchText } from "../services/vms/drivers/cmuxTuiDaemon";
+import type { LinuxReleaseKey } from "../services/vms/drivers/linuxRelease";
 import {
   devboxAwaitingRebakePath,
   devboxImageEpoch,
@@ -65,8 +67,11 @@ export const REBAKE_INPUTS = {
     "web/services/vms/images/sizes.ts",
     "web/services/vms/images/workUser.ts",
     "web/services/vms/drivers/cmuxTuiDaemon.ts",
+    "web/services/vms/drivers/linuxRelease.ts",
     "web/services/vms/drivers/types.ts",
     "web/services/vms/clientGrant.ts",
+    "web/services/vms/identity.ts",
+    "web/services/vms/workUser.ts",
     "web/services/vms/guest*.ts",
     "web/services/vms/guestCliDistribution.json",
     "web/services/vms/networkPolicy.ts",
@@ -77,6 +82,8 @@ export const REBAKE_INPUTS = {
     "web/scripts/devbox-image-common.ts",
     "web/scripts/cmux-vm-image/machine-health.ts",
     "web/scripts/cmux-vm-image/dns.ts",
+    "web/scripts/cmux-vm-image/machine-commands.ts",
+    "web/scripts/cmux-vm-image/metadata-guard.ts",
     "images/cmux-vm/machine-health/**",
   ],
   // Prose.
@@ -189,24 +196,24 @@ export async function listAllSnapshots(list: SnapshotLister, pageSize = 100): Pr
 export const CMUX_TUI_FILES = "https://files.cmux.com/cmux-tui";
 
 /**
- * The bake installs cmux-tui and acpmux from a files.cmux.com manifest. The rolling
- * `latest` follows main, whose builds carry no acpmux, and the bake refuses an image
- * without it (requireCmuxTuiAcpmux). So the rebake pins the newest commit-addressed
- * manifest of this branch's cmux-tui history that parses with acpmux.
+ * The bake installs cmux-tui and acpmux from the baked commit's signed release.json
+ * (resolveCmuxTuiSource). The rolling `latest` follows main, whose builds carry no acpmux, and
+ * the bake refuses an image without it (requireCmuxTuiAcpmux). So the rebake pins the newest
+ * commit of this branch's cmux-tui history whose release file verifies and that has acpmux,
+ * by its `<commit>/manifest.json` URL (the form CMUX_VM_CMUX_TUI_MANIFEST_URL takes; only the
+ * commit is read from it).
  */
 export async function pinCmuxTuiManifest(
   commits: readonly string[],
-  fetchJson: (url: string) => Promise<unknown | null>,
+  fetchText: CmuxTuiFetchText,
+  keys?: readonly LinuxReleaseKey[],
 ): Promise<string | null> {
   for (const commit of commits) {
-    const url = `${CMUX_TUI_FILES}/${commit}/manifest.json`;
-    const manifest = await fetchJson(url);
-    if (manifest === null) continue;
     try {
-      const source = parseCmuxTuiManifest(url, manifest);
-      if (source.acpmuxUrl && source.acpmuxSha256) return url;
+      const source = await cmuxTuiSourceOfCommit(commit, { fetchText, keys });
+      if (source?.acpmuxUrl && source.acpmuxSha256) return `${CMUX_TUI_FILES}/${commit}/manifest.json`;
     } catch {
-      // Not a usable Linux build; try the previous commit.
+      // Not a usable signed Linux build; try the previous commit.
     }
   }
   return null;
@@ -218,10 +225,10 @@ async function pinCmuxTui(): Promise<void> {
     .filter(Boolean);
   const url = await pinCmuxTuiManifest(commits, async (candidate) => {
     const res = await fetch(candidate, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
-    return res?.ok ? res.json() : null;
+    return res?.ok ? res.text() : null;
   });
   if (!url) {
-    console.error(`no published cmux-tui manifest with acpmux among the last ${commits.length} cmux-tui commits`);
+    console.error(`no cmux-tui build with a signed release file and acpmux among the last ${commits.length} cmux-tui commits`);
     process.exit(1);
   }
   console.log(`cmux_tui_manifest=${url}`);

@@ -7,18 +7,21 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  memo,
 } from "react";
+import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
-import { Tree, type TreeLine } from "../../ui/Tree";
+import { Tree, useTreeLineCache } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
@@ -89,7 +92,10 @@ export function BookmarksPage({
   const downLasting = useConnectionQuiet(down);
   const searching = snap.results !== null;
   const rows = snap.rows;
-  const focusIndex = snap.focus === undefined ? -1 : rows.findIndex((row) => row.id === snap.focus);
+  // Built once per list, so a focus or selection change looks a row up instead of scanning the rows.
+  const indexOf = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
+  const selected = useMemo(() => new Set(snap.selection), [snap.selection]);
+  const focusIndex = snap.focus === undefined ? -1 : (indexOf.get(snap.focus) ?? -1);
 
   const openMenu = (event: MouseEvent, items: PageMenuItem[]) => {
     event.preventDefault();
@@ -223,10 +229,10 @@ export function BookmarksPage({
     event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids));
     if (node.url) event.dataTransfer.setData("text/uri-list", node.url);
   };
-  const dragEnd = () => {
+  const dragEnd = useCallback(() => {
     dragged.current = [];
     setDropMark(null);
-  };
+  }, []);
   const overRow = (node: Bookmark, event: DragEvent) => {
     const place = dropOnRow(snap.tree, dragged.current, node);
     if (!place) return;
@@ -241,6 +247,32 @@ export function BookmarksPage({
     dragEnd();
     void store.dropOnRow(ids, node);
   };
+
+  // The rows' handlers: one object for the page's life, each taking the row's node, so a row (a memo
+  // boundary) keeps its props when the page re-renders. They read this render's snapshot and drop
+  // mark through `latest`, set after each commit (events come after it).
+  const latest = useRef({ dropMark, rowMenu, dragStart, overRow, dropRow });
+  useLayoutEffect(() => {
+    latest.current = { dropMark, rowMenu, dragStart, overRow, dropRow };
+  });
+  const rowEvents = useMemo<RowEvents>(
+    () => ({
+      click: (node, event) => {
+        event.currentTarget.focus();
+        store.select(node.id, event.shiftKey ? "range" : event.metaKey ? "toggle" : "single");
+      },
+      open: (node) => store.activate(node),
+      menu: (node, event) => latest.current.rowMenu(node, event),
+      dragStart: (node, event) => latest.current.dragStart(node, event),
+      dragEnd,
+      dragOver: (node, event) => latest.current.overRow(node, event),
+      dragLeave: (node) => {
+        if (latest.current.dropMark?.id === node.id) setDropMark(null);
+      },
+      drop: (node, event) => latest.current.dropRow(node, event),
+    }),
+    [store, dragEnd],
+  );
   const overFolder = (folder: string, event: DragEvent) => {
     if (!dropInto(snap.tree, dragged.current, folder)) return;
     event.preventDefault();
@@ -352,7 +384,7 @@ export function BookmarksPage({
                 style={style}
                 index={index}
                 layout={layout}
-                selected={snap.selection.includes(node.id)}
+                selected={selected.has(node.id)}
                 focused={node.id === snap.focus}
                 drop={dropMark?.id === node.id ? dropMark.kind : undefined}
                 detail={
@@ -364,19 +396,7 @@ export function BookmarksPage({
                 }
                 icon={snap.icons[iconKey(node)]}
                 onShown={askIcon}
-                onClick={(event) => {
-                  event.currentTarget.focus();
-                  store.select(node.id, event.shiftKey ? "range" : event.metaKey ? "toggle" : "single");
-                }}
-                onOpen={() => store.activate(node)}
-                onMenu={(event) => rowMenu(node, event)}
-                onDragStart={(event) => dragStart(node, event)}
-                onDragEnd={dragEnd}
-                onDragOver={(event) => overRow(node, event)}
-                onDragLeave={() => {
-                  if (dropMark?.id === node.id) setDropMark(null);
-                }}
-                onDrop={(event) => dropRow(node, event)}
+                on={rowEvents}
               />
             );
           }}
@@ -471,17 +491,34 @@ interface RowProps {
   icon?: RowIcon | null;
   /** The row is drawn without an icon asked for yet (undefined, not null: null is "the host has none"). */
   onShown: (node: Bookmark) => void;
-  onClick: (event: MouseEvent<HTMLDivElement>) => void;
-  onOpen: () => void;
-  onMenu: (event: MouseEvent) => void;
-  onDragStart: (event: DragEvent) => void;
-  onDragEnd: () => void;
-  onDragOver: (event: DragEvent) => void;
-  onDragLeave: () => void;
-  onDrop: (event: DragEvent) => void;
+  on: RowEvents;
 }
 
-function BookmarkRow({ node, style, index, layout, selected, focused, drop, detail, icon, onShown, ...on }: RowProps) {
+/** A row's handlers, shared by every row: each takes the row's node. */
+interface RowEvents {
+  click: (node: Bookmark, event: MouseEvent<HTMLDivElement>) => void;
+  open: (node: Bookmark) => void;
+  menu: (node: Bookmark, event: MouseEvent) => void;
+  dragStart: (node: Bookmark, event: DragEvent) => void;
+  dragEnd: () => void;
+  dragOver: (node: Bookmark, event: DragEvent) => void;
+  dragLeave: (node: Bookmark) => void;
+  drop: (node: Bookmark, event: DragEvent) => void;
+}
+
+const BookmarkRow = memo(function BookmarkRow({
+  node,
+  style,
+  index,
+  layout,
+  selected,
+  focused,
+  drop,
+  detail,
+  icon,
+  onShown,
+  on,
+}: RowProps) {
   const title = node.title || (node.url ? displayURL(node.url) : "");
   const unasked = icon === undefined;
   useEffect(() => {
@@ -504,14 +541,14 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
           className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
           style={style}
           draggable
-          onClick={on.onClick}
-          onDoubleClick={on.onOpen}
-          onContextMenu={on.onMenu}
-          onDragStart={on.onDragStart}
-          onDragEnd={on.onDragEnd}
-          onDragOver={on.onDragOver}
-          onDragLeave={on.onDragLeave}
-          onDrop={on.onDrop}
+          onClick={(event) => on.click(node, event)}
+          onDoubleClick={() => on.open(node)}
+          onContextMenu={(event) => on.menu(node, event)}
+          onDragStart={(event) => on.dragStart(node, event)}
+          onDragEnd={on.dragEnd}
+          onDragOver={(event) => on.dragOver(node, event)}
+          onDragLeave={() => on.dragLeave(node)}
+          onDrop={(event) => on.drop(node, event)}
         >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
           <span className="bm-row-cell" role="gridcell">
@@ -523,7 +560,7 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
       )}
     </WithFacts>
   );
-}
+});
 
 interface TreeProps {
   snap: BookmarksSnapshot;
@@ -540,42 +577,53 @@ interface TreeProps {
 }
 
 /** The left folder tree (ui/Tree): the two roots and their folders, indented, each a drop target.
- * It lists folders only, the few a tree holds, so it draws every open one. */
-function FolderTree({ snap, titles, searching, dropMark, label, ...on }: TreeProps) {
-  const lines: TreeLine[] = treeRows(snap.tree, titles, snap.collapsed).map((row) => {
-    const node = snap.tree.nodes.get(row.id);
-    const expandable = hasSubfolders(snap.tree, row.id);
-    const expanded = expandable && !snap.collapsed.has(row.id);
-    return {
-      kind: "item",
-      key: row.id,
-      depth: row.depth,
-      text: row.title,
-      expandable,
-      expanded,
-      content: (
-        // The drop target and the menu of the row: the tree above owns its focus and keys.
-        // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only drop target inside a treeitem.
-        <span
-          className={`bm-tree-cell${dropMark?.id === row.id ? " drop-into" : ""}`}
-          onContextMenu={(event) => {
-            if (node) on.onMenu(node, event);
-          }}
-          onDragOver={(event) => on.onDragOver(row.id, event)}
-          onDragLeave={() => on.onDragLeave(row.id)}
-          onDrop={(event) => on.onDrop(row.id, event)}
-        >
-          <span className={`bm-chevron${expandable ? "" : " is-leaf"}${expanded ? " is-open" : ""}`}>
-            <ChevronGlyph />
-          </span>
-          <span className="bm-icon" aria-hidden="true">
-            {isRoot(row.id) ? <BarGlyph root={row.id} /> : <FolderGlyph />}
-          </span>
-          <span className="bm-tree-title">{row.title}</span>
-        </span>
-      ),
-    };
+ * Its lines change with the folders and which are open; the drop mark reaches only the cells it
+ * leaves and enters (`DropInto`), so a drag over the tree draws two cells, not every line. */
+function FolderTree({ snap, titles, searching, dropMark, label, ...handlers }: TreeProps) {
+  const on = useStableHandlers({
+    ...handlers,
+    // A cell names its folder; the menu reads the folder's node as the tree has it now.
+    onCellMenu: (id: string, event: MouseEvent) => {
+      const node = snap.tree.nodes.get(id);
+      if (node) handlers.onMenu(node, event);
+    },
   });
+  // Each of these is one function for the tree's life, so the cells built with them stay as built.
+  const { onCellMenu, onDragOver, onDragLeave, onDrop } = on;
+  const cellOn = useMemo(
+    () => ({ onCellMenu, onDragOver, onDragLeave, onDrop }),
+    [onCellMenu, onDragOver, onDragLeave, onDrop],
+  );
+  const [drop] = useState(() => new DropInto());
+  const dropId = dropMark?.id;
+  useLayoutEffect(() => drop.set(dropId), [drop, dropId]);
+  const cache = useTreeLineCache();
+  const { tree, collapsed } = snap;
+  const { bar, other } = titles;
+  const lines = useMemo(
+    () =>
+      cache.build((line) =>
+        treeRows(tree, { bar, other }, collapsed).map((row) => {
+          const expandable = hasSubfolders(tree, row.id);
+          const expanded = expandable && !collapsed.has(row.id);
+          return line.item(
+            { key: row.id, depth: row.depth, text: row.title, expandable, expanded },
+            [drop, cellOn],
+            () => (
+              <FolderCell
+                id={row.id}
+                title={row.title}
+                expandable={expandable}
+                expanded={expanded}
+                drop={drop}
+                on={cellOn}
+              />
+            ),
+          );
+        }),
+      ),
+    [cache, tree, collapsed, bar, other, drop, cellOn],
+  );
   return (
     <nav className="bm-tree-pane" aria-label={label}>
       <Tree
@@ -599,6 +647,65 @@ function FolderTree({ snap, titles, searching, dropMark, label, ...on }: TreePro
         max={420}
       />
     </nav>
+  );
+}
+
+/** Which folder of the tree a drag would drop into: each cell reads whether it is that one. */
+class DropInto {
+  id: string | undefined;
+  private listeners = new Set<() => void>();
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  };
+  set(id: string | undefined) {
+    if (id === this.id) return;
+    this.id = id;
+    for (const listener of this.listeners) listener();
+  }
+}
+
+interface CellHandlers {
+  onCellMenu: (id: string, event: MouseEvent) => void;
+  onDragOver: (folder: string, event: DragEvent) => void;
+  onDragLeave: (folder: string) => void;
+  onDrop: (folder: string, event: DragEvent) => void;
+}
+
+function FolderCell({
+  id,
+  title,
+  expandable,
+  expanded,
+  drop,
+  on,
+}: {
+  id: string;
+  title: string;
+  expandable: boolean;
+  expanded: boolean;
+  drop: DropInto;
+  on: CellHandlers;
+}) {
+  const into = useSyncExternalStore(drop.subscribe, () => drop.id === id);
+  return (
+    // The drop target and the menu of the row: the tree above owns its focus and keys.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only drop target inside a treeitem.
+    <span
+      className={`bm-tree-cell${into ? " drop-into" : ""}`}
+      onContextMenu={(event) => on.onCellMenu(id, event)}
+      onDragOver={(event) => on.onDragOver(id, event)}
+      onDragLeave={() => on.onDragLeave(id)}
+      onDrop={(event) => on.onDrop(id, event)}
+    >
+      <span className={`bm-chevron${expandable ? "" : " is-leaf"}${expanded ? " is-open" : ""}`}>
+        <ChevronGlyph />
+      </span>
+      <span className="bm-icon" aria-hidden="true">
+        {isRoot(id) ? <BarGlyph root={id} /> : <FolderGlyph />}
+      </span>
+      <span className="bm-tree-title">{title}</span>
+    </span>
   );
 }
 

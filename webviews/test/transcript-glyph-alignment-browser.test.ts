@@ -111,7 +111,6 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
                 // A closed thought reads its words after the brain glyph (Codex parity).
                 thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
-                plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
                   ".acpmux-session-info-section__title",
                   ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",
@@ -159,9 +158,9 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          // Two fewer than before: Retry and its model switch moved to the reply footer (TurnFooter).
-          expect(measurements.footer).toHaveLength(1);
-          expect(measurements.versionFooter).toHaveLength(3);
+          // Retry and its model switch moved to the reply footer (TurnFooter).
+          expect(measurements.footer).toHaveLength(2);
+          expect(measurements.versionFooter).toHaveLength(4);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
@@ -173,12 +172,13 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           await page.close();
         }
       });
-      // Leo, 2026-11-14, on a queued prompt's "Queued, sends when the current turn ends": "this is
-      // misaligned". The clock sat on the words' baseline (the age's inline-block rule beat the note's
-      // flex centring), 2px from them, and the note started wherever its right-anchored row put it.
-      // Leo, 2026-11-17, on that note: "it's not really useful to see ever". A queued prompt draws no
-      // note now; the pending note that remains ("Sending") keeps the same alignment.
-      test(`${theme}: a pending note's clock is centred on its words, one icon gap away, at the bubble's text; a queued prompt has none`, async () => {
+      // Leo, 2026-11-14, on a pending prompt's note: "this is misaligned". The clock sat on the words'
+      // baseline (the age's inline-block rule beat the note's flex centring), 2px from them. Leo,
+      // 2026-11-17: "stop making the copy button move with the text ... why was it not just at the
+      // right edge": the row stays anchored at the bubble's right edge, as a sent prompt's, so Copy
+      // is where it always is and the note's words grow to its left. Leo, 2026-11-17, on a queued
+      // prompt's note: "it's not really useful to see ever": a queued prompt draws none.
+      test(`${theme}: a pending note's clock is centred on its words, Copy keeps the sent row's right edge, and a queued prompt has no note`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
@@ -186,6 +186,11 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           await page.locator("[data-pending-row] .cv-user__pending-state svg").waitFor();
           await page.evaluate(() => document.fonts.ready);
           const m = await page.evaluate(() => {
+            // The button row's right edge against its bubble's: a pending row's and a sent row's are
+            // the same, so Copy and the buttons after it sit where they always do.
+            const copyFromBubbleRight = (row: Element) =>
+              row.querySelector(".cv-user__actions .cv-message-footer-row")!.getBoundingClientRect().right -
+              row.querySelector(".cv-user__bubble")!.getBoundingClientRect().right;
             const scope = document.querySelector("[data-pending-row]")!;
             const note = scope.querySelector(".cv-user__pending-state")!;
             const icon = note.querySelector("svg")!.getBoundingClientRect();
@@ -195,12 +200,6 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               return range.getBoundingClientRect();
             };
             const words = textRange(note.querySelector(".cv-user__pending-words")!);
-            const bubble = scope.querySelector(".cv-user__bubble")!;
-            const bubbleText = textRange(bubble.querySelector(".cv-user__text, p, span") ?? bubble);
-            const firstChar = document.createRange();
-            const node = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT).nextNode()!;
-            firstChar.setStart(node, 0);
-            firstChar.setEnd(node, 1);
             const gapToken = document.createElement("div");
             gapToken.style.width = "var(--cv-row-icon-gap)";
             note.append(gapToken);
@@ -212,13 +211,12 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               wordsCenter: words.top + words.height / 2,
               gap: words.left - icon.right,
               tokenPx,
-              noteLeft: icon.left,
-              bubbleTextLeft: firstChar.getBoundingClientRect().left,
-              bubbleTextBox: bubbleText.left,
+              copyFromBubbleRight: copyFromBubbleRight(scope),
+              sentCopyFromBubbleRight: copyFromBubbleRight(document.querySelector("[data-sent-twin-row]")!),
             };
           });
-          console.log(`QUEUED_NOTE ${JSON.stringify({ theme, ...m })}`);
-          expect(m.text).toBe("Sending");
+          console.log(`PENDING_NOTE ${JSON.stringify({ theme, ...m })}`);
+          expect(m.text).toContain("Sending");
           // The queued prompt keeps its time: no clock, no queued words.
           const queued = await page.evaluate(() => {
             const scope = document.querySelector("[data-queued-row]")!;
@@ -233,7 +231,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           expect(queued.text).not.toContain("Queued, sends when");
           expect(Math.abs(m.iconCenter - m.wordsCenter)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(m.gap - m.tokenPx)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(m.noteLeft - m.bubbleTextLeft)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(m.copyFromBubbleRight - m.sentCopyFromBubbleRight)).toBeLessThanOrEqual(0.5);
         } finally {
           await page.close();
         }

@@ -1,6 +1,11 @@
-import { useSyncExternalStore } from "react";
+import { viewStore } from "../paneViewStore";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
+import { guessProjectRepo } from "../projectRepos";
+import { chatOwnFolder } from "../folderlessCloud";
+import { readHeaderIconsStyle, type HeaderIconsStyle } from "./headerRelevance";
+import { evacuateOf, placeOf, type EvacuateState, type PlaceState } from "../place/placeModel";
+import { readTopRightLayout, type TopRightLayout } from "./topRightLayout";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -74,6 +79,12 @@ export interface HeaderState {
   /// How the top-right icons move (Debug Settings `agentChat.headerMotion`, headerMotion.ts): `still`
   /// unless the App picked another style.
   readonly headerMotion: HeaderMotionStyle;
+  /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`, headerRelevance.ts):
+  /// `standard` (today's), `contextual` or `contextualPeek`.
+  readonly headerIcons: HeaderIconsStyle;
+  /// How the top-right icons are laid out (Debug Settings `agentChat.topRight.consolidate`,
+  /// TopRightLayouts.tsx): `row` (today's), `morph`, `tabStrip` or `dock`.
+  readonly topRightLayout: TopRightLayout;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// The chat's workspace (CmuxNextAgentPane AgentPaneHeaderWorkspace) and how many agent chats it
@@ -89,6 +100,11 @@ export interface HeaderState {
   /// Where the chat can move (Move to… in the composer's picker and the title menu): Cloud machines,
   /// and this Mac for a chat a move took from it. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
+  /// Where the chat runs and its move, when the app reports them (place/placeModel.ts): the place
+  /// control and the move card read it. Only a `pane.tabState` reply or a push that names `place` carries it.
+  readonly place?: PlaceState;
+  /// This Mac's Evacuate counts, for the chat list.
+  readonly evacuate?: EvacuateState;
   /// The chat is half of a terminal and chat pair (a terminal runs its session): "..." offers Switch to terminal, the
   /// App's Toggle Terminal and Chat. Only a `pane.tabState` reply carries it (read as the menu opens); a push keeps it.
   readonly terminalSwitch: boolean;
@@ -111,19 +127,21 @@ const INITIAL: HeaderState = {
   sessionInfo: false,
   headerControls: "standard",
   headerMotion: "still",
+  headerIcons: "standard",
+  topRightLayout: "row",
   moves: [],
   moveReasons: {},
   moveTargets: [],
   terminalSwitch: false,
   version: 0,
 };
-let current: HeaderState = INITIAL;
-const listeners = new Set<() => void>();
+// One header a pane view (paneViewStore.ts); the page itself is the null view.
+const store = viewStore<HeaderState>(INITIAL);
 
 /// Tests: the header as a new page starts it, before the App's first push (version 0). A test that
 /// pushes header state calls it in teardown, so a later file's lower versions are not dropped as old.
 export function resetHeaderStateForTests(): void {
-  current = INITIAL;
+  store.reset();
   stateSince.clear();
 }
 
@@ -138,7 +156,8 @@ function moveReasonsOf(value: unknown): Record<string, string> {
 }
 
 /// The App's state (a `pane.tabState` reply or a `headerState` push); fields it leaves out keep their value.
-export function setHeaderState(value: unknown): void {
+export function setHeaderState(value: unknown, view: string | null = null): void {
+  const current = store.get(view);
   const raw = (value ?? {}) as {
     pinned?: unknown;
     sideTabs?: unknown;
@@ -147,12 +166,16 @@ export function setHeaderState(value: unknown): void {
     inspector?: unknown;
     headerControls?: unknown;
     headerMotion?: unknown;
+    headerIcons?: unknown;
+    topRightLayout?: unknown;
     pullRequest?: unknown;
     workspace?: unknown;
     moves?: unknown;
     moveReasons?: unknown;
     moveTargets?: unknown;
     terminalSwitch?: unknown;
+    place?: unknown;
+    evacuate?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -166,6 +189,8 @@ export function setHeaderState(value: unknown): void {
     sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
     headerControls: readHeaderControls(raw.headerControls) ?? current.headerControls,
     headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
+    headerIcons: readHeaderIconsStyle(raw.headerIcons) ?? current.headerIcons,
+    topRightLayout: readTopRightLayout(raw.topRightLayout) ?? current.topRightLayout,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     workspace: "workspace" in raw ? workspaceOf(raw.workspace) : current.workspace,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
@@ -190,13 +215,14 @@ export function setHeaderState(value: unknown): void {
         })
       : current.moveTargets,
     terminalSwitch: typeof raw.terminalSwitch === "boolean" ? raw.terminalSwitch : current.terminalSwitch,
+    place: "place" in raw ? placeOf(raw.place) : current.place,
+    evacuate: "evacuate" in raw ? evacuateOf(raw.evacuate) : current.evacuate,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
   const pr = next.pullRequest;
   if (pr && stateSince.get(pr.url)?.state !== pr.state) stateSince.set(pr.url, { state: pr.state, at: Date.now() });
-  current = next;
-  for (const listener of listeners) listener();
+  store.set(next, view);
 }
 
 /// The App's workspace, if it has a string title; a count that is not a whole number of chats reads 0.
@@ -244,12 +270,29 @@ function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
   };
 }
 
-export const headerState = (): HeaderState => current;
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-};
+export const headerState = (view: string | null = null): HeaderState => store.get(view);
 
 /// The live header state.
-export const useHeaderState = (): HeaderState => useSyncExternalStore(subscribe, headerState, headerState);
+export const useHeaderState = (): HeaderState => store.use();
+
+/// The folder part of the header's slash path (Settings > Agent Chat > Header Path,
+/// `agentPane.display.headerBreadcrumb`; Taste Board #20): the chat's repository, then its branch, each
+/// only when the chat knows it. A worktree's path names its repository (projectRepos.ts
+/// `guessProjectRepo`), else the folder's own name stands in; the chat's own branch wins over one read
+/// from the path. Empty for a chat with no folder of its own (none, this Mac's private agent-home
+/// folder, or a Cloud chat's fresh `~/chats/<chat>`: folderlessCloud.ts `chatOwnFolder`), so the header
+/// draws the plain title and never a private folder's generated name.
+export function headerBreadcrumb(chat: {
+  cwd?: string;
+  worktree?: string;
+  branch?: string;
+  cloud?: boolean;
+}): string[] {
+  const cloud = chat.cloud === true;
+  const folder = chatOwnFolder(chat.worktree, cloud) ?? chatOwnFolder(chat.cwd, cloud) ?? "";
+  if (!folder) return [];
+  const repo = guessProjectRepo(folder);
+  const name = repo?.name ?? folder.split("/").pop() ?? "";
+  const branch = chat.branch?.trim() || repo?.branch;
+  return [name, branch].filter((part): part is string => Boolean(part && part !== "/"));
+}
