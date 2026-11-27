@@ -59,6 +59,7 @@ on:
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-defaults.json"
+      - "schemas/settings/source/agent-settle.json"
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/general.json"
       - "schemas/settings/source/subsessions.json"
@@ -1397,7 +1398,14 @@ jobs:
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
           fi
           if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; checking every package"
+            # A slow link once stalled this fetch and the fallback linted every crate,
+            # turning old debt in untouched crates into this PR's red. Retry first.
+            fetched=""
+            for attempt in 1 2 3; do
+              if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              sleep $((attempt * 5))
+            done
+            [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; checking every package after 3 tries"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
@@ -1521,7 +1529,14 @@ jobs:
             BASE_SHA=""
           fi
           if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace"
+            # A slow link once stalled this fetch and the fallback linted every crate,
+            # turning old debt in untouched crates into this PR's red. Retry first.
+            fetched=""
+            for attempt in 1 2 3; do
+              if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              sleep $((attempt * 5))
+            done
+            [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace after 3 tries"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
