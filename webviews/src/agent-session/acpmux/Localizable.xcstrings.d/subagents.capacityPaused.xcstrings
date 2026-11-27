@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "subagents.capacityPaused" : {
+      "comment" : "Agent pane: one calm grouped row for helpers acpmux paused while capacity or rate limits recover; {wait} is the localized capacity countdown.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} helpers paused, {wait}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

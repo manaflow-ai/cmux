@@ -82,6 +82,43 @@ async fn settle() {
     tokio::time::sleep(Duration::from_millis(150)).await;
 }
 
+/// The coordinator's 2026-11-27 outage: twelve helpers lose capacity together. Both the
+/// pool's 429 and an account's 429 must enter the live retry loop, keep their agent ids,
+/// respect Retry-After, and clear their hold when the original agents resume.
+#[tokio::test]
+async fn a_429_storm_holds_twelve_helpers_and_resumes_the_same_agents() {
+    let (hub, session, _conn) = chat(vec![10]).await;
+    for i in 0..12 {
+        let mut end = failed(&format!("s/storm-{i}"));
+        end["error"] = json!(if i % 2 == 0 {
+            "API Error: 429 no non-exhausted claude accounts available; retry after 60s"
+        } else {
+            "API Error: 429 rate_limit_error; Retry-After: 60"
+        });
+        hub.observe_subagents(&session, &[end]);
+    }
+    settle().await;
+    assert_eq!(outcomes(&hub, &session), vec!["scheduled"; 12]);
+    for i in 0..12 {
+        let id = format!("s/storm-{i}");
+        let entry = last_entry(&hub, &session, &id).unwrap();
+        let wait = &entry["capacityWait"];
+        assert_eq!(wait["reason"], if i % 2 == 0 { "capacity" } else { "rate_limit" });
+        let delay = wait["resumesAt"].as_u64().unwrap() - wait["since"].as_u64().unwrap();
+        assert!((60_000..=72_200).contains(&delay), "{entry}");
+        assert_eq!(entry["agentId"], format!("agent-{id}"));
+        hub.observe_task_line(
+            &session,
+            &json!({"type": "system", "subtype": "task_started",
+            "task_id": format!("agent-{id}")}),
+        );
+        let resumed = last_entry(&hub, &session, &id).unwrap();
+        assert_eq!(resumed["state"], "running");
+        assert_eq!(resumed["capacityWait"], Value::Null);
+    }
+    assert!(!hub.any_open(&session));
+}
+
 /// Stop before the first wait is planned: nothing is scheduled, fired or given up after it.
 #[tokio::test]
 async fn stop_before_the_first_wait_is_planned_leaves_no_later_record() {
@@ -745,6 +782,7 @@ async fn stop_and_close_end_an_attempt_in_flight() {
         hub.stop_subagent_retries(&session, closed);
         let entry = last_entry(&hub, &session, "s/t1").unwrap();
         assert!(none_in_flight(&entry), "{closed}: {entry}");
+        assert_eq!(entry.get("capacityWait"), Some(&Value::Null), "{entry}");
         assert_eq!(entry["retryable"], json!(!closed), "{entry}");
         assert!(!retry_open(&session), "{closed}: nothing left open");
     }
@@ -772,6 +810,7 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
     assert!(last_entry(&hub, &session, "s/t1").unwrap()["retryInFlight"].is_object());
     let live = last_entry(&hub, &session, "s/t2").unwrap();
     assert!(live["retry"].is_object());
+    assert!(live["capacityWait"].is_object());
     // A live retry entry names its subagent and its failure too (cmux#52916).
     assert_eq!((&live["task"], live.get("recovered")), (&json!("Push relay"), None), "{live}");
     assert!(live["error"].as_str().is_some_and(|e| e.contains("503")), "{live}");
@@ -795,6 +834,7 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
     for sub in ["s/t1", "s/t2"] {
         let entry = last_entry(&hub, &session, sub).unwrap();
         assert!(none_in_flight(&entry) && entry["retry"].is_null(), "{sub}: {entry}");
+        assert_eq!(entry.get("capacityWait"), Some(&Value::Null), "{entry}");
         assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(false)));
         assert_eq!(entry["agentId"], format!("agent-{sub}"), "{entry}");
         // An end written after the fact, naming what it was and why it failed: a pane that never
@@ -865,6 +905,7 @@ async fn an_import_settles_an_attempt_left_in_flight() {
     assert!(imported.meta().name_given, "a name the import gives is someone's (`acpmux ls`)");
     let entry = last_entry(&here, &imported, "s/t1").unwrap();
     assert!(none_in_flight(&entry) && entry["retry"].is_null(), "{entry}");
+    assert_eq!(entry.get("capacityWait"), Some(&Value::Null), "{entry}");
     assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(false)));
     assert!(!retry_open(&imported));
     for dir in &dirs {
