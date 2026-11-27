@@ -8,8 +8,7 @@ async fn a_bad_web_root_is_left_out_not_fatal() {
     let Some(home) = dirs::home_dir() else { return };
     let work = home.join(format!("acpmux-guard-test-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&work).unwrap();
-    let roots =
-        vec!["/tmp".to_string(), work.to_string_lossy().into_owned(), "relative".into()];
+    let roots = vec!["/tmp".to_string(), work.to_string_lossy().into_owned(), "relative".into()];
     let guard = Guard::from_config_roots(&roots).await;
     let only_bad = Guard::from_config_roots(&["/tmp".to_string()]).await;
     let none = Guard::from_config_roots(&[]).await;
