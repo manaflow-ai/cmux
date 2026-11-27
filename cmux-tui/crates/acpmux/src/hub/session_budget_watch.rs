@@ -20,6 +20,36 @@ const COMPRESS_ROUNDS: usize = 16;
 /// The notice's sender.
 const SENDER: &str = "acpmux";
 
+/// The most notices one chat holds for its next prompt ([`hold`]); an older one goes first.
+const HELD_MAX: usize = 4;
+
+/// Notices that ask nothing now (a budget passed with the disk not low, a store compressed, a
+/// group resumed), held for their chat's next prompt when no turn runs to steer into
+/// (`take_held`). A turn of their own woke an idle lane for a turn that made no tool call: 23 of
+/// them in a day on gcp-agent-lane-19, 103 acpmux notices on gcp-agent-lane-5 (goal
+/// wakes-per-landed-pr). In memory: a daemon restart drops them, as it drops `verify`'s.
+static HELD: std::sync::LazyLock<StdMutex<HashMap<String, Vec<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Holds `text` for chat `session_id`'s next prompt.
+fn hold(session_id: &str, text: String) {
+    let mut map = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    if map.len() > 1000 {
+        map.clear();
+    }
+    let held = map.entry(session_id.to_owned()).or_default();
+    if held.len() >= HELD_MAX {
+        held.remove(0);
+    }
+    held.push(text);
+}
+
+/// The held notices of chat `session_id`, for its next prompt's hidden context, once.
+pub(super) fn take_held(session_id: &str) -> Option<String> {
+    let held = HELD.lock().unwrap_or_else(|e| e.into_inner()).remove(session_id)?;
+    Some(held.join("\n\n"))
+}
+
 impl Hub {
     /// Starts the watcher; off (`session_disk::enabled`, a disk budget of 0) it starts nothing.
     pub fn start_session_budget_watch(self: &Arc<Self>) {
@@ -156,12 +186,22 @@ impl Hub {
         };
         tracing::warn!(scope = %sample.scope, "{title}");
         let Some(id) = sample.session.as_deref() else { return };
-        self.session_budget_notice(id, &title, &body).await;
+        // The disk low (a writer stopped, or one that could not be) wakes the chat: it must free
+        // space now. A budget passed with room left, or a group resumed, waits for its next turn.
+        let wake = matches!(action, Action::WarnUnstoppable | Action::Stop(_));
+        self.session_budget_notice(id, &title, &body, wake).await;
     }
 
     /// A tool's notice in chat `session_id`: into a running turn at its next tool step, else a
-    /// turn of its own, as a background task's end goes (`bg_notify.rs`).
-    async fn session_budget_notice(self: &Arc<Self>, session_id: &str, title: &str, body: &str) {
+    /// turn of its own when `wake`, as a background task's end goes (`bg_notify.rs`), or held for
+    /// the chat's next prompt ([`hold`]).
+    async fn session_budget_notice(
+        self: &Arc<Self>,
+        session_id: &str,
+        title: &str,
+        body: &str,
+        wake: bool,
+    ) {
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
         let Some(session) = session else { return };
@@ -174,14 +214,28 @@ impl Hub {
         let notice = json!({"sender": SENDER, "severity": "warn", "title": title});
         let text = crate::prompt_provenance::notice_text(&notice, body);
         let provenance = crate::prompt_provenance::notice(&notice, &session.id);
-        let opts = PromptOptions {
+        let mut opts = PromptOptions {
             provenance: Some(provenance),
             agent: Some(SENDER.to_owned()),
             class: Some(crate::prompt_class::PromptClass::Result),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": text})];
+        if !wake {
+            let steerable = session.steering.load(Ordering::SeqCst);
+            let Some(turn) = session.turn().filter(|_| steerable) else {
+                hold(&session.id, text);
+                return;
+            };
+            // Into this turn only: one that ended meanwhile must not become a turn of its own.
+            opts.steer_only = true;
+            opts.interrupt_turn = Some(turn.turn_id.clone());
+        }
+        let blocks = vec![json!({"type": "text", "text": text.clone()})];
         if let Err(e) = self.prompt_with(&session, blocks, SENDER, true, opts).await {
+            if !wake {
+                hold(&session.id, text);
+                return;
+            }
             tracing::warn!(session = %session.id, "a disk budget notice: {}", e.message);
         }
     }
@@ -315,7 +369,8 @@ impl Hub {
             mib(bytes)
         );
         tracing::warn!(session = %id, bytes, budget, "{title}");
-        self.session_budget_notice(id, &title, &body).await;
+        // Nothing to do now: the compression runs by itself.
+        self.session_budget_notice(id, &title, &body, false).await;
     }
 }
 
@@ -353,4 +408,25 @@ pub(crate) fn status() -> Value {
         watch,
         store,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HELD_MAX, hold, take_held};
+
+    /// A held notice rides the next prompt once, and a chat holds at most `HELD_MAX`, newest kept.
+    #[test]
+    fn a_held_notice_rides_the_next_prompt_once() {
+        let id = "s-budget-held-test";
+        assert_eq!(take_held(id), None);
+        for n in 0..HELD_MAX + 2 {
+            hold(id, format!("notice {n}"));
+        }
+        let text = take_held(id).expect("held");
+        assert!(!text.contains("notice 0") && !text.contains("notice 1"), "{text}");
+        assert!(
+            text.starts_with("notice 2") && text.ends_with(&format!("notice {}", HELD_MAX + 1))
+        );
+        assert_eq!(take_held(id), None, "taken once");
+    }
 }
