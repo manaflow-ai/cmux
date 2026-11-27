@@ -14,6 +14,10 @@ advisory: no rule requires its checks.
                     (scripts/ci/job_input_fingerprint.py job nightly-pr-build) and one for the
                     helpers. A pass saves its key as an actions/cache entry; a later run whose
                     inputs are the same finds it and skips the build.
+  base-red --rev SHA --base-tip SHA
+                    print `base_red=<url>` when the newest Nightly compile red on any pull request (artifact
+                    nightly-app-compile-red) was the base's, and SHA still has its failing files as that base had
+                    them, so building SHA would only repeat it; else print nothing. Fails open.
   helpers           cargo check --release --locked each helper the Nightly bundles, with the
                     features and profile its build script passes (HELPERS), on this host's target.
 """
@@ -21,12 +25,18 @@ advisory: no rule requires its checks.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import fnmatch
 import hashlib
+import io
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -135,6 +145,142 @@ def keys(rev: str, root: Path = ROOT, recipe_rev: str | None = None) -> dict[str
     return out
 
 
+# Base-red skip for the app compile. On 2026-11-27 07-13Z, 49 of the 99 red app compile jobs (2,113 of 2,746 red
+# job-min) failed on one base error, `SettingDescriptor+Palette.swift:37: main actor-isolated static property
+# 'curatedThemes'` (jobs 140444314566, 140495576918), on heads that never touched that file; fixed on the base by
+# #61522 at 13:56Z. Each of those builds took ~43 min to say what the first one said. A red job uploads its Swift
+# diagnostics (RED_ARTIFACT-ARCH); a pass uploads PASS_ARTIFACT-ARCH. The route reads the newest red and skips the
+# build when:
+#   - the red's failing files (each `path.swift:L:C: error|note:`) are the same blobs at that red's head, at the base
+#     tip it was merged onto (so the head did not cause them), and at this head (so this head would fail the same);
+#   - no pass since then had those same blobs (a pass with them means the red is fixed, say in another file);
+#   - it is under RED_MAX_AGE_H old, the PR is not labeled full-ci, and this run is not one of the AUDIT_PERCENT
+#     audits (seeded by run id and attempt), which build anyway so a fix in another file is seen within ~30 min.
+# Any read that fails or runs long builds: the skip fails open. Only same-repository runs' verdicts count (trusted).
+# One red on either arch skips both: the reds seen are arch-independent (#62033 cancels the other arch on a red too).
+RED_ARTIFACT = "nightly-app-compile-red"
+PASS_ARTIFACT = "nightly-app-compile-pass"
+RED_MAX_AGE_H = 6
+AUDIT_PERCENT = 10
+MAX_PASSES = 20
+DIAGNOSTIC = re.compile(r"(?:^|[\s/])((?:Packages|vendor|Resources|ghostty|ghostty-next|Sources|Native)/[^\s:]+?\.swift):"
+                        r"\d+:\d+: (?:error|note): ")
+API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+
+
+def failing_files(diagnostics: str) -> list[str]:
+    """Repo paths of the Swift files the diagnostics name, from the fleet's absolute `.../src/PATH:L:C:` lines."""
+    return sorted({m.group(1) for line in diagnostics.splitlines() for m in DIAGNOSTIC.finditer(line)})
+
+
+def blobs(rev: str, paths: list[str], root: Path = ROOT) -> dict[str, str]:
+    """Each path's object id at rev ("" when absent)."""
+    out = subprocess.run(["git", "-C", str(root), "ls-tree", rev, "--", *paths], check=True, capture_output=True,
+                         text=True).stdout
+    found = {line.split("\t", 1)[1]: line.split()[2] for line in out.splitlines() if "\t" in line}
+    return {path: found.get(path, "") for path in paths}
+
+
+def audited(run_id: str, attempt: str, percent: int = AUDIT_PERCENT) -> bool:
+    return int(hashlib.sha256(f"{run_id}:{attempt}".encode()).hexdigest(), 16) % 100 < percent
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # the artifact zip's signed URL must not get the token
+        return None
+
+
+def _api(path: str, token: str, raw: bool = False):
+    request = urllib.request.Request(f"{API}/{path}", headers={
+        "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"})
+    if not raw:
+        with urllib.request.urlopen(request, timeout=15) as answer:
+            return json.load(answer)
+    try:
+        urllib.request.build_opener(_NoRedirect).open(request, timeout=20)
+    except urllib.error.HTTPError as redirect:
+        if redirect.code in (301, 302, 303, 307, 308) and redirect.headers.get("Location"):
+            with urllib.request.urlopen(redirect.headers["Location"], timeout=30) as answer:
+                return answer.read()
+        raise
+    raise RuntimeError("artifact download answered without a redirect")
+
+
+SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def trusted(artifact: dict) -> bool:
+    """Uploaded by a run of a same-repository head: a fork PR's run can upload artifacts too (its own workflow
+    file), so its verdicts are never read."""
+    run = artifact.get("workflow_run") or {}
+    return (not artifact.get("expired") and run.get("repository_id") is not None
+            and run.get("repository_id") == run.get("head_repository_id") and bool(SHA.fullmatch(run.get("head_sha") or "")))
+
+
+def _artifacts(repo: str, name: str, token: str) -> list[dict]:
+    """Trusted unexpired artifacts NAME-ARCH (each arch's job uploads its own), newest first."""
+    items = [a for arch in ARCHS
+             for a in _api(f"repos/{repo}/actions/artifacts?name={name}-{arch}&per_page=50", token).get("artifacts", [])]
+    return sorted((a for a in items if trusted(a)), key=lambda a: a["created_at"], reverse=True)
+
+
+def _when(stamp: str) -> dt.datetime:
+    return dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
+def decide_base_red(red: dict | None, passes: list[dict], rev: str, blobs_at, now: dt.datetime) -> str | None:
+    """The red's job URL when rev would only repeat the base's red, else None (red: verdict.json plus created_at
+    and diagnostics; passes: {"head", "created_at"} newer first; blobs_at(rev, paths) -> {path: oid})."""
+    if not red or not all(SHA.fullmatch(str(red.get(k, ""))) for k in ("head", "base")) or now - _when(red["created_at"]) > dt.timedelta(hours=RED_MAX_AGE_H):
+        return None
+    files = failing_files(red.get("diagnostics", ""))
+    if not files:
+        return None
+    want = blobs_at(red["head"], files)
+    if not all(want.values()) or blobs_at(red["base"], files) != want or blobs_at(rev, files) != want:
+        return None
+    for done in passes:
+        if _when(done["created_at"]) > _when(red["created_at"]) and blobs_at(done["head"], files) == want:
+            return None
+    return red.get("job") or "the newest nightly app compile red"
+
+
+def base_red(rev: str, base_tip: str, root: Path = ROOT) -> str | None:
+    if "full-ci" in [*json.loads(os.environ.get("PR_LABELS") or "[]"), os.environ.get("ADDED_LABEL", "")]:
+        return None
+    if audited(os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "1")):
+        print("nightly app compile: this run is a base-red audit; building", file=sys.stderr)
+        return None
+    repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
+    reds = _artifacts(repo, RED_ARTIFACT, token)
+    if not reds:
+        return None
+    newest = reds[0]
+    with zipfile.ZipFile(io.BytesIO(_api(f"repos/{repo}/actions/artifacts/{newest['id']}/zip", token, raw=True))) as z:
+        red = json.loads(z.read("verdict.json"))
+        red["diagnostics"] = z.read("diagnostics.txt").decode(errors="replace")
+    red["created_at"] = newest["created_at"]
+    if red.get("head") != newest["workflow_run"]["head_sha"] or not SHA.fullmatch(str(red.get("base", ""))):
+        return None  # the verdict must name its own run's head, and a commit id
+    passes = [{"head": a["workflow_run"]["head_sha"], "created_at": a["created_at"]}
+              for a in _artifacts(repo, PASS_ARTIFACT, token)
+              if a["created_at"] > newest["created_at"] and (a.get("workflow_run") or {}).get("head_sha")][:MAX_PASSES]
+    wanted = sorted({red["head"], red["base"], *(p["head"] for p in passes)} - {rev, base_tip})
+    if wanted:
+        subprocess.run(["git", "-C", str(root), "-c", "protocol.version=2", "fetch", "-q", "--no-tags", "--depth=1",
+                        "--filter=blob:none", "origin", "--", *wanted], check=True, timeout=120)
+    url = decide_base_red(red, passes, rev, lambda r, paths: blobs(r, paths, root),
+                          dt.datetime.now(dt.timezone.utc))
+    if url:
+        files = ", ".join(failing_files(red["diagnostics"]))
+        first = next((line.strip() for line in red["diagnostics"].splitlines() if ": error: " in line), "")[-300:]
+        print(f"::warning title=nightly app compile::base red, not the head: {url} failed on {files}, which this "
+              f"head has as that base had them; not built (the newest red: {first}). Label full-ci to build.",
+              file=sys.stderr)
+    return url
+
+
 def run_helpers(root: Path = ROOT) -> int:
     failed = []
     for helper in HELPERS:
@@ -162,6 +308,9 @@ def main(argv: list[str] | None = None) -> int:
     k = sub.add_parser("keys")
     k.add_argument("--rev", default="HEAD")
     k.add_argument("--recipe-rev", help="workflow and driver revision, defaulting to --rev")
+    b = sub.add_parser("base-red")
+    b.add_argument("--rev", required=True)
+    b.add_argument("--base-tip", required=True)
     sub.add_parser("helpers")
     args = parser.parse_args(argv)
     if args.command == "route":
@@ -171,6 +320,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "keys":
         print("keys=" + json.dumps(keys(args.rev, recipe_rev=args.recipe_rev), sort_keys=True, separators=(",", ":")))
+        return 0
+    if args.command == "base-red":
+        try:
+            url = base_red(args.rev, args.base_tip)
+        except Exception as error:  # noqa: BLE001 - the skip fails open
+            print(f"::warning title=nightly app compile::base-red read failed ({error!r}); building", file=sys.stderr)
+            url = None
+        if url:
+            print(f"base_red={url}")
         return 0
     return run_helpers()
 

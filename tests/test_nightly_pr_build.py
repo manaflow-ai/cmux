@@ -9,6 +9,7 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -176,6 +177,84 @@ class Workflow(unittest.TestCase):
         timeout = re.search(r"(?ms)^  swift-fleet:\n.*?timeout-minutes: (\d+)", text)
         self.assertIsNotNone(timeout)
         self.assertLessEqual(int(timeout.group(1)), 90)
+
+
+
+class BaseRed(unittest.TestCase):
+    """A red the head only repeats from the base is not built again (2026-11-27: 49 of 99 reds were one base error)."""
+
+    DIAG = ("/Library/Application Support/cmux-build-worker/work/steps/3c0d/src/Packages/macOS/CmuxNext/Sources/"
+            "CmuxNextSettings/Schema/SettingDescriptor+Palette.swift:37:38: error: main actor-isolated static "
+            "property 'curatedThemes' can not be referenced from a nonisolated context\n")
+    FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingDescriptor+Palette.swift"
+    NOW = npb.dt.datetime(2026, 11, 27, 12, 0, tzinfo=npb.dt.timezone.utc)
+
+    H1, B1, H2, H3 = ("1" * 40, "b" * 40, "2" * 40, "3" * 40)
+
+    def red(self, **extra):
+        return {"verdict": "red", "head": self.H1, "base": self.B1, "job": "https://x/runs/1", "diagnostics": self.DIAG,
+                "created_at": "2026-11-27T11:00:00Z", **extra}
+
+    def blobs(self, table):
+        return lambda rev, paths: {p: table.get(rev, "same") for p in paths}
+
+    def test_failing_files_are_repo_paths(self) -> None:
+        self.assertEqual(npb.failing_files(self.DIAG + "warning: x.swift:1:1: warning: w\n"), [self.FILE])
+
+    def test_same_files_at_red_head_base_and_this_head_skip(self) -> None:
+        self.assertEqual(npb.decide_base_red(self.red(), [], self.H2, self.blobs({}), self.NOW), "https://x/runs/1")
+
+    def test_head_that_caused_it_or_changed_the_file_builds(self) -> None:
+        self.assertIsNone(npb.decide_base_red(self.red(), [], self.H2, self.blobs({self.B1: "old"}), self.NOW))
+        self.assertIsNone(npb.decide_base_red(self.red(), [], self.H2, self.blobs({self.H2: "edited"}), self.NOW))
+
+    def test_a_later_pass_with_the_same_files_builds(self) -> None:
+        later = [{"head": self.H3, "created_at": "2026-11-27T11:30:00Z"}]
+        self.assertIsNone(npb.decide_base_red(self.red(), later, self.H2, self.blobs({}), self.NOW))
+        # A pass on an older base (other blobs) says nothing about this red.
+        self.assertIsNotNone(npb.decide_base_red(self.red(), later, self.H2, self.blobs({self.H3: "older"}), self.NOW))
+
+    def test_old_or_non_swift_red_builds(self) -> None:
+        old = self.red(created_at="2026-11-27T05:00:00Z")
+        self.assertIsNone(npb.decide_base_red(old, [], self.H2, self.blobs({}), self.NOW))
+        self.assertIsNone(npb.decide_base_red(self.red(diagnostics="cmux-ci: source depot full"), [], self.H2,
+                                              self.blobs({}), self.NOW))
+
+    def test_fork_runs_and_bad_ids_are_not_read(self) -> None:
+        run = {"repository_id": 1, "head_repository_id": 1, "head_sha": self.H1}
+        self.assertTrue(npb.trusted({"workflow_run": run}))
+        self.assertFalse(npb.trusted({"workflow_run": {**run, "head_repository_id": 2}}))
+        self.assertFalse(npb.trusted({"workflow_run": {**run, "head_sha": "--upload-pack=x"}}))
+        self.assertIsNone(npb.decide_base_red(self.red(base="--upload-pack=x"), [], self.H2, self.blobs({}), self.NOW))
+
+    def test_audit_share_is_about_ten_percent(self) -> None:
+        share = sum(npb.audited(str(run), "1") for run in range(2000)) / 2000
+        self.assertTrue(0.06 < share < 0.14, share)
+
+    def test_workflow_wires_the_skip_and_the_verdicts(self) -> None:
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("swift: ${{ !steps.basered.outputs.base_red && steps.route.outputs.swift || 'false' }}", text)
+        self.assertIn("nightly_pr_build.py base-red --rev", text)
+        self.assertIn("actions: read", text)
+        self.assertIn(f"name=" + npb.RED_ARTIFACT, text)
+        self.assertIn(f"name=" + npb.PASS_ARTIFACT, text)
+        self.assertIn("name: ${{ steps.verdict.outputs.name }}-${{ matrix.arch }}", text)
+        # The fleet refusing the step for its own disk is no verdict, not a red on the head.
+        self.assertIn("grep -q 'source depot full' \"$log\"", text)
+        self.assertIn("continue-on-error: true  # past its time it builds", text)
+        self.assertEqual(text.count("continue-on-error: true  # best effort: never changes the compile's verdict"), 2)
+        self.assertIn("ADDED_LABEL: ${{ github.event.label.name }}", text)
+        router = (ROOT / ".github/workflows/pr-router.yml").read_text()
+        self.assertRegex(router, r"uses: ./.github/workflows/nightly-pr-build.yml\n    permissions:\n"
+                                 r"      contents: read\n      actions: read")
+
+    def test_read_failure_fails_open(self) -> None:
+        env = {**os.environ, "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "x", "GITHUB_API_URL": "http://127.0.0.1:9",
+               "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"}  # run 1 is no audit
+        out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "base-red", "--rev", "a",
+                              "--base-tip", "b"], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0)
+        self.assertEqual(out.stdout, "")
 
 
 if __name__ == "__main__":

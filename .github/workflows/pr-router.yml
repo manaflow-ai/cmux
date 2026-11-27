@@ -475,6 +475,7 @@ jobs:
     uses: ./.github/workflows/nightly-pr-build.yml
     permissions:
       contents: read
+      actions: read  # its route reads the app compile's verdict artifacts (base-red skip)
 
   classic-api-guard:
     name: classic API guard
