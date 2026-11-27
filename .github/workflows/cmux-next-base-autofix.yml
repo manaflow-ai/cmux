@@ -201,6 +201,9 @@ jobs:
           # The CI pool Apps' tokens (each its own installation hour), read after the job token is refused.
           BASE_AUTOFIX_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           NEXT_BASE_AUTOFIX_WINDOW_MINUTES: ${{ vars.NEXT_BASE_AUTOFIX_WINDOW_MINUTES }}
+          # A push that changes a Cargo manifest or lock repairs now: a stale sibling lock fails every --locked build
+          # (app-ffi-release.yml among them) until cargo-locks.py fix commits it (cmux#57132).
+          BASE_AUTOFIX_CARGO_CHANGED: ${{ github.event_name == 'push' && (contains(join(github.event.head_commit.modified, ' '), 'Cargo.toml') || contains(join(github.event.head_commit.modified, ' '), 'Cargo.lock') || contains(join(github.event.head_commit.added, ' '), 'Cargo.toml') || contains(join(github.event.head_commit.removed, ' '), 'Cargo.toml')) }}
         run: bash scripts/cmux-next/base-autofix-window.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
 
       - name: Cancel the held run
@@ -441,7 +444,7 @@ jobs:
       # git before the checkout, or it downloads a tarball the script cannot move to the newest tip.
       - name: Install git, python3 and curl
         timeout-minutes: 5
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+        run: for try in 1 2 3; do apt-get update -qq -o Acquire::Retries=3 && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git python3 curl ca-certificates && break; [ "$try" = 3 ] && exit 1; echo "apt try $try failed (a mirror mid-sync?), updating again"; sleep 15; done
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -648,7 +651,7 @@ jobs:
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
