@@ -34,17 +34,20 @@ const DIR_ENV: &str = "CMUX_NEXT_MCP_UPSTREAMS_DIR";
 
 /// The folder of this process ([`dir_from`] its environment).
 pub(super) fn default_dir() -> Option<PathBuf> {
-    dir_from(|name| std::env::var_os(name))
+    dir_from(cfg!(target_os = "macos"), |name| std::env::var_os(name))
 }
 
-/// The folder for the environment `env`: a DEV build's own (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, which the Mac app
-/// sets: BuildStatePaths), else the person's, `~/.cache/cmux/mcp-upstreams`, which NIGHTLY and stable share.
-pub(super) fn dir_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+/// The folder for the environment `env`: a DEV build's own (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, which
+/// the Mac app sets: BuildStatePaths), else `mcp-upstreams` in cmux NEXT's own caches
+/// ([`cmux_config::cache_dir`]), never cmux Classic's `~/.cache/cmux` on macOS.
+pub(super) fn dir_from(
+    macos: bool,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
     if let Some(own) = env(DIR_ENV).filter(|dir| !dir.is_empty()) {
         return Some(PathBuf::from(own));
     }
-    let home = env("HOME").filter(|h| !h.is_empty())?;
-    Some(Path::new(&home).join(".cache").join("cmux").join("mcp-upstreams"))
+    Some(cmux_config::cache_dir_from(macos, env)?.join("mcp-upstreams"))
 }
 
 /// A file’s identity for a key: its real path, size and modification time.

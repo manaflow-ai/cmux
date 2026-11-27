@@ -122,10 +122,12 @@ fn a_spawn_gets_the_route_only_where_nothing_else_set_it() {
 /// restart meant to pick up a late route read the same "no". Only a "yes" is held that long now.
 #[test]
 fn a_no_about_the_route_is_held_only_briefly() {
-    assert_eq!(reuse_for(Some(true)), ANSWER_REUSE);
-    assert_eq!(reuse_for(Some(false)), NO_ANSWER_REUSE);
-    assert_eq!(reuse_for(None), NO_ANSWER_REUSE);
-    assert!(NO_ANSWER_REUSE < ANSWER_REUSE);
+    let now = Instant::now();
+    let host = "coderouter.cmux.internal";
+    assert_eq!(Answer::new(host, now, Some(true)).until, now + ANSWER_REUSE);
+    assert_eq!(Answer::new(host, now, Some(false)).until, now + NO_REUSE);
+    assert_eq!(Answer::new(host, now, None).until, now + NO_ANSWER_REUSE);
+    assert!(NO_REUSE < ANSWER_REUSE && NO_ANSWER_REUSE < ANSWER_REUSE);
 }
 
 #[test]
@@ -203,4 +205,20 @@ fn a_late_route_arrives_within_the_wait() {
         || Duration::ZERO
     ));
     assert_eq!(asked.get(), 1);
+}
+
+#[test]
+fn a_no_is_reused_for_a_burst_only_so_a_name_that_starts_resolving_routes_the_next_spawn() {
+    let now = Instant::now();
+    let no = Answer::new("coderouter.cmux.internal", now, Some(false));
+    assert_eq!(no.reused("coderouter.cmux.internal", now), Some(false));
+    // Production 2026-11-26 21:46 UTC: a "no" held for 60 s left every agent started after the
+    // edge's name began resolving without a route.
+    assert_eq!(no.reused("coderouter.cmux.internal", now + Duration::from_secs(3)), None);
+    let yes = Answer::new("coderouter.cmux.internal", now, Some(true));
+    assert_eq!(yes.reused("coderouter.cmux.internal", now + Duration::from_secs(59)), Some(true));
+    assert_eq!(yes.reused("other.internal", now), None);
+    let hung = Answer::new("coderouter.cmux.internal", now, None);
+    assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(9)), Some(false));
+    assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(11)), None);
 }
