@@ -41,6 +41,14 @@ fn new_key() -> String {
     )
 }
 
+/// Every byte that crossed a link of this test binary, either way (what the Mac sent and what the
+/// machine asked): a secret kept on the Mac must never be in it.
+static CROSSED: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+
+fn crossed(needle: &[u8]) -> bool {
+    CROSSED.lock().unwrap().windows(needle.len()).any(|window| window == needle)
+}
+
 /// Copies `from` to `to`, each read arriving `RTT`/2 after it left.
 fn delayed(mut from: UnixStream, mut to: UnixStream) {
     let (due, arrivals) = std::sync::mpsc::channel::<(Instant, Vec<u8>)>();
@@ -59,6 +67,7 @@ fn delayed(mut from: UnixStream, mut to: UnixStream) {
             match from.read(&mut buffer) {
                 Ok(0) | Err(_) => return,
                 Ok(read) => {
+                    CROSSED.lock().unwrap().extend_from_slice(&buffer[..read]);
                     if due.send((Instant::now() + RTT / 2, buffer[..read].to_vec())).is_err() {
                         return;
                     }
@@ -348,6 +357,56 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     stop(&state, folder);
 }
 
+/// RFD 0007, "Tracked files the skip rules keep home": "the manifest lists such a tracked path
+/// with its real stat and no bytes; opening it fails with `EACCES` and a named reason, so `git
+/// status` is clean and the boundary holds". A key a repository below `~/Projects` commits stats
+/// on the machine as on the Mac, its open is refused, `git status` there is clean, and no byte of
+/// it crossed the link. Leo, 2026-11-22: "THE WHOLE POINT OF PROJECTIONFS IS FOR AGENTS TO BE
+/// ABLE TO DO THIS".
+#[test]
+fn a_tracked_secret_kept_on_the_mac_is_listed_refused_and_git_status_is_clean() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(20);
+    const KEY: &str = "-----BEGIN PRIVATE KEY----- a test key that stays on the Mac\n";
+    write(&w.local.join("cmux/test/fixtures/server.key"), KEY);
+    // Committed long ago, as a repository's test keys are: a key written in the index's own
+    // second is racily clean, and git would read its bytes to check it.
+    let old = Command::new("touch")
+        .args(["-d", "2026-01-01 00:00:00"])
+        .arg(w.local.join("cmux/test/fixtures/server.key"))
+        .status()
+        .unwrap();
+    assert!(old.success());
+    git(&w.local.join("cmux"), &["add", "-f", "test/fixtures/server.key"]);
+    git(&w.local.join("cmux"), &["commit", "-qm", "a test key"]);
+    let state = w.home.parent().unwrap().join("state");
+    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
+    let folder = &start.folder;
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
+    assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+
+    let mac = std::fs::metadata(w.local.join("cmux/test/fixtures/server.key")).unwrap();
+    let here = std::fs::metadata(folder.join("cmux/test/fixtures/server.key")).unwrap();
+    assert!(here.is_file());
+    assert_eq!(here.len(), mac.len());
+    assert_eq!(here.modified().unwrap(), mac.modified().unwrap());
+    let error = std::fs::File::open(folder.join("cmux/test/fixtures/server.key")).unwrap_err();
+    // EACCES (Linux's 13).
+    assert_eq!(error.raw_os_error(), Some(13), "{error}");
+    let status = git(&folder.join("cmux"), &["status", "--short"]);
+    assert_eq!(status, "", "git status on the machine: {status}");
+    // Every other file still reads, from the Mac.
+    assert_eq!(std::fs::read_to_string(folder.join("cmux/README.md")).unwrap(), "# cmux\n");
+    assert!(!crossed(KEY.as_bytes()), "the key's bytes crossed the link");
+    stop(&state, folder);
+}
+
 /// The App's first copy asks (`--on-seed-refusal ask`) and ends a start whose folder its
 /// machine's disk cannot hold, so that copy has to project too, before any seed or copy.
 #[test]
@@ -470,7 +529,7 @@ fn the_kill_switch_copies_the_attached_folder_without_a_projection_mount() {
 }
 
 #[test]
-#[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test link_project -- --ignored --nocapture"]
+#[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test it -- link_project:: --ignored --nocapture"]
 fn a_bench_of_the_first_turn() {
     if !fuse_here() {
         eprintln!("skipping: no FUSE here");

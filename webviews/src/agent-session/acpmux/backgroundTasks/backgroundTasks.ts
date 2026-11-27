@@ -10,6 +10,11 @@
 // group the running tasks come first, oldest first, then the finished ones, the latest first, which
 // the panel folds under "N finished". The group's counts line ("39 tasks, 3 failed") counts both.
 //
+// Subagents the rows no longer hold (a chat whose page is only its newest records, while its helpers
+// started hours earlier) come from acpmux's own list of the chat's subagents (`listed`,
+// listedSubagents.ts): each is a group of its own with no tasks, which drills into its transcript
+// as any other does (its own records, read by id).
+//
 // All of it is derived from acpmux's snapshot: the rows and `subagentViews` (subagentFold.ts), the
 // process registry's commands (session-info/processes.ts `backgroundCommands`) and the started chats
 // (started/startedSessions.ts). Nothing here is kept by hand; the panel's own state is which groups
@@ -31,6 +36,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { subagentsIn } from "../subagents/subagentRows";
+import type { ListedSubagent } from "./listedSubagents";
 import type { Subagent } from "../subagents/subagentFold";
 import { workflowDetailRequest, workflowOf } from "../summary/foldWorkflows";
 import type { WorkflowAgent } from "../summary/workflow";
@@ -103,6 +109,9 @@ export type BackgroundInput = {
   /// Groups the person cleared (Clear finished): ended groups whose id is here are left out. A
   /// group that runs again (a restarted subagent keeps its id) shows again.
   dismissed?: ReadonlySet<string>;
+  /// Every subagent acpmux lists for the chat (`_acpmux/subagents`): those the rows lack join as
+  /// groups of their own; the rows' own say wins for the rest.
+  listed?: readonly ListedSubagent[];
 };
 
 /// A subagent's tasks by the view array they were read from (see the header's Cost).
@@ -243,7 +252,7 @@ export const isLive = (group: BackgroundGroup): boolean => group.state === "runn
 /// The panel's groups: the running ones first, oldest first, so a group never jumps while it runs;
 /// then the ended ones, the latest first. Cleared groups that ended are left out.
 export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new WeakMap()): BackgroundGroup[] {
-  const { rows, views, commands, sessions, chatName, sessionId, dismissed } = input;
+  const { rows, views, commands, sessions, chatName, sessionId, dismissed, listed } = input;
   const agents = subagentsIn(rows, views);
   const children = new Map<string, Subagent[]>();
   for (const agent of agents.values()) {
@@ -359,6 +368,7 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       ...split(tasks),
     });
   }
+  groups.push(...listedGroups(listed, agents));
   for (const session of sessions) {
     const state = sessionState(session);
     groups.push({
@@ -404,6 +414,63 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     .filter((group) => !isLive(group) && !dismissed?.has(clearKey(group)))
     .sort((a, b) => (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0) || a.id.localeCompare(b.id));
   return [...live, ...ended];
+}
+
+/// Groups for the listed subagents the rows lack: one per top one (started by the chat, or by a
+/// subagent nobody lists), its listed descendants its tasks. One under a subagent the rows hold is
+/// that subagent's, whose own rows name it, and is left out here.
+function listedGroups(
+  listed: readonly ListedSubagent[] | undefined,
+  agents: ReadonlyMap<string, Subagent>,
+): BackgroundGroup[] {
+  if (!listed || listed.length === 0) return [];
+  const missing = new Map<string, ListedSubagent>();
+  for (const each of listed) if (!agents.has(each.id) && !missing.has(each.id)) missing.set(each.id, each);
+  const rootOf = (each: ListedSubagent): ListedSubagent | undefined => {
+    let at = each;
+    const seen = new Set<string>();
+    while (at.parent !== null && !seen.has(at.id)) {
+      seen.add(at.id);
+      if (agents.has(at.parent)) return undefined;
+      const up = missing.get(at.parent);
+      if (!up) break;
+      at = up;
+    }
+    return at;
+  };
+  const tasks = new Map<string, BackgroundTask[]>();
+  const roots: ListedSubagent[] = [];
+  for (const each of missing.values()) {
+    const root = rootOf(each);
+    if (!root) continue;
+    if (root === each) {
+      roots.push(each);
+      continue;
+    }
+    const list = tasks.get(root.id) ?? [];
+    list.push({
+      id: each.id,
+      kind: "agent",
+      title: each.title ?? each.id,
+      state: each.state,
+      startedAt: each.startedAt,
+      endedAt: each.endedAt,
+      ...(each.kind !== "workflow" && { agentId: each.id }),
+      ...(each.state === "running" && { stop: { kind: "agent", id: each.id } as StopTarget }),
+    });
+    tasks.set(root.id, list);
+  }
+  return roots.map((each) => ({
+    id: `agent:${each.id}`,
+    kind: "agent" as const,
+    name: each.title ?? each.id,
+    state: each.state,
+    startedAt: each.startedAt,
+    endedAt: each.endedAt,
+    ...(each.kind !== "workflow" && { agentId: each.id }),
+    ...(each.state === "running" && { stop: { kind: "agent", id: each.id } as StopTarget }),
+    ...split(tasks.get(each.id) ?? []),
+  }));
 }
 
 /// What Clear finished records for a group: its id with what it ended as (its end, its task count).

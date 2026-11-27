@@ -68,6 +68,8 @@ export function EmojiMenu({
       aria-label={t("composer.emoji")}
       className={`ui-popup ui-glass acpmux-slash-menu acpmux-emoji-menu is-${look}`}
       id="acpmux-emoji-menu"
+      // The list is the live answer to what is typed in the composer (ui/popupSettle.ts).
+      data-popup-settle="results"
       data-emoji-look={look}
     >
       <div className="acpmux-emoji-rows">

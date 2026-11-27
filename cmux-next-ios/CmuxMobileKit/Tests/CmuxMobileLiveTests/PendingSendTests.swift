@@ -54,7 +54,7 @@ import Testing
             return
         }
         #expect(text == "hello" && promptID == "p1")
-        #expect(reason.hasPrefix("Not sent: Studio was unreachable"))
+        #expect(reason == AgentChatStore.unreachableNotice)
         #expect(source.held.isEmpty)
     }
 
@@ -97,6 +97,42 @@ import Testing
             snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
         )
+    }
+
+    @MainActor private final class RecordingSource: AgentSessionSource {
+        let summary: AgentSessionSummary
+        var prompts: [(id: String, text: String, attachments: [AgentAttachment])] = []
+
+        init(summary: AgentSessionSummary) { self.summary = summary }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {
+            if case .prompt(let text, let attachments, _, let id, _) = intent {
+                prompts.append((id, text, attachments))
+            }
+        }
+    }
+
+    @Test func bindingANewChatSendsItsOptimisticFirstMessageExactlyOnce() throws {
+        let live = coordinator()
+        defer { live.stop() }
+        let summary = pending().summary
+        let directory = AgentSessionDirectory()
+        let unbound = RecordingSource(summary: summary)
+        directory.makeSource = { _ in unbound }
+        let attachment = AgentAttachment(kind: .file, name: "notes.txt")
+        directory.store(for: summary).send(prompt: "read this", attachments: [attachment])
+        let original = try #require(unbound.prompts.first)
+
+        let bound = RecordingSource(summary: summary)
+        directory.makeSource = { _ in bound }
+        live.bindFirst(session: "new-session", summary: summary,
+                       key: AgentSessionDirectory.key(id: summary.id, macID: summary.macID), directory: directory)
+
+        #expect(bound.prompts.count == 1, "binding must not resend the same text with a new prompt id")
+        #expect(bound.prompts.first?.id == original.id)
+        #expect(bound.prompts.first?.text == original.text)
+        #expect(bound.prompts.first?.attachments == original.attachments)
+        #expect(directory.store(for: summary).waitingMessages.count == 1)
     }
 
     /// The chat's store went while the person was elsewhere (the Mac's tree bound the tab, its

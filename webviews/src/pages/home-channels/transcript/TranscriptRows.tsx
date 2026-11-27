@@ -2,7 +2,7 @@
 // chat's sender name, a bubble (mine on the right in the sent colour, theirs on the left in the
 // received one, the group's last with its tail), the Edited and Not Delivered labels, the Read and
 // Delivered receipts, an unsent line and the typing bubble. A bubble's right-click menu has Copy,
-// the tapbacks, and on a failed send Try Again and Delete.
+// the tapbacks, and on a failed send Try Again and Delete (retry-prompt-ok: a re-send is the person's call).
 import { memo, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Markdown } from "../../../agent-session/acpmux/conversation/Markdown";
@@ -132,6 +132,7 @@ function BubbleRow({
   const items: ContextMenuItem[] = [];
   if (failed && pendingKey) {
     items.push({
+      // retry-prompt-ok: re-sends the person's failed message
       id: "retry",
       label: t("home.menu.tryAgain"),
       onSelect: () => actions.onRetry?.(pendingKey),
@@ -219,6 +220,7 @@ function BubbleRow({
         <button
           type="button"
           className="mt-failed-mark"
+          // retry-prompt-ok: re-sends the person's failed message
           aria-label={t("home.menu.tryAgain")}
           title={t("label.notDelivered")}
           onClick={() => actions.onRetry?.(pendingKey)}

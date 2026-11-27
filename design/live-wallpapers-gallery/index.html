@@ -3,7 +3,8 @@
 <title>Live wallpapers</title>
 <!-- Every live wallpaper running from its own WGSL (translated by build.mjs), each in its
      variants, in the dark and light themes. Move the pointer over a card. ?still=1 draws one
-     frame per card at the manifest's still time (what shoot.mjs captures). -->
+     frame per card at the manifest's still time (what shoot.mjs captures). ?size=WxH makes each
+     card stand for a W x H point window instead of 480 x 270. -->
 <style>
   body { margin: 0; padding: 48px 56px 96px; background: #0b0b0c; color: #e9e8e4; font: 14px/1.4 -apple-system, system-ui, sans-serif; }
   h1 { font-size: 28px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
@@ -13,7 +14,7 @@
   section p { color: #a4a39f; margin: 4px 0 16px; max-width: 80ch; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
   figure { margin: 0; }
-  canvas, img.still { width: 100%; aspect-ratio: 16 / 9; display: block; border-radius: 6px; background: #000; }
+  canvas, img.still { width: 100%; aspect-ratio: var(--card-aspect, 16 / 9); display: block; border-radius: 6px; background: #000; }
   figcaption { margin-top: 8px; font: 11px ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; color: #8d8c88; }
   .error { color: #ff6b5e; font: 12px ui-monospace, monospace; white-space: pre-wrap; }
 </style>
@@ -26,6 +27,8 @@
 
   const query = new URLSearchParams(location.search);
   const still = query.has("still");
+  const [cardW, cardH] = (query.get("size") ?? "480x270").split("x").map(Number);
+  document.documentElement.style.setProperty("--card-aspect", `${cardW} / ${cardH}`);
   const only = query.get("id");
   const main = document.getElementById("main");
   const live = [];
@@ -34,6 +37,7 @@
     const m = wp.manifest;
     const section = document.createElement("section");
     section.id = wp.id;
+    if (wp.scene) section.dataset.scene = "1";
     section.innerHTML = `<h2>${m.name}</h2><p>${m.description ?? ""}</p><div class="grid"></div>`;
     main.append(section);
     const grid = section.querySelector(".grid");
@@ -46,7 +50,8 @@
         figure.insertAdjacentHTML("beforeend", `<figcaption>${variant.name} · ${theme}</figcaption>`);
         grid.append(figure);
         const vstill = variant.still ?? m.still;
-        const options = { theme, accent: variant.accent, params: variant.params, seed: 0.37, pointer: vstill?.pointer };
+        const options = { theme, variant: variant.name, accent: variant.accent, params: variant.params, seed: 0.37, pointer: vstill?.pointer };
+        figure.dataset.card = `${variant.name}|${theme}`;
         // Every card first shows its still, drawn in a context that is given back at once.
         const img = document.createElement("img");
         img.className = "still";
@@ -55,8 +60,8 @@
         canvas.replaceWith(img);
         try {
           const w = new Wallpaper(document.createElement("canvas"), wp, { ...options, still: true });
-          // A card stands for a 480 x 270 point window on a Retina screen.
-          w.resize(480, 270);
+          // A card stands for a 480 x 270 point window on a Retina screen (or ?size).
+          w.resize(cardW, cardH);
           w.draw(vstill?.time ?? 10);
           img.src = w.canvas.toDataURL();
           w.dispose();
@@ -78,7 +83,7 @@
         const canvas = document.createElement("canvas");
         item.canvas = canvas;
         item.w = new Wallpaper(canvas, item.wp, item.options);
-        item.w.resize(480, 270);
+        item.w.resize(cardW, cardH);
         item.img.style.display = "none";
         item.img.after(canvas);
         io.observe(canvas);
@@ -95,5 +100,27 @@
     }
   });
   for (const l of live) io.observe(l.img);
+
+  // shoot.mjs: the still (k = "still") or frame k of a scene's precomputed sequence for one card, as a PNG data URL (rows
+  // flipped back to top-down, as the cards show them).
+  window.sceneFrame = (id, card, k) => {
+    const wp = WALLPAPERS.find((w) => w.id === id);
+    const [variant, theme] = card.split("|");
+    const w = new Wallpaper(document.createElement("canvas"), wp, { theme, variant, still: true });
+    w.resize(cardW, cardH);
+    const run = w.sceneRun();
+    const entry = k === "still" ? run.still : run.frames[k % run.frames.length];
+    w.drawScene(entry);
+    const out = document.createElement("canvas");
+    [out.width, out.height] = [w.canvas.width, w.canvas.height];
+    const g = out.getContext("2d");
+    g.scale(1, -1);
+    g.drawImage(w.canvas, 0, -out.height);
+    w.dispose();
+    return { url: out.toDataURL(), count: run.frames.length, t: entry.t };
+  };
+  // shoot.mjs: the card build.mjs gave a frame sequence (SCENE_CARD), if any.
+  window.sceneSequenceCard = (id) =>
+    Object.entries(WALLPAPERS.find((w) => w.id === id)?.scene?.runs ?? {}).find(([, r]) => r.frames.length)?.[0];
   document.body.dataset.ready = "1";
 </script>

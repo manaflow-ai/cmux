@@ -817,7 +817,7 @@ pub struct RelaySender {
 impl RelaySender {
     /// The relay record in `value`, each field one name of at most [`MAX_NAME_CHARS`] (a
     /// session at most [`MAX_FIELD_BYTES`]); anything else is no relay record.
-    fn of(value: &Value) -> Option<Self> {
+    pub(crate) fn of(value: &Value) -> Option<Self> {
         let field = |k: &str| value.get(k).and_then(Value::as_str);
         let by = field("by").filter(|b| harness_fits(b))?;
         let machine = field("machine").filter(|m| harness_fits(m))?;
@@ -829,8 +829,17 @@ impl RelaySender {
         Some(Self { by: by.to_owned(), machine: machine.to_owned(), session })
     }
 
-    fn to_value(&self) -> Value {
-        json!({"by": self.by, "machine": self.machine, "session": self.session})
+    /// The record with no `session` key when it names none: the hub's `MeshSenderRelay.session` is
+    /// an optional string, and `session: null` was a 400 for every send from a program outside any
+    /// session (2026-11-24 04:58Z, after #52662; the hub takes null since cmux-platform's fix).
+    pub(crate) fn to_value(&self) -> Value {
+        let mut record = serde_json::Map::new();
+        record.insert("by".into(), json!(self.by));
+        record.insert("machine".into(), json!(self.machine));
+        if let Some(session) = &self.session {
+            record.insert("session".into(), json!(session));
+        }
+        Value::Object(record)
     }
 
     /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
@@ -873,6 +882,25 @@ pub fn mark_waited(mut provenance: Value) -> Value {
     provenance
 }
 
+/// On a relayed prompt's `_meta.acpmux`: how many times the mesh hub leased the message
+/// (`mesh::InMessage::attempt`, 1 for the first). The mesh relay marks every delivery `resend`
+/// so a lease that comes back answers with its first run (`server/mesh_relay.rs`); only a lease
+/// after the first is a message that waited.
+pub const LEASE_ATTEMPT: &str = "leaseAttempt";
+
+/// Whether a peer's prompt whose `_meta.acpmux` is `mux` waited for this machine ([`WAITED`]):
+/// its outbox sent it again (`resend`), and, when the mesh hub relayed it, the hub leased it more
+/// than once. A first lease is marked `resend` for its prompt id alone: taken for waited, every
+/// relayed message woke its idle receiver whatever its class, FYIs that should wait for the next
+/// notice too (1,088 of 1,328 FYIs in one host's inboxes over 3 days, 2026-11-26).
+pub fn resend_waited(mux: Option<&Value>) -> bool {
+    let Some(mux) = mux else { return false };
+    if mux.get("resend") != Some(&Value::Bool(true)) {
+        return false;
+    }
+    mux.get(LEASE_ATTEMPT).and_then(Value::as_u64).is_none_or(|attempt| attempt > 1)
+}
+
 /// Whether a message waited for its receiver's machine to come back: a peer's outbox sent it
 /// again ([`WAITED`]), or that outbox's ssh carry brought it while the link was down
 /// ([`SSH_CARRY_RELAY`]). A wait that long is the sender's to know about: the receiver's inbox
@@ -881,6 +909,24 @@ pub fn mark_waited(mut provenance: Value) -> Value {
 pub fn waited(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get(WAITED)) == Some(&Value::Bool(true))
         || relay_of(provenance).is_some_and(|r| r.by == SSH_CARRY_RELAY)
+}
+
+/// On a prompt's provenance: the sender's own delivery deadline in ms (`acpmux send --within`,
+/// `_meta.acpmux.within`), which tightens its class's (`prompt_class::due_at`). Kept on the
+/// inbox record, so a restart keeps the deadline.
+pub const WITHIN: &str = "within";
+
+/// `provenance` with the sender's `within`, when it gave one.
+pub fn mark_within(mut provenance: Value, within: Option<u64>) -> Value {
+    if let (Some(fields), Some(ms)) = (provenance.as_object_mut(), within) {
+        fields.insert(WITHIN.to_owned(), Value::from(ms));
+    }
+    provenance
+}
+
+/// The sender's `within` on `provenance`, in ms.
+pub fn within(provenance: Option<&Value>) -> Option<u64> {
+    provenance.and_then(|p| p.get(WITHIN)).and_then(Value::as_u64)
 }
 
 /// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
@@ -1436,6 +1482,20 @@ mod sender_tests {
         assert!(!waited(Some(&json!({"kind": "agent_message", WAITED: "yes"}))));
         assert!(!waited(Some(&json!({"kind": "agent_message"}))));
         assert!(!waited(None));
+    }
+
+    /// A mesh relay's first lease is `resend` only for its prompt id: no wait, so an FYI it
+    /// carries waits for the next notice. A lease after the first, and an outbox's resend (no
+    /// lease attempt), waited and wake the chat as before.
+    #[test]
+    fn only_a_resend_that_came_again_waited() {
+        assert!(!resend_waited(Some(&json!({"resend": true, LEASE_ATTEMPT: 1}))));
+        assert!(!resend_waited(Some(&json!({"resend": true, LEASE_ATTEMPT: 0}))));
+        assert!(resend_waited(Some(&json!({"resend": true, LEASE_ATTEMPT: 2}))));
+        assert!(resend_waited(Some(&json!({"resend": true}))));
+        assert!(!resend_waited(Some(&json!({"resend": false}))));
+        assert!(!resend_waited(Some(&json!({LEASE_ATTEMPT: 3}))));
+        assert!(!resend_waited(None));
     }
 
     /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record

@@ -1,0 +1,172 @@
+{
+  "title": "Command Palette v2 (look A) regrouping as you type: \"w\", \"wo\", then \"work\", the groups and their counts changing with each key, the top match selected. Record it with: cmux-ci capture SHA --state tour:palette-v2-regroup",
+  "settings": {
+    "experiments": {
+      "paletteV2": "flat"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace work api",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "work api"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace work web",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "work web"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace release notes",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "release notes"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace research",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "research"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "Show work api",
+      "cmux": [
+        "workspace",
+        "name:work api",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open the command palette",
+      "cmux": [
+        "action",
+        "run",
+        "commandPalette"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type w",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "w",
+          "target": "palette"
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "\"w\"",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "regroup-w.png"
+    },
+    {
+      "title": "Type o",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "o",
+          "target": "palette"
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "\"wo\"",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "regroup-wo.png"
+    },
+    {
+      "title": "Type r",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "r",
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Type k",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "k",
+          "target": "palette"
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "\"work\"",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "regroup-work.png"
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    }
+  ]
+}

@@ -234,10 +234,10 @@ public struct MacHomeList: Equatable, Sendable {
 /// What Home says under its rows while the Mac's own list is not in (the user, 2026-11-09:
 /// "never show an empty UI for data that exists but is still loading").
 public enum HomeListNote: Equatable, Sendable {
-    /// Nothing to say: the Mac's list shows, or a search or a failure note speaks instead.
+    /// Nothing to say: the Mac's list shows, or the rows kept from an earlier read show while
+    /// the Mac's is on its way (Leo, 2026-11-24: "they dont need to know that it's updating
+    /// before they KNOW it's updating"), or a search or a failure note speaks instead.
     case none
-    /// The rows kept from an earlier read show; the Mac's list is on its way.
-    case updating
     /// A Mac is chosen and nothing is kept for it: its list is on its way.
     case connecting
     /// No Mac is chosen yet, while the account lists Macs (or they are still loading).
@@ -245,19 +245,28 @@ public enum HomeListNote: Equatable, Sendable {
 
     /// The note for Home's state. `macsMayExist`: the account lists a Mac, or its Macs are
     /// not known yet. `failing`: the retry note shows (the list failed or the Mac is offline).
-    public static func make(rows: [MacHomeRow]?, showingKept: Bool, homeMacID: String?, macsMayExist: Bool,
+    public static func make(rows: [MacHomeRow]?, homeMacID: String?, macsMayExist: Bool,
                             searching: Bool, failing: Bool) -> HomeListNote {
-        guard !searching, !failing else { return .none }
-        if rows != nil { return showingKept ? .updating : .none }
+        guard !searching, !failing, rows == nil else { return .none }
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
+    }
+
+    /// `make`'s `macsMayExist`: a Mac's list can still come with no Mac chosen. Only while Macs
+    /// are tracked live (`live`; the mock and a demo without a Mac link never answer), and the
+    /// account's Macs are not known yet or one of them is online. Before, a mock Home, or an
+    /// account whose every Mac is offline, said "Loading conversations…" forever (iOS release
+    /// bar read-back, 2026-11-22, shot 04).
+    public static func macsMayAnswer(live: Bool, macsKnown: Bool, anyOnline: Bool) -> Bool {
+        live && (!macsKnown || anyOnline)
     }
 }
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
 /// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
 /// paradigms"). With rows on screen the list stays exactly as normal under Workspaces' connection
-/// toast ("Offline" and Retry); with none, Home shows Workspaces' empty state for that Mac.
+/// toast ("Offline"); with none, Home shows Workspaces' empty state for that Mac. Neither offers
+/// Retry: Home reads again on its own (``AutoRetry``; Leo, 2026-11-22).
 public struct HomeConnectionStatus: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// The Mac is offline (its presence says so): nothing to dial.
@@ -275,15 +284,13 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         public let symbol: String
         public let title: String
         public let message: String
-        /// Offers Retry (not for an offline Mac: there is nothing to dial, as on Workspaces).
+        /// Home dials and reads again on its own (not for an offline Mac: there is nothing to dial).
         public let canRetry: Bool
     }
 
     public let kind: Kind
     /// A retry runs: Retry shows its spinner and the toast says it reconnects.
     public let isRetrying: Bool
-    /// The status in words after the Mac's name (Workspaces' words), for VoiceOver.
-    public let detail: String
     /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
     public let empty: Empty?
 
@@ -305,13 +312,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         } else {
             return nil
         }
-        let detail: String = if retrying {
-            String(localized: "Updating…")
-        } else if kind == .failed {
-            String(localized: "Couldn't refresh · last known")
-        } else {
-            String(localized: "Offline · last known")
-        }
         let empty: Empty? = switch kind {
         case .macOffline:
             Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
@@ -325,12 +325,7 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         case .connecting:
             nil
         }
-        return HomeConnectionStatus(kind: kind, isRetrying: retrying, detail: detail, empty: empty)
-    }
-
-    /// The connecting line when no rows show and no empty state applies.
-    public static func connectingTitle(macName: String?) -> String {
-        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
+        return HomeConnectionStatus(kind: kind, isRetrying: retrying, empty: empty)
     }
 }
 
@@ -454,6 +449,8 @@ public final class MacHomeFeed {
 
     /// The `retry-home-failed` demo: the last read failed on a live link.
     public func setProblemForDemo(_ text: String) { problem = text }
+    /// The `retry-home-updating` demo: the rows show as the ones this phone kept, the Mac's not in yet.
+    public func setKeptForDemo() { isShowingKeptRows = true }
 
     /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
     /// a few other conversations, with no link.
@@ -878,7 +875,7 @@ public final class MacHomeFeed {
                 } catch {
                     guard mine == self.generation else { return }
                     self.problem = Self.reason(error)
-                    // The next event or Retry reads again.
+                    // The next event, or Home's automatic retry (``AutoRetry``), reads again.
                     self.wantsWindow = false
                     self.wantsAll = false
                     self.wantedIDs = []

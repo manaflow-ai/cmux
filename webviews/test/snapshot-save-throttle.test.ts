@@ -14,6 +14,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const scope = globalThis as Record<string, unknown>;
 const writes: string[] = [];
+const store = { quota: Infinity, removed: 0 };
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -25,8 +26,11 @@ const replacements: Record<string, unknown> = {
   MutationObserver: dom.window.MutationObserver,
   sessionStorage: {
     getItem: () => null,
-    setItem: (key: string, value: string) => key === "cmux.acpmux.snapshot" && writes.push(value),
-    removeItem: () => {},
+    setItem: (key: string, value: string) => {
+      if (value.length > store.quota) throw new Error("QuotaExceededError");
+      if (key === "cmux.acpmux.snapshot") writes.push(value);
+    },
+    removeItem: () => void (store.removed += 1),
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -37,7 +41,8 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { saveSnapshot, savedSessions, turnEndedBetween } = await import("../src/agent-session/acpmux/snapshotCache");
+const { saveSnapshot, savedSessions, turnEndedBetween, SAVED_ROWS, SAVED_BYTES } =
+  await import("../src/agent-session/acpmux/snapshotCache");
 
 afterAll(async () => {
   await settleReact();
@@ -150,4 +155,104 @@ test("a turn's end is seen across one render of its start and end", () => {
   expect(turnEndedBetween({ ...idle, turnsEnded: 0 }, { ...idle, turnsEnded: 1 })).toBe(true);
   // Switching away from a working chat is no turn end.
   expect(turnEndedBetween({ session: "other", working: true, turnsEnded: 1 }, { ...idle, turnsEnded: 2 })).toBe(false);
+});
+
+// A long live chat streamed with its whole transcript serialized every 250 ms: 20,000 rows were
+// 5 MB and milliseconds of main thread per write, and past the store's quota the write failed and
+// left a stale copy. The copy is a first paint, so it keeps the newest rows: its cost and size are
+// the same at 2,000 rows and at 20,000.
+const longChat = (count: number, text = "a line of a reply that is about this long, with words ".repeat(3)) =>
+  ({
+    ...snapshot(""),
+    rows: Array.from({ length: count }, (_, n) => ({ id: `row-${n}`, kind: n % 2 ? "assistant" : "user", text })),
+    historyFrom: 1,
+    canLoadOlder: false,
+  }) as unknown as AcpmuxSnapshot;
+const writeTimed = (next: AcpmuxSnapshot) => {
+  writes.length = 0;
+  saveSnapshot(next);
+  const start = performance.now();
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  return { ms: performance.now() - start, value: writes.at(-1)! };
+};
+const median = (count: number) => {
+  const next = longChat(count);
+  const runs = Array.from({ length: 15 }, () => writeTimed(next));
+  return { ms: runs.map((run) => run.ms).sort((a, b) => a - b)[7]!, value: runs[0]!.value };
+};
+
+test("the reload copy's write cost and size stay flat from 2,000 to 20,000 rows", () => {
+  const small = median(2_000);
+  const large = median(20_000);
+  console.log(
+    `reload copy: 2k rows ${small.ms.toFixed(3)} ms ${small.value.length} B; 20k rows ${large.ms.toFixed(3)} ms ${large.value.length} B`,
+  );
+  expect(large.value.length).toBeLessThan(small.value.length * 1.1);
+  expect(large.value.length).toBeLessThan(SAVED_BYTES);
+  // Generous for a loaded runner: the whole transcript took ten times the small write.
+  expect(large.ms).toBeLessThan(Math.max(small.ms * 3, 1));
+});
+
+test("a restored copy paints the newest rows and says older history is left", async () => {
+  const { cachedSnapshot } = await import("../src/agent-session/acpmux/snapshotCache");
+  const { value } = writeTimed(longChat(20_000));
+  const had = scope.sessionStorage;
+  scope.sessionStorage = { getItem: () => value, setItem: () => {}, removeItem: () => {} };
+  try {
+    const restored = cachedSnapshot();
+    expect(restored.rows.length).toBe(SAVED_ROWS);
+    expect(restored.rows.at(-1)!.id).toBe("row-19999");
+    expect(restored.rows[0]!.id).toBe(`row-${20_000 - SAVED_ROWS}`);
+    expect(restored.canLoadOlder).toBe(true);
+    expect(restored.historyFrom).toBeUndefined();
+  } finally {
+    scope.sessionStorage = had;
+  }
+  // A chat that fits whole is saved whole.
+  const whole = JSON.parse(writeTimed(longChat(20)).value);
+  expect(whole.rows.length).toBe(20);
+  expect(whole.canLoadOlder).toBe(false);
+});
+
+test("a full store keeps a smaller newest tail, and a copy that fits nowhere is removed", () => {
+  writes.length = 0;
+  // Rows of pasted text: 200 of them are past the byte bound, and the store takes 100 KB.
+  store.quota = 100_000;
+  try {
+    const { value } = writeTimed(longChat(5_000, "pasted ".repeat(1_000)));
+    const kept = JSON.parse(value).rows as { id: string }[];
+    expect(value.length).toBeLessThanOrEqual(100_000);
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.at(-1)!.id).toBe("row-4999");
+    store.quota = 10;
+    store.removed = 0;
+    writeTimed(longChat(5_000));
+    expect(writes.length).toBe(0);
+    expect(store.removed).toBe(1);
+  } finally {
+    store.quota = Infinity;
+  }
+});
+
+test("rows each past the byte bound save no rows, never the whole transcript", () => {
+  // The newest 3 rows are already past SAVED_BYTES, so the last try keeps none: slice(-0) is every row.
+  const { value } = writeTimed(longChat(40, "x".repeat(SAVED_BYTES / 2)));
+  expect(value.length).toBeLessThan(SAVED_BYTES);
+  const saved = JSON.parse(value);
+  expect(saved.rows.length).toBe(0);
+  expect(saved.canLoadOlder).toBe(true);
+});
+
+// Last: a cleared page keeps no copy for the rest of its life.
+test("clearSnapshot drops a pending write and later saves (a pane failure)", async () => {
+  const { clearSnapshot } = await import("../src/agent-session/acpmux/snapshotCache");
+  writes.length = 0;
+  store.removed = 0;
+  saveSnapshot(longChat(3));
+  clearSnapshot();
+  expect(store.removed).toBe(1);
+  saveSnapshot(longChat(3));
+  // The page hides: a save that was kept would be written now.
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  expect(writes.length).toBe(0);
 });

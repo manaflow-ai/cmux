@@ -738,12 +738,19 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, ShowAfter::Durable)
+        self.inner.save_meta(meta, ShowAfter::Durable).map(drop)
     }
     /// A `Stream` `meta` record: written in the journal's next batch, synced after
     /// ([`super::durability`]).
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, ShowAfter::Written)
+        self.inner.save_meta(meta, ShowAfter::Written).map(drop)
+    }
+    /// The digest of the image's fields, from the hashes the save makes for its patch anyway.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        self.inner.save_meta(meta, keep).map(Some)
+    }
+    fn digest(&self, meta: &SessionMeta) -> Option<MetaDigest> {
+        self.inner.meta_digest(meta).ok()
     }
     /// The line to the log first, then its record ([module docs](self)). Under the chat's
     /// stripe lock, not a store-wide one: the journal's room is reserved first (so the record
@@ -1218,8 +1225,76 @@ impl Store for JournalStore {
     fn is_cold(&self, id: &str) -> bool {
         Store::is_cold(&self.inner.local, id)
     }
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.fenced(id, || Store::offload_cold(&self.inner.local, id))
+    }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Store::register_cloud_root(&self.inner.local)
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)
+    }
+    /// The chat's newest journal record, read after the segments were listed, goes with the
+    /// archives: every line of a segment sealed before the listing was journaled at or before
+    /// it. A segment goes cold only once the checkpoint covers it (`prepare_cold_segments`), so
+    /// a replay (`journal_store/repair.rs`, `hub/journal_restore.rs`) rewrites only the tail past
+    /// it, never a cold segment.
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        let staged = self
+            .inner
+            .fenced(id, || Store::stage_cold_segments(&self.inner.local, id, max, level))?;
+        let lsn = self.inner.order.lock_or_recover().log_lsn.get(id).copied();
+        Ok(staged.map(|mut staged| {
+            staged.lsn = lsn;
+            staged
+        }))
+    }
+    /// A checkpoint through the staged pass's newest record, with no lock of the chat held.
+    /// False while frozen, or when the checkpoint stopped short of it.
+    fn prepare_cold_segments(&self, _id: &str, staged: &StagedColdSegments) -> Result<bool> {
+        let covered = |inner: &Inner| {
+            let order = inner.order.lock_or_recover();
+            !order.frozen && staged.lsn.is_none_or(|lsn| lsn <= order.checkpointed)
+        };
+        if covered(&self.inner) {
+            return Ok(true);
+        }
+        self.inner.checkpoint()?;
+        Ok(covered(&self.inner))
+    }
+    /// Only once the checkpoint covers the pass (it runs one when the caller did not). The
+    /// renames, the removals and the folder syncs run in `counted_sync`: a failed sync freezes
+    /// the store, as a failed log sync does.
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        if !self.prepare_cold_segments(id, &staged)? {
+            return Ok(ColdMoved::default());
+        }
+        let inner = &self.inner;
+        inner.counted_sync("a cold log segment failed to sync", || {
+            Store::commit_cold_segments(&inner.local, id, staged)
+        })
+    }
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        Store::settle_cold_segments(&self.inner.local, id)
+    }
+    /// The renames, removals and folder syncs run in `counted_sync`, as a move's do. The bytes
+    /// are the archive's, which the checkpoint already covered when it went cold.
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        let inner = &self.inner;
+        inner.counted_sync("a warmed log segment failed to sync", || {
+            Store::warm_cold_segments(&inner.local, id)
+        })
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        Store::on_segment_sealed(&self.inner.local, hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        Store::on_log_grown(&self.inner.local, hook)
     }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's

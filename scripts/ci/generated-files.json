@@ -29,7 +29,7 @@
     {
       "id": "page-strings",
       "generator": "webviews/scripts/pages/gen-strings.mjs",
-      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json"],
+      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json", "webviews/src/pages/settings/generated/pane-strings.json"],
       "status": "build"
     },
     {
@@ -69,11 +69,25 @@
       "status": "build"
     },
     {
+      "id": "design-scale-swift",
+      "generator": "scripts/cmux-next/gen-design-scale-swift.py",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
+      ],
+      "status": "build"
+    },
+    {
+      "id": "daemon-wire-types",
+      "generator": "cmux-tui/bindings/codegen/swift_app/generate.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift"
       ],
       "status": "build"
     },
@@ -92,7 +106,13 @@
       "id": "type-scale",
       "generator": "scripts/cmux-next/gen-type-scale.py",
       "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"],
-      "inputs": ["schemas/type-scale/**"],
+      "inputs": [
+        "schemas/type-scale/**",
+        "schemas/design-scale/scene-scale.json",
+        "schemas/design-scale/design-scale.json",
+        "schemas/layout-grid/layout-grid.json",
+        "schemas/motion-scale/motion-scale.json"
+      ],
       "check": ["--check"],
       "status": "committed"
     },

@@ -62,24 +62,27 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/EditedFilesCard.tsx"],
   variants: {
     "two-files": {
-      note: "Two nested paths, a document-diff tile, aggregate counts and real Undo / View changes actions.",
+      note: "One row: a document-diff tile, aggregate counts and a real Undo; one click stacks both files' diffs inside the card.",
       snapshot: twoFileSnapshot,
       native: twoFileNative,
     },
     "two-files-focus": {
-      note: "Keyboard focus on aggregate counts exposes View changes and its external arrow without moving the header actions.",
+      note: "Keyboard focus on the card's chevron, then Enter: both files' diffs stack inside the card, each with Open in Changes in its sticky header; the header's counts stay plain counts.",
       snapshot: twoFileSnapshot,
       native: twoFileNative,
       play: async (ctx) => {
-        await ctx.focus({ selector: ".acpmux-edited-summary" });
-        await ctx.waitFor(() => {
-          const label = ctx.document.querySelector(".acpmux-edited-summary-link");
-          return label && ctx.document.defaultView?.getComputedStyle(label).opacity === "1";
-        });
+        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-edited-chevron"));
+        await ctx.focus({ selector: "button.acpmux-edited-chevron" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-edited-stack .cv-edit-diff").length === 2);
+        if (ctx.document.querySelectorAll(".acpmux-edited-stack .acpmux-edited-open").length !== 2)
+          throw new Error("a stacked diff has no Open in Changes");
+        if (ctx.document.querySelector(".acpmux-review-changes, .acpmux-edited-summary"))
+          throw new Error("the card shows a second way to its changes");
       },
     },
     "nine-files": {
-      note: "The reference card: Edited 9 files, +129 −5, three initial rows, Show 6 more files, Undo and View changes.",
+      note: "The reference card as one row: Edited 9 files, +129 −5 and Undo; one click stacks all nine diffs inline (Leo, 2026-11-25).",
       snapshot: chat(
         [
           user("Keep the window corners flush.", 1),
@@ -98,14 +101,16 @@ export default agentPaneEntry({
         }),
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-edited-file").length === 3);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-head"));
         const card = ctx.document.querySelector(".acpmux-edited")!;
         if (!card.querySelector(".acpmux-edited-title")?.textContent?.includes("Edited 9 files"))
           throw new Error("Missing nine-file title");
-        if (card.querySelector(".acpmux-edited-more")?.textContent?.trim() !== "Show 6 more files")
-          throw new Error("Missing six-file expansion");
-        if (!card.querySelector(".acpmux-edited-undo") || !card.querySelector(".acpmux-review-changes"))
-          throw new Error("Missing reference card actions");
+        if (card.querySelector(".acpmux-edited-stack, .acpmux-edited-section"))
+          throw new Error("The card lists its files before it is opened");
+        if (!card.querySelector(".acpmux-edited-undo")) throw new Error("Missing reference card Undo");
+        // One way to a change: the row opens every diff inline; no View changes beside Undo.
+        if (card.querySelector(".acpmux-review-changes, .acpmux-edited-summary"))
+          throw new Error("The reference card shows a second way to its changes");
       },
     },
   },
