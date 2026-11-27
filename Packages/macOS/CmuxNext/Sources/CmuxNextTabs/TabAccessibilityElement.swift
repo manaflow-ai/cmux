@@ -40,6 +40,11 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
         return true
     }
 
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
+
     override func accessibilityPerformPress() -> Bool {
         guard let onPress, Self.onMain("press") else { return false }
         MainActor.assumeIsolated { onPress() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
@@ -121,8 +126,8 @@ extension TabCell {
         let m = metrics, side = m.closeButtonSize
         // Point the hidden accessibility child where the close glyph will
         // actually appear on hover, including the centered narrow swap.
-        // A pinned, protected or transition-hidden tab has no close child: a
-        // pinned tab closes from its menu (Lawrence msg 19392).
+        // A protected or transition-hidden tab has no close child; a pinned
+        // tab's x takes its centered icon slot, as a crowded tab's does.
         let hover = TabChromeVisibility.resolve(
             width: layer.bounds.width, isPinned: item.isPinned, isSelected: isSelected,
             isHovered: true, isClosable: item.isClosable, hasStatus: hasStatusMark, style: style, metrics: m)

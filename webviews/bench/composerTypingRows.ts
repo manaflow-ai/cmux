@@ -7,8 +7,9 @@
 //                can never read as a fast one.
 //   to_paint     DOM keydown to the paint of the key's frame (Chromium's element timing; WebKit's the after-frame
 //                paint proxy; composer-load.ts): p50 of the samples, p95; target the load's
-//                report-only budget_p95_ms (16).
-//   to_paint_p99 its p99 as the row's value; target budget_p99_ms (33).
+//                report-only budget_p95_ms (the app's 16 ms on its 120 Hz display, read on the harness's
+//                display: 24.3 ms at 60 Hz; composer-load.ts displayBudgets).
+//   to_paint_p99 its p99 as the row's value; target budget_p99_ms (33 ms on the app's display, 41.3 at 60 Hz).
 // Targets are report-only: the cron lists rows over them, it never blocks a push or a pull request.
 import type { PerfRow } from "./perfRow";
 

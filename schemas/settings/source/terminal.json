@@ -77,6 +77,112 @@
       ]
     },
     {
+      "name": "terminalCursor",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalCursor",
+        "text": "Cursor"
+      },
+      "rows": [
+        {
+          "key": "terminal.cursorStyle",
+          "name": "cursorStyle",
+          "title": {
+            "key": "settings.terminal.cursorStyle",
+            "text": "Cursor Style"
+          },
+          "help": {
+            "key": "settings.terminal.cursorStyle.help",
+            "text": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.cursorStyle.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "bar",
+              "title": {
+                "key": "settings.choice.cursorStyle.bar",
+                "text": "Bar"
+              }
+            },
+            {
+              "value": "underline",
+              "title": {
+                "key": "settings.choice.cursorStyle.underline",
+                "text": "Underline"
+              }
+            },
+            {
+              "value": "block_hollow",
+              "title": {
+                "key": "settings.choice.cursorStyle.blockHollow",
+                "text": "Hollow Block"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.ghosttyConfig",
+            "text": "Ghostty Config"
+          },
+          "keywords": [
+            "cursor",
+            "caret",
+            "bar",
+            "block",
+            "underline",
+            "theme"
+          ]
+        },
+        {
+          "key": "terminal.cursorBlink",
+          "name": "cursorBlink",
+          "title": {
+            "key": "settings.terminal.cursorBlink",
+            "text": "Cursor Blink"
+          },
+          "help": {
+            "key": "settings.terminal.cursorBlink.help",
+            "text": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.cursorBlink.on",
+                "text": "Blink"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cursorBlink.off",
+                "text": "Steady"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.ghosttyConfig",
+            "text": "Ghostty Config"
+          },
+          "keywords": [
+            "cursor",
+            "blink",
+            "caret",
+            "theme"
+          ]
+        }
+      ]
+    },
+    {
       "name": "openingLinks",
       "section": "terminal",
       "group": {

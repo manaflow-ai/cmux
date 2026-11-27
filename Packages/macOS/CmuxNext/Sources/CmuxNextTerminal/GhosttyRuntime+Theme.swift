@@ -95,6 +95,7 @@ extension GhosttyRuntime {
         "minimum-contrast", "faint-opacity", "palette-generate", "palette-harmonious",
         "alpha-blending", "window-colorspace",
         "search-background", "search-foreground", "search-selected-background", "search-selected-foreground",
+        "background-cells-opacity", "background-cells-neutral-fade",
     ]
 
     /// The terminal theme of the config applied to every surface, as Ghostty config lines
@@ -123,7 +124,8 @@ extension GhosttyRuntime {
                     "search-background", "search-foreground", "search-selected-background", "search-selected-foreground"] {
             lines.append(color(config, key).map { "\(key) = \(hex($0))" } ?? "\(key) =")
         }
-        for key in ["cursor-opacity", "minimum-contrast", "faint-opacity"] {
+        for key in ["cursor-opacity", "minimum-contrast", "faint-opacity",
+                    "background-cells-opacity", "background-cells-neutral-fade"] {
             var value: Double = 0
             lines.append(configGet(config, &value, key: key) && value.isFinite ? "\(key) = \(value)" : "\(key) =")
         }

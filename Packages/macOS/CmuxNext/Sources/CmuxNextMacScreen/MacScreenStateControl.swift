@@ -21,6 +21,10 @@ import CmuxNextSettings
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
 ///   Mac numbered that never showed here), `frame` (the stream's pixel size);
+/// - `host_frames` (the frames the host says it sent) and `host_stats_age_ms` (since its last `stats` line;
+///   it sends one every two seconds even on a still screen): a fresh line with `host_frames` no more than
+///   `frames_decoded` plus `frames_dropped` reads as a screen that did not change (`screen_still` true),
+///   frames the host sent that never decoded as a stall; null before the host's first line;
 /// - `rtt_ms_window`, `frame_interval_ms` and `present_ms` (decoded to shown): {count, p50, p95,
 ///   max} over the last 60 round trips and 120 frames; null before the first sample.
 /// - `window_pid`, `window_id` (the pane's window, for a screen capture of it to time the presented
@@ -143,7 +147,8 @@ extension MacScreenPages {
         row["connect_stage"] = .string(session.connectStage.name)
         row["timed_out_at"] = session.timedOutStage.map { .string($0.name) } ?? .null
         // Why it failed, in the words of the side that knew (the host's grant, display list or helper; this Mac's link).
-        row["failure"] = switch session.failureCause {
+        // The card's cause: the session's own, else the host's reason the hub carried (`failed: <reason>`).
+        row["failure"] = switch pane.model.failureCause {
         case let .host(reason)?: ["by": "host", "reason": .string(reason)]
         case let .link(reason)?: ["by": "link", "reason": .string(reason)]
         case nil: .null
@@ -161,6 +166,13 @@ extension MacScreenPages {
         row["rtt_ms"] = stats.latencyMs.map(JSONValue.number) ?? .null
         row["frames_decoded"] = .number(stats.framesDecoded)
         row["frames_dropped"] = .number(stats.framesDropped)
+        row["host_frames"] = stats.hostFrames.map(JSONValue.number) ?? .null
+        let hostStatsAge = stats.hostStatsAt.map { (Date().timeIntervalSince($0) * 1000).rounded() }
+        row["host_stats_age_ms"] = hostStatsAge.map(JSONValue.number) ?? .null
+        row["screen_still"] = Self.screenStill(
+            hostFrames: stats.hostFrames, hostStatsAgeMs: hostStatsAge,
+            decoded: stats.framesDecoded, dropped: stats.framesDropped
+        ).map(JSONValue.bool) ?? .null
         row["frame"] = .string("\(Int(session.frameSize.width))x\(Int(session.frameSize.height))")
         row["rtt_ms_window"] = summary(timings.rtt)
         let frames = session.frameCounter?.timings
@@ -170,6 +182,8 @@ extension MacScreenPages {
         row["decode_ms"] = frames.map { summary($0.decode) } ?? .null
         row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
         row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
+        // Frames macOS never put on the glass (no presented time): left out of the two above.
+        row["unpresented_frames"] = frames.map { .number(Double($0.unpresented)) } ?? .null
         return .object(row)
     }
 
@@ -187,6 +201,14 @@ extension MacScreenPages {
 
     private static func screenID(_ screen: NSScreen?) -> CGDirectDisplayID? {
         (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
+    }
+
+    /// `screen_still`: the host's last `stats` line is fresh (inside its two-second still-screen heartbeat,
+    /// with slack) and every frame it counted arrived here, decoded or dropped, so there is nothing new to
+    /// show. False is frames the host sent that never arrived, or a host gone quiet. Nil before its first line.
+    nonisolated static func screenStill(hostFrames: Double?, hostStatsAgeMs: Double?, decoded: Double, dropped: Double) -> Bool? {
+        guard let hostFrames, let hostStatsAgeMs else { return nil }
+        return hostStatsAgeMs < 5000 && hostFrames <= decoded + dropped
     }
 
     private static func summary(_ samples: MacScreenRollingSamples) -> JSONValue {

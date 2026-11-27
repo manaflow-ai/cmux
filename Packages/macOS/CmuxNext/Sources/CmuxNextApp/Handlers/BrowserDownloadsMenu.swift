@@ -25,7 +25,7 @@ enum BrowserDownloadsMenu {
             ("browser.download.open", BrowserHitStrings.downloadOpen, "arrow.up.forward.app"),
             ("browser.download.reveal", BrowserHitStrings.downloadShowInFinder, "folder"),
             ("browser.download.togglePause", pause.0, pause.1),
-            ("browser.download.retry", BrowserHitStrings.downloadRetry, "arrow.clockwise"),
+            ("browser.download.retry", BrowserHitStrings.downloadRetry, "arrow.clockwise"),  // retry-prompt-ok: a download retry fetches the file again over the network and writes it to disk; the person asks for it
             ("browser.download.cancel", BrowserHitStrings.downloadCancel, "xmark.circle"),
             ("browser.download.copyLink", BrowserHitStrings.downloadCopyLink, "link"),
         ]
