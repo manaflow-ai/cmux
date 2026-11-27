@@ -24,6 +24,7 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 cmux-local-url.workspace = true
 # cmux link grammar (src/cmux_link.rs) parses URLs.
+url.workspace = true
 async-trait = "0.1"
 cmux-auto-session.workspace = true
 # Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
