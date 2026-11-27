@@ -89,3 +89,12 @@ fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
     assert_eq!(row.value, schema_default);
     assert_eq!(row.default, schema_default);
 }
+
+#[test]
+fn a_build_default_cannot_opt_the_user_into_personal_github_login() {
+    let key = "cloud.useMyGitHubLogin";
+    let defaults = BTreeMap::from([(key.to_owned(), json!(true))]);
+    let schema = schema(&defaults);
+    assert_eq!(schema.row(key).expect("the login row").default, Some(json!(false)));
+    assert!(!schema.build_defaults().contains_key(key));
+}

@@ -376,10 +376,8 @@ impl RowTable {
     fn prompt(&mut self, rec: &EventRecord, out: &mut Vec<Patch>) {
         let msg = &rec.msg;
         let steer = msg.get("steer").and_then(Value::as_bool) == Some(true);
-        if !steer {
-            if let Some(turn) = owned(msg, "turnId") {
-                self.open_turn(turn);
-            }
+        if !steer && let Some(turn) = owned(msg, "turnId") {
+            self.open_turn(turn);
         }
         let prompt_id = owned(msg, "promptId");
         let text = msg.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();

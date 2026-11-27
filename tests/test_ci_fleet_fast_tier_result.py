@@ -148,6 +148,23 @@ class Read(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
+    def test_batch_registry_selects_every_swift_suite_and_rejects_partial_coverage(self):
+        home, app = "Packages/Shared/CmuxHomeRender", "Packages/macOS/CmuxNext"
+        entries = [{"kind": "swift", "package": app, "filter": "OneTests"},
+                   {"kind": "script"}, {"kind": "swift", "package": home, "filter": "TwoTests"},
+                   {"kind": "swift", "package": app, "filter": "ThreeTests"}]
+        self.assertEqual(m.registry_suites(entries), {app: "OneTests,ThreeTests", home: "TwoTests"})
+        for unsupported in (entries[:1], entries + [{"kind": "swift", "package": "New", "filter": "FourTests"}]):
+            with self.assertRaises(ValueError):
+                m.registry_suites(unsupported)
+
+    def test_batch_does_not_accept_another_suite_set_at_the_same_sha(self):
+        steps = [step("Packages/macOS/CmuxNext", "pass"), step("Packages/Shared/CmuxHomeRender", "pass")]
+        expected = {s["package"]: s["suites"] for s in steps}
+        self.assertEqual(run([(200, record("pass", steps))], expected_suites=expected)[0], "pass")
+        steps[0]["suites"] = "OtherTests"
+        self.assertEqual(run([(200, record("pass", steps))], expected_suites=expected)[0], "unavailable")
+
     def test_bad_args_print_unavailable(self):
         import contextlib
         import io
