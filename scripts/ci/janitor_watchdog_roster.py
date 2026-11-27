@@ -13,8 +13,18 @@ Prints one line, `<state> <detail>`:
   saturated  a runner carrying the label is online (idle or busy): the label is
              served, and the sweep waits behind its queue
   starved    the roster reads, and no runner carrying the label is online
-  unknown    the roster cannot be read (no token, a refusal, a timeout): the
-             watchdog keeps its snapshot-only verdict and says the roster is unknown
+  unknown    the roster cannot be read (no token, a refusal, a timeout), or one
+             read said starved and the other could not be read: the watchdog
+             files nothing and says the roster is unknown
+
+"starved" is the only state that files an issue, so it takes two reads that
+both say starved, CONFIRM_SECONDS apart (confirmed()); either read finding an
+online runner is saturated. One read was the whole verdict until 2026-11-23,
+and an unreadable roster filed the issue too: cmux#50767, #51512 and #51605
+opened on "runner roster unknown: ... API rate limit exceeded" and the next
+watchdog run, a minute later, read the roster and closed each one as
+"saturated, not starved" (192 to 221 runners online). Open and close now read
+the same classification.
 
 The roster is the repository's runners and those of every org runner group
 visible to it, read with ROUTE_TOKEN (the routing App's token, minted with
@@ -31,6 +41,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.parse
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
@@ -38,6 +49,8 @@ from typing import Any
 PAGE_SIZE = 100
 MAX_PAGES = 5
 TIMEOUT_SECONDS = 30
+# The pause between the two reads a "starved" verdict needs (confirmed()).
+CONFIRM_SECONDS = 30
 
 Fetch = Callable[[str], Any]
 
@@ -110,8 +123,26 @@ def verdict(env: Mapping[str, str], fetch: Fetch | None = None) -> tuple[str, st
         return "unknown", f"runner roster unknown: {error}"
 
 
+def confirmed(env: Mapping[str, str], fetch: Fetch | None = None,
+              sleep: Callable[[float], None] = time.sleep) -> tuple[str, str]:
+    """verdict(), read twice when the first read is not saturated: starved only when both reads say so.
+
+    An online runner in either read is saturated. Starved on one read and unreadable on the other is unknown, as
+    is unreadable twice: the watchdog files no issue on a roster it could not read.
+    """
+    first = verdict(env, fetch)
+    if first[0] == "saturated":
+        return first
+    sleep(float(env.get("CONFIRM_SECONDS") or CONFIRM_SECONDS))
+    second = verdict(env, fetch)
+    if second[0] == "saturated" or first[0] == second[0]:
+        return second
+    unread = first if first[0] == "unknown" else second
+    return "unknown", f"{unread[1]} (the other read said starved, so starved is not confirmed)"
+
+
 def main(env: Mapping[str, str] = os.environ) -> int:
-    state, detail = verdict(env)
+    state, detail = confirmed(env)
     print(f"{state} {detail}")
     return 0
 

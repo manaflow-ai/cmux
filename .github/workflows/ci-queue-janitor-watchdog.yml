@@ -18,8 +18,11 @@ name: CI queue janitor watchdog
 # online and 82 busy, and the sweep waited 77 min for one). Before filing, the
 # watchdog reads the label's live roster (scripts/ci/janitor_watchdog_roster.py):
 # an online runner on it means saturated (a warning, no starved issue, and a
-# starved issue this watchdog filed is closed); none online means starved; an
-# unreadable roster keeps the snapshot-only alert and names the roster unknown
+# starved issue this watchdog filed is closed); none online on two reads means
+# starved and files the issue; an unreadable roster files nothing (a red run
+# that names the roster unknown). An unknown roster used to file the issue, and
+# the next run, reading the roster, closed it as saturated a minute later
+# (cmux#50767, #51512, #51605): only a confirmed "starved" opens one now
 # (tests/test_ci_janitor_watchdog.py).
 
 on:
@@ -141,11 +144,15 @@ jobs:
             exit 0
           fi
           if [ "$state" = "starved" ]; then
-            why="The live roster confirms it: $detail."
+            why="The live roster confirms it on two reads: $detail."
           elif [ "$state" = "jit" ]; then
             why=""
           else
-            why="The live roster could not be read, so whether the label is starved or saturated is unknown ($detail)."
+            # Unread is not starved: the run that next reads the roster would close the issue as saturated
+            # (cmux#50767, #51512, #51605). A red run, no issue; an issue already open is left as it is.
+            echo "::error::Runner label $LABEL: no janitor snapshot for ${age}s, and the roster is unknown, so no starved issue: $detail"
+            echo "- Runner label $LABEL: no janitor snapshot for ${age}s; roster unknown, no starved issue filed: $detail" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           if [ "$LABEL" = "cmux-fleet-linux-x64" ]; then
             move="The sweep runs on \`$LABEL\` because the repository variable \`CI_QUEUE_JANITOR_ON_FLEET\` is 1, so that label is likely booting no runners. Unset that variable to move the sweep back to its one-job repair VM \`cmux-gcp-repair-jit-x64\`"
