@@ -427,6 +427,31 @@ fn internal() { let surface_id: u64 = 4; }
                 ("boundary.surface", 5),
             ])
 
+    def test_cli_module_paths_are_not_public_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/customize/pr.rs"
+            write(path, '\n'.join([
+                'const HELP: &str = "cmux attach-surface";',
+                '#[cfg(test)]',
+                '#[path = "surfaces_tests.rs"]',
+                'mod surfaces_tests;',
+                '#[path = r#"surfaces_impl.rs"#]',
+                'mod implementation;',
+                '# [ path = "surface_helpers.rs" ]',
+                'mod helpers;',
+                '#[doc = "cmux surface list"]',
+                'const RAW_HELP: &str = r#"cmux surface list"#;',
+            ]) + '\n')
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                ("boundary.surface", 1),
+                ("boundary.surface", 9),
+                ("boundary.surface", 10),
+            ])
+
     def test_cli_allows_terminal_identity_env_names_from_the_rust_table_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
