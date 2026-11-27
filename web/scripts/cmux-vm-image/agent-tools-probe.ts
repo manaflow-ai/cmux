@@ -187,11 +187,11 @@ export function recorderScript(out: string): string {
   return [
     "#!/bin/sh",
     "# cmux agent tools probe: records the launch acpmux makes; calls no model.",
-    `rec=$(mktemp ${sq(`${out}.XXXXXX`)}) || rec=`,
     // acpmux passes --mcp-config as a 0600 file it deletes when the session ends: keep its JSON (one line) too.
-    `{ cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } >> "\${rec:-${out}}"`,
-    // One append (a record is about 10 KB, under cat's one-write buffer): records never interleave.
-    `if [ -n "$rec" ]; then cat "$rec" >> ${sq(out)}; rm -f "$rec"; fi`,
+    // acpmux starts its model listing (live_models) beside the chat's launch: each launch's record is built in its
+    // own file and appended in one write, so two launches never interleave their lines (roll 45906244147's
+    // attempt 2 had the chat's arguments and a model listing's in one record).
+    `rec=${sq(out)}.$$; { cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } > "$rec"; cat "$rec" >> ${sq(out)}; rm -f "$rec"`,
     `if [ "\${1:-}" = --version ]; then echo "2.1.267 (Claude Code)"; exit 0; fi`,
     `echo "cmux agent tools probe: recorder, no model" >&2`,
     "exit 3",
@@ -202,13 +202,15 @@ export function recorderScript(out: string): string {
 /** A server of the launch: a stdio command, or (`url`) an HTTP server such as acpmux's gateway, with no command. */
 export type RecordedServer = { name: string; command: string; args: string[]; env: Record<string, string>; url?: string };
 
-/** The last recorded launch that carries `--mcp-config`: its servers and its `--plugin-dir`. */
+/**
+ * The last recorded chat launch that carries `--mcp-config`: its servers and its `--plugin-dir`. acpmux's model
+ * listing (live_models/claude.rs) passes an empty inline `--mcp-config` under `--strict-mcp-config` and can start
+ * after the chat's launch (roll 45890407908's gateway leg), so a `--strict-mcp-config` launch is never the chat's:
+ * acpmux gives such a launch no tools (agent_tools.rs `left_out`).
+ */
 export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; pluginDir?: string } {
   const launches = text.split(`${RECORD_END}\n`).map((block) => block.split("\n").filter((line, i, all) => i < all.length - 1 || line !== ""));
-  // The session's launch is the one with --plugin-dir: live_models/claude.rs's model-list launch beside it also passes
-  // --mcp-config (an empty one) and may be recorded after it, so the last --mcp-config alone can read no servers.
-  const recent = launches.reverse();
-  const launch = recent.find((args) => args.includes("--mcp-config") && args.includes("--plugin-dir")) ?? recent.find((args) => args.includes("--mcp-config"));
+  const launch = launches.reverse().find((args) => args.includes("--mcp-config") && !args.includes("--strict-mcp-config"));
   if (!launch) return { servers: [] };
   // The value is a file path (acpmux writes the config to a 0600 file); an inline JSON value is read as it is.
   const value = launch[launch.indexOf("--mcp-config") + 1] ?? "";
@@ -413,8 +415,13 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   await run(vm, `setsid python3 -m http.server ${PAGE_PORT} --bind 127.0.0.1 --directory ${PROBE_DIR}/www >${PROBE_DIR}/www.log 2>&1 < /dev/null & echo started`, 30_000, DEVBOX_WORK_USER);
   const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
+  const started = Date.now();
   const ws = await run(vm, `${C} workspace name:${WORKSPACE} show >/dev/null 2>&1 || ${C} workspace create --name ${WORKSPACE} >/dev/null && echo ok`, 60_000, DEVBOX_WORK_USER);
-  check("daemon-terminal", ws.code === 0, ws.stdout.trim() || ws.stderr.slice(-300));
+  result.timings.daemonTerminalMs = Date.now() - started;
+  // Roll 45916909960: a clone's daemon left a request unanswered past the CLI's 10 s read bound (wire.rs), with no
+  // evidence of what it was doing: a failure keeps the daemon's own status beside the CLI's words.
+  const status = ws.code === 0 ? "" : (await run(vm, `timeout 20 ${C} daemon status 2>&1 | tail -15`, 30_000, DEVBOX_WORK_USER).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 120)}` }))).stdout.trim().replace(/\s+/g, " ");
+  check("daemon-terminal", ws.code === 0, `${ws.stdout.trim() || ws.stderr.slice(-300)}${ws.code === 0 ? "" : ` (after ${result.timings.daemonTerminalMs} ms; daemon status: ${status.slice(-600) || "none"})`}`);
   return ws.code === 0;
 }
 
