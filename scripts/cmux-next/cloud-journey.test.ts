@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as journey from "./cloud-journey";
 import { spawnSync } from "node:child_process";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -3932,5 +3933,76 @@ describe("rpcFailureReason", () => {
     expect(rpcFailureReason("unreachable")).toBe(" (unreachable)");
     expect(rpcFailureReason("Error: secret text")).toBe("");
     expect(rpcFailureReason(undefined)).toBe("");
+  });
+});
+
+
+describe("wake-echo own-run cleanup", () => {
+  const scope = { repository: "manaflow-ai/cmux", run: "123", attempt: "2", job: "wake-echo", api: "https://staging.example", team: "" };
+  const machine = "vm_1b6259ad1acb4b12572c";
+  const key = "jr-test123-cleanup-delete";
+  const withFile = async (run: (file: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), "wake-cleanup-test-"));
+    try { await run(join(dir, "created.json")); } finally { rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  test("a fresh process recovers the returned ID and original delete key after the journey is killed", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const calls: string[][] = [];
+    const record = journey.readWakeCleanup(file, scope);
+    expect(record).toMatchObject({ version: 1, machine, key, scope });
+    let deleted = false;
+    await journey.cleanupWakeMachine(record, {
+      get: async (id: string) => { calls.push(["get", id]); return { status: deleted ? "deleting" : "paused" }; },
+      remove: async (id: string, k: string) => { calls.push(["delete", id, k]); deleted = true; },
+    });
+    expect(calls).toEqual([["get", machine], ["delete", machine, key], ["get", machine]]);
+    expect(readFileSync(file, "utf8")).not.toContain("token");
+  }));
+
+  test("missing record and already deleted machine need no delete", async () => withFile(async (file) => {
+    expect(journey.readWakeCleanup(file, scope)).toBeNull();
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const row of [null, { status: "deleted" }, { status: "deleting" }]) {
+      await journey.cleanupWakeMachine(journey.readWakeCleanup(file, scope), {
+        get: async () => row, remove: async () => { throw new Error("unexpected delete"); },
+      });
+    }
+  }));
+
+  test("another run, attempt, job, backend or team cannot consume the record", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const field of Object.keys(scope)) {
+      expect(() => journey.readWakeCleanup(file, { ...scope, [field]: "different" })).toThrow(/scope/);
+    }
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    for (const bad of [{ ...record, version: 2 }, { ...record, machine: "" }, { ...record, key: "" }]) {
+      writeFileSync(file, JSON.stringify(bad));
+      expect(() => journey.readWakeCleanup(file, scope)).toThrow(/record/);
+    }
+  }));
+
+  test("read errors never trigger deletion and an unconfirmed delete fails", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => { throw new Error("HTTP 403"); },
+      remove: async () => { throw new Error("unexpected delete"); },
+    })).rejects.toThrow("HTTP 403");
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => {},
+    })).rejects.toThrow(/not confirmed/);
+  }));
+
+  test("workflow cleans its record on failure or cancellation before artifact upload", () => {
+    const workflow = readFileSync(new URL("../../.github/workflows/cloud-wake-echo.yml", import.meta.url), "utf8");
+    const cleanup = workflow.indexOf("- name: Delete this run's machine");
+    expect(cleanup).toBeGreaterThan(workflow.indexOf("--wake-echo 50"));
+    const step = workflow.slice(cleanup, workflow.indexOf("uses: actions/upload-artifact", cleanup));
+    expect(step).toContain("if: always()");
+    expect(step).toContain("timeout-minutes: 6");
+    expect(step).toContain('--cleanup-wake-record "$out/created-machine.json"');
+    expect(workflow).toContain('--wake-cleanup-record "$out/created-machine.json"');
+    expect(workflow).toContain("wake-echo-${{ github.run_id }}-${{ github.run_attempt }}");
   });
 });
