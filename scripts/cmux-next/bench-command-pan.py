@@ -51,6 +51,7 @@ import argparse, ast, importlib.util, inspect, json, os, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 parser.add_argument("--dry-run", action="store_true", help="check the calls against the real signatures; launch nothing")
@@ -63,7 +64,9 @@ parser.add_argument("--rounds", type=int, default=6)
 parser.add_argument("--steps", type=int, default=40)
 parser.add_argument("--dx", type=float, default=24)
 parser.add_argument("--columns", type=int, default=3, help="strip columns added to the measured workspace")
-parser.add_argument("--settle", type=float, default=1.0, help="seconds after the gesture for the spring to rest")
+parser.add_argument("--settle", type=float, default=1.0,
+                    help="the spring rests after a gesture: the wait for the strip's dividers to hold still is up to "
+                         "max(5, 5 x this) seconds")
 parser.add_argument("--target", choices=("terminal", "chromium"), default="terminal", help="what the pointer is over")
 opts, _unknown = parser.parse_known_args()
 if not opts.dry_run and not (opts.app and opts.out):
@@ -151,6 +154,16 @@ class Session:
             raise RuntimeError(f"no point for pane {pane}: {str(reply)[:160]}")
         return {"x": reply["x"], "y": reply["y"]}
 
+    def strip_at_rest(self, what):
+        """Waits until the strip's spring rests: the shown window's divider areas (`debug.layers`) hold still.
+        Best effort: past the deadline it goes on and says so."""
+        def dividers():
+            return self.stress.shown_window().get("divider_areas_in_window")
+        try:
+            wait_stable(dividers, what, timeout=max(5.0, opts.settle * 5), interval=0.1, reads=3)
+        except StateWaitTimeout as error:
+            print(f"warning: {error}", flush=True)
+
     def gesture(self, point, dx, command):
         """One trackpad gesture at the window `point`; returns the `delivered_to` of each event."""
         modifiers = ["cmd"] if command else []
@@ -179,7 +192,7 @@ def pan_round(app, name, mode, index, session, point):
     app.rpc("debug.frames", {"action": "start"})
     started = uptime()
     delivered = session.gesture(point, dx, command=mode == "command")
-    time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
+    session.strip_at_rest("the strip after the pan")  # the frames run until the strip's spring rests
     window = (started, uptime())
     frames = app.rpc("debug.frames", {"action": "stop"}) or {}
     # The main-thread stalls of the pan (over the hang threshold): the longest one's stack says what a long frame was.
@@ -267,7 +280,7 @@ def measure(app, name, session, panes, report):
         report.setdefault("cef_checked", []).append({"session": name, "pane": pane, "problems": session.chromium_page(pane)})
     point = session.point(pane)
     control = session.gesture(point, opts.dx, command=False)
-    time.sleep(opts.settle)  # bench harness: a control that wrongly panned rests before the next gesture
+    session.strip_at_rest("the strip after the control gesture")  # a control that wrongly panned rests first
     control_taken = sum(1 for d in control if d == "LayoutRootView")
     report["summary"].append({"session": name, "mode": "control", "plain_events_to_layout": control_taken,
                               "plain_events": len(control)})

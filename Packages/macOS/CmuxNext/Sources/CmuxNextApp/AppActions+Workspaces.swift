@@ -97,8 +97,16 @@ extension AppActions {
         }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
+        ChiefParticipantActions.bindSetMyPicture(into: services.registry, connection: { services.home.connection }, window: { services.windows.active?.window })
         bindHomeGroups(services)
         bindHomeMessaging(services)
+        // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (`cmux chief edit|engine|adopt`).
+        HomeChiefRegistryActions(connection: { services.home.connection }, conversations: { services.home.homeStore.rows.filter { !services.home.isCloudConversation($0.id) }.map(\.summary) },
+                                 deleted: { services.home.directory.deletedLocalChiefs }, openEditor: { chief in
+            guard !services.home.dock.isClassic else { return HomeChiefRegistryActions.editNeedsChannels }
+            openChannelsRoute("/chief/\(chief)/edit", services) { _ in services.registry.refuse(HomeChiefRegistryActions.editNeedsChannels) }
+            return nil
+        }).bind(into: registry)
         services.home.chiefHomes.bind(into: registry)  // Start now on a queued agent: its pill's menu, the palette, the CLI
         // Palette "Debug: Save Last 10 Seconds" (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
         HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? [], homes: services.home.chiefHomes).bind(into: registry)

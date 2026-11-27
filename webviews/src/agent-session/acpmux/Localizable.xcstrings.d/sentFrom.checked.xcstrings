@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sentFrom.checked" : {
+      "comment" : "Agent pane: tooltip line when acpmux confirmed where a prompt came from by the sender's process chain; app is the app it runs under",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أكّد cmux ذلك: المرسل يعمل ضمن {app}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux je to potvrdio: pošiljalac radi pod {app}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux bekræftede det: afsenderen kører under {app}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux hat es bestätigt: der Absender läuft unter {app}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux confirmed it: the sender runs under {app}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux lo confirmó: el remitente se ejecuta en {app}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux l'a confirmé : l'expéditeur s'exécute sous {app}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux lo ha confermato: il mittente è in esecuzione in {app}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux が確認済み: 送信元は {app} の下で動作しています"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux បានបញ្ជាក់៖ អ្នកផ្ញើដំណើរការក្រោម {app}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 확인함: 보낸 쪽은 {app}에서 실행 중"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux bekreftet det: avsenderen kjører under {app}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux to potwierdził: nadawca działa w {app}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "o cmux confirmou: o remetente roda em {app}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux подтвердил: отправитель работает в {app}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ยืนยันแล้ว: ผู้ส่งทำงานภายใต้ {app}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux doğruladı: gönderen {app} altında çalışıyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux підтвердив: відправник працює в {app}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux đã xác nhận: bên gửi chạy trong {app}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 已确认：发送方运行在 {app} 中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 已確認：傳送方執行於 {app} 中"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -129,6 +129,45 @@ async fn a_cancelled_prompt_settles_its_turn_and_the_next_prompt_runs() {
     assert_eq!(s.queued(), 0, "nothing waits in the queue");
 }
 
+/// A retry of a running prompt's id is a duplicate: cancelling the retry's request answers it
+/// cancelled and leaves the first run's turn running; only the first request's cancel stops it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cancelled_duplicate_never_stops_the_first_run() {
+    let hub = hub();
+    let mut c = Client::connect(&hub);
+    let new =
+        c.call(1, "session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let sid = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
+    let s = hub.resolve(&sid).unwrap();
+
+    c.send(Message::request(10, "session/prompt", prompt(&sid, "until-cancel", "p-first"))).await;
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while hub.agent_pending_requests(&sid).await != Some(1) {
+        assert!(tokio::time::Instant::now() < deadline, "the prompt never reached its agent");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let mut again = prompt(&sid, "until-cancel", "p-first");
+    again["_meta"]["acpmux"]["resend"] = json!(true);
+    c.send(Message::request(11, "session/prompt", again)).await;
+    // The retry is taken as a duplicate of the first run before it is cancelled.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    c.send(Message::notification(method::CANCEL_REQUEST, json!({"requestId": 11}))).await;
+    let cancelled = c.answer(11, WAIT).await.expect("the cancel answered the retry");
+    assert_eq!(
+        cancelled["error"]["code"],
+        json!(crate::request_cancel::REQUEST_CANCELLED),
+        "{cancelled}"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(s.turn().is_some(), "the retry's cancel stopped the first run");
+    assert!(c.answer_to(10).is_none(), "the first run was answered by the retry's cancel");
+
+    c.send(Message::notification(method::CANCEL_REQUEST, json!({"requestId": 10}))).await;
+    c.answer(10, WAIT).await.expect("the cancel answered the first run");
+    until("the first run's turn is still running", || s.turn().is_none()).await;
+}
+
 /// Where in a prompt's life its request is cancelled (the detector of the class "a cancel path
 /// skips the cleanup the normal finish takes"): one seam per await stage of a prompt.
 #[derive(Debug, Clone, Copy)]
@@ -282,4 +321,42 @@ async fn a_prompt_cancelled_at_any_stage_leaves_the_session_idle_and_every_waite
     for stage in STAGES {
         cancel_at(stage).await;
     }
+}
+
+/// The daemon's stop answers every request in flight `daemon.restarting` (`shutdown_drain.rs`)
+/// by cancelling it, and that cancel stops no prompt: a queued message stays queued and a running
+/// turn runs on, both the next daemon's. Before, an update's restart withdrew a held agent
+/// message (`queue_removed`, never delivered) and asked the agent to stop its running turn
+/// (a lane host, 2026-11-23 11:58:41Z, 44 prompts in flight).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_daemons_stop_leaves_queued_and_running_prompts_to_the_next_daemon() {
+    let hub = hub();
+    let mut c = Client::connect(&hub);
+    let new =
+        c.call(1, "session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let sid = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
+    let s = hub.resolve(&sid).unwrap();
+    c.send(Message::request(9, "session/prompt", prompt(&sid, "until-cancel", "p-running"))).await;
+    agent_holds(&hub, &sid, 1).await;
+    c.send(Message::request(10, "session/prompt", prompt(&sid, "hello", "p-queued"))).await;
+    until("the second prompt never queued", || s.queued() == 1).await;
+
+    hub.begin_shutdown();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let drained = super::shutdown_drain::drain_in_flight(&hub, deadline).await;
+    assert_eq!(drained.answered, 2, "{drained:?}");
+    for id in [9, 10] {
+        let answer = c.answer(id, WAIT).await.unwrap_or_else(|| panic!("{id}: no answer"));
+        assert_eq!(
+            answer["error"]["data"]["errorKind"],
+            json!(crate::recovery::kind::DAEMON_RESTARTING),
+            "{id}: {answer}"
+        );
+    }
+    // A stop, had one started, withdraws the queued prompt at once and has the agent end its
+    // turn within a few steps: give it the time.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(s.queued(), 1, "the stop withdrew the queued message");
+    assert!(s.turn().is_some(), "the stop ended the running turn");
+    assert_eq!(hub.agent_pending_requests(&sid).await, Some(1), "the agent heard a Stop");
 }

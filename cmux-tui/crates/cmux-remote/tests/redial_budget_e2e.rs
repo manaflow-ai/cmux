@@ -31,14 +31,16 @@ use bytes::Bytes;
 use cmux_remote::admin::{AdminRequest, LinkStatus, call_admin, serve_link_admin};
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
-    ReconnectPolicy,
+    ReconnectPolicy, StandbyGroup,
 };
 use cmux_remote::crypto::{ClientAuthMode, NetworkPeer, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, InboundLink, RemoteDaemon};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::link::{FrameLink, LinkError};
 use cmux_remote::network_watch::{self, NetworkWatch};
-use cmux_remote::observability::ConnectionState;
+use cmux_remote::observability::{
+    ConnectionState, TransportPathKind, TransportPathSnapshot, TransportSnapshot,
+};
 use cmux_remote::provider::{
     CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
 };
@@ -171,6 +173,8 @@ impl FrameLink for MemLink {
 
 /// The carrier: each dial is logged, and the test can refuse, hang, silence or cut links.
 struct TestGroup {
+    /// The route's label: two groups with one label are one route to the connection.
+    name: &'static str,
     daemon: Arc<RemoteDaemon>,
     evidence: CarrierEvidence,
     /// New dials fail at once (no route).
@@ -182,6 +186,10 @@ struct TestGroup {
     silent: Arc<AtomicBool>,
     links: Mutex<Vec<(Arc<Pipe>, Arc<Pipe>)>>,
     dials: Mutex<Vec<Instant>>,
+    /// When the connection dropped the failed link's carrier, one entry per `abandon`.
+    abandoned: Mutex<Vec<Instant>>,
+    /// The remote of the path its transport selected (`None`: unknown).
+    path: Mutex<Option<String>>,
 }
 
 impl TestGroup {
@@ -201,6 +209,27 @@ impl TestGroup {
         }
     }
 
+    /// Another route to the same daemon: a carrier of its own, nothing frozen.
+    fn sibling(&self) -> Arc<TestGroup> {
+        self.sibling_named("test carrier (another route)")
+    }
+
+    fn sibling_named(&self, name: &'static str) -> Arc<TestGroup> {
+        Arc::new(TestGroup {
+            name,
+            daemon: self.daemon.clone(),
+            evidence: CarrierEvidence::Relay { provider: "test".into() },
+            down: AtomicBool::new(false),
+            hang: AtomicBool::new(false),
+            flap_after: Mutex::new(None),
+            silent: Arc::new(AtomicBool::new(false)),
+            links: Mutex::new(Vec::new()),
+            dials: Mutex::new(Vec::new()),
+            abandoned: Mutex::new(Vec::new()),
+            path: Mutex::new(None),
+        })
+    }
+
     fn cut_all(&self) {
         for (up, down) in std::mem::take(&mut *lock(&self.links)) {
             up.cut();
@@ -212,7 +241,7 @@ impl TestGroup {
 #[async_trait]
 impl LinkGroup for TestGroup {
     fn description(&self) -> &str {
-        "test carrier"
+        self.name
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -221,6 +250,19 @@ impl LinkGroup for TestGroup {
 
     fn evidence(&self) -> &CarrierEvidence {
         &self.evidence
+    }
+
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        TransportSnapshot {
+            provider: "test".into(),
+            route: "test carrier".into(),
+            selected_path: lock(&self.path).clone().map(|remote| TransportPathSnapshot {
+                kind: TransportPathKind::Direct,
+                remote: Some(remote),
+                rtt_micros: None,
+                outer: None,
+            }),
+        }
     }
 
     async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
@@ -256,6 +298,10 @@ impl LinkGroup for TestGroup {
     async fn close(&self) -> Result<(), ProviderError> {
         Ok(())
     }
+
+    fn abandon(&self) {
+        lock(&self.abandoned).push(Instant::now());
+    }
 }
 
 /// Transport discovery after a failed redial: hands back the same carrier, or hangs (a relay
@@ -264,6 +310,11 @@ struct TestSource {
     group: Arc<TestGroup>,
     hang: AtomicBool,
     calls: AtomicUsize,
+    /// A warm standby on another route, handed to the next redial.
+    standby: Mutex<Option<Arc<TestGroup>>>,
+    /// Other routes, handed out in order before `group` (a source with several routes).
+    others: Mutex<Vec<Arc<TestGroup>>>,
+    took_standby: AtomicBool,
 }
 
 #[async_trait]
@@ -273,9 +324,33 @@ impl ReconnectGroupSource for TestSource {
         if self.hang.load(Ordering::Acquire) {
             std::future::pending::<()>().await;
         }
-        Ok(self.group.clone())
+        let mut others = lock(&self.others);
+        if others.is_empty() {
+            return Ok(self.group.clone());
+        }
+        Ok(others.remove(0))
+    }
+
+    /// `group` is the link's own route: the others, and the link's own behind a standby
+    /// (held, or taken for the redial under way).
+    fn alternates(&self) -> Option<usize> {
+        let standby = lock(&self.standby).is_some() || self.took_standby.load(Ordering::Acquire);
+        Some(lock(&self.others).len() + usize::from(standby))
+    }
+
+    async fn take_standby(&self) -> Option<StandbyGroup> {
+        let group = lock(&self.standby).take()?;
+        self.took_standby.store(true, Ordering::Release);
+        Some(StandbyGroup {
+            group,
+            attempt_timeout: STANDBY_BOUND,
+            race_after: Some(STANDBY_STAGGER),
+        })
     }
 }
+
+const STANDBY_BOUND: Duration = Duration::from_secs(1);
+const STANDBY_STAGGER: Duration = Duration::from_millis(250);
 
 struct Harness {
     _dir: TempDir,
@@ -317,6 +392,7 @@ async fn harness_leased(
     });
     let expected = daemon.auth().identity().public_key();
     let group = Arc::new(TestGroup {
+        name: "test carrier",
         daemon,
         evidence: CarrierEvidence::Relay { provider: "test".into() },
         down: AtomicBool::new(false),
@@ -325,12 +401,17 @@ async fn harness_leased(
         silent: Arc::new(AtomicBool::new(false)),
         links: Mutex::new(Vec::new()),
         dials: Mutex::new(Vec::new()),
+        abandoned: Mutex::new(Vec::new()),
+        path: Mutex::new(None),
     });
     let source = discovery.then(|| {
         Arc::new(TestSource {
             group: group.clone(),
             hang: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
+            standby: Mutex::new(None),
+            others: Mutex::new(Vec::new()),
+            took_standby: AtomicBool::new(false),
         })
     });
     let client = ClientConnection::connect_with_reconnect_groups(
@@ -412,6 +493,22 @@ async fn a_silent_link_is_redialed_within_6_s() {
     let first = h.group.first_dial_since(start).expect("the silent link was never redialed");
     let took = first - start;
     assert!(took <= Duration::from_secs(6), "a silent link took {took:?} to be declared dead");
+}
+
+/// A link the heartbeat declares dead has its carrier dropped before the first redial, so the
+/// redial dials fresh: an iroh connection kept would hold the redial's stream on the dead path
+/// until its 15 s path idle timeout (a ~30 s reconnect in the black-hole bench, 4.2 s without).
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_drops_its_carrier_before_the_redial() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_millis(2_100)).await;
+    assert!(lock(&h.group.abandoned).is_empty(), "a live link's carrier was dropped");
+    let start = Instant::now();
+    h.group.silent.store(true, Ordering::Release);
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    let first_dial = h.group.first_dial_since(start).expect("the dead link was never redialed");
+    let abandoned = lock(&h.group.abandoned).first().copied().expect("the carrier was kept");
+    assert!(abandoned <= first_dial, "the redial ran on the dead carrier");
 }
 
 /// An action passes its deadline; the recovery it waits on ends by then with the typed
@@ -760,4 +857,277 @@ async fn a_gone_session_replaces_the_last_transport_failure() {
         reason.as_deref().is_some_and(|reason| reason.contains("no longer has")),
         "the link still reports {reason:?} (was {transport:?})"
     );
+}
+
+/// A route that black-holes (frames vanish, a redial on it hangs) with a warm standby held:
+/// once the heartbeat declares the link dead the redial goes to the standby at once. The dead
+/// route is not redialed first, so the 15 s attempt timeout is never waited out.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_moves_to_the_standby_without_waiting_out_the_attempt() {
+    let h = harness_with(policy(), true, true).await;
+    let standby = h.group.sibling();
+    *lock(&h.source.as_ref().unwrap().standby) = Some(standby.clone());
+    tokio::time::sleep(Duration::from_millis(2_100)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.silent.store(true, Ordering::Release);
+    h.group.hang.store(true, Ordering::Release);
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the dead link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    // Declared dead within 6 s; the standby's redial is a few round trips on a live group.
+    assert!(took < Duration::from_secs(7), "reconnected {took:?} after the black hole");
+    assert_eq!(h.group.dials_since(start), 0, "the dead route was redialed");
+    assert_eq!(standby.dials_since(start), 1, "the standby carried the redial");
+}
+
+/// A standby that is dead on the wire (live by every local sign; its redial hangs) costs its
+/// stagger, not its bound and not the attempt timeout: the route started behind it is dialed
+/// beside it and carries the redial.
+#[tokio::test(start_paused = true)]
+async fn a_dead_standby_costs_its_stagger() {
+    let h = harness_with(policy(), true, true).await;
+    let standby = h.group.sibling();
+    standby.hang.store(true, Ordering::Release);
+    *lock(&h.source.as_ref().unwrap().standby) = Some(standby.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    assert!(took >= STANDBY_STAGGER, "the standby was not tried first ({took:?})");
+    assert!(
+        took < STANDBY_STAGGER + Duration::from_millis(200),
+        "reconnected {took:?} after the cut"
+    );
+    assert_eq!(standby.dials_since(start), 1);
+    assert_eq!(h.source.as_ref().unwrap().calls.load(Ordering::Acquire), 1, "one pass behind it");
+}
+
+/// A standby whose transport moved it onto the path the link died on (iroh can select the
+/// same address for both) is not tried: it is closed, and the redial goes on at once instead
+/// of spending the standby's bound on a black hole.
+#[tokio::test(start_paused = true)]
+async fn a_standby_on_the_failed_path_is_closed_not_tried() {
+    let h = harness_with(policy(), true, true).await;
+    *lock(&h.group.path) = Some("ip:10.77.0.2:1".into());
+    let standby = h.group.sibling();
+    *lock(&standby.path) = Some("ip:10.77.0.2:1".into());
+    *lock(&h.source.as_ref().unwrap().standby) = Some(standby.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    assert!(took < STANDBY_BOUND, "the standby's bound was spent ({took:?})");
+    assert_eq!(standby.dials_since(start), 0, "the standby on the dead path was tried");
+    assert_eq!(lock(&standby.abandoned).len(), 1, "the standby was closed");
+    assert_eq!(h.group.dials_since(start), 1, "the redial went on as without a standby");
+}
+
+/// A standby on another path is still taken, and one that loses the redial to the route behind
+/// it is closed at once.
+#[tokio::test(start_paused = true)]
+async fn a_standby_that_loses_the_redial_is_closed() {
+    let h = harness_with(policy(), true, true).await;
+    *lock(&h.group.path) = Some("ip:10.77.0.2:1".into());
+    let standby = h.group.sibling();
+    *lock(&standby.path) = Some("ip:10.77.1.2:1".into());
+    standby.hang.store(true, Ordering::Release);
+    *lock(&h.source.as_ref().unwrap().standby) = Some(standby.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    assert_eq!(standby.dials_since(start), 1, "a standby on another path is tried");
+    let abandoned = lock(&standby.abandoned).clone();
+    assert_eq!(abandoned.len(), 1);
+    assert!(abandoned[0] - start >= STANDBY_STAGGER);
+    assert!(abandoned[0] - start < STANDBY_BOUND, "the loser was held to its bound");
+}
+
+/// A redial onto a route that accepts nothing (a black hole, a captive portal holding the
+/// connection) is raced: the source's next route starts beside it after the stagger and carries
+/// the link. Before, the dead route was dialed alone for the whole attempt timeout (15 s).
+#[tokio::test(start_paused = true)]
+async fn a_redial_races_the_next_route_behind_a_black_hole() {
+    let h = harness_with(policy(), true, true).await;
+    let other = h.group.sibling();
+    lock(&h.source.as_ref().unwrap().others).push(other.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    assert!(
+        took >= Duration::from_millis(100),
+        "the next route did not wait its stagger ({took:?})"
+    );
+    assert!(
+        took < Duration::from_secs(1),
+        "reconnected {took:?} after the cut, not within a stagger"
+    );
+    assert_eq!(h.group.dials_since(start), 1, "the route that failed is still dialed first");
+    assert_eq!(other.dials_since(start), 1, "the next route carried the redial");
+    assert_eq!(lock(&h.group.abandoned).len(), 2, "the dead route's hung dial was closed");
+    // The link works on the route that won.
+    h.client
+        .send(Lane::Interactive, 1, Bytes::from_static(b"after"), FrameFlags::empty())
+        .await
+        .unwrap();
+}
+
+/// Two dead routes cost two staggers, not two attempt timeouts: the third route starts while
+/// both are still hanging.
+#[tokio::test(start_paused = true)]
+async fn a_redial_races_past_two_dead_routes() {
+    let h = harness_with(policy(), true, true).await;
+    let dead = h.group.sibling_named("test carrier (a dead route)");
+    dead.hang.store(true, Ordering::Release);
+    let live = h.group.sibling();
+    lock(&h.source.as_ref().unwrap().others).extend([dead.clone(), live.clone()]);
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    assert!(took < Duration::from_secs(1), "reconnected {took:?} after the cut");
+    assert_eq!((dead.dials_since(start), live.dials_since(start)), (1, 1));
+}
+
+/// A route that fails at once does not wait out the stagger: the next route starts then.
+#[tokio::test(start_paused = true)]
+async fn a_refused_route_starts_the_next_at_once() {
+    let h = harness_with(policy(), true, true).await;
+    let other = h.group.sibling();
+    lock(&h.source.as_ref().unwrap().others).push(other.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.down.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    assert!(took < Duration::from_millis(100), "the next route waited ({took:?})");
+    assert_eq!(other.dials_since(start), 1);
+}
+
+/// A network that goes silent and comes back with no change event (a tunnel, 8 s of loss): the
+/// dials from the silence wait on their transports' backoff, so the round keeps asking the
+/// source, and the first route it opens after the return carries the link. Before, the round
+/// held those dials until its attempt timeout (15 s) or their own retransmission.
+#[tokio::test(start_paused = true)]
+async fn a_network_that_comes_back_is_dialed_afresh() {
+    let h = harness_with(policy(), true, true).await;
+    let source = h.source.as_ref().unwrap();
+    let lost = h.group.sibling_named("test carrier (dialed in the silence)");
+    lost.hang.store(true, Ordering::Release);
+    lock(&source.others).push(lost.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    // Silence: the failed route's dial hangs, and so does every pass of the source.
+    h.group.hang.store(true, Ordering::Release);
+    source.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(*generation.borrow(), before, "nothing answers in the silence");
+    // The network is back: a pass started now opens a route. Nothing tells the link.
+    let back = h.group.sibling_named("test carrier (after the return)");
+    *lock(&source.others) = vec![back.clone()];
+    source.hang.store(false, Ordering::Release);
+    let returned = Instant::now();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = returned.elapsed();
+    assert!(took < Duration::from_secs(1), "reconnected {took:?} after the network came back");
+    assert_eq!(back.dials_since(returned), 1, "the route opened after the return carried it");
+    h.client
+        .send(Lane::Interactive, 1, Bytes::from_static(b"after"), FrameFlags::empty())
+        .await
+        .unwrap();
+}
+
+/// A network change in a raced round starts a fresh pass at once and keeps what is in flight:
+/// the round is not thrown away, and the route the pass opens carries the link.
+#[tokio::test(start_paused = true)]
+async fn a_network_change_in_a_raced_round_dials_afresh_and_keeps_the_round() {
+    let h = harness_with(policy(), true, true).await;
+    let source = h.source.as_ref().unwrap();
+    let lost = h.group.sibling_named("test carrier (on the old network)");
+    lost.hang.store(true, Ordering::Release);
+    lock(&source.others).push(lost.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    // Past the stagger: both routes hang on the old network.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let fresh = h.group.sibling_named("test carrier (on the new network)");
+    lock(&source.others).push(fresh.clone());
+    let changed = Instant::now();
+    h.client.network_changed();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = changed.elapsed();
+    assert!(took < Duration::from_millis(100), "reconnected {took:?} after the network change");
+    assert_eq!(
+        (h.group.dials_since(start), lost.dials_since(start), fresh.dials_since(start)),
+        (1, 1, 1),
+        "one round: no route was dialed again"
+    );
+}
+
+/// A source with one route is not raced against itself: the redial dials it once per round.
+#[tokio::test(start_paused = true)]
+async fn one_route_is_not_raced_against_itself() {
+    let h = harness_with(policy(), true, true).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let start = Instant::now();
+    h.group.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    assert_eq!(h.group.dials_since(start), 1, "one hung dial, inside its attempt timeout");
+    let source = h.source.as_ref().unwrap();
+    assert_eq!(source.calls.load(Ordering::Acquire), 0, "a source with one route was asked");
 }

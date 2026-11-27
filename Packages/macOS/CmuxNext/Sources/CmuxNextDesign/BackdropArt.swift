@@ -4,7 +4,9 @@ public import Foundation
 
 /// A public-domain artwork for the window backdrop (cx-t2x.7): well-known paintings and prints
 /// from Wikimedia Commons, each cleared as public domain in the US (the artist died 70+ years ago
-/// and the work was published before 1931). Sources and licenses: art/manifest.json.
+/// and the work was published before 1931), and the Frutiger Aero backdrops (`aero-*`), original works
+/// drawn from a seed by cmux-tui/crates/cmux-backdrop-gen and dedicated to the public domain.
+/// Sources and licenses: art/manifest.json.
 public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case davidDeathOfMarat = "david-death-of-marat"
     case veldeSmallShipStorm = "velde-small-ship-storm"
@@ -145,6 +147,11 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case vanGoghFishingBoats = "van-gogh-fishing-boats"
     case hokusaiUmezawa = "hokusai-umezawa"
     case whistlerFallingRocket = "whistler-falling-rocket"
+    case aeroSky = "aero-sky"
+    case aeroLagoon = "aero-lagoon"
+    case aeroAurora = "aero-aurora"
+    case aeroMeadow = "aero-meadow"
+    case aeroOrchid = "aero-orchid"
     case doreFallOfSatan = "dore-fall-of-satan"
     case doreWolvesSheep = "dore-wolves-sheep"
     case doreLeviathan = "dore-leviathan"
@@ -170,6 +177,15 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case jeongSeonInwang = "jeong-seon-inwang"
     case jeongSeonGeumgang = "jeong-seon-geumgang"
     case kimHongDoSamgong = "kim-hong-do-samgong"
+    case kuniyoshiTakiyasha = "kuniyoshi-takiyasha"
+    case kuniyoshiHoryukaku = "kuniyoshi-horyukaku"
+    case hiroshigeGotenyama = "hiroshige-gotenyama"
+    case hiroshigeAsukayama = "hiroshige-asukayama"
+    case hokusaiYoshino = "hokusai-yoshino"
+    case sesshuWinterLandscape = "sesshu-winter-landscape"
+    case maYuanSpringPath = "ma-yuan-spring-path"
+    case kimHongDoChuseongbu = "kim-hong-do-chuseongbu"
+    case sinYunBokMoonlitLovers = "sin-yun-bok-moonlit-lovers"
 
     /// The work's title in the user's language.
     public var title: String {
@@ -313,6 +329,11 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .vanGoghFishingBoats: String(localized: "backdrop.van-gogh-fishing-boats.title", defaultValue: "Fishing Boats at Saintes-Maries", bundle: .localizedModule)
         case .hokusaiUmezawa: String(localized: "backdrop.hokusai-umezawa.title", defaultValue: "Umezawa Manor in Sagami", bundle: .localizedModule)
         case .whistlerFallingRocket: String(localized: "backdrop.whistler-falling-rocket.title", defaultValue: "Nocturne in Black and Gold", bundle: .localizedModule)
+        case .aeroSky: String(localized: "backdrop.aero-sky.title", defaultValue: "Aero Sky", bundle: .localizedModule)
+        case .aeroLagoon: String(localized: "backdrop.aero-lagoon.title", defaultValue: "Aero Lagoon", bundle: .localizedModule)
+        case .aeroAurora: String(localized: "backdrop.aero-aurora.title", defaultValue: "Aero Aurora", bundle: .localizedModule)
+        case .aeroMeadow: String(localized: "backdrop.aero-meadow.title", defaultValue: "Aero Meadow", bundle: .localizedModule)
+        case .aeroOrchid: String(localized: "backdrop.aero-orchid.title", defaultValue: "Aero Orchid", bundle: .localizedModule)
         case .doreFallOfSatan: String(localized: "backdrop.dore-fall-of-satan.title", defaultValue: "The Fall of Satan", bundle: .localizedModule)
         case .doreWolvesSheep: String(localized: "backdrop.dore-wolves-sheep.title", defaultValue: "The Wolves and the Sheep", bundle: .localizedModule)
         case .doreLeviathan: String(localized: "backdrop.dore-leviathan.title", defaultValue: "The Destruction of Leviathan", bundle: .localizedModule)
@@ -338,6 +359,15 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .jeongSeonInwang: String(localized: "backdrop.jeong-seon-inwang.title", defaultValue: "Clearing after Rain on Mount Inwang", bundle: .localizedModule)
         case .jeongSeonGeumgang: String(localized: "backdrop.jeong-seon-geumgang.title", defaultValue: "General View of Mount Geumgang", bundle: .localizedModule)
         case .kimHongDoSamgong: String(localized: "backdrop.kim-hong-do-samgong.title", defaultValue: "Nature Better than the Official Ranks", bundle: .localizedModule)
+        case .kuniyoshiTakiyasha: String(localized: "backdrop.kuniyoshi-takiyasha.title", defaultValue: "Takiyasha and the Skeleton Spectre", bundle: .localizedModule)
+        case .kuniyoshiHoryukaku: String(localized: "backdrop.kuniyoshi-horyukaku.title", defaultValue: "Fight atop the Hōryūkaku", bundle: .localizedModule)
+        case .hiroshigeGotenyama: String(localized: "backdrop.hiroshige-gotenyama.title", defaultValue: "Evening Cherry Blossoms at Gotenyama", bundle: .localizedModule)
+        case .hiroshigeAsukayama: String(localized: "backdrop.hiroshige-asukayama.title", defaultValue: "Cherry-Blossom Viewing at Asukayama", bundle: .localizedModule)
+        case .hokusaiYoshino: String(localized: "backdrop.hokusai-yoshino.title", defaultValue: "Cherry Blossoms at Yoshino", bundle: .localizedModule)
+        case .sesshuWinterLandscape: String(localized: "backdrop.sesshu-winter-landscape.title", defaultValue: "Winter Landscape", bundle: .localizedModule)
+        case .maYuanSpringPath: String(localized: "backdrop.ma-yuan-spring-path.title", defaultValue: "Spring Walk on a Mountain Path", bundle: .localizedModule)
+        case .kimHongDoChuseongbu: String(localized: "backdrop.kim-hong-do-chuseongbu.title", defaultValue: "The Sound of Autumn", bundle: .localizedModule)
+        case .sinYunBokMoonlitLovers: String(localized: "backdrop.sin-yun-bok-moonlit-lovers.title", defaultValue: "Lovers under the Moon", bundle: .localizedModule)
         }
     }
 }

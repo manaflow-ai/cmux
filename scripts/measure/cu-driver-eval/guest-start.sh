@@ -6,8 +6,12 @@
 #   guest-start.sh REV REPS DRIVERS [ARG...]
 # Each ARG (bench=run, condition=..., as cu-driver-eval.sh takes them) is passed on after the rest.
 # The A/B writes ~/cu-eval/eval.log, then its exit status to ~/cu-eval/eval.status.
+# CU_EVAL_RUNNER (a path under the tree) runs another script the same way: suite=cueval's
+# scripts/measure/cu-driver-eval/cueval-guest.sh.
 set -euo pipefail
 rev=$1 reps=$2 drivers=$3
+runner=${CU_EVAL_RUNNER:-scripts/measure/cu-driver-eval.sh}
+[[ "$runner" =~ ^scripts/measure/[A-Za-z0-9/._-]+\.sh$ ]] || { echo "guest-start.sh: CU_EVAL_RUNNER is a script under scripts/measure" >&2; exit 2; }
 shift 3
 extra=""
 (($#)) && extra=$(printf ' %q' "$@")
@@ -18,7 +22,7 @@ cat >"$tree/run.sh" <<EOF
 cd "$tree"
 CU_DRIVER_EVAL_ROOT="$tree" CU_DRIVER_EVAL_REV="$rev" CU_DRIVER_EVAL_DISPLAY=1920x1080 \\
   CU_DRIVER_EVAL_GRANT="bash $tree/scripts/measure/cu-driver-eval/tcc-grant.sh" \\
-  bash scripts/measure/cu-driver-eval.sh "reps=$reps" "drivers=$drivers" electron=1$extra >"$tree/eval.log" 2>&1
+  bash $runner "reps=$reps" "drivers=$drivers" electron=1$extra >"$tree/eval.log" 2>&1
 echo \$? >"$tree/eval.status"
 EOF
 cat >"$tree/agent.plist" <<EOF
@@ -32,19 +36,29 @@ cat >"$tree/agent.plist" <<EOF
 <key>ProcessType</key><string>Interactive</string>
 </dict></plist>
 EOF
-# bash runs the A/B, so bash is the responsible process TCC asks about; grant it before it starts.
-bash "$tree/scripts/measure/cu-driver-eval/tcc-grant.sh" /bin/bash
 # A non-root SSH session may not bootstrap into the gui domain ("125: Domain does not support
 # specified action"); root may, directly or from inside the user's bootstrap namespace.
 # The image logs lume in at boot, but SSH answers before that session is up, and bootstrapping into
-# it then fails the same way: wait for the session (its Dock), then try for up to two minutes.
+# it then fails the same way: wait for the session (its Dock) first. On a loaded host the first boot
+# of a fresh clone can take minutes (2026-11-27: load 10.9, the session still had no Dock after 4
+# minutes, only loginwindow), so wait up to 5; tcc-grant.sh restarts the system tccd, so it runs once
+# the login is done, never in the middle of it. No session by then exits 5: cu-driver-bench.sh
+# restarts the VM once and runs this again.
 uid=$(id -u)
 session=no
-for _ in $(seq 1 24); do
+for _ in $(seq 1 60); do
   pgrep -u "$uid" -x Dock >/dev/null && sudo -n launchctl print "gui/$uid" >/dev/null 2>&1 && { session=yes; break; }
   sleep 5
 done
 echo "guest-start.sh: login session ready: $session" >&2
+if [[ $session != yes ]]; then
+  echo "guest-start.sh: no login session after 5 minutes; the session as it stands:" >&2
+  { stat -f 'console owner %Su' /dev/console; who; pgrep -lu "$uid" | head -30
+    sudo -n log show --last 6m --style compact --predicate 'process == "loginwindow"' 2>/dev/null | tail -25; } >&2 || true
+  exit 5
+fi
+# bash runs the A/B, so bash is the responsible process TCC asks about; grant it before it starts.
+bash "$tree/scripts/measure/cu-driver-eval/tcc-grant.sh" /bin/bash
 sudo -n launchctl bootout "gui/$uid/com.cmux.cu-eval" 2>/dev/null || true
 for attempt in $(seq 1 24); do
   sudo -n launchctl bootstrap "gui/$uid" "$tree/agent.plist" 2>/dev/null && exit 0

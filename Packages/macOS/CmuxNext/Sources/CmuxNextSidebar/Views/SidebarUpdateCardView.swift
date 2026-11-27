@@ -335,7 +335,7 @@ final class SidebarUpdateCardView: NSView {
         return menu
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(closeMenu) }
 
     /// Hide: one click hides this version's card (no menu). It fades out; under Reduce Motion it
     /// goes in one frame (Lawrence 2026-10-20).

@@ -58,9 +58,15 @@ public struct CloudStartSessionStrings {
     /// connection on this Mac or the team serves `agent`'s family, so no machine was taken. `link` opens the Settings >
     /// Cloud row that sets it up (`cmux://settings/cloud/claude` or `/chatgpt`, the running build's scheme). With
     /// `localLogin` (a Claude Code or Codex login on this Mac, which serves only this Mac) it says why that one does not count.
-    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String) -> String {
+    /// `gatewayTeam`, `gatewayCode`: the team gateway the refusal read and why it counted none (the CLI's error code, or
+    /// `not_serving` when it read the gateway off or offline), said last (hq#19758); nil when none was read.
+    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String,
+                                     gatewayTeam: String? = nil, gatewayCode: String? = nil) -> String {
         let text = String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .localizedModule), agent, command)
-        let open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        var open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        if let gatewayCode {
+            open += " " + String(format: String(localized: "cloud.startSession.setupRequired.gateway", defaultValue: "Inference gateway of team %1$@: %2$@.", table: "CloudSessions", bundle: .localizedModule), gatewayTeam ?? "-", gatewayCode)
+        }
         guard localLogin else { return text + " " + open }
         let login = family == "codex"
             ? String(localized: "cloud.startSession.setupRequired.codexLogin", defaultValue: "Your Codex login on this Mac works only on this Mac; Cloud needs a ChatGPT connection (or an API key).", table: "CloudSessions", bundle: .localizedModule)
@@ -132,6 +138,11 @@ public struct CloudStartSessionStrings {
 
     public static func notConnected(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.notConnected", defaultValue: "Machine `%1$@` didn't connect, so no agent started there. Check it with `cmux cloud machine-status --target machine:%2$@`, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .localizedModule), name, id, agent)
+    }
+
+    /// A failed start could not delete the machine it made for itself: it still runs, and the command deletes it.
+    public static func newMachineKept(_ name: String, id: String) -> String {
+        String(format: String(localized: "cloud.startSession.newMachineKept", defaultValue: "Its new machine `%1$@` still runs. Delete it with `cmux cloud kill-machine --target machine:%2$@ --confirm true`.", table: "CloudSessions", bundle: .module), name, id)
     }
 
     /// The person closed the new chat's tab before its session started.

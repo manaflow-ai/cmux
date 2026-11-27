@@ -6,7 +6,7 @@
 /// ``SidebarCustomizationService`` resolves it), a Session Info section of a visible app, a chat
 /// widget (`cmux.chat.widget/1`) of a visible app, which the daemon chose for a tool call or a widget
 /// part (`apps.chat_widgets.route`), and a
-/// visible app's whole New Tab page (`cmux.newtab/1`; the page asks only for the app the person
+/// visible app's New Tab view (`cmux.newtab/1`, over the composer; the page asks only for the app the person
 /// named in `tabs.newTabApp`). The raw
 /// value is the mount's `surface` in its context.
 ///
@@ -18,14 +18,17 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
     case sidebarSection
     case hoverCard
     case sessionInfoSection
+    /// The app's `cmux.pane/1` scene in a floating panel over the window (`presentation.overlay`),
+    /// opened by the person's own gesture only (``AppOverlayPresenter``).
+    case overlay
     case chatWidget
-
-    /// The interface a chat widget implements.
-    public static let chatWidgetInterface = "cmux.chat.widget/1"
-    /// The whole New Tab page body, when the person named the app in `tabs.newTabApp`.
+    /// The view over the New Tab composer, when the person named the app in `tabs.newTabApp`.
     case newTab
     /// One widget tile (`cmux.widget/1`) on the New Tab grid or in its Add Widget gallery.
     case widget
+
+    /// The interface a chat widget implements.
+    public static let chatWidgetInterface = "cmux.chat.widget/1"
 
     /// `record`'s implementation for this surface (`id` names a section; the pane and the hover card
     /// have one each and ignore it), or nil when the app shows nothing here.
@@ -43,6 +46,9 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
         case .sessionInfoSection:
             guard record.isVisible, let id else { return nil }
             return record.manifest.sessionInfoSections.first { $0.id == id }
+        case .overlay:
+            guard record.isVisible, record.manifest.presentation?.overlay != nil else { return nil }
+            return record.manifest.scenePane
         case .chatWidget:
             guard record.isVisible else { return nil }
             return record.manifest.sceneImplementation(interface: Self.chatWidgetInterface)

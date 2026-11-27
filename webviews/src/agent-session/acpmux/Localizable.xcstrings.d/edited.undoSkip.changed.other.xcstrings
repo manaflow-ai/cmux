@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "edited.undoSkip.changed.other" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تغيّرت {n} ملفات منذ هذا الدور وسيتم تخطيها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} datoteka je promijenjeno nakon ovog poteza i bit će preskočeno."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} filer er ændret siden denne tur og springes over."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} Dateien wurden seit diesem Durchgang geändert und werden übersprungen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} files changed since this turn and will be skipped."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} archivos cambiaron después de este turno y se omitirán."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} fichiers ont changé depuis ce tour et seront ignorés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} file sono cambiati dopo questo turno e verranno saltati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} 件のファイルはこのターンの後に変更されたため、スキップします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារ {n} បានផ្លាស់ប្ដូរតាំងពីវេននេះ ហើយនឹងត្រូវរំលង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "파일 {n}개가 이번 턴 이후 변경되어 건너뜁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} filer er endret siden denne runden og hoppes over."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pliki zmienione po tej turze ({n}) zostaną pominięte."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} arquivos mudaram desde este turno e serão ignorados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Файлы, изменённые после этого хода ({n}), будут пропущены."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} ไฟล์เปลี่ยนไปหลังรอบนี้และจะถูกข้าม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} dosya bu turdan sonra değişti ve atlanacak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Файли, змінені після цього ходу ({n}), буде пропущено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} tệp đã thay đổi từ lượt này và sẽ bị bỏ qua."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} 个文件在本轮之后已更改，将被跳过。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} 個檔案在本輪之後已變更，將被略過。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -183,11 +183,13 @@ impl Drop for ActiveSplice {
     }
 }
 
-/// hostd is stopping: every daemon splice releases its phone's sizes. Returns
-/// once they all ended, or after `limit`.
+/// hostd is stopping: every daemon splice releases its phone's sizes, and
+/// every NAT port mapping is deleted at the router (`portmap`). Returns once
+/// they all ended, or after `limit`.
 pub async fn stop_and_release(limit: Duration) {
     STOPPING.send_replace(true);
-    let _ = tokio::time::timeout(limit, async {
+    let mappings = crate::portmap::release_all(limit);
+    let sizes = tokio::time::timeout(limit, async {
         loop {
             let ended = ENDED.notified();
             if ACTIVE.load(Ordering::Acquire) == 0 {
@@ -195,8 +197,8 @@ pub async fn stop_and_release(limit: Duration) {
             }
             ended.await;
         }
-    })
-    .await;
+    });
+    let _ = tokio::join!(sizes, mappings);
 }
 
 /// SIGTERM (the app stopping hostd: iPhone connections off, the app

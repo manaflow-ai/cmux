@@ -14,7 +14,11 @@ all of ours and then all of theirs. Every other conflict (a line both sides chan
 against a change) stays an ordinary conflict for the author. A .json or .toml
 result, settled or clean, that no longer parses or names a key twice is written
 back as the plain line merge and left conflicted, so a missing comma or a
-doubled key never merges silently.
+doubled key never merges silently. When the line merge of such a file is clean, so
+git wrote no markers, the line the parser stops at is marked as the conflict and the
+reason is said on stderr, with the side that was already malformed before the merge
+(cmux#50003: the base held `cmux-deadline` twice in one Cargo.toml, and every branch
+merging it got a file with a conflict status, no markers and no reason).
 
 A .plist or .mobileconfig result must still be well-formed XML the same way.
 
@@ -197,9 +201,10 @@ def unique_keys(pairs):
     return dict(pairs)
 
 
-def parses(path: str, text: bytes) -> bool:
-    """A .json result must parse with no key twice in one object (both sides added the same
-    key); .toml rejects a repeated key itself."""
+def parse_error(path: str, text: bytes) -> tuple[str, int | None] | None:
+    """Why a .json, .toml or .plist text is no result, with the 1-based line the parser stopped
+    at when it names one; None when the text is fine. A .json result must parse with no key
+    twice in one object (both sides added the same key); .toml rejects a repeated key itself."""
     try:
         if path.endswith(".json"):
             json.loads(text, object_pairs_hook=unique_keys)
@@ -210,9 +215,37 @@ def parses(path: str, text: bytes) -> bool:
             # Well-formed XML, not plistlib: the Intune plist is a fragment (key and value elements, no root).
             whole = text.lstrip().startswith((b"<?xml", b"<!DOCTYPE"))
             xml.parsers.expat.ParserCreate().Parse(text if whole else b"<fragment>" + text + b"</fragment>", True)
-    except (ValueError, UnicodeDecodeError, ImportError, xml.parsers.expat.ExpatError):
-        return False
-    return True
+    except ImportError:
+        return "this python3 has no tomllib (3.11+) to check it with", None
+    except xml.parsers.expat.ExpatError as error:
+        return str(error), error.lineno
+    except (ValueError, UnicodeDecodeError) as error:
+        line = getattr(error, "lineno", None)
+        if line is None:
+            named = re.search(r"\(at line (\d+)", str(error))  # tomllib says it only in the message
+            line = int(named.group(1)) if named else None
+        return str(error), line
+    return None
+
+
+def mark_unparsed(merged: bytes, ours: bytes, theirs: bytes, line: int | None, size: int) -> bytes:
+    """A line merge that is clean but does not parse, with standard markers: around the line the
+    parser stopped at, under the side or sides that hold that line, or around both sides whole
+    when the parser names no line."""
+    start, mid, end = (c * size for c in (b"<", b"=", b">"))
+    lines = merged.splitlines(keepends=True)
+
+    def block(ours_part: list[bytes], theirs_part: list[bytes]) -> list[bytes]:
+        for part in (ours_part, theirs_part):
+            if part and not part[-1].endswith(b"\n"):
+                part[-1] += b"\n"
+        return [start + b" ours\n", *ours_part, mid + b"\n", *theirs_part, end + b" theirs\n"]
+
+    if line is None or not 1 <= line <= len(lines):
+        return b"".join(block(ours.splitlines(keepends=True), theirs.splitlines(keepends=True)))
+    bad = lines[line - 1]
+    sides = [[bad] if bad.strip() in {row.strip() for row in side.splitlines()} else [] for side in (ours, theirs)]
+    return b"".join(lines[:line - 1] + block(*sides) + lines[line:])
 
 
 # TypeScript: two branches that each import a new name from one module both change that
@@ -441,6 +474,71 @@ def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tupl
     return result, remaining
 
 
+# Rust module lists kept in name order (acpmux `hub/mod.rs`, cmux#56459): a top-level `mod x;` with the
+# comment and attribute lines directly above it is one unit, and the units sit together sorted by name.
+# A branch made before a file's list was sorted, merged with one made after, moves every line around its
+# own new `mod`, so the line merge stops on lines nobody changed. When that merge leaves a conflict and one
+# of the three copies already keeps the list sorted, the three are merged again with each one's list sorted
+# the same way; that merge is taken only when it is clean. Module order means nothing to Rust except for
+# macros, so a file with `macro_rules!` or `#[macro_use]` is never reordered.
+RUST_MOD = re.compile(r"^(pub(\([^)]*\))? )?mod \w+;\s*$")
+RUST_LEAD = re.compile(r"^(#\[|//(?!!))")
+
+
+def sort_rust_mods(text: str) -> str:
+    """The file with its top-level `mod x;` units moved to the first one's place, ordered by name."""
+    lines = text.split("\n")
+    units: list[list[str]] = []
+    keep: list[str] = []
+    pending: list[str] = []
+    first = None
+    for line in lines:
+        if RUST_LEAD.match(line):
+            pending.append(line)
+            continue
+        if RUST_MOD.match(line):
+            if first is None:
+                first = len(keep)
+            units.append(pending + [line])
+            pending = []
+            continue
+        keep += pending
+        pending = []
+        keep.append(line)
+    keep += pending
+    if first is None:
+        return text
+    units.sort(key=lambda unit: re.sub(r"^.*mod ", "", unit[-1]))
+    return "\n".join(keep[:first] + [line for unit in units for line in unit] + keep[first:])
+
+
+def merge_rust_mods(base: str, ours: str, theirs: str, path: str, size: int) -> tuple[bytes, int] | None:
+    texts = []
+    for name in (base, ours, theirs):
+        with open(name, "rb") as handle:
+            try:
+                texts.append(handle.read().decode("utf-8"))
+            except UnicodeDecodeError:
+                return None
+    if any("macro_rules!" in text or "#[macro_use]" in text for text in texts):
+        return None
+    sorted_texts = [sort_rust_mods(text) for text in texts]
+    if sum(1 for line in sorted_texts[0].split("\n") if RUST_MOD.match(line)) < 2:
+        return None
+    if not any(text == done for text, done in zip(texts, sorted_texts)) or texts == sorted_texts:
+        return None
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="cmux-merge-rust-mods-") as scratch:
+        names = []
+        for label, text in zip(("base", "ours", "theirs"), sorted_texts):
+            name = os.path.join(scratch, label)
+            with open(name, "wb") as handle:
+                handle.write(text.encode("utf-8"))
+            names.append(name)
+        result, remaining = merge_lines(names[1], names[0], names[2], path, size)
+    return (result, 0) if remaining == 0 else None
+
+
 def main(argv: list[str]) -> int:
     generated = len(argv) > 1 and argv[1] == "--generated"
     if generated:
@@ -457,12 +555,31 @@ def main(argv: list[str]) -> int:
     else:
         typescript = merge_typescript(base, ours, theirs, path, size) if IMPORT_FILE.search(path) else None
         result, remaining = typescript or merge_lines(ours, base, theirs, path, size)
+        if remaining and path.endswith(".rs"):
+            result, remaining = merge_rust_mods(base, ours, theirs, path, size) or (result, remaining)
     # A .json or .toml result, settled or merged clean (both sides adding one key in
     # different places), must parse with no key twice, and a python3 with no tomllib
     # cannot say it does. Otherwise it is git's plain merge, marked conflicted for the
     # author, even when a side was already malformed.
-    if remaining == 0 and not parses(path, result):
-        result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+    error = parse_error(path, result) if remaining == 0 else None
+    if error:
+        why, line = error
+        with open(ours, "rb") as handle:
+            our_text = handle.read()
+        with open(theirs, "rb") as handle:
+            their_text = handle.read()
+        plain, status = plain_merge(ours, base, theirs, size)
+        if status == 0 or status > 127:
+            # No hunk for git to mark: the two sides' lines merge, the file they make does not parse.
+            plain = mark_unparsed(result, our_text, their_text, line, size)
+        result, remaining = plain, 1
+        if not generated:
+            broken = [name for name, text in (("this branch's copy", our_text), ("the copy being merged in", their_text))
+                      if parse_error(path, text)]
+            already = (f"; {' and '.join(broken)} already did not parse before this merge, so fix it there too"
+                       if broken else "")
+            print(f"cmux merge: {path}: the merged file does not parse ({why}){already}. It is left as a conflict "
+                  "with markers at the line to fix.", file=sys.stderr)
     if remaining and generated:
         # %A already holds this branch's copy: leave it, and say so.
         print(f"cmux merge: {path}: both sides rebuilt this generated file and their copies do not merge; kept "

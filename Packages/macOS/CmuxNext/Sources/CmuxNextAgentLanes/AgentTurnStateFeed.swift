@@ -218,7 +218,7 @@ public final class AgentTurnStateFeed {
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                     generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy: String?,
                     deleted: Bool = false, peer: (name: String, stale: Bool)? = nil, sessionName: String? = nil,
-                    peerRow: (name: String, row: AgentPeerRow?)? = nil, listSeq: UInt64? = nil)
+                    peerRow: (name: String, row: AgentPeerRow?)? = nil, listSeq: UInt64? = nil, identity: AgentSessionIdentity? = nil)
         /// A page of the usage read (id 3): each listed chat's usage numbers that acpmux read, and
         /// the cursor of the next page (nil: the last).
         case usage([String: AgentChatDetail], next: String?)
@@ -227,6 +227,9 @@ public final class AgentTurnStateFeed {
         case peerState(peer: String, state: String)
         /// acpmux refused a list page (id 2 or 4): it paces list reads (`list.paced`).
         case pageRefused
+        /// acpmux answered a list page (id 2 or 4) with any other error (bad params, a cursor it no
+        /// longer knows): asking the same page again fails the same way, so the watch starts over.
+        case pageFailed
         /// The `initialize` result (id 1): whether acpmux follows a list cursor.
         case initialized(follows: Bool)
         /// A follow's reply (id 2, ``AgentWatchFollow``).
@@ -238,7 +241,7 @@ public final class AgentTurnStateFeed {
         /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
         /// same: each carries the chat's whole row. A purge is never replaced, nor anything else.
         @Sendable static func key(_ message: Message) -> String? {
-            guard case .change(let session, _, _, _, _, _, _, _, _, let deleted, _, _, let peerRow, _) = message, !deleted else {
+            guard case .change(let session, _, _, _, _, _, _, _, _, let deleted, _, _, let peerRow, _, _) = message, !deleted else {
                 return nil
             }
             return session + "\u{0}" + (peerRow?.name ?? "")
@@ -253,8 +256,9 @@ public final class AgentTurnStateFeed {
                 self = .follow(follow)
             } else if id == 2 || id == 4, let result = message["result"] as? [String: Any] {
                 self = .page(AgentWatchPage(result: result), continued: id == 4)
-            } else if id == 2 || id == 4, message["error"] != nil {
-                self = .pageRefused
+            } else if id == 2 || id == 4, let error = message["error"] {
+                let reason = ((error as? [String: Any])?["data"] as? [String: Any])?["reason"] as? String
+                self = reason == "list.paced" ? .pageRefused : .pageFailed
             } else if (message["id"] as? NSNumber)?.intValue == 3, let result = message["result"] as? [String: Any] {
                 let next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 self = .usage(AgentChatDetail.details(result).filter(\.value.hasUsage), next: next)
@@ -276,7 +280,7 @@ public final class AgentTurnStateFeed {
                                peerRow: (params["peer"] as? String).flatMap { name -> (name: String, row: AgentPeerRow?)? in
                                    purged ? (name: name, row: nil)
                                        : summary.map { (name: name, row: AgentPeerRow.of(summary: $0, peer: name)) }
-                               }, listSeq: AgentWatchPage.listSeq(params["listSeq"]))
+                               }, listSeq: AgentWatchPage.listSeq(params["listSeq"]), identity: change.identity)
             } else if message["method"] as? String == "_acpmux/peer_state_changed", let params = message["params"] as? [String: Any],
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
                 self = .peerState(peer: peer, state: state)
@@ -304,8 +308,8 @@ public final class AgentTurnStateFeed {
         backoff.reset()
         if !isMirror, !turns.watching { turns.watching = true }
         turns.replace(states: page.states, lastMessages: page.lastMessages, muted: page.muted, titles: page.titles,
-                      generatedTitles: page.generatedTitles, sessionNames: page.sessionNames, details: page.details, source: source,
-                      peers: page.peers, keeping: keeping, keepingPeers: keepingPeers)
+                      generatedTitles: page.generatedTitles, sessionNames: page.sessionNames, identities: page.identities,
+                      details: page.details, source: source, peers: page.peers, keeping: keeping, keepingPeers: keepingPeers)
         turns.replaceStartedBy(page.startedBy, source: source, keeping: keeping)
         // A session's lane is one per id, whichever row pushed it last: a push of this Mac's
         // session or of a peer's row is newer than the page, a purge's missing lane included.
@@ -374,7 +378,7 @@ public final class AgentTurnStateFeed {
             // changed since the last applied. An older one's lag is left as before.
             if listFollow.canFollow { resync() }
         case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
-                     let startedBy, let deleted, let peer, let sessionName, let peerRow, let listSeq):
+                     let startedBy, let deleted, let peer, let sessionName, let peerRow, let listSeq, let identity):
             // A push older than the row held (a reply built after it) changes nothing.
             guard listFollow.admits(AgentListRow(session: session, peer: peerRow?.name), listSeq: listSeq) else { return }
             if paging != nil {
@@ -389,7 +393,7 @@ public final class AgentTurnStateFeed {
             // A peer's push writes only that peer's row of the session id (its purge removes the row): never
             // this Mac's state of the id (design audit 2026-11-18 finding 7).
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row, peerName: peerRow?.name)
+                        generatedTitle: generatedTitle, identity: identity, detail: detail, source: source, peer: peerRow?.row, peerName: peerRow?.name)
             // A purge that leaves the record blank drops it.
             if let peerRow, peerRow.row == nil { turns.removePeerRow(peerRow.name, session: session) }
             turns.setStartedBy(startedBy, session: session, source: source)
@@ -409,6 +413,14 @@ public final class AgentTurnStateFeed {
             if !isMirror { peerStateChanged?(peer, state) }
         case .pageRefused:
             retryPage()
+        case .pageFailed:
+            // A fresh watch from the list's start: the cursor and list held may be what it refused.
+            guard let connection = subscription else { return }
+            logger.info("agent turn states: a list page failed; reconnecting")
+            listFollow = AgentListFollow()
+            held = nil
+            connection.cancel()
+            lost(connection)
         }
     }
 
@@ -427,10 +439,11 @@ public final class AgentTurnStateFeed {
     /// Lays push `message` over `page`, the list held for a follow, as the store takes it.
     static func hold(_ message: Message, in page: inout AgentWatchPage) {
         guard case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
-                           let startedBy, _, _, let sessionName, let peerRow, _) = message else { return }
+                           let startedBy, _, _, let sessionName, let peerRow, _, let identity) = message else { return }
         // A peer's row keeps this Mac's state of the id as it is, as the store does.
         page.setSession(session, state: peerRow == nil ? state : page.states[session], lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, sessionName: sessionName, detail: detail, lane: lane, startedBy: startedBy)
+                        generatedTitle: generatedTitle, sessionName: sessionName, identity: identity, detail: detail, lane: lane,
+                        startedBy: startedBy)
         if let peerRow { page.setPeerRow(session, peer: peerRow.name, row: peerRow.row) }
     }
 

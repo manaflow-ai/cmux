@@ -236,12 +236,41 @@ impl MacDesktop {
         if roles::keys_reach_target(is_key, windows, target_is_standard, other_key_window) {
             return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
         }
+        // An inline editor over the target (Finder's rename field) has the
+        // app's keys and no window of its own: keys for the target go there,
+        // as the person's would.
+        if focused.is_none() && overlay_editor_over(&app, &win, t) {
+            return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
+        }
         Err(DesktopError::Unsupported(format!(
             "the app has {windows} windows and window {} is not its key window, so keys sent in the background would reach another window. Use type_text with element_id, set_value or perform_action, or delivery foreground",
             t.window.id
         )))
     }
+}
 
+/// Whether the app's focused element is an inline editor lying over the
+/// target window ([`roles::keys_reach_overlay_editor`]); unreadable: no.
+fn overlay_editor_over(app: &Ax, win: &Ax, t: &Target) -> bool {
+    let main_is_target =
+        app.try_element("AXMainWindow").ok().flatten().is_some_and(|m| m.same(win));
+    let editor = app.try_element("AXFocusedUIElement").ok().flatten().and_then(|el| {
+        let in_other_window = match el.try_element("AXWindow") {
+            Ok(Some(w)) => !w.same(win),
+            Ok(None) => false,
+            // Unreadable: it may be another window's.
+            Err(_) => return None,
+        };
+        Some(roles::OverlayEditor {
+            role: el.string("AXRole").unwrap_or_default(),
+            in_other_window,
+            frame: el.frame(),
+        })
+    });
+    roles::keys_reach_overlay_editor(false, main_is_target, editor.as_ref(), &t.window.frame)
+}
+
+impl MacDesktop {
     /// A point of the window, or why it is not one.
     fn point_in(&self, t: &Target, p: Point) -> DResult<Point> {
         if !roles::contains(&t.window.frame, p) {
@@ -1068,7 +1097,7 @@ fn enable_menu_item(
     let title = item.string("AXTitle").unwrap_or_default();
     let key = key_in_app(d, t).ok_or_else(|| {
         DesktopError::Unsupported(format!(
-            "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. Use delivery foreground if it is allowed"
+            "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. A context menu runs in the background: click the window's content or an item in it with button right and menu_item, if it lists the command; else delivery foreground if it is allowed"
         ))
     })?;
     // Short reads; the item keeps them while the scope is open (the caller
@@ -1765,7 +1794,8 @@ fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax, before: &FocusBefore) -> bo
     }
 }
 
-/// Asks a Chromium app to show its pages to accessibility
+/// Asks a Chromium app (a browser, or an app that embeds Chromium pages:
+/// cmux's agent chats) to show its pages to accessibility
 /// ([`roles::web_accessibility_attribute`]), once per process, and waits
 /// (at most [`WEB_TREE_WAIT`]) for `win`'s web content to appear. It
 /// changes no focus, window or front app: it is what a screen reader asks.
@@ -1773,9 +1803,7 @@ pub(super) fn show_web_content(t: &Target, win: &Ax) {
     static DONE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<i32>>> =
         std::sync::OnceLock::new();
     let pid = t.window.pid;
-    let Some(attr) =
-        roles::web_accessibility_attribute(roles::web_engine(app_bundle(t).as_deref()))
-    else {
+    let Some(attr) = roles::web_accessibility_attribute(app_bundle(t).as_deref()) else {
         return;
     };
     {
@@ -1789,6 +1817,23 @@ pub(super) fn show_web_content(t: &Target, win: &Ax) {
     let _ = app.set(attr, &yes); // caret-gate: not a field write (the app attribute a screen reader sets)
     super::menus::wait_for(WEB_TREE_WAIT, || has_web_content(win));
 }
+
+/// Whether `t`'s app draws its pages with Chromium, which paints (and
+/// builds the page tree of) no window hidden under its other windows.
+pub(super) fn chromium(t: &Target) -> bool {
+    roles::web_accessibility_attribute(app_bundle(t).as_deref()).is_some()
+}
+
+/// Waits (at most [`UNCOVER_WAIT`]) for a window just uncovered to paint
+/// its page and show it to accessibility, then one more frame for the paint.
+pub(super) fn wait_web_content(win: &Ax) {
+    if super::menus::wait_for(UNCOVER_WAIT, || has_web_content(win)) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// How long an uncovered Chromium window gets to paint (about 1.5 s live).
+const UNCOVER_WAIT: std::time::Duration = std::time::Duration::from_millis(3000);
 
 /// Whether `win` holds a web area with content (bounded walk).
 fn has_web_content(win: &Ax) -> bool {
@@ -2544,6 +2589,17 @@ fn press_keys_inner(
     // Not covered: a plain key with no modifier (only an app that registers
     // bare keys gives it a menu item) and items an app builds only when its
     // menu opens or hides from AX.
+    // Background keys for a window that is not its app's key window (one of
+    // the app's other windows is over it): the window is raised inside its
+    // app, the app not activated, so it takes the app's keys; the window
+    // order comes back after the keys ([`super::uncover`]).
+    let _raised = if delivery == Delivery::Background {
+        d.ax_window(&t)
+            .ok()
+            .and_then(|(_, w)| super::uncover::uncover(&t, &w, super::uncover::Why::Keys))
+    } else {
+        None
+    };
     let route = d.key_route(&t, delivery)?;
     use crate::keys::{Key, Modifier};
     let mut disabled_item: Option<String> = None;
@@ -3021,6 +3077,23 @@ pub(super) fn scroll(
     Ok(out)
 }
 
+pub(super) fn move_pointer(
+    d: &MacDesktop,
+    target: &PointerTarget,
+    delivery: Delivery,
+) -> DResult<ActionOutcome> {
+    let t = d.target(target.window_id())?;
+    let at = match target {
+        PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
+        PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
+    };
+    // Background: the window must be on screen (pointer_route refuses
+    // otherwise); foreground raises it and posts at the HID tap.
+    let route = d.pointer_route(&t, delivery)?;
+    unprimed(route, |p| input::move_to(p, at))?;
+    Ok(ActionOutcome::delivered(route.name()).at(at))
+}
+
 pub(super) fn drag(
     d: &MacDesktop,
     window_id: &str,
@@ -3116,6 +3189,9 @@ pub(super) fn set_value(
     // the page is scrolled past is scrolled into view.
     let web = in_web_area(&el) != roles::Web::Out;
     let mut scrolled = false;
+    // What the web element is (a text input or a slider): whether the write
+    // waits for it to hold its page's focus (roles::web_write_needs_page_focus).
+    let mut web_kind = None;
     if web {
         if d.is_persons_app(&t) {
             return Err(DesktopError::Unsupported(
@@ -3129,7 +3205,9 @@ pub(super) fn set_value(
         let (field, moved) = web_field_in_view(d, &t, &el, field, roles::SecureField::Allow);
         scrolled = moved;
         roles::web_value_gate(field.as_ref(), roles::SecureField::Allow).map_err(unsupported)?;
+        web_kind = field.map(|f| f.kind);
     }
+    let page_focus = web && roles::web_write_needs_page_focus(web_kind);
     // Safari (macOS 27.0.1) writes a text field's AXValue into whichever
     // field holds the page's focus, whichever one was addressed: the field
     // takes the focus first (inside its app, which is not the person's), and
@@ -3139,7 +3217,7 @@ pub(super) fn set_value(
     // The focus is moved without the app activating itself
     // ([`web_focus`]: never an AXFocused write in WebKit).
     let mut focus_written = false;
-    if web && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
+    if page_focus && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
         let focus = web_focus(d, &t, &el)?;
         focus_written = focus.as_ref().is_some_and(|f| f.written);
         if !focus.is_some_and(|f| f.focused) {
@@ -3163,13 +3241,35 @@ pub(super) fn set_value(
     } else {
         readback::Check::value(&el, readback::Wanted::from_request(requested.clone()), 1e-6)
     };
+    // A native field not being edited is focused first, so the app's
+    // end-of-editing handler can apply the value (roles::focus_before_value_write).
+    let mut focused_for_edit = false;
+    if roles::focus_before_value_write(
+        &role,
+        web,
+        d.is_persons_app(&t),
+        el.try_bool("AXFocused").ok().flatten(),
+        el.actions().iter().any(|a| a == "AXConfirm"),
+    ) && let Some(yes) = Cf::boolean(true)
+    {
+        let written = persons_caret_write(d, &t, &el, true, || el.set("AXFocused", &yes).is_ok())?;
+        focused_for_edit = matches!(written, CaretWrite::Wrote { value: true, moved_onto: false });
+    }
     // An error that does not say the write was refused may have come after
     // it applied: delivered, with the read-back still taken.
     let cf = value_for(&el, value)?;
+    // A web slider is written as text (the number, checked above): a string
+    // write is what WebKit hands to the slider's own input
+    // (AccessibilitySlider::setValue), with its input and change events.
+    let cf = match web_kind {
+        Some(roles::WebKind::Range) => Cf::string(&requested)
+            .ok_or_else(|| DesktopError::Failed("could not build the value".into()))?,
+        _ => cf,
+    };
     // Through the gate: in the person's app only where their caret is not;
     // web content only while the field holds its page's focus.
     let gated = persons_caret_write(d, &t, &el, false, || {
-        (!web || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()))
+        (!page_focus || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()))
             .then(|| el.set("AXValue", &cf).err())
     })?;
     let CaretWrite::Wrote { value: written, moved_onto } = gated else {
@@ -3198,7 +3298,7 @@ pub(super) fn set_value(
         };
     // The page puts a value write into the field holding its focus: focus
     // that moved since the check may have taken the value elsewhere.
-    let kept = (!web || kept_page_focus(&el)) && !moved_onto;
+    let kept = (!page_focus || kept_page_focus(&el)) && !moved_onto;
     let mut out = if holds && kept {
         ActionOutcome::confirmed("ax_set_value")
     } else {
@@ -3221,6 +3321,8 @@ pub(super) fn set_value(
                 .into();
     } else if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested, numeric)) {
         out.note = "the element reads back a different value".into();
+    } else if focused_for_edit {
+        out.note = roles::FOCUSED_FOR_EDIT.into();
     }
     if scrolled {
         let sep = if out.note.is_empty() { "" } else { "; " };

@@ -9,7 +9,11 @@
 //! what the original app appends. It only reads: nothing is written to the transcript or its
 //! folder, and nothing locks it.
 //!
-//! - A watched chat takes no prompt (`watch.read_only`). Its summary carries `watching`, so a
+//! - A prompt typed in the terminal while a turn runs shows at once: Claude Code writes a
+//!   `queue-operation` line for it the moment it is queued, long before the turn takes it
+//!   (`Queue`, `Watching::queued`).
+//! - A watched chat takes no prompt (`watch.read_only`), unless its terminal or the desktop
+//!   bridge takes it into the running app (`bridge.rs`). Its summary carries `watching`, so a
 //!   client shows the composer off with a Take over action.
 //! - `_acpmux/watch_take_over` ends the watch. While the original app still runs the
 //!   conversation (`adopt_live.rs`) it is refused with `adopt.live` unless `ifLive` is `fork`
@@ -145,7 +149,11 @@ fn read_lines_with_limits(
 
 /// The prompt id and text of a delivered prompt `record` is the app's transcript line of: a
 /// Claude Code `peer` user line with the uuid acpmux sent it with (`bridge.rs`).
-fn bridged_line(family: &str, session_id: &str, record: &Value) -> Option<(String, String)> {
+fn bridged_line(
+    family: &str,
+    session_id: &str,
+    record: &Value,
+) -> Option<super::bridge::ShownDelivery> {
     if family != "claude"
         || record.get("type").and_then(Value::as_str) != Some("user")
         || record.pointer("/origin/kind").and_then(Value::as_str) != Some("peer")
@@ -153,6 +161,80 @@ fn bridged_line(family: &str, session_id: &str, record: &Value) -> Option<(Strin
         return None;
     }
     super::bridge::delivered(session_id, record.get("uuid")?.as_str()?)
+}
+
+/// Whether `record` says a Stop cut the running turn: Claude Code's `[Request interrupted by
+/// user…]` line, Codex's `turn_aborted`.
+fn interrupted(family: &str, record: &Value) -> bool {
+    match family {
+        "codex" => {
+            record.get("type").and_then(Value::as_str) == Some("event_msg")
+                && record.pointer("/payload/type").and_then(Value::as_str) == Some("turn_aborted")
+        }
+        _ => {
+            record.get("type").and_then(Value::as_str) == Some("user")
+                && record.get("isSidechain").and_then(Value::as_bool) != Some(true)
+                && record
+                    .pointer("/message/content")
+                    .and_then(crate::adopt_replay::text_of)
+                    .is_some_and(|t| t.starts_with("[Request interrupted by user"))
+        }
+    }
+}
+
+/// Most prompts kept as queued in the terminal (`Watching::queued`). Past it a prompt typed
+/// mid-turn is not shown at once but when it runs (its attachment or its line), so the cap never
+/// forgets a prompt that showed and never shows one twice.
+const MAX_QUEUED: usize = 64;
+
+/// What a Claude Code transcript line says of the prompts its terminal queued while a turn ran.
+/// Claude Code 2.1 writes a `queue-operation` `enqueue` line with the text the moment a prompt is
+/// typed mid-turn (measured: about 60 ms after Enter), then either takes it into the running turn
+/// at its next tool boundary (an `attachment` of type `queued_command`, and a `remove` with reason
+/// `absorbed_mid_turn`) or runs it after the turn (`dequeue`, then its `user` line).
+#[derive(Debug, PartialEq)]
+enum Queue {
+    /// Typed while a turn ran: shown at once.
+    Enqueued(String),
+    /// Taken out of the queue: `absorbed` when the running turn took it (its attachment follows).
+    Removed { text: String, absorbed: bool },
+    /// Taken into the running turn; `source` is the uuid it was sent with, `human` whether the
+    /// person typed it (`origin.kind`; no origin reads as typed), `person` whether its origin
+    /// says so (`human`).
+    Absorbed { text: String, source: Option<String>, human: bool, person: bool },
+}
+
+fn queue_line(record: &Value) -> Option<Queue> {
+    // Trimmed as a prompt line's text is (`adopt_replay::text_of`), so the two compare equal.
+    let text = |v: Option<&Value>| crate::adopt_replay::text_of(v?);
+    match record.get("type").and_then(Value::as_str)? {
+        "queue-operation" => {
+            let content = text(record.get("content"))?;
+            match record.get("operation").and_then(Value::as_str)? {
+                "enqueue" => Some(Queue::Enqueued(content)),
+                "remove" => Some(Queue::Removed {
+                    text: content,
+                    absorbed: record.get("reason").and_then(Value::as_str)
+                        == Some("absorbed_mid_turn"),
+                }),
+                _ => None,
+            }
+        }
+        "attachment" => {
+            let a = record.get("attachment")?;
+            if a.get("type").and_then(Value::as_str) != Some("queued_command")
+                || a.get("commandMode").and_then(Value::as_str).is_some_and(|m| m != "prompt")
+            {
+                return None;
+            }
+            let source = a.get("source_uuid").and_then(Value::as_str).map(str::to_owned);
+            let kind = a.pointer("/origin/kind").and_then(Value::as_str);
+            let human = kind.is_none_or(|k| k == "human");
+            let person = kind == Some("human");
+            Some(Queue::Absorbed { text: text(a.get("prompt"))?, source, human, person })
+        }
+        _ => None,
+    }
 }
 
 impl Hub {
@@ -163,8 +245,14 @@ impl Hub {
         family: &str,
         file: std::path::PathBuf,
     ) -> Arc<Session> {
-        let watching =
-            Watching { family: family.to_owned(), file, offset: 0, codex_items: false, open: None };
+        let watching = Watching {
+            family: family.to_owned(),
+            file,
+            offset: 0,
+            codex_items: false,
+            open: None,
+            ..Default::default()
+        };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching = Some(watching);
         self.save_meta(session);
         self.append(session, "mux", "watch_started", json!({"family": family}));
@@ -178,11 +266,15 @@ impl Hub {
         if session.meta().watching.is_none() {
             return;
         }
+        // A restored chat whose app the registry names reads disconnected once it exits, or at
+        // once when it exited while the daemon was down (`app_exit.rs`).
+        self.follow_app(session, None);
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
             // Woken by the hub's one check of all watched transcripts (`watch_tick.rs`) when
             // this one's length moved, never on a timer of its own.
             let check = hub.watch_ticker.register(&session);
+            hub.follow_terminal(&session);
             let over = || {
                 session.meta().watching.is_none()
                     || session.purged.load(std::sync::atomic::Ordering::SeqCst)
@@ -309,17 +401,21 @@ impl Hub {
         // died (or before a metadata write failed). Reuse its exact boundary
         // instead of inserting a second historical-page marker.
         let mut recorded = false;
-        if let Err(error) = self.store.scan_kinds(&session.id, &["native_history"], &mut |event| {
-            if event.dir == "mux"
-                && event.msg.get("before").and_then(Value::as_u64) == Some(start)
-                && event.msg.get("mark").and_then(Value::as_str) == Some(mark.as_str())
-            {
-                recorded = true;
-                false
-            } else {
-                true
-            }
-        }) {
+        // An unindexed kind: the whole log, off the runtime's workers (`qos::off_worker`).
+        let scanned = crate::qos::off_worker(|| {
+            self.store.scan_kinds(&session.id, &["native_history"], &mut |event| {
+                if event.dir == "mux"
+                    && event.msg.get("before").and_then(Value::as_u64) == Some(start)
+                    && event.msg.get("mark").and_then(Value::as_str) == Some(mark.as_str())
+                {
+                    recorded = true;
+                    false
+                } else {
+                    true
+                }
+            })
+        });
+        if let Err(error) = scanned {
             tracing::warn!(session = %session.id, "read native history seed failed: {error}");
             return false;
         }
@@ -398,10 +494,110 @@ impl Hub {
         let refused = session.append_errors.load(std::sync::atomic::Ordering::SeqCst);
         let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        // What this batch takes from the delivery registry: given back if the journal refuses it.
+        let mut claims = Vec::new();
+        // The terminal's queue is read only with Write to a Chat a Terminal Runs on: off, but
+        // preserve queue/unshown state already captured while writable. Clearing it here would
+        // make a prompt shown at enqueue appear a second time when its later user line arrives.
+        let queue_read = self.terminal_chat_writable();
         let bridged = session.meta().tags.contains_key("bridge");
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
+            // What the terminal queued while a turn ran shows the moment it is typed, once.
+            if queue_read
+                && watching.family == "claude"
+                && let Some(queue) = queue_line(&record)
+            {
+                match queue {
+                    Queue::Enqueued(text) => {
+                        // Claude Code's own queue lines (a task notification) are no one's prompt.
+                        if !crate::adopt_replay::queued_by_person(&text) {
+                            continue;
+                        }
+                        // It may be a chat send's own queue line: it shows when it runs, by its
+                        // attachment or its line, under the right id (`may_be_delivery`).
+                        if !super::bridge::may_be_delivery(&session.id, &text)
+                            && watching.queued.len() < MAX_QUEUED
+                        {
+                            if let Some(turn) = open.take() {
+                                self.end_watched_turn(session, &turn, at);
+                            }
+                            *open = Some(self.begin_watched_turn(session, &text, at, None));
+                            watching.queued.push(text);
+                        } else {
+                            // Shown when the turn takes it in, if no delivery claims it.
+                            if watching.unshown.len() >= MAX_QUEUED {
+                                watching.unshown.remove(0);
+                            }
+                            watching.unshown.push(text);
+                        }
+                    }
+                    // Taken back (edited, cancelled): it will not run as queued.
+                    Queue::Removed { text, absorbed: false } => {
+                        if let Some(i) = watching.queued.iter().position(|q| *q == text) {
+                            watching.queued.remove(i);
+                            // The open turn is the newest queued prompt's: it never runs.
+                            if i == watching.queued.len()
+                                && let Some(turn) = open.take()
+                            {
+                                self.end_watched_turn(session, &turn, at);
+                            }
+                        } else {
+                            // A chat send's: its sender hears at once.
+                            super::bridge::taken_back(&session.id, &text);
+                        }
+                    }
+                    Queue::Removed { absorbed: true, .. } => {}
+                    Queue::Absorbed { text, source, human, person } => {
+                        let bridged = source
+                            .as_deref()
+                            .and_then(|uuid| super::bridge::delivered(&session.id, uuid))
+                            .or_else(|| {
+                                (!human)
+                                    .then(|| super::bridge::delivered_queued(&session.id, &text))
+                                    .flatten()
+                            })
+                            // Typed into the terminal by acpmux: the person's line, by its text.
+                            .or_else(|| {
+                                human
+                                    .then(|| super::bridge::delivered_typed(&session.id, &text))
+                                    .flatten()
+                            });
+                        let typed = bridged
+                            .is_none()
+                            .then(|| watching.queued.iter().position(|q| *q == text))
+                            .flatten();
+                        // Typed and not shown yet: its enqueue was past the cap or may have been a
+                        // delivery's (`unshown`), or before the watch (its origin says `human`).
+                        // Anything else (an inbox message, another session's, a coordinator's)
+                        // is no prompt of the person's and shows as on base: not at all.
+                        let held = (bridged.is_none() && typed.is_none())
+                            .then(|| watching.unshown.iter().position(|q| *q == text))
+                            .flatten();
+                        if let Some(i) = held {
+                            watching.unshown.remove(i);
+                        }
+                        if let Some(i) = typed {
+                            // Shown when it was typed.
+                            watching.queued.remove(i);
+                        } else if bridged.is_some() || held.is_some() || person {
+                            if let Some(turn) = open.take() {
+                                self.end_watched_turn(session, &turn, at);
+                            }
+                            let prompt = match bridged {
+                                Some((uuid, prompt_id, sent)) => {
+                                    claims.push(super::bridge::Claim::Shown(uuid));
+                                    self.begin_watched_turn(session, &sent, at, Some(prompt_id))
+                                }
+                                None => self.begin_watched_turn(session, &text, at, None),
+                            };
+                            *open = Some(prompt);
+                        }
+                    }
+                }
+                continue;
+            }
             // The app's own record of a request the provider refused ends its turn as failed,
             // never as the agent's answer (`bridge_hold.rs`).
             if let Some(error) = super::bridge::hold::api_error(&watching.family, &record) {
@@ -418,26 +614,67 @@ impl Hub {
                 continue;
             }
             // A prompt acpmux delivered into the app (`bridge.rs`) shows as sent, under its id.
-            if let Some((prompt_id, text)) = bridged_line(&watching.family, &session.id, &record) {
+            if let Some((uuid, prompt_id, text)) =
+                bridged_line(&watching.family, &session.id, &record)
+            {
+                claims.push(super::bridge::Claim::Shown(uuid));
                 if let Some(turn) = open.take() {
                     self.end_watched_turn(session, &turn, at);
                 }
                 *open = Some(self.begin_watched_turn(session, &text, at, Some(prompt_id)));
                 continue;
             }
-            for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
+            // A Stop (Esc in the terminal, or the chat's Stop typed there) ends the turn it cut.
+            if interrupted(&watching.family, &record) {
+                if let Some(turn) = open.take() {
+                    self.end_watched_turn_as(session, &turn, at, "cancelled");
+                }
+                continue;
+            }
+            let steps = record_steps(&watching.family, &record, &mut watching.codex_items);
+            // A queued text that runs as no person's prompt (a scheduled wakeup's meta line, a
+            // command echo) leaves the queue too: nothing else would take it out, and while it
+            // waits every turn end reads as the previous turn's.
+            if !watching.queued.is_empty()
+                && !steps.iter().any(|s| matches!(s, Step::Prompt(_)))
+                && record.get("type").and_then(Value::as_str) == Some("user")
+                && let Some(text) =
+                    record.pointer("/message/content").and_then(crate::adopt_replay::text_of)
+                && let Some(i) = watching.queued.iter().position(|q| *q == text)
+            {
+                watching.queued.remove(i);
+            }
+            for step in steps {
                 match step {
                     Step::Prompt(text) => {
+                        // A prompt the terminal queued runs now: it shows already, as typed.
+                        if let Some(i) = watching.unshown.iter().position(|q| *q == text) {
+                            watching.unshown.remove(i);
+                        }
+                        if let Some(i) = watching.queued.iter().position(|q| *q == text) {
+                            watching.queued.remove(i);
+                            continue;
+                        }
+                        // A prompt that was never queued starts only once the queue is empty:
+                        // what is left there was taken back.
+                        watching.queued.clear();
                         if let Some(turn) = open.take() {
                             self.end_watched_turn(session, &turn, at);
                         }
                         // A prompt acpmux queued into the Codex thread (`bridge.rs`) shows as
                         // sent, under its id: its rollout line is known by its text alone.
-                        let bridged = (watching.family == "codex")
-                            .then(|| super::bridge::delivered_text(&session.id, &text))
-                            .flatten();
+                        // One acpmux typed into the terminal (`terminal_input.rs`) is the
+                        // person's line: known by its text too.
+                        let bridged = if watching.family == "codex" {
+                            super::bridge::delivered_text(&session.id, &text)
+                        } else {
+                            super::bridge::delivered_typed(&session.id, &text)
+                        };
                         let (text, prompt_id) = match bridged {
-                            Some((prompt_id, sent)) => (sent, Some(prompt_id)),
+                            Some((uuid, prompt_id, sent)) => {
+                                claims.push(super::bridge::Claim::Shown(uuid));
+                                (sent, Some(prompt_id))
+                            }
                             None => (text, None),
                         };
                         *open = Some(self.begin_watched_turn(session, &text, at, prompt_id));
@@ -456,7 +693,10 @@ impl Hub {
                     Step::Tool(_) | Step::ToolResult(_) => {}
                 }
             }
+            // The turn a queued prompt is shown in has not begun while it waits: an end then is
+            // the end of the turn before it.
             if ends_turn(&watching.family, &record)
+                && watching.queued.is_empty()
                 && let Some(turn) = open.take()
             {
                 self.end_watched_turn(session, &turn, at);
@@ -464,6 +704,7 @@ impl Hub {
         }
         if session.append_errors.load(std::sync::atomic::Ordering::SeqCst) != refused {
             tracing::warn!(session = %session.id, "the journal refused a watched record: its batch is read again");
+            super::bridge::unclaim(&claims);
             return false;
         }
         watching.offset = offset;
@@ -492,6 +733,18 @@ impl Hub {
         at: Option<u64>,
         bridged: Option<String>,
     ) -> WatchedTurn {
+        // A bridged prompt's tools note rides in the one text the app was sent; a daemon that
+        // restarted before this line came no longer knows the delivery (`bridge.rs`
+        // `delivered_text`), so its full text comes here: the transcript drops acpmux's own note
+        // and keeps every other word (`tool_mentions::without_own_note`).
+        // A matched delivery (`bridged`) already gives the person's visible text: nothing to strip,
+        // so a copy of the note they typed themselves stays.
+        let text = if bridged.is_some() {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            crate::tool_mentions::without_own_note(text)
+        };
+        let text = text.as_ref();
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
         let client = if bridged.is_some() { "bridge" } else { "watch" };
         let prompt_id = bridged.unwrap_or_else(|| format!("{turn_id}-prompt"));
@@ -515,10 +768,22 @@ impl Hub {
 
     /// The records a turn ends with, once the transcript says it ended or the next prompt came.
     fn end_watched_turn(&self, session: &Session, turn: &WatchedTurn, at: Option<u64>) {
+        self.end_watched_turn_as(session, turn, at, "end_turn");
+    }
+
+    /// [`end_watched_turn`] with its stop reason (`cancelled` for a turn a Stop cut).
+    fn end_watched_turn_as(
+        &self,
+        session: &Session,
+        turn: &WatchedTurn,
+        at: Option<u64>,
+        stop_reason: &str,
+    ) {
         let WatchedTurn { turn_id, prompt_id, turn_seq, .. } = turn;
-        let end = json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq});
+        let end = json!({"stopReason": stop_reason, "turnId": turn_id, "turnSeq": turn_seq});
         self.append_at(session, "mux", "turn_end", end, None, at);
-        let result = json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+        let status = if stop_reason == "cancelled" { "cancelled" } else { "completed" };
+        let result = json!({"status": status, "stopReason": stop_reason, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
         self.append_at(session, "mux", "turn_result", result, None, at);
         super::bridge::answered(&session.id, prompt_id, turn_id);
         // A turn that completed ends a rate-limit hold's doubling (`bridge_hold.rs`).
@@ -540,6 +805,8 @@ impl Hub {
         self.append_at(session, "mux", "turn_result", result, None, at);
         // Delivered all the same: the app has the message, so it is never sent again.
         super::bridge::answered(&session.id, prompt_id, turn_id);
+        // A prompt waiting to be typed into the terminal goes now (`terminal_input.rs`).
+        super::terminal_input::turn_ended();
     }
 
     /// `_acpmux/watch_take_over`: ends the watch so the chat runs the conversation itself.
@@ -607,8 +874,11 @@ impl Hub {
         }
         if fork {
             *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
+            session.keep_fork_start(true);
         }
         self.save_meta(session);
+        // No terminal drives a chat that runs its conversation itself.
+        self.unmark_terminal_driven(session);
         // Watchers hear it as `_acpmux/session_changed`, with the summary that has no `watching`.
         self.append(
             session,
@@ -621,251 +891,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    /// The session's turn gate also fences the transition from following an outside transcript
-    /// to accepting a live harness. A takeover must wait while a watched tail is committing.
-    #[tokio::test]
-    async fn takeover_waits_for_the_watched_tail_gate() {
-        use crate::config::{Config, StoreMode};
-
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config: Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
-        let hub = Hub::new(config, store);
-        let session = hub
-            .new_session(crate::hub::NewRequest {
-                cwd: Some(std::env::temp_dir()),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-        {
-            let mut meta = session.meta.lock().unwrap();
-            meta.agent_session_id = Some("outside-session".to_owned());
-            meta.watching = Some(Watching {
-                family: "claude".to_owned(),
-                file: std::env::temp_dir().join("watched-outside-session.jsonl"),
-                offset: 0,
-                codex_items: false,
-                open: None,
-            });
-        }
-
-        // A tail holding this gate is still entitled to commit its watched events. The
-        // takeover must wait, then close the watch and publish the handoff in that order.
-        let tail_guard = session.turn_lock.lock().await;
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        let taking = tokio::spawn({
-            let (hub, session) = (hub.clone(), session.clone());
-            async move {
-                let _ = ready_tx.send(());
-                hub.watch_take_over(&session, IfLive::Open).await
-            }
-        });
-        ready_rx.await.unwrap();
-        tokio::task::yield_now().await;
-        assert!(!taking.is_finished(), "takeover raced a watched tail into the journal");
-        assert!(
-            session.meta().watching.is_some(),
-            "the view-only owner changed before the tail finished"
-        );
-
-        drop(tail_guard);
-        taking.await.unwrap().unwrap();
-        assert!(session.meta().watching.is_none());
-
-        // A file read can finish before Take Over and be scheduled afterward.
-        // Exercise that stale completion deterministically: the old reader
-        // must neither create a watched turn nor append any record to the live
-        // conversation's journal.
-        let before = session.meta().event_count;
-        let late_line =
-            json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
-        hub.show_watched(&session, &[late_line], 128).await;
-        assert_eq!(session.meta().turn_count, 0, "a watched turn was appended after Take Over");
-        assert_eq!(session.meta().event_count, before, "the stale reader wrote after Take Over");
-        assert!(
-            hub.watch_take_over(&session, IfLive::Open).await.is_err(),
-            "Take Over succeeded twice"
-        );
-        hub.shutdown_all().await;
-    }
-
-    /// A watched batch whose record the journal refused (neither stored nor heard) keeps its read
-    /// position, so the next check reads it again; it used to move on and lose the turn.
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_watched_batch_the_journal_refused_is_read_again() {
-        use crate::config::{Config, StoreMode};
-        use crate::store::REFUSE_APPENDS;
-
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config: Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
-        let hub = Hub::new(config, store);
-        let session = hub
-            .new_session(crate::hub::NewRequest {
-                cwd: Some(std::env::temp_dir()),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-        {
-            let mut meta = session.meta.lock().unwrap();
-            meta.agent_session_id = Some("outside-session".to_owned());
-            meta.watching = Some(Watching {
-                family: "claude".to_owned(),
-                file: std::env::temp_dir().join("watched-refused-session.jsonl"),
-                offset: 0,
-                codex_items: false,
-                open: None,
-            });
-        }
-        let line = json!({"type": "user", "message": {"content": "watched prompt"}}).to_string();
-
-        REFUSE_APPENDS.with(|r| r.set(true));
-        let shown = hub.show_watched(&session, std::slice::from_ref(&line), 128).await;
-        REFUSE_APPENDS.with(|r| r.set(false));
-        assert!(!shown, "a refused batch reads as shown");
-        let watching = session.meta().watching.unwrap();
-        assert_eq!(watching.offset, 0, "the read position moved past a refused batch");
-        assert!(watching.open.is_none(), "the refused batch's turn was kept open");
-
-        assert!(hub.show_watched(&session, &[line], 128).await);
-        assert_eq!(session.meta().watching.unwrap().offset, 128);
-        let records = hub.events(&session.id, 0, 100).unwrap();
-        assert!(
-            records.iter().any(|e| e.kind == "user_message" && e.msg["text"] == "watched prompt"),
-            "the batch read again was stored"
-        );
-        hub.shutdown_all().await;
-    }
-
-    #[test]
-    fn only_complete_lines_are_read_and_the_offset_follows_them() {
-        let dir = std::env::temp_dir().join(format!("acpmux-watch-lines-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("t.jsonl");
-        std::fs::write(&file, "{\"a\":1}\n{\"b\":2}\n{\"c\":").unwrap();
-        let (lines, offset) = read_lines(&file, 0).unwrap();
-        assert_eq!(lines, ["{\"a\":1}", "{\"b\":2}"]);
-        assert_eq!(offset, 16);
-        let (lines, again) = read_lines(&file, offset).unwrap();
-        assert!(lines.is_empty());
-        assert_eq!(again, offset);
-        std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"3}\n").unwrap();
-        let (lines, offset) = read_lines(&file, offset).unwrap();
-        assert_eq!(lines, ["{\"c\":3}"]);
-        assert_eq!(offset, 24);
-        // A cut, shorter file is followed from its end: nothing is shown twice.
-        std::fs::write(&file, "{\"d\":4}\n").unwrap();
-        let (lines, offset) = read_lines(&file, offset).unwrap();
-        assert!(lines.is_empty());
-        std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
-        assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A first 64 MiB window may begin halfway through a very large JSONL entry.
-    /// Once that entry ends, the reader must advance and reach the valid following row.
-    #[test]
-    fn oversized_first_window_line_advances_to_the_next_record() {
-        let dir = std::env::temp_dir().join(format!("acpmux-watch-long-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("oversized.jsonl");
-        let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":true}}\n", "x".repeat(160));
-        std::fs::write(&file, content.as_bytes()).unwrap();
-        let window_start = content.len() as u64 - 64;
-
-        // The old code found no newline in the first 20 bytes, returned window_start,
-        // and repeated the same read forever with offset still zero.
-        let (lines, after_large) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
-        assert!(lines.is_empty());
-        assert!(after_large > window_start, "stalled at the overlong line");
-        let (mut at, mut received) = (after_large, Vec::new());
-        for _ in 0..12 {
-            let (lines, next) = read_lines_with_limits(&file, at, 64, 20).unwrap();
-            assert!(next > at);
-            received.extend(lines);
-            at = next;
-            if at == content.len() as u64 {
-                break;
-            }
-        }
-        assert_eq!(received, ["{\"next\":true}"]);
-        assert_eq!(at, content.len() as u64);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The source may still be writing its oversized first JSONL entry. Skip its
-    /// unfinished chunks across polls, then deliver complete rows after its newline.
-    #[test]
-    fn oversized_incomplete_window_line_resumes_when_terminated() {
-        let dir =
-            std::env::temp_dir().join(format!("acpmux-watch-partial-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("partial.jsonl");
-        let unfinished = format!("{{\"large\":\"{}", "x".repeat(160));
-        std::fs::write(&file, unfinished.as_bytes()).unwrap();
-        let mut at = 0;
-        for _ in 0..12 {
-            let (lines, next) = read_lines_with_limits(&file, at, 64, 20).unwrap();
-            assert!(lines.is_empty());
-            assert!(next > at);
-            at = next;
-            if at == unfinished.len() as u64 {
-                break;
-            }
-        }
-        assert_eq!(at, unfinished.len() as u64);
-        // A larger source file continues the same unfinished line; the byte
-        // before the saved checkpoint still identifies it as a partial line.
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(&file)
-            .unwrap()
-            .write_all(b"\"}\n{\"next\":1}\n")
-            .unwrap();
-        let (lines, done) = read_lines_with_limits(&file, at, 64, 20).unwrap();
-        assert_eq!(lines, ["{\"next\":1}"]);
-        assert_eq!(done, unfinished.len() as u64 + b"\"}\n{\"next\":1}\n".len() as u64);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A normal watched file can also append one huge line that spans several
-    /// chunks. Fragments of it must never appear as independent JSONL records.
-    #[test]
-    fn a_line_at_the_previous_checkpoint_skips_all_overlong_fragments() {
-        let dir =
-            std::env::temp_dir().join(format!("acpmux-watch-fragments-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("fragments.jsonl");
-        let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":2}}\n", "x".repeat(106));
-        std::fs::write(&file, content.as_bytes()).unwrap();
-        let (mut at, mut received) = (0, Vec::new());
-        for _ in 0..12 {
-            let (lines, next) = read_lines_with_limits(&file, at, 4096, 20).unwrap();
-            assert!(next > at || at == content.len() as u64);
-            received.extend(lines);
-            at = next;
-            if at == content.len() as u64 {
-                break;
-            }
-        }
-        assert_eq!(at, content.len() as u64);
-        assert_eq!(received, ["{\"next\":2}"]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[path = "watch_tests.rs"]
+mod tests;

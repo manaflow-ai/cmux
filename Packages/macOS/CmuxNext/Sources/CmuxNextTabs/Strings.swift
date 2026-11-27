@@ -12,6 +12,10 @@ enum Strings {
     static func axOnMachine(_ name: String) -> String {
         String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .localizedModule)
     }
+    /// An agent chat's name with the one it had before (hover card title): "Mango — fka claude-sr2-coord".
+    static func formerlyKnownAs(_ name: String, former: String) -> String {
+        String(localized: "tabs.hoverCard.formerlyKnownAs", defaultValue: "\(name) — fka \(former)", bundle: .localizedModule)
+    }
     /// A tab's browser profile (hover card, VoiceOver).
     static func browserProfile(_ name: String) -> String {
         String(localized: "tabs.browserProfile", defaultValue: "Browser profile: \(name)", bundle: .localizedModule)

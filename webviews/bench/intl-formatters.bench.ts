@@ -3,7 +3,7 @@
 
 /**
  * Model-only bench for the text every row formats with Intl: a chat's message ages, hover times and
- * date lines, turn footers' token counts, and Messages' list times. It calls the shipped functions
+ * date lines, and turn footers' token counts. It calls the shipped functions
  * over ROWS rows, as one render of a long chat or list does, and prints µs per row (p50/p95 over
  * PASSES passes) for each.
  *
@@ -18,7 +18,6 @@
 import { exactTime, messageAge, replyTime } from "../src/agent-session/acpmux/conversation/relativeTime";
 import { timestampText } from "../src/agent-session/acpmux/conversation/timestamps";
 import { compactTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
-import { listTime } from "../src/pages/home-messages/list/model";
 
 const rows = Number(process.env.ROWS ?? 1_000);
 const passes = Number(process.env.PASSES ?? 40);
@@ -36,7 +35,6 @@ const workloads: Record<string, (at: number, index: number) => string> = {
   replyTime: (at) => replyTime(at, now, locale),
   timestampText: (at) => timestampText(at, { now, locale, timeZone: "America/Los_Angeles" }),
   compactTokens: (_, index) => compactTokens(locale, 1_234 * (index + 1)),
-  listTime: (at) => listTime(at, now, locale, "Yesterday"),
 };
 
 function percentile(values: number[], share: number): number {

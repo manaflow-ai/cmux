@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "subagents.fork.modelTip" : {
+      "comment" : "Agent pane: hover on a subagent composer's read-only model chip when the subagent runs on its chat's model; {chat} is the chat",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fixed when this subagent started: it runs on {chat}'s model. Fork it to run on another."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ثابت منذ بدء هذا الوكيل الفرعي: يعمل على نموذج {chat}. افرّعه لتشغيله على نموذج آخر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fiksirano kad je ovaj podagent pokrenut: radi na modelu razgovora {chat}. Granaj ga da radi na drugom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fastlagt da denne underagent startede: den kører på {chat}s model. Forgren den for at køre på en anden."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beim Start dieses Subagenten festgelegt: Er läuft auf dem Modell von {chat}. Zweige ihn ab, um ein anderes zu nutzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fijado al iniciarse este subagente: usa el modelo de {chat}. Bifúrcalo para usar otro."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fixé au démarrage de ce sous-agent : il utilise le modèle de {chat}. Dérivez-le pour en utiliser un autre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fissato all'avvio di questo subagente: usa il modello di {chat}. Derivalo per usarne un altro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このサブエージェントの開始時に固定：{chat} のモデルで動作します。別のモデルで動かすにはフォークしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណត់ថេរនៅពេលភ្នាក់ងាររងនេះចាប់ផ្តើម៖ វាដំណើរការលើម៉ូដែលរបស់ {chat}។ បំបែកវាដើម្បីដំណើរការលើម៉ូដែលផ្សេង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 하위 에이전트가 시작될 때 고정됨: {chat}의 모델로 실행됩니다. 다른 모델로 실행하려면 분기하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Låst da denne underagenten startet: den kjører på modellen til {chat}. Forgren den for å kjøre på en annen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustalony przy starcie tego podagenta: działa na modelu czatu {chat}. Rozgałęź go, by użyć innego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fixado quando este subagente começou: ele usa o modelo de {chat}. Bifurque-o para usar outro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задано при запуске этого субагента: он работает на модели {chat}. Ответвите его, чтобы запустить на другой."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำหนดไว้ตอนที่ซับเอเจนต์นี้เริ่ม: ใช้โมเดลของ {chat} แยกออกเพื่อใช้โมเดลอื่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu alt ajan başladığında sabitlendi: {chat} sohbetinin modelinde çalışır. Başka bir modelde çalıştırmak için çatallayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зафіксовано під час запуску цього субагента: він працює на моделі {chat}. Відгалузьте його, щоб запустити на іншій."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cố định khi tác tử phụ này bắt đầu: nó chạy trên mô hình của {chat}. Tách nó ra để chạy trên mô hình khác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此子代理启动时已固定：它使用 {chat} 的模型。分叉后可改用其他模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此子代理啟動時已固定：它使用 {chat} 的模型。分叉後可改用其他模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

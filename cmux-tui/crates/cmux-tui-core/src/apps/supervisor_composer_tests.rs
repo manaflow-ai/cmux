@@ -21,6 +21,27 @@ fn save_commands(dir: &Path, commands: &[(&str, &str)], version: Option<&str>) {
     std::fs::write(&path, manifest.to_string()).unwrap();
 }
 
+#[test]
+fn model_picker_layout_follows_the_installed_visible_app() {
+    let f = fixture();
+    let path = spy_dir(&f).join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let options = json!({ "modelMenu": "search", "reasoningMenu": "column" });
+    manifest
+        .get_mut("implements")
+        .and_then(Value::as_object_mut)
+        .expect("the spy manifest implements interfaces")
+        .insert("cmux.composer.model.picker/1".to_owned(), json!({ "options": options }));
+    std::fs::write(path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&Default::default());
+    assert!(list(&f).get("modelPicker").is_none());
+    f.install("local/spy");
+    assert_eq!(list(&f).get("modelPicker"), Some(&options));
+    f.set("hide", "local/spy", Origin::User, |o| o.hidden = Some(true)).unwrap();
+    assert!(list(&f).get("modelPicker").is_none());
+}
+
 fn spy_dir(f: &Fixture) -> PathBuf {
     f.state.join("apps/local/spy")
 }
@@ -112,6 +133,56 @@ fn a_command_name_two_extensions_share_is_listed_once() {
         commands(&f),
         [
             ("standup".to_string(), "From demo.".to_string()),
+            ("retro".to_string(), "Retro.".to_string())
+        ]
+    );
+}
+
+/// A prompt saved with `cmux agent-config commands add --agent cmux` is in the composer's `/`
+/// list on the next call, before the extensions' commands and taking its name from them, with
+/// the prompt as the text its pick writes; removing it takes it out again.
+#[test]
+fn a_saved_prompt_is_listed_in_the_slash_menu() {
+    use cmux_agent_customize::commands::{self, NewCommand, Target};
+    let f = fixture();
+    save_commands(&spy_dir(&f), &[("standup", "From spy."), ("retro", "Retro.")], None);
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    let mut homes = cmux_agent_customize::Homes::under(f._root.0.join("home"));
+    homes.cmux_commands = f._root.0.join("saved-prompts");
+    let saved = commands::add(
+        &homes,
+        &NewCommand {
+            agent: Target::Cmux,
+            name: "standup".into(),
+            description: "My standup".into(),
+            prompt: "Write my standup from today's commits.".into(),
+            replace: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.path, f._root.0.join("saved-prompts/standup.md"));
+    let listed = list(&f)["commands"].clone();
+    assert_eq!(
+        listed[0],
+        json!({
+            "app": "cmux/saved-prompts", "extension": "cmux", "name": "standup",
+            "description": "My standup", "insert": "Write my standup from today's commits."
+        })
+    );
+    assert_eq!(
+        commands(&f),
+        vec![
+            ("standup".to_string(), "Write my standup from today's commits.".to_string()),
+            ("retro".to_string(), "Retro.".to_string())
+        ],
+        "the saved prompt takes /standup from the extension"
+    );
+    commands::remove(&homes, Target::Cmux, "standup").unwrap();
+    assert_eq!(
+        commands(&f),
+        vec![
+            ("standup".to_string(), "From spy.".to_string()),
             ("retro".to_string(), "Retro.".to_string())
         ]
     );

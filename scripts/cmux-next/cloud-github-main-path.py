@@ -49,6 +49,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+from app_launch_env import launch_env  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 parser.add_argument("--app", required=True, help="the tagged app bundle (build=tagged)")
@@ -57,7 +58,7 @@ parser.add_argument("--credentials-file", required=True, help="0600 Stack creden
 parser.add_argument("--out", required=True, help="where steps.json, summary.md, frames/ and the video go")
 parser.add_argument("--org", default="cmux-cloud-test-org")
 parser.add_argument("--repo", default="pr-target")
-parser.add_argument("--slug", default="cmux-cloud-staging", help="the staging GitHub App")
+parser.add_argument("--slug", default="the staging GitHub App", help="the App's name in the summary (the API names its slug at runtime)")
 parser.add_argument("--api", default="https://cloud-api-staging.cmux.dev")
 parser.add_argument("--frame-interval", type=float, default=1.0)
 parser.add_argument("--close-pr", action="store_true", help="close the PR in GitHub's page after step 6")
@@ -382,7 +383,7 @@ def main() -> None:
               "--env", f"CMUX_AUTH_CREDENTIALS_FILE={os.path.realpath(args.credentials_file)}",
               "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1",
               str(Path(args.app).resolve()), "--args", "--cloud-backend", "staging"]
-    app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     auth = poll(240, lambda: (lambda v: v if v.get("signed_in") is True and v.get("cloud_environment") == "staging"
                               else None)(app_call("auth.status", {}, timeout=30)), step=5)
     if not auth:
@@ -533,7 +534,8 @@ def main() -> None:
         if found:
             return found.group(0)
         browser(tab, "navigate", f"https://github.com/{REPO}/pulls?q=is%3Apr+head%3A{BRANCH}", timeout=30)
-        time.sleep(3)
+        # The PR list loaded: the tab is at the list and the document is complete.
+        poll(20, lambda: "/pulls" in tab_url(tab) and js(tab, "document.readyState") == "complete", step=0.5)
         found = pr_re.search(js(tab, "[...document.querySelectorAll('a[href*=\"/pull/\"]')].map(a => a.href).join(' ')"))
         return found.group(0) if found else None
     url = poll(900, pr_url, step=20)
@@ -548,7 +550,7 @@ def main() -> None:
     if args.close_pr:
         detail += "; closed" if click_text(tab, "button", "^close pull request$") else "; close button not found"
     done(detail)
-    time.sleep(3)  # the PR page in the last frames
+    time.sleep(3)  # sleep-ok: the recording's last 3 s hold the PR page (a recording window)
     finish("pass")
 
 

@@ -14,13 +14,13 @@ extension AppBrowserPage {
 
     /// The tab's page once the cache has one, nil after `within`.
     static func awaitPage(_ tabID: String, services: AppServices, within: Duration) async -> (any BrowserTab)? {
-        if let page = services.cache.existingBrowser(tabID)?.tab { return page }
+        if !services.cache.isRestoring(tabID), let page = services.cache.existingBrowser(tabID)?.tab { return page }
         let cache: TabContentCache = services.cache
         let found = try? await ControlDeadline.shared.run(method: "browser.page", deadline: .now + within) { @MainActor in
             // The cache's page table is not observable; `pageInstalls` is
             // bumped by every install, so a page installed after the first
             // look wakes this wait (it waited out its bound before).
-            for await present in ObservationStream({ _ = cache.pageInstalls.revision; return cache.existingBrowser(tabID) != nil }) where present {
+            for await present in ObservationStream({ _ = cache.pageInstalls.revision; return cache.existingBrowser(tabID) != nil && !cache.isRestoring(tabID) }) where present {
                 return true
             }
             return false

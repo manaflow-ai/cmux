@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use cmux_projection::git_swap::SWAP_MARKER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -489,8 +490,14 @@ pub(super) fn plan_from_layer(
     let Where { folder, common_dir, staging } = *at;
     let here = base_of(folder)?;
     let own_dir = local_git_dir(folder)?;
+    let machine_complete = machine_git.join(SWAP_MARKER).is_file();
     let read_either = |relative: &str| -> anyhow::Result<Option<Vec<u8>>> {
-        for dir in [machine_git, own_dir.as_path(), common_dir] {
+        let dirs: &[&Path] = if machine_complete {
+            &[machine_git]
+        } else {
+            &[machine_git, own_dir.as_path(), common_dir]
+        };
+        for dir in dirs {
             match std::fs::read(dir.join(relative)) {
                 Ok(bytes) => return Ok(Some(bytes)),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -503,8 +510,11 @@ pub(super) fn plan_from_layer(
     let quarantine = staging.join("quarantine.git");
     quarantined(&quarantine, common_dir)?;
     copy_layer_objects(machine_git, &quarantine)?;
-    let vm_index =
-        [machine_git.join("index"), own_dir.join("index")].into_iter().find(|path| path.is_file());
+    let vm_index = if machine_complete {
+        machine_git.join("index").is_file().then(|| machine_git.join("index"))
+    } else {
+        [machine_git.join("index"), own_dir.join("index")].into_iter().find(|path| path.is_file())
+    };
     let staged_path = quarantine.join("machine-staged");
     let staged_file = File::create(&staged_path)?;
     let mut list = quarantine_git(&quarantine);
@@ -699,6 +709,36 @@ fn staged_commit(quarantine: &Path, entries: &Path) -> anyhow::Result<Option<Str
     Ok(Some(String::from_utf8_lossy(&commit).trim().to_string()))
 }
 
+/// Where [`keep`] keeps the machine's commits for the workspace `name`: outside `refs/heads`, so no
+/// branch, checkout or `git branch` shows it.
+pub(super) fn kept_ref(name: &str) -> String {
+    format!("refs/cmux/bring-back/{name}")
+}
+
+/// Keeps the machine's commit `head` (in `quarantine`, the pull's quarantine repository) in the
+/// working copy at `folder` as [`kept_ref`]: fetched with every object checked, replacing what an
+/// earlier pull kept there. A pull that can't move the branch (both sides committed, a rewritten
+/// history) loses none of the machine's commits; nothing else here changes.
+pub(super) fn keep(
+    folder: &Path,
+    quarantine: &Path,
+    head: &str,
+    name: &str,
+) -> anyhow::Result<String> {
+    let kept = kept_ref(name);
+    set_ref(quarantine, "refs/cmux-sync/kept", head)?;
+    checked(
+        local(folder)
+            .args(["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true"])
+            .args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head"])
+            .args(["--no-recurse-submodules", "--no-auto-gc"])
+            .arg(quarantine)
+            .arg(format!("+refs/cmux-sync/kept:{kept}")),
+    )
+    .context("cannot keep the machine's commits")?;
+    Ok(kept)
+}
+
 fn set_ref(quarantine: &Path, name: &str, id: &str) -> anyhow::Result<()> {
     checked(quarantine_git(quarantine).args(["update-ref", name, id]))?;
     Ok(())
@@ -732,7 +772,11 @@ fn clean(mut command: Command) -> Command {
 
 /// The command's stdout, or an error with its stderr.
 pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
-    let output = command.output().context("cannot run git")?;
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
     }
@@ -742,7 +786,11 @@ pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
 /// The command's stdout as text; None when it exits 1 (a question answered
 /// "no"); an error otherwise.
 fn output(command: &mut Command) -> anyhow::Result<Option<String>> {
-    let output = command.output().context("cannot run git")?;
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     match output.status.code() {
         Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
         Some(1) => Ok(None),
@@ -762,8 +810,12 @@ fn digest_reader(reader: &mut dyn std::io::Read) -> anyhow::Result<String> {
 
 /// Redirect large index output straight to disk; only diagnostics are captured.
 fn checked_to_file(command: &mut Command, file: &File) -> anyhow::Result<()> {
-    let output =
-        command.stdout(Stdio::from(file.try_clone()?)).output().context("cannot run git")?;
+    command.stdout(Stdio::from(file.try_clone()?));
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
     }

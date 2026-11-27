@@ -8,7 +8,7 @@ import CmuxNextSettings
 /// says who did, quietly: a toast on the window's overlay, never a sheet, never an
 /// activation, never a key-window change. Leo, 2026-11-16: "just go figure out a less
 /// obtrusive [way] to do that screen sharing shit".
-enum CmuxRemoteShareCaller: Equatable {
+enum CmuxRemoteShareCaller: String, Equatable {
     /// An agent: its chat's CLI or cmux MCP server, or a Chief turn.
     case agent
     /// A cmux CLI in a terminal no agent session names.
@@ -21,32 +21,18 @@ enum CmuxRemoteShareCaller: Equatable {
     /// The caller of a `remote.confirm` control request, from its `caller` object (`agent_session`,
     /// `terminal_id`, `home_chat`); the cmux CLI when it names none.
     init(controlParams params: [String: JSONValue]) {
-        guard case .object(let caller)? = params["caller"] else {
-            self = .cli
-            return
-        }
-        let named = { (key: String) in caller[key]?.stringValue.map { !$0.isEmpty } ?? false }
-        if named("agent_session") || caller["home_chat"]?.boolValue == true {
-            self = .agent
-        } else if named("terminal_id") {
-            self = .terminal
-        } else {
-            self = .cli
-        }
+        let answer = RdUI.call("remote.callerFromParams", encoding: params) as? [String: Any]
+        self = (answer?["caller"] as? String).flatMap(Self.init(rawValue:)) ?? .cli
     }
 
     /// The caller of an action run; nil for the person's own run in this app, which needs no notice.
     init?(invocation: ActionInvocation) {
-        if invocation.callerAgentSession != nil || invocation.callerHomeChat {
-            self = .agent
-            return
-        }
-        switch invocation.origin {
-        case .user where !invocation.viaControlSocket, .page: return nil
-        case .mcp: self = .agent
-        case .remote: self = .device
-        case .user, .cli, .script: self = invocation.callerTerminal == nil ? .cli : .terminal
-        }
+        let answer = RdUI.call("remote.callerFromInvocation", [
+            "agentSession": invocation.callerAgentSession != nil, "homeChat": invocation.callerHomeChat,
+            "origin": invocation.origin.rawValue, "viaControlSocket": invocation.viaControlSocket, "terminal": invocation.callerTerminal != nil,
+        ]) as? [String: Any]
+        guard let caller = (answer?["caller"] as? String).flatMap(Self.init(rawValue:)) else { return nil }
+        self = caller
     }
 
     var message: String {

@@ -124,6 +124,8 @@ public final class TryPullRequestModel {
         case loading
         case loaded(TryPullRequestList)
         case failed(String)
+        /// The Mac's link is down; the page offers Try Again.
+        case unreachable
     }
 
     public enum Install: Equatable {
@@ -152,7 +154,7 @@ public final class TryPullRequestModel {
 
     public func reload() async {
         guard let service else {
-            load = .failed("Not connected to this Mac.")
+            load = .unreachable
             return
         }
         if case .loaded = load {} else { load = .loading }

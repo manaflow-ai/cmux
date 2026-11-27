@@ -202,7 +202,7 @@ def start_sample(pid: int, path: Path) -> threading.Thread:
     spawned = time.monotonic()
 
     def run() -> None:
-        time.sleep(max(0.0, SAMPLE_AT - (time.monotonic() - spawned)))
+        time.sleep(max(0.0, SAMPLE_AT - (time.monotonic() - spawned)))  # sleep-ok: the sample starts SAMPLE_AT s after the spawn on purpose
         try:
             subprocess.run(["sudo", "-n", "/usr/bin/sample", str(pid), str(SAMPLE_SECONDS), "1", "-mayDie", "-file", str(path)],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=SAMPLE_SECONDS + 25)
@@ -353,9 +353,14 @@ class LogStream:
     """`log stream --style ndjson` of PREMAIN_LOG (and the app's own process, EXECUTABLE) into PATH, from before the
     launch until stop(). Best effort: no stream, no events."""
 
+    MARK = "cmux-nfl-stream-mark"
+
     def __init__(self, path: Path, executable: str):
         self.path = path
-        predicate = f'({PREMAIN_LOG}) OR process == "{executable}"'
+        self.token = f"{self.MARK}-{os.getpid()}-{time.monotonic_ns()}"
+        # Also this stream's own markers (logger lines with the token): one seen in the file means every event
+        # logged before it has reached the stream.
+        predicate = f'({PREMAIN_LOG}) OR process == "{executable}" OR eventMessage CONTAINS "{self.token}"'
         self.handle = open(path, "wb")
         try:
             self.process = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--level", "debug",
@@ -363,15 +368,33 @@ class LogStream:
                                             stdin=subprocess.DEVNULL, start_new_session=True)
         except OSError:
             self.process = None
-        # The stream prints its "Filtering the log data" line once it is reading; the launch waits for it.
-        deadline = time.monotonic() + 5
-        while self.process is not None and time.monotonic() < deadline and path.stat().st_size == 0:
+        # The stream is live once a marker logged now shows up in it; the launch waits for that.
+        self.mark("ready")
+
+    def mark(self, what: str, seconds: float = 5.0) -> bool:
+        """Logs a marker line and waits until the stream has written it. Best effort: False after SECONDS."""
+        if self.process is None:
+            return False
+        line = f"{self.token}-{what}"
+        try:
+            subprocess.run(["/usr/bin/logger", line], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and self.process.poll() is None:
+            try:
+                if line.encode() in self.path.read_bytes():
+                    return True
+            except OSError:
+                pass
             time.sleep(0.05)
-        time.sleep(0.3)
+        print(f"nightly-fresh-launch: log stream never showed its {what} marker in {seconds:g} s", file=sys.stderr)
+        return False
 
     def stop(self) -> None:
         if self.process is not None and self.process.poll() is None:
-            time.sleep(0.5)  # the last events of the launch reach the stream
+            self.mark("stop")  # the last events of the launch have reached the stream once this marker has
             self.process.terminate()
             try:
                 self.process.wait(timeout=10)
@@ -398,7 +421,7 @@ def premain_log(path: Path, spawned_at: float, main_start: float | None, pid: in
         except (ValueError, KeyError, TypeError):
             continue
         ms = round((at - spawned_at) * 1000, 1)
-        if ms < -300 or ms > end:
+        if ms < -300 or ms > end or LogStream.MARK in (event.get("eventMessage") or ""):
             continue
         who = "app" if event.get("processID") == pid else Path(event.get("processImagePath") or "?").name
         key = f"{who}/{event.get('subsystem') or '-'}/{event.get('category') or '-'}"
@@ -569,6 +592,7 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
         return {"arm": arm, "before": before, **row}
     finally:
         smoke.stop(smoke.own_pids(root))
+        smoke.forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -627,6 +651,7 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
                     print("NFL-VERIFY", index, json.dumps(item), flush=True)
     finally:
         smoke.stop(smoke.own_pids(root))
+        smoke.forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
     return rows
 
@@ -676,6 +701,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"NFL cannot run: {error}", flush=True)
         status = 3
     finally:
+        smoke.forget_apps(mount)
         smoke.detach(mount)
         shutil.rmtree(mount, ignore_errors=True)
     medians = {}

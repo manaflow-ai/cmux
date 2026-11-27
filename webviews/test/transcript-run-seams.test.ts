@@ -32,7 +32,6 @@ const tool = (title: string, kind: string, fields: Record<string, unknown> = {})
 const read = (path: string) => tool(`Read ${path}`, "read", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", { command, output: "ok\n" });
 const activity = (items: AcpmuxActivity[], id: string) => row("activity", { id, items, toolCount: items.length });
-const plan = (id: string) => row("plan", { id, plan: [{ content: "Look around", status: "completed" }] });
 
 /// A finished turn: two runs of calls with `seam` between them, then the answer.
 function turn(seam: AcpmuxRow[]): AcpmuxRow[] {
@@ -52,7 +51,6 @@ function turn(seam: AcpmuxRow[]): AcpmuxRow[] {
 }
 
 const SEAMS: Record<string, () => AcpmuxRow[]> = {
-  "a todo-list update": () => [plan("todo")],
   "an agent message with no visible text": () => [row("assistant", { id: "blank", text: "\n\n" })],
   "a compaction with no message beside it": () => [
     row("compaction", {

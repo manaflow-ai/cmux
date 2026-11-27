@@ -188,6 +188,9 @@ fn summarize(cfg: &Cfg, tables: &[Value]) -> Value {
 struct Seen {
     /// (idx, seq) -> (first arrival us, arrivals)
     churn: HashMap<(u64, u64), (u64, u32)>,
+    /// (idx, seq) -> the record's `_meta.acpmux.at` (ms) at first arrival: the host daemon's
+    /// stamp, which splits a fan-in into the host leg and the link-plus-controller leg.
+    churn_at: HashMap<(u64, u64), u64>,
     /// (idx, round) -> (agent receipt us, controller arrival us, arrivals)
     fanout: HashMap<(u64, u64), (u64, u64, u32)>,
     methods: HashMap<String, u64>,
@@ -221,6 +224,13 @@ fn handler(seen: Arc<Mutex<Seen>>) -> rpc::Handler {
             if let (Some(i), Some(k)) = (f.get("s"), f.get("k")) {
                 let e = s.churn.entry((*i, *k)).or_insert((at, 0));
                 e.1 += 1;
+                let first = e.1 == 1;
+                if first
+                    && let Some(mux_at) =
+                        v.pointer("/params/_meta/acpmux/at").and_then(Value::as_u64)
+                {
+                    s.churn_at.insert((*i, *k), mux_at);
+                }
             }
         } else if text.starts_with("fanin-rx ") {
             let f = fields(text);
@@ -426,15 +436,20 @@ type Target = (&'static str, String, PathBuf);
 type FanoutDone = Arc<Mutex<Vec<(u64, u64, u64, bool)>>>;
 
 /// The daemon's resident KiB from its own gauges, and the status call's ms.
-fn gauge_rss(rpc: &Rpc) -> (Option<u64>, f64) {
+/// Also its fan-out gauge (`gauges.fanout`: a window of the last 1024 events, so a 2 s series of
+/// it shows a burst the end-of-run reading has forgotten).
+fn gauge_rss(rpc: &Rpc) -> (Option<u64>, f64, Value) {
     let t = Instant::now();
     let r = rpc.call("_acpmux/status", json!({}), Duration::from_secs(30));
     let ms = t.elapsed().as_secs_f64() * 1000.0;
-    let kb = r
-        .ok()
+    let v = r.ok();
+    let kb = v
+        .as_ref()
         .and_then(|v| v.pointer("/gauges/memory/rssBytes").and_then(Value::as_u64))
         .map(|b| b / 1024);
-    (kb, ms)
+    let gauge = |p: &str| v.as_ref().and_then(|v| v.pointer(p)).cloned().unwrap_or(Value::Null);
+    // The per-connection feeds and the hub's one notice loop (`gauges.rs`).
+    (kb, ms, json!({"fanout": gauge("/gauges/fanout"), "notices": gauge("/gauges/peerNotices")}))
 }
 
 fn sampler<'s>(
@@ -457,9 +472,11 @@ fn sampler<'s>(
                 let mut last = Vec::new();
                 for ((role, name, _), conn) in targets.iter().zip(&conns) {
                     let t = now_us();
-                    let (rss, status_ms) = conn.as_ref().map_or((None, 0.0), gauge_rss);
+                    let (rss, status_ms, gauges) =
+                        conn.as_ref().map_or((None, 0.0, Value::Null), gauge_rss);
                     nd.line(&json!({"t_us": t, "role": role, "name": name, "rss_kb": rss,
-                                    "status_ms": (status_ms * 10.0).round() / 10.0}));
+                                    "status_ms": (status_ms * 10.0).round() / 10.0,
+                                    "fanout": gauges["fanout"], "notices": gauges["notices"]}));
                     if *role == "daemon" {
                         let st_us = (status_ms * 1000.0) as u64;
                         sm.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((t, st_us, rss.unwrap_or(0)));
@@ -822,7 +839,8 @@ fn ramp_in<'s>(
                 None => lost += 1,
             }
             ev.line(&json!({"c": idx, "seq": seq, "src": "agent", "emit_us": t, "daemon_n": 1,
-                            "reader_us": got.map(|g| g.0), "reader_n": got.map_or(0, |g| g.1)}));
+                            "reader_us": got.map(|g| g.0), "reader_n": got.map_or(0, |g| g.1),
+                            "mux_at_ms": seen.churn_at.get(&(idx, seq))}));
         }
     }
     let (mut fanout, mut fanout_back, mut fanout_lost, mut fanout_dup) =
@@ -922,60 +940,5 @@ fn ramp_in<'s>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agent_text_fields_and_names() {
-        let f = fields("fanin s=42 k=7 t=1795086515201911");
-        assert_eq!((f["s"], f["k"], f["t"]), (42, 7, 1_795_086_515_201_911));
-        assert_eq!(name(10, 1), (0, "s00001".to_owned()));
-        assert_eq!(name(10, 11), (0, "s00011".to_owned()));
-        assert_eq!(name(10, 2000), (9, "s02000".to_owned()));
-    }
-
-    #[test]
-    fn client_counts_churn_fanout_and_dups() {
-        let seen = Arc::new(Mutex::new(Seen::default()));
-        let h = handler(seen.clone());
-        let upd = |text: &str| {
-            json!({"method": "session/update", "params": {"sessionId": "x",
-            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}})
-        };
-        h(10, "session/update", &upd("fanin s=3 k=1 t=5"));
-        h(11, "session/update", &upd("fanin s=3 k=1 t=5"));
-        h(12, "session/update", &upd("fanin-rx s=3 r=2 t=9"));
-        h(13, "_acpmux/lagged", &json!({"params": {"dropped": 4}}));
-        let s = seen.lock().unwrap();
-        assert_eq!(s.churn[&(3, 1)], (10, 2));
-        assert_eq!(s.fanout[&(3, 2)], (9, 12, 1));
-        assert_eq!(s.lagged, 4);
-    }
-
-    #[test]
-    fn summary_ratios_against_the_first_ramp() {
-        let cfg = Cfg {
-            hosts: 2,
-            rate: 1.0,
-            out: PathBuf::new(),
-            bin: PathBuf::new(),
-            window_s: 1,
-            settle_s: 0,
-            latency_ms: 0,
-            burst_s: 0,
-            fanout_rounds: 0,
-            agent_hosts: false,
-            attach_workers: 1,
-        };
-        let t = |n: u64, p95: f64, cpu: f64| {
-            json!({"n": n, "attach_ms": {"p95": p95}, "attach_one_ms": {"p95": p95},
-            "fanin_ms": {"p95": p95}, "fanout_ms": {"p95": p95},
-            "controller": {"cpu_pct_per_session": cpu, "rss_kb_per_session": cpu}})
-        };
-        let s = summarize(&cfg, &[t(50, 2.0, 0.1), t(2000, 2.2, 0.1)]);
-        assert_eq!(s["ratios"][1]["attach_p95"], json!(1.1));
-        assert_eq!(s["goal_met_at_2000"], true);
-        let s = summarize(&cfg, &[t(50, 2.0, 0.1), t(2000, 5.0, 0.1)]);
-        assert_eq!(s["goal_met_at_2000"], false);
-    }
-}
+#[path = "ramp_tests.rs"]
+mod tests;

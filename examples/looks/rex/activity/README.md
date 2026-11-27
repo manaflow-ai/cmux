@@ -18,7 +18,7 @@ Rows are keyed by host and session id, so equal ids on different hosts stay sepa
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/activity@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/activity@feat-cmux-next
 ```
 
 Remove it with `cmux setup remove manaflow-ai/rex-activity`. To preview from the repository root, run

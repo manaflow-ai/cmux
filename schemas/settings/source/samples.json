@@ -218,6 +218,14 @@
         ["__not_a_choice__"],
         [1]
       ]
+    },
+    "json": {
+      "accept": [],
+      "refuse": [
+        "[[\"name\"]]",
+        1,
+        true
+      ]
     }
   },
   "domains": {
@@ -246,6 +254,19 @@
         [{"id": "a", "name": "A", "level": "1"}]
       ]
     },
+    "domain:particles_document": {
+      "accept": [
+        {"$schema": "cmux.particles/1", "particle": {"size": 3, "max": 1}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": [[0, 0, 0.7]]}]}}},
+        {"$schema": "cmux.particles/1", "particle": {"shape": "circle", "size": 3, "color": "accent", "max": 3}, "phases": {"row": {"duration": 1200, "ease": "easeInOut", "frames": [{"at": 0, "formation": "row"}, {"at": 1, "dots": [[-6, 0, 1], [0, 0, 0.6], [6, 0, 1]]}]}}, "triggers": {"execute": ["row"], "cycle": ["row"]}}
+      ],
+      "refuse": [
+        "thinking-glyph.json",
+        {},
+        {"$schema": "cmux.particles/2", "particle": {"size": 3}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}},
+        {"$schema": "cmux.particles/1", "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}},
+        {"$schema": "cmux.particles/1", "particle": {"size": 3}, "phases": {}}
+      ]
+    },
     "domain:command_labels": {
       "accept": [
         [],
@@ -259,6 +280,26 @@
         [{"program": "x"}],
         [{"program": [], "label": "x"}],
         [{"program": "x", "label": "x", "icon": 1}],
+        [1]
+      ]
+    },
+    "domain:hosts": {
+      "accept": [
+        [],
+        [{"label": "studio", "endpoints": ["studio.local", "ssh://leo@100.64.0.7:2222"], "icon": "desktopcomputer"}],
+        [{"label": "a", "endpoint": "leo@a"}, {"label": "b", "endpoint": "b", "id": "b1"}]
+      ],
+      "refuse": [
+        "studio",
+        [{"endpoints": ["a"]}],
+        [{"label": " ", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": []}],
+        [{"label": "a", "endpoint": "a", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": ["http://a"]}],
+        [{"label": "a", "endpoints": ["-oProxyCommand=x"]}],
+        [{"label": "a", "endpoints": ["a b"]}],
+        [{"label": "a", "endpoints": ["a"], "icon": 1}],
+        [{"label": "a", "endpoint": "a"}, {"label": "A", "endpoint": "b"}],
         [1]
       ]
     },
@@ -451,6 +492,20 @@
         true
       ]
     },
+    "domain:sidebar_section_ids": {
+      "accept": [
+        [],
+        ["recents"],
+        ["projects", "pinned"]
+      ],
+      "refuse": [
+        "recents",
+        [""],
+        ["pinned", "pinned"],
+        [1],
+        {"hidden": ["recents"]}
+      ]
+    },
     "domain:search_template": {
       "accept": [
         "",
@@ -462,6 +517,43 @@
         "search.example",
         "not a url %s",
         1
+      ]
+    },
+    "domain:sidebar_row_lines": {
+      "accept": [
+        [],
+        [["icon", "name", "branch"], ["agentStatus"]],
+        [["name", "directory"], ["process"], ["ports", "lastActivity"]]
+      ],
+      "refuse": [
+        "name",
+        1,
+        {},
+        null
+      ]
+    },
+    "domain:sidebar_row_lines_by_kind": {
+      "accept": [
+        {},
+        {"agent": [["icon", "name", "working"], ["agentStatus"]], "terminal": [["icon", "name"], ["process", "directory"]]}
+      ],
+      "refuse": [
+        [],
+        "agent",
+        1,
+        null
+      ]
+    },
+    "domain:sidebar_row_lines_by_agent": {
+      "accept": [
+        {},
+        {"claude": [["icon", "name", "working"], ["lastActivity"]], "codex": [["name", "branch"]]}
+      ],
+      "refuse": [
+        [],
+        "claude",
+        1,
+        null
       ]
     },
     "domain:backdrop_picture": {
@@ -481,6 +573,21 @@
         "file:",
         "__not_a_backdrop__",
         1
+      ]
+    },
+    "domain:backdrop_pictures": {
+      "accept": [
+        [],
+        ["file:/Users/Shared/Harbor.png"],
+        ["munch-scream", "file:/Users/Shared/Harbor.png", "system:/System/Library/Desktop Pictures/Sonoma.heic"]
+      ],
+      "refuse": [
+        "file:/Users/Shared/Harbor.png",
+        ["folder:/Users/Shared/Wallpapers"],
+        ["file:relative.png"],
+        ["none"],
+        [1],
+        {}
       ]
     },
     "domain:backdrop_schedule": {

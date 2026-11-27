@@ -1,4 +1,7 @@
 import { LayeredMap } from "../conversation/layeredMap";
+import { skippedRow } from "../conversation/offscreenRows";
+import { shelvedRow } from "../conversation/shelvedRows";
+import type { AcpmuxRow } from "../model";
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 /// `actions`: whether a reply kept its action row's room then (model.ts `keepsReplyRoom`); a drawn
@@ -14,9 +17,13 @@ export type DrawnHeight = {
   /// Whether the row was collapsing to nothing then (it holds `[data-row-collapsing]`): its gaps
   /// shrink with it (model.ts `collapsingHeight`).
   collapsing?: true;
+  /// What of the row was open when it was drawn, its state signature (conversation/rowOpenState.ts):
+  /// a height drawn open never places the row closed, or the other way (`drawnOpenStateHolds`).
+  open?: string;
 };
 
-/// `height` is undefined for a row the page has not laid out (drawnHeightOf).
+/// `height` is undefined for a row the page has not laid out (drawnHeightOf). `row`: the row drawn,
+/// whose open state the height is kept with (`DrawnHeight.open`).
 export type ReportDrawn = (
   id: string,
   version: number,
@@ -24,6 +31,7 @@ export type ReportDrawn = (
   actions?: boolean,
   status?: string,
   collapsing?: boolean,
+  row?: AcpmuxRow,
 ) => void;
 
 /// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
@@ -36,6 +44,7 @@ export type QueueDrawn = (
   actions?: boolean,
   status?: string,
   versionOnly?: boolean,
+  row?: AcpmuxRow,
 ) => () => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
@@ -48,6 +57,11 @@ export type QueueDrawn = (
 export const noQueue = () => {};
 
 export function drawnHeightOf(node: HTMLElement): number | undefined {
+  // A row whose contents the page skips (mounted away from the view, conversation/offscreenRows.ts)
+  // is as high as it was placed: that is no drawn height, and it must not overwrite the estimate.
+  if (skippedRow(node)) return undefined;
+  // A shelved row (conversation/shelvedRows.ts) is as high as it was placed, the same way.
+  if (shelvedRow(node)) return undefined;
   const height = node.getBoundingClientRect().height;
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
 }

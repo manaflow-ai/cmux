@@ -28,7 +28,12 @@ pinned_gh() {
   sum="${GH_PIN_SHA256:-$sum}"
   local dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pinned-gh-$GH_PIN_VERSION"
   rm -rf "$dir" && mkdir -p "$dir/unpacked" "$dir/bin" || return 1
-  curl -fsSL --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors -o "$dir/$asset" "$url" || {
+  # With the job's token (GH_PIN_TOKEN from the step), through the API: the Macs get 403 on anonymous
+  # release downloads (scripts/ci/github-release-download.sh; without it, curl as before).
+  local fetch="$(dirname "$0")/../github-release-download.sh"
+  { [ -f "$fetch" ] && GH_DOWNLOAD_TOKEN="${GH_PIN_TOKEN:-}" bash "$fetch" "$url" "$dir/$asset" \
+      --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors; } ||
+  { [ ! -f "$fetch" ] && curl -fsSL --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors -o "$dir/$asset" "$url"; } || {
     echo "::warning title=Pinned gh::could not download $url"; return 1; }
   local actual
   actual="$(file_sha256 "$dir/$asset")"
