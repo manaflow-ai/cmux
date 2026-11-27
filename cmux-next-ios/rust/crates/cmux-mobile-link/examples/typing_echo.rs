@@ -29,6 +29,9 @@
 //! (`testing::RadioModel`); `--burst-every-s N --burst-keys K` types K keys
 //! at `--rate` every N seconds instead of without a pause, and the JSON's
 //! `first_key_ms` is the echo of each burst's first key;
+//! `--drx-cycle-ms C` (with `--radio lte`) has the connected radio sleep
+//! between listening slots C ms apart after 100 ms quiet (connected-mode
+//! DRX), so a datagram coming down waits for the next slot;
 //! `--foreground-probe on` starts the phone's link with its foreground
 //! probe on, as the app does with a terminal on screen.
 //! `--prewake-lead-ms L` calls `Link::prewake` L ms before each burst's
@@ -70,6 +73,7 @@ struct Args {
     turn_answer_ms: Option<u64>,
     radio: bool,
     radio_tail_ms: u64,
+    drx_cycle_ms: u64,
     burst_every_s: Option<f64>,
     burst_keys: u64,
     foreground_probe: bool,
@@ -91,6 +95,7 @@ fn args() -> Args {
         turn_answer_ms: None,
         radio: false,
         radio_tail_ms: 11_576,
+        drx_cycle_ms: 0,
         burst_every_s: None,
         burst_keys: 5,
         foreground_probe: false,
@@ -113,6 +118,7 @@ fn args() -> Args {
             "--turn-answer-ms" => parsed.turn_answer_ms = value.parse().ok(),
             "--radio" => parsed.radio = value == "lte",
             "--radio-tail-ms" => parsed.radio_tail_ms = value.parse().unwrap_or(parsed.radio_tail_ms),
+            "--drx-cycle-ms" => parsed.drx_cycle_ms = value.parse().unwrap_or(0),
             "--burst-every-s" => parsed.burst_every_s = value.parse().ok(),
             "--burst-keys" => parsed.burst_keys = value.parse().unwrap_or(5),
             "--foreground-probe" => parsed.foreground_probe = value == "on",
@@ -171,7 +177,7 @@ async fn main() {
     if args.radio {
         set_radio_model(Some(RadioModel {
             tail: Duration::from_millis(args.radio_tail_ms),
-            ..RadioModel::lte()
+            ..RadioModel::lte().with_drx(Duration::from_millis(args.drx_cycle_ms))
         }));
     }
     set_periodic_loss(args.periodic_loss);
@@ -391,7 +397,7 @@ async fn main() {
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"prewake_lead_ms\":{},\"prewakes\":{prewakes},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"duress_kbps\":{},\"key_paint\":{},\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"drx_cycle_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"prewake_lead_ms\":{},\"prewakes\":{prewakes},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"duress_kbps\":{},\"key_paint\":{},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -406,6 +412,7 @@ async fn main() {
         spikes.len(),
         args.radio,
         args.radio_tail_ms,
+        args.drx_cycle_ms,
         args.foreground_probe,
         args.idle_air_gap_ms.map_or("null".to_string(), |ms| ms.to_string()),
         args.air_floor_ms.map_or("null".to_string(), |ms| ms.to_string()),
