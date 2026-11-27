@@ -121,6 +121,44 @@ test("a change of words reads the line again, and the old words still roll out a
   expect(out!.style.width).toBe(`${WIDTH}px`);
 });
 
+test("with a ResizeObserver, a change of words reads no layout in its commit and rolls out at the reported width", () => {
+  // A stand-in observer: its callback runs when the test says the frame laid out (`report`).
+  const observers: { callback: ResizeObserverCallback; targets: Set<Element> }[] = [];
+  class FakeObserver {
+    targets = new Set<Element>();
+    constructor(callback: ResizeObserverCallback) {
+      observers.push({ callback, targets: this.targets });
+    }
+    observe(target: Element) {
+      this.targets.add(target);
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      this.targets.clear();
+    }
+  }
+  saved.set("ResizeObserver", scope.ResizeObserver);
+  scope.ResizeObserver = FakeObserver;
+  const report = () => {
+    for (const { callback, targets } of observers)
+      callback(
+        [...targets].map((target) => ({ target, contentRect: { width: WIDTH, height: 20 } }) as ResizeObserverEntry),
+        {} as ResizeObserver,
+      );
+  };
+  act(() => root!.render(step("Read a.ts", 0)));
+  report();
+  const laidOut = { ...reads };
+  act(() => root!.render(step("Read b.ts", 1)));
+  // The commit that changed the words read nothing: the observer's report holds the old width.
+  expect(reads).toEqual(laidOut);
+  const out = container.querySelector<HTMLElement>(".cv-roll-out");
+  expect(out).not.toBeNull();
+  expect(out!.style.width).toBe(`${WIDTH}px`);
+});
+
 /// A ResizeObserver that reports when the test says, each observed box at `width` px wide (the words'
 /// box) or 20 (the rest): the page's observer reports after the frame's layout, which a commit never
 /// forces.
