@@ -2473,7 +2473,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let stopped = Instant::now();
     daemon.stop();
     let shutdown_ms = ms(stopped);
-    if let (Some(p), Ok(k)) = (profile.as_deref(), std::env::var("RSS1G_KEEP")) { let _ = std::fs::copy(p, format!("{k}-{label}.json")); }
+    if let Some(p) = profile.as_deref() { let r = std::fs::copy(p, format!("/tmp/rss1g-dhat2/heap-{label}.json")); eprintln!("RSS1G_KEEP {} {r:?}", p.display()); }
     let heap = profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
     let restart_profile = profile.as_ref().map(|_| scratch.join("dhat-restart-heap.json"));
     let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
