@@ -33,7 +33,11 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Iterable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 
 KIND = "cmux-proof-record"
 VERSION = 1
@@ -148,8 +152,10 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
             f"https://api.github.com/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}",
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                      "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            got = json.loads(resp.read())
+        # A passing refusal (429, rate-limit 403, 5xx, a dropped connection) is asked again (gh_http): one
+        # blip used to turn a passed build into "proof record not read (HTTPError): rerun this job".
+        _, body, _ = gh_http.request(req, 20, raise_errors=True)
+        got = json.loads(body or b"[]")
         out += got
         if len(got) < 100:
             break
