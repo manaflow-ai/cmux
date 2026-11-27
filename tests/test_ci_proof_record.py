@@ -112,7 +112,8 @@ class Gate(unittest.TestCase):
         try:
             out = io.StringIO()
             with redirect_stdout(out):
-                pr.main(["gate", "--suite", "ios-flows"])
+                rc = pr.main(["gate", "--suite", "ios-flows"])
+            self.assertEqual(rc, pr.UNREAD)
             self.assertTrue(out.getvalue().startswith("error\t"))
         finally:
             os.environ.update({k: v for k, v in saved.items() if v is not None})
@@ -128,11 +129,42 @@ class Gate(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
+    def test_simulator_dispatch_identity(self):
+        from unittest import mock
+
+        step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
+
+        def dispatch(head=HEAD, strict=False, attempt="1", **changes):
+            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
+            cmd = run.call_args.args[0]
+            return cmd[cmd.index("--key") + 1]
+
+        with mock.patch.object(ios_verify.time, "time", return_value=1):
+            key = dispatch()
+        with mock.patch.object(ios_verify.time, "time", return_value=2):
+            self.assertEqual(key, dispatch())
+        self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
+        self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
+        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        self.assertNotEqual(key, dispatch(strict=True))
+        self.assertNotEqual(key, dispatch(attempt="2"))
+        self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
+
     def selection(self, **kw):
         base = {"ios": True, "compile": False, "flows": ["smoke-launch-sign-in"], "kit": ["K1", "K2"],
                 "ui": ["U1", "U2", "U3"], "swift": [], "scripts": []}
         base.update(kw)
         return base
+
+    def test_step_keys_name_the_head_and_the_shard(self):
+        steps = ios_verify.plan(self.selection(), [], ["cmux22"], "always")
+        keys = [ios_verify.step_key(s, HEAD, 7) for s in steps]
+        self.assertEqual(len(keys), len(set(keys)))
+        moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
+        self.assertFalse(set(keys) & set(moved))
+        self.assertTrue(all(HEAD[:12] in k for k in keys))
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")

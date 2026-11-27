@@ -111,6 +111,7 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "hpke",
+ "ignore",
  "imbl",
  "inotify",
  "jpeg-encoder",
@@ -2874,8 +2875,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 
