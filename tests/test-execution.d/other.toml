@@ -613,6 +613,10 @@ path = "tests/test_media_tag_lock.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_memory_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_memory_resource_diagnostics.py"
 lane = "legacy"
 

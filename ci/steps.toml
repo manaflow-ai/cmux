@@ -2446,6 +2446,45 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 cargo bench --profile gate -p acpmux --bench icount --locked -- check
 '''
 
+# Per-PR memory: Leo, 2026-11-22 (ask-5b56389121), "i also want us to keep pursuing the ability to have infinite
+# f***ing tabs and workspaces and s*** without getting starved of cpu/ram". The Mac bench (infinite-tabs.sh) needs
+# the exclusive class and queues about 17 h at p90; this builds the base (HEAD^1 of the merge commit) and the merge
+# with no LTO on this runner and runs both interleaved three times at 100 hibernated items, so one runner's noise
+# hits both arms. Exit 2 (the harness could not run) passes: a broken harness is the harness's red, not the PR's.
+# A red names the next step: memory_bisect.py --good BASE --bad HEAD finds the commit in a range.
+[step.memory-per-item]
+job = "linux"
+alone = true
+timeout = 3000
+title = "memory per hibernated item (acpmux + cmux-tui A/B)"
+about = "what a hibernated item costs acpmux and cmux-tui (infinite_items.n100.mb_per_item) grows by no more than 10 % (and 0.05 MB) over the base, beyond the base's own spread"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/acpmux-*/**",
+  "cmux-tui/crates/cmux-tui/**",
+  "cmux-tui/crates/cmux-tui-*/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "scripts/measure/memory-gate-linux.sh",
+  "scripts/measure/memory_gate.py",
+  "scripts/measure/infinite-items.py",
+  "scripts/measure/infinite-items-linux.sh",
+  "scripts/measure/memory_bisect.py",
+  "tests/test_memory_gate.py",
+]
+ignore = [
+  "cmux-tui/crates/**/*.md",
+  "cmux-tui/crates/acpmux/spec/**",
+]
+run = '''
+python3 tests/test_memory_gate.py
+rc=0
+scripts/measure/memory-gate-linux.sh "base=$(git rev-parse HEAD^1)" || rc=$?
+[ "$rc" = 2 ] && { echo "memory-per-item: no data; passing open" >&2; rc=0; }
+exit "$rc"
+'''
+
 # The cmux_next_ daemon tests of the gate's small members, on the pull request itself. The gate (the
 # cmux-next-daemon-tests step below, and cmux-tui-artifacts.yml's job whose pass moves the feat-cmux-next channel) has
 # whole-directory inputs, so --pr-scope leaves it to the post-merge batch, and a lane/** push does not run the
