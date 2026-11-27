@@ -16,8 +16,8 @@ trap 'rm -rf "$tmp"' EXIT
 repo="$tmp/repo"
 pkg="$repo/Packages/macOS/Fake"
 mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$pkg" "$tmp/bin"
-cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
-  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$repo/scripts/ci/"
+# The lane and everything under scripts/ci it sources, imports or runs by path (see package-test-lane-sdkroot.test.sh).
+cp -R "$ROOT/scripts/ci/." "$repo/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' > "$pkg/Package.swift"
 git -C "$repo" init -q && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init

@@ -15,9 +15,10 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 repo="$tmp/repo"
 mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$repo/Packages/macOS/Fake" "$tmp/bin"
-# The lane, the scripts it sources and the Python helpers it imports (hung_test_watchdog.py needs ci_process_tree.py).
-cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
-  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$repo/scripts/ci/"
+# The lane and everything under scripts/ci it sources, imports or runs by path. A hand-picked list here missed
+# scripts/ci/package-test-lane/swift_suite_outcomes.py (8fa91104601) and github-egress-direct.sh, which
+# swiftpm-binary-module-guard.sh sources, and failed the checks job's script tests on the base (run 46008833629).
+cp -R "$ROOT/scripts/ci/." "$repo/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' \
   > "$repo/Packages/macOS/Fake/Package.swift"
