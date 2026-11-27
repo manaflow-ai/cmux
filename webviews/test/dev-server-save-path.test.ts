@@ -76,6 +76,7 @@ test("Vite's watcher re-reads a folder after a save, not during it, and still re
   try {
     // Vite starts watching at createServer; wait until the folder is watched (ready may have fired already).
     const watcher = server.watcher as unknown as { getWatched(): Record<string, string[]> };
+    // fixed-wait: a 20 ms poll step bounded by 100 tries; chokidar offers no event for "this file is watched"
     for (let i = 0; i < 100 && !watcher.getWatched()[root]?.includes("a.ts"); i += 1) await Bun.sleep(20);
     expect(watcher.getWatched()[root]).toContain("a.ts");
     const handler = (server.watcher as unknown as { _nodeFsHandler: { _handleRead: Function } })._nodeFsHandler;

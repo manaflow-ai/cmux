@@ -5,6 +5,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { MOTION_MS } from "../src/motion/scale.generated";
 
 const root = resolve(import.meta.dir, "..");
 const directory = mkdtempSync(join(tmpdir(), "cmux-row-motion-"));
@@ -41,9 +42,9 @@ const planted = [
   ["set translate", "export function Row(el: HTMLElement) { el.style.setProperty('transform', 'translateY(4px)'); }"],
   [
     "animate height",
-    "export function Row(el: HTMLElement) { el.animate([{ height: '0px' }, { height: '40px' }], 120); }",
+    `export function Row(el: HTMLElement) { el.animate([{ height: '0px' }, { height: '40px' }], ${MOTION_MS.micro}); }`,
   ],
-  ["animate height", "export function Row(el: HTMLElement) { el.style.transition = 'height 120ms'; }"],
+  ["animate height", `export function Row(el: HTMLElement) { el.style.transition = 'height ${MOTION_MS.micro}ms'; }`],
 ] as const;
 
 test("each row-motion ban planted in a row with no baseline fails", () => {
