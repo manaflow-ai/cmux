@@ -157,7 +157,7 @@ import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
-import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
+import { rememberTrayOpen, takeUntuckedByPointer, trayOpenFor } from "./trayFoldMemory";
 import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
 import type { TrayHandleSide } from "../chatDisplay";
 import { focusRingShown } from "../../../ui/focusModality";
@@ -442,7 +442,12 @@ export const SubagentTray = memo(function SubagentTray({
   // The tuck chevron stays away from the moment the hat expands or folds until the pointer leaves it:
   // its hover reveal on the hat's top edge read as a stray chevron popping in while the hat moved
   // (Leo, 2026-11-08: "some elements in between"). Its keyboard focus still shows it.
-  const [tuckQuiet, setTuckQuiet] = useState(false);
+  // A hat that returns under the pointer that clicked its pull tab starts quiet and stays so until the
+  // pointer leaves (trayFoldMemory.ts `markUntuckedByPointer`): a stationary pointer's first move
+  // would otherwise count as entering and reveal the chevron under it.
+  const pointerReturn = useRef<boolean | null>(null);
+  if (pointerReturn.current === null) pointerReturn.current = takeUntuckedByPointer();
+  const [tuckQuiet, setTuckQuiet] = useState(pointerReturn.current);
   const held = (headed && open) || hovered || keyboardIn;
   const holdTo = useRef(onHold);
   useLayoutEffect(() => {
@@ -881,10 +886,11 @@ export const SubagentTray = memo(function SubagentTray({
       data-tuck-quiet={(onTuck && tuckQuiet) || undefined}
       onPointerEnter={() => {
         setHovered(true);
-        setTuckQuiet(false);
+        if (!pointerReturn.current) setTuckQuiet(false);
       }}
       onPointerLeave={() => {
         setHovered(false);
+        pointerReturn.current = false;
         setTuckQuiet(false);
       }}
       onKeyDown={onKeyDown}

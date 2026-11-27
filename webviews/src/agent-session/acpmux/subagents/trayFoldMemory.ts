@@ -26,3 +26,23 @@ export function rememberTrayOpen(chat: string | undefined, open: boolean): void 
 export function resetTrayOpenMemory(): void {
   opened.clear();
 }
+
+// The hat that comes back under the pointer that clicked its pull tab. The pull tab (TrayPullTab.tsx)
+// and the hat's tuck chevron (SubagentTray.tsx) stand at the same place on the composer's top edge, and
+// the hat remounts on the click: its chevron would show right under the stationary pointer and the
+// next click there would tuck the hat again, strip to pill to strip with one pointer (Leo, 2026-11-27,
+// a recording of a hat flipping between its strip, its "^ 20" pill and its list: "this isn't great").
+// So a hat that returns this way keeps its tuck chevron away until the pointer has left it once.
+let pointerUntucked = false;
+
+/// The pull tab's pointer click brought the hat back: its next mount keeps the tuck away.
+export function markUntuckedByPointer(): void {
+  pointerUntucked = true;
+}
+
+/// Read once by the hat that mounts next.
+export function takeUntuckedByPointer(): boolean {
+  const was = pointerUntucked;
+  pointerUntucked = false;
+  return was;
+}

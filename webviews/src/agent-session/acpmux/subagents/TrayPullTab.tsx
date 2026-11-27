@@ -37,7 +37,7 @@ import { setTrayTucked, type TrayHandleSide } from "../chatDisplay";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { composerHatLook } from "./composerHat.experiment";
-import { rememberTrayOpen } from "./trayFoldMemory";
+import { markUntuckedByPointer, rememberTrayOpen } from "./trayFoldMemory";
 import { HatCount } from "./HatCount";
 import { hatCountMotion } from "./hatCount.experiment";
 import { pullTabCountText, pullTabCountWidth } from "./trayPullTabModel";
@@ -141,6 +141,8 @@ export function TrayPullTab({
         onClick={(event) => {
           // Back folded to its one line; Option-click opens it at once.
           rememberTrayOpen(chat, event.altKey);
+          // A pointer click (not Enter or Space, detail 0): the hat returns under it, tuck away.
+          if (event.detail > 0) markUntuckedByPointer();
           setTrayTucked(false);
         }}
       >
