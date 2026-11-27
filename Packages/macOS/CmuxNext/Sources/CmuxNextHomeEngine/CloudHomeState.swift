@@ -183,11 +183,19 @@ nonisolated extension CloudHomeState {
 
     /// A participant for `conversation.create`, as a known head names it.
     func participantRecord(_ id: ParticipantID, identity: CloudIdentity) -> ConversationParticipant {
-        let known = heads.values.lazy.flatMap(\.participants).first { $0.id == id } ?? directory[id]
+        struct Head: Encodable { let participants: [Participant] }
+        struct Request: Encodable {
+            let id: String
+            let identity: HomeCoreMapping.Identity
+            let heads: [Head]
+            let directory: [Participant]
+        }
+        struct Reply: Decodable { let participant: ConversationParticipant }
+        let request = Request(id: id.rawValue, identity: .init(identity), heads: heads.values.map { Head(participants: $0.participants) },
+                              directory: Array(directory.values))
         let wireID = identity.toCloud(id)
-        let isAgent = known.map { $0.kind == .agent } ?? wireID.hasPrefix("agent_")
-        return ConversationParticipant(id: wireID, kind: isAgent ? .agent : .human, displayName: known?.displayName ?? wireID,
-                                       agentClass: isAgent ? (known?.agentClass == .chief ? "mux" : "agent") : nil)
+        return HomeCoreMapping.mappingRule("cloudParticipantRecord", request, fallback: Reply?.none)?.participant
+            ?? ConversationParticipant(id: wireID, kind: .human, displayName: wireID)
     }
 
     /// Queues unsubscribes after the subscribes and unsubscribes queued

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.writtenHTMLOpenBeside.help" : {
+      "comment" : "Settings > Experiments: the Open Written HTML Beside the Chat prototype row (rich output, plan item 5)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحصل صفحة الويب التي يكتبها الوكيل على زر «فتح بجانب المحادثة» يعرض الصفحة الحقيقية بأنماطها وصورها في علامة تبويب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web stranica koju agent napiše dobija dugme Otvori pored razgovora koje prikazuje stvarnu stranicu, sa stilovima i slikama, u kartici."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En webside, som agenten skriver, får en Åbn ved siden af chatten-knap, der viser den rigtige side med typografier og billeder i en fane."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Webseite, die der Agent schreibt, erhält eine Taste „Neben dem Chat öffnen“, die die echte Seite mit Stilen und Bildern in einem Tab zeigt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una página web que escribe el agente recibe un botón Abrir junto al chat que muestra la página real, con sus estilos e imágenes, en una pestaña."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une page web écrite par l'agent reçoit un bouton Ouvrir à côté du chat qui affiche la vraie page, avec ses styles et images, dans un onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una pagina web scritta dall'agente riceve un pulsante Apri accanto alla chat che mostra la pagina reale, con stili e immagini, in una scheda."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントが書いた Web ページに「チャットの横に開く」ボタンが付き、スタイルや画像を含む実際のページをタブで表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទំព័របណ្ដាញដែលភ្នាក់ងារសរសេរ នឹងមានប៊ូតុង បើកនៅក្បែរការជជែក ដែលបង្ហាញទំព័រពិត រួមទាំងរចនាប័ទ្ម និងរូបភាព នៅក្នុងផ្ទាំងមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트가 작성한 웹 페이지에 채팅 옆에 열기 버튼이 생겨, 스타일과 이미지를 포함한 실제 페이지를 탭에서 보여 줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En nettside agenten skriver, får en Åpne ved siden av chatten-knapp som viser den ekte siden, med stiler og bilder, i en fane."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strona internetowa zapisana przez agenta otrzymuje przycisk Otwórz obok czatu, który pokazuje prawdziwą stronę ze stylami i obrazami w karcie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma página da web que o agente escreve ganha um botão Abrir ao lado do chat que mostra a página real, com estilos e imagens, em uma aba."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У веб-страницы, которую записал агент, появляется кнопка «Открыть рядом с чатом»: она показывает настоящую страницу со стилями и изображениями во вкладке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หน้าเว็บที่เอเจนต์เขียนจะมีปุ่ม เปิดข้างแชท ซึ่งแสดงหน้าจริงพร้อมสไตล์และรูปภาพในแท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajanın yazdığı bir web sayfası, gerçek sayfayı stilleri ve görselleriyle bir sekmede gösteren Sohbetin yanında aç düğmesi alır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вебсторінка, яку записав агент, отримує кнопку «Відкрити поруч із чатом», що показує справжню сторінку зі стилями й зображеннями у вкладці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trang web do tác tử ghi sẽ có nút Mở cạnh cuộc trò chuyện để hiển thị trang thật, kèm kiểu dáng và hình ảnh, trong một thẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理写入的网页会出现“在对话旁打开”按钮，在标签页中显示带样式和图片的真实页面。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理寫入的網頁會出現「在對話旁開啟」按鈕，在分頁中顯示含樣式與圖片的真實頁面。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
