@@ -29,7 +29,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /// Every frame from just before the send to SAMPLE_MS after it, read after the frame's
 /// ResizeObserver callbacks ran (a task posted from requestAnimationFrame): what the frame drew.
-function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
+export function sample(doc: Document, draft: string, sampleMs = SAMPLE_MS): { done: Promise<Sample[]> } {
   const win = doc.defaultView!;
   const frames: Sample[] = [];
   const top = (node: Element | null | undefined) =>
@@ -54,7 +54,7 @@ function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
         label: (thinking?.textContent ?? "").slice(0, 30).replace(/\d+s$/, ""),
         text: (doc.querySelector(".acpmux-composer-prompt")?.textContent ?? "").length,
       });
-      if (now - start < SAMPLE_MS) win.requestAnimationFrame(tick);
+      if (now - start < sampleMs) win.requestAnimationFrame(tick);
       else resolve(frames);
     };
   });
@@ -101,7 +101,7 @@ function transcriptMoving(doc: Document): boolean {
   });
 }
 
-async function settle(ctx: PlayContext) {
+export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
 }
