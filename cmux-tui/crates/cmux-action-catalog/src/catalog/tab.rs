@@ -157,11 +157,14 @@ pub static ACTIONS: &[Action] = &[
         default_shortcut: Some(Shortcut { key: "`", modifiers: CTRL }),
         category: "tab",
         symbol: "terminal",
-        surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
+        surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "create", 0).folder("new"), Placement::at("newTab", "create", 0)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CWD.optional(), args::KEEP.optional()],
         targets: &["tab"],
         cli_name: "tab new-terminal",
+        // In File so a person who has never used Ctrl-` can find a terminal: Cmd-T opens a chat
+        // (the persona walk, hq docs/dogfood/personas/runs/2026-11-26/P0).
+        main_menu: Some("file"),
         starts_terminal: true,
         opens_workspace_content: true,
         ..Action::DEFAULT
