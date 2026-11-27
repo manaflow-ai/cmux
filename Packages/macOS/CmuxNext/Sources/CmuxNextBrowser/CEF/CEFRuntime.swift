@@ -40,6 +40,8 @@ final class CEFRuntime {
 
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
+    /// The focus asks pages kept while their cmux window was not on screen, by page (``windowOcclusionChanged(_:)``).
+    var asksAwaitingWindow: [ObjectIdentifier: CEFAskAwaitingWindow] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
     let extensionActionReads = CEFExtensionActionReads()
     /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
@@ -194,7 +196,10 @@ final class CEFRuntime {
     private(set) lazy var windowGuard: ChromiumWindowGuard = {
         let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
         guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
-        guard_.onOcclusionChanged = { window in ChromiumPageWindowVisibility.parentOcclusionChanged(window) }
+        guard_.onOcclusionChanged = { [weak self] window in
+            ChromiumPageWindowVisibility.parentOcclusionChanged(window)
+            self?.windowOcclusionChanged(window)
+        }
         return guard_
     }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
