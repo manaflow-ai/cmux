@@ -342,19 +342,27 @@ class Bench:
                        "signed-out rival cannot open" if name != "cmux" else
                 "--long: 10 chats are opened with the app's own debug/chat-sim hooks; not yet wired in this version"}
 
+    def fetch(self, name: str):
+        """(bundle or None, what fetch_browsers.py said): its exit code and output tails, kept in results.json
+        when the app is unavailable."""
+        key = FETCH.get(name, name)
+        try:
+            out = subprocess.run([sys.executable, os.path.join(PERF, "fetch_browsers.py"), key],
+                                 capture_output=True, text=True, timeout=3600)
+        except subprocess.TimeoutExpired as error:
+            return None, {"error": f"fetch_browsers.py {key}: timed out after {error.timeout} s"}
+        sys.stderr.write(out.stderr)
+        bundle = None
+        for line in out.stdout.splitlines():
+            if line.startswith(key + "="):
+                bundle = line.split("=", 1)[1]
+        return bundle, {"bundle": bundle, "returncode": out.returncode, "stdout": out.stdout[-600:],
+                        "stderr": out.stderr[-1500:]}
+
     def main(self):
         a = self.args
         helper_names = [n for n in a.apps.split(",") if n]
         bundles = dict(item.split("=", 1) for item in a.app)
-        want = [FETCH.get(n, n) for n in helper_names if n not in bundles]
-        if want:
-            out = subprocess.run([sys.executable, os.path.join(PERF, "fetch_browsers.py"), *want],
-                                 capture_output=True, text=True, timeout=3600)
-            sys.stderr.write(out.stderr)
-            for line in out.stdout.splitlines():
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    bundles["cmux" if key == "cmux-nightly" else key] = value
         meta = {"schema": SCHEMA, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **host_info(),
                 "args": {k: v for k, v in vars(a).items()}, "purge": self.purge,
                 "powermetrics": self.powermetrics, "cmux_ref": a.cmux_ref}
@@ -366,11 +374,19 @@ class Bench:
         caffeinate = subprocess.Popen(["caffeinate", "-dimsu"])
         try:
             for name in helper_names:
-                bundle = bundles.get(name)
                 entry: dict = {"label": LABELS.get(name, name)}
                 apps[name] = entry
+                fetch = None
+                if name not in bundles:
+                    # Fetched just before its own rounds, not all up front: step 18867d86 fetched all four, then
+                    # found no rival bundle after cmux's 13 min of rounds, and the old n/a said nothing of why.
+                    bundles[name], fetch = self.fetch(name)
+                bundle = bundles.get(name)
                 if not bundle or not os.path.isdir(bundle):
                     entry["n/a"] = "app unavailable on this host (download failed or no arm64 slice)"
+                    entry["fetch"] = fetch or {"bundle": bundle, "exists": False, "given": "--app"}
+                    if fetch:
+                        entry["fetch"]["exists"] = bool(bundle) and os.path.exists(bundle)
                     continue
                 entry["version"] = bundle_version(bundle)
                 entry["bundle"] = bundle
