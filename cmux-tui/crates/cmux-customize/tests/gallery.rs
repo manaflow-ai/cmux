@@ -263,7 +263,13 @@ fn the_claude_code_look_glyphs_hold_together() {
         {
             let text = fs::read_to_string(dir.join("agent-pane").join(take))
                 .unwrap_or_else(|error| panic!("{folder}/agent-pane/{take}: {error}"));
-            glyph_holds_together(&cmux_config::jsonc::parse(&text).unwrap());
+            let doc = cmux_config::jsonc::parse(&text).unwrap();
+            glyph_holds_together(&doc);
+            // The same check the setting gets when a person points it at this take.
+            let schema = cmux_config::schema::Schema::embedded();
+            let row = schema.row("agentPane.display.thinking.glyph").expect("the glyph row");
+            cmux_config::schema::accepts(row, &doc, &cmux_config::Domains::default())
+                .unwrap_or_else(|refusal| panic!("{folder}/agent-pane/{take}: {refusal:?}"));
         }
     }
 }
