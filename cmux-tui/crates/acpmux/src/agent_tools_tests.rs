@@ -1474,3 +1474,30 @@ fn a_chat_whose_memory_followed_it_keeps_memory_and_reaches_its_owner() {
     assert!(memory(off, &moved).is_none());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A daemon started through a link to the app's binary finds `cmux` beside the file it really is,
+/// not beside the link: the link's folder (`~/.local/bin`) may hold any `cmux` at all.
+#[cfg(unix)]
+#[test]
+fn bundled_binaries_come_from_the_real_folder_not_the_links() {
+    let root = tempfile::tempdir().unwrap();
+    let app = root.path().join("app/bin");
+    let links = root.path().join("home/.local/bin");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::create_dir_all(&links).unwrap();
+    crate::test_exec::write_executable(app.join("cmux"), "#!/bin/sh\nexit 0\n");
+    std::os::unix::fs::symlink("cmux", app.join("acpmux")).unwrap();
+    std::os::unix::fs::symlink(app.join("acpmux"), links.join("acpmux")).unwrap();
+    // A wrapper replaced the link's `cmux`.
+    crate::test_exec::write_executable(links.join("cmux"), "#!/bin/sh\nexit 2\n");
+    let real = std::fs::canonicalize(&app).unwrap();
+    assert_eq!(super::own_bin_dir(&links.join("acpmux")), Some(real.clone()));
+    assert_eq!(super::own_bin_dir(&app.join("acpmux")), Some(real));
+    // A link to a lone acpmux, with no `cmux` beside its file, keeps the link's folder.
+    let lone = root.path().join("lone");
+    std::fs::create_dir_all(&lone).unwrap();
+    crate::test_exec::write_executable(lone.join("acpmux"), "#!/bin/sh\nexit 0\n");
+    std::fs::remove_file(links.join("acpmux")).unwrap();
+    std::os::unix::fs::symlink(lone.join("acpmux"), links.join("acpmux")).unwrap();
+    assert_eq!(super::own_bin_dir(&links.join("acpmux")), Some(links.clone()));
+}
