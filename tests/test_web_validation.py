@@ -310,6 +310,8 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("id: hook-suites", pick)
         self.assertIn("continue-on-error: true", pick)
         self.assertLess(block.index("id: hook-suites"), block.index("id: merge-driver"))
+        self.assertLess(block.index("id: merge-driver-start"), block.index("id: source-build"))
+        self.assertIn("steps.hook-suites.outputs.merge_driver != 'false'", step("Start the merge driver test"))
         # `!= 'false'`: a pick that failed or never ran leaves no output, and the suite runs.
         self.assertIn("steps.hook-suites.outputs.merge_driver != 'false'", step("Generated bundle merge driver"))
         self.assertIn("steps.hook-suites.outputs.post_edit != 'false'", step("Post-edit formatting hook"))

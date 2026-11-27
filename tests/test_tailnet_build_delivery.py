@@ -165,6 +165,15 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
         self.assertGreaterEqual(count, 3)
         self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", self.WORKFLOW.read_text())
 
+    def test_combined_thin_build_qualifies_the_standalone_features(self):
+        workflow = self.WORKFLOW.read_text()
+        match = re.search(r'acpmux_features_thin="\$\(([^\n]+)\)"', workflow)
+        self.assertIsNotNone(match)
+        command = match.group(1).replace('"$t"', 'x86_64-unknown-linux-gnu')
+        flags = subprocess.check_output(["bash", "-ec", command], cwd=ROOT / "cmux-tui", text=True).strip()
+        self.assertEqual(flags, "--features=acpmux-standalone/hub-carrier")
+        self.assertIn('lead+=" -p acpmux-standalone --bin acpmux-standalone $acpmux_features_thin"', workflow)
+
     def test_the_apps_acpmux_carries_the_hub_carrier(self):
         """The app's acpmux is the cmux binary (bin/acpmux aliases bin/cmux), which took acpmux with no features:
         a joined Mac on 64821ccc5 ran no hub carrier and logged nothing about it (2026-11-15)."""

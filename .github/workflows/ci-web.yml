@@ -1176,6 +1176,50 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # The two git-hook suites below test scripts/install-git-hooks.sh, scripts/git-hooks/ and the post-edit
+      # formatter, not the webviews tree, yet they ran on every web pull request head: 1.8 min of shard 1's
+      # 11 (2026-11-24, ci-min-per-pr-30 cut G). On a pull request each runs when scripts/ci/focused_tests.py, the
+      # source-path-to-test map the car guards use, selects it for the change (every file the installer copies
+      # names it), or the change moves webviews' vp (package.json, bun.lock: the real-vp cases). A push, a batch
+      # and a dispatch run both, so a miss here still reds feat-cmux-next's next push. Any error runs both.
+      - name: Pick shard 1's git-hook suites
+        id: hook-suites
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            printf 'merge_driver=true\npost_edit=true\n' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          printf 'merge_driver=true\npost_edit=true\n' > "$RUNNER_TEMP/hook-suites"
+          if plan="$(timeout 120 python3 -I scripts/ci/focused_tests.py --base HEAD^1 --head HEAD)" &&
+            picked="$(printf '%s' "$plan" | python3 -I -c 'import json,sys; p={t["path"] for t in json.load(sys.stdin)["python"]}; print(" ".join(n for n,t in (("merge_driver","tests/test_install_git_hooks.py"),("post_edit","tests/test_format_post_edit.py")) if t in p))')" &&
+            changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"; then
+            if printf '%s\n' "$changed" | grep -qxE 'webviews/(package\.json|bun\.lock)'; then picked="merge_driver post_edit"; fi
+            for suite in merge_driver post_edit; do
+              case " $picked " in *" $suite "*) echo "$suite=true" ;; *) echo "$suite=false" ;; esac
+            done > "$RUNNER_TEMP/hook-suites"
+          fi
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
+
+      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
+      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
+      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
+      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
+      - name: Start the merge driver test
+        id: merge-driver-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
+        continue-on-error: true
+        run: |
+          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
+
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
       # tests below read. Typecheck runs once in the dedicated step below.
@@ -1229,50 +1273,6 @@ jobs:
             rm -rf "$RESTORED"
           fi
           exec ./scripts/cmux-next/build-web-bundles.sh --force
-
-      # The two git-hook suites below test scripts/install-git-hooks.sh, scripts/git-hooks/ and the post-edit
-      # formatter, not the webviews tree, yet they ran on every web pull request head: 1.8 min of shard 1's
-      # 11 (2026-11-24, ci-min-per-pr-30 cut G). On a pull request each runs when scripts/ci/focused_tests.py, the
-      # source-path-to-test map the car guards use, selects it for the change (every file the installer copies
-      # names it), or the change moves webviews' vp (package.json, bun.lock: the real-vp cases). A push, a batch
-      # and a dispatch run both, so a miss here still reds feat-cmux-next's next push. Any error runs both.
-      - name: Pick shard 1's git-hook suites
-        id: hook-suites
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
-        continue-on-error: true
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT_NAME" != pull_request ]; then
-            printf 'merge_driver=true\npost_edit=true\n' >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          printf 'merge_driver=true\npost_edit=true\n' > "$RUNNER_TEMP/hook-suites"
-          if plan="$(timeout 120 python3 -I scripts/ci/focused_tests.py --base HEAD^1 --head HEAD)" &&
-            picked="$(printf '%s' "$plan" | python3 -I -c 'import json,sys; p={t["path"] for t in json.load(sys.stdin)["python"]}; print(" ".join(n for n,t in (("merge_driver","tests/test_install_git_hooks.py"),("post_edit","tests/test_format_post_edit.py")) if t in p))')" &&
-            changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"; then
-            if printf '%s\n' "$changed" | grep -qxE 'webviews/(package\.json|bun\.lock)'; then picked="merge_driver post_edit"; fi
-            for suite in merge_driver post_edit; do
-              case " $picked " in *" $suite "*) echo "$suite=true" ;; *) echo "$suite=false" ;; esac
-            done > "$RUNNER_TEMP/hook-suites"
-          fi
-          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
-
-      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
-      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
-      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
-      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
-      - name: Start the merge driver test
-        id: merge-driver-start
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
-        continue-on-error: true
-        run: |
-          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
-            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
-            echo "no input of this check changed: skipped on this pull request"
-            exit 0
-          fi
-          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
