@@ -66,7 +66,8 @@ command -v stress-ng >/dev/null 2>&1 || { echo "replay-under-load.sh: no stress-
 n="$(nproc)"
 stressors=$((4 * n))
 cd "$root/webviews" || exit 1
-[ -d node_modules ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
+# A node_modules that exists but lacks the bench's deps (a partial projection link, an interrupted install) is not installed.
+[ -d node_modules/playwright ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
   || { tail -20 "$work/install.log" >&2; exit 1; }
 # The pages' generated/strings.json files are gitignored and written only by the install's best-effort postinstall,
 # so a kept node_modules (the timer's every run after the first) builds without them. Write them every run.
