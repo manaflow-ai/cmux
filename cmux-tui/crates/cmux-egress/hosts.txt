@@ -379,6 +379,11 @@ monitoring.googleapis.com
 # when: only after you turn telemetry on
 # off: `app.sendAnonymousTelemetry` off (the default)
 o4507547940749312.ingest.us.sentry.io
+# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
+# sends: a download request for the pinned cmux-rd release (no account data)
+# when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
+# off: no setting yet; it never runs on a machine that is not joined
+objects.githubusercontent.com
 # museum art for backgrounds, when you search for art
 # sends: your art search words, then image requests
 # when: when you search for background art
@@ -424,6 +429,11 @@ raw.githubusercontent.com
 # when: when an npm-installed cmux CLI checks for a newer version, or an agent installs a package
 # off: no setting yet
 registry.npmjs.org
+# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
+# sends: a download request for the pinned cmux-rd release (no account data)
+# when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
+# off: no setting yet; it never runs on a machine that is not joined
+release-assets.githubusercontent.com
 # shared workspace links in development builds
 # sends: the shared workspace link's contents
 # when: development builds only, or when you choose that stack
