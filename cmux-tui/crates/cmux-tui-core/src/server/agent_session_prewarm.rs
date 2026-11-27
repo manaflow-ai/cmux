@@ -13,6 +13,7 @@
 //! the start's `session/new` carries (its folder as acpmux checked it, agent, model, workspace,
 //! and the credential's spawn env), so a start that differs in any of them starts cold, as
 //! before; the credential is never written anywhere and only the same credential takes the agent.
+//! Saved API keys and Claude setup tokens go only to the bound start so withdrawal can reach them.
 //!
 //! Gated as the start is, and narrower: only on the caller's own Cloud VM (never a Mac, an SSH
 //! host, a team VM or a phone's channel), only for an unbound agent tab of this store, only in the
@@ -100,6 +101,24 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
+    }
+    // A pooled child has no chat binding for Cloud opt-out or Disconnect to withdraw.
+    if params.credentials.as_ref().is_some_and(|credential| {
+        credential.endpoint.is_some()
+            || credential.env.keys().any(|name| {
+                matches!(
+                    name.as_str(),
+                    "ANTHROPIC_API_KEY"
+                        | "ANTHROPIC_AUTH_TOKEN"
+                        | "CLAUDE_CODE_OAUTH_TOKEN"
+                        | "OPENAI_API_KEY"
+                        | "GEMINI_API_KEY"
+                        | "GOOGLE_API_KEY"
+                        | "XAI_API_KEY"
+                )
+            })
+    }) {
+        return ok(writer, id, json!({"accepted": false}));
     }
     let chat_folder = params.cwd.is_none();
     if chat_folder && !chat_folder_prewarm_on() {
