@@ -66,9 +66,16 @@ public struct TerminalPaintSummary: Sendable, Equatable {
     public var overlayText: String {
         func ms(_ value: Double?) -> String {
             guard let value else { return "  –" }
-            return String(format: "%3.0f", value.rounded())
+            // Three columns always: past 999 ms it reads "1k+", so the label never widens.
+            guard value < 999.5 else { return "1k+" }
+            return String(format: "%3.0f", max(0, value).rounded())
         }
-        let error = offsetErrorMs.map { String(format: "±%.1f", $0) } ?? "±?"
+        // Five columns always ("±?   ", "±2.1 ", "±36  ", "±999+"), the same reason.
+        let error: String = {
+            guard let e = offsetErrorMs else { return "±?   " }
+            let text = e < 9.95 ? String(format: "±%.1f", e) : e < 999.5 ? String(format: "±%.0f", e) : "±999+"
+            return text.padding(toLength: 5, withPad: " ", startingAt: 0)
+        }()
         return "Δ\(ms(lastTotalMs)) p50\(ms(total?.p50)) p95\(ms(total?.p95)) \(error)\n"
             + "mac\(ms(mac?.p95)) net\(ms(wire?.p95)) app\(ms(phonePaint?.p95))"
     }
