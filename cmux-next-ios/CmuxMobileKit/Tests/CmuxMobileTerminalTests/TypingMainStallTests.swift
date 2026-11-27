@@ -169,7 +169,7 @@ final class TypingMainStallTests: XCTestCase {
     }
 
     @MainActor
-    static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
+    static func waitUntil(_ seconds: Double, _ condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = CACurrentMediaTime() + seconds
         while !condition(), CACurrentMediaTime() < deadline {
             try await Task.sleep(for: .milliseconds(10)) // test: polls the screen until a deadline
