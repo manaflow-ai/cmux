@@ -164,11 +164,8 @@ fn running_replica_http_recovers_from_authenticated_root_tree_and_blobs() {
         replies.push(Reply::bytes(writer.store.get(hash).unwrap()));
     }
     let server = Server::start(replies);
-    let reader = Cloud {
-        store: Box::new(server.store()),
-        key: writer.key.clone(),
-        root_prefix: String::new(),
-    };
+    let reader =
+        Cloud { store: Box::new(server.store()), key: writer.key, root_prefix: String::new() };
     std::fs::remove_dir_all(source).unwrap();
     let dest = temp.path().join("recovered");
     let recovered = replica::recover(&receipt.pair, &dest, &reader).unwrap();
