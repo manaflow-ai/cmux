@@ -25,6 +25,7 @@ mod uri;
 
 pub use chromium::{ChromiumPageRoute, chromium_internal_url, chromium_page_route};
 pub use typed::{CMUX_APP_PAGE_HOSTS, TypedInput, contains_pairing_link, is_loopback_host};
+pub use uri::{UrlParts, url_parts};
 
 /// Turn user-entered text into a navigable URL, the same way for every
 /// entrypoint (TUI omnibar, `browser-navigate` and `new-browser-tab`
@@ -181,3 +182,5 @@ mod ffi_tests;
 mod normalize_url_corpus;
 #[cfg(test)]
 mod typed_corpus;
+#[cfg(test)]
+mod url_parts_tests;

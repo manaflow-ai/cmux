@@ -18,13 +18,25 @@
 //! | `browser_rules_tab_state_apply` | `{machine, event}` or `{machine, events}` | `{machine, changed}` |
 //! | `browser_rules_tab_state_security` | `{url}` | the scheme-level [`SecurityState`](crate::tab_state::SecurityState) |
 //! | `browser_rules_tab_state_committed_security` | `{url, hasOnlySecureContent, certificateBypassed}` | the [`SecurityState`](crate::tab_state::SecurityState) |
+//! | `browser_rules_url_filter_blocks` | `{blocklist, allowlist, url}` or `{.., urls}` | a bool, or one per URL |
+//! | `browser_rules_url_filter_is_empty` | `{blocklist, allowlist}` | a bool |
+//! | `browser_rules_agent_url_refuses` | `{url}` or `{urls}` | a bool, or one per URL |
+//! | `browser_rules_download_gesture` | `{policy}` | the [`AutomaticDownloadPolicy`] after a gesture |
+//! | `browser_rules_download_count` | `{policy, site}` | `{policy, isFirst}` |
+//! | `browser_rules_download_decision` | `{isFirst, setting}` | the [`DownloadDecision`](crate::download_policy::DownloadDecision) |
+//! | `browser_rules_password_fills` | `{agentDriven, profileAllows}` | a bool |
+//! | `browser_rules_password_fill_set_allowed` | `{state, allowed}` | `{state, changed}` |
+//! | `browser_rules_password_fill_switch` | `{state, agentDriven}` | `{state, value}`, `value` 1, 0 or null |
 
+use crate::download_policy::{AutomaticDownloadPolicy, SitePermissionSetting};
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
+use crate::password_fill::{self, PasswordFillState};
 use crate::tab_state::{self, NavigationEvent, TabState, TabStateMachine};
-use crate::{address, calculator};
+use crate::url_filter::{UrlFilter, UrlFilterLists};
+use crate::{address, agent_url, calculator};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -132,6 +144,69 @@ struct SecurityRequest {
     certificate_bypassed: bool,
 }
 
+#[derive(Deserialize)]
+struct UrlFilterRequest {
+    #[serde(flatten)]
+    lists: UrlFilterLists,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    urls: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct UrlRequest {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    urls: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct DownloadRequest {
+    #[serde(default)]
+    policy: AutomaticDownloadPolicy,
+    #[serde(default)]
+    site: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadDecisionRequest {
+    is_first: bool,
+    setting: SitePermissionSetting,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PasswordFillRequest {
+    #[serde(default)]
+    state: PasswordFillState,
+    #[serde(default)]
+    agent_driven: bool,
+    #[serde(default = "default_true")]
+    profile_allows: bool,
+    #[serde(default)]
+    allowed: Option<bool>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// One answer for `url`, or one per URL of `urls`.
+fn per_url(
+    url: Option<String>,
+    urls: Option<Vec<String>>,
+    answer: impl Fn(&str) -> bool,
+) -> Result<Value, OpError> {
+    match (url, urls) {
+        (Some(url), None) => Ok(json!(answer(&url))),
+        (None, Some(urls)) => Ok(json!(urls.iter().map(|url| answer(url)).collect::<Vec<_>>())),
+        _ => Err(OpError::Invalid("one of url or urls".into())),
+    }
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
     serde_json::from_value(request).map_err(|error| OpError::Invalid(error.to_string()))
 }
@@ -232,6 +307,50 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
                 has_only_secure_content,
                 certificate_bypassed,
             )))
+        }
+        "browser_rules_url_filter_blocks" => {
+            let UrlFilterRequest { lists, url, urls } = parse(request)?;
+            let filter = UrlFilter::of(&lists);
+            per_url(url, urls, |url| filter.blocks(url))
+        }
+        "browser_rules_url_filter_is_empty" => {
+            let lists: UrlFilterLists = parse(request)?;
+            Ok(json!(UrlFilter::of(&lists).is_empty()))
+        }
+        "browser_rules_agent_url_refuses" => {
+            let UrlRequest { url, urls } = parse(request)?;
+            per_url(url, urls, agent_url::refuses)
+        }
+        "browser_rules_download_gesture" => {
+            let DownloadRequest { mut policy, .. } = parse(request)?;
+            policy.user_gesture();
+            Ok(encode(&policy))
+        }
+        "browser_rules_download_count" => {
+            let DownloadRequest { mut policy, site } = parse(request)?;
+            let site = site.ok_or_else(|| OpError::Invalid("missing field `site`".into()))?;
+            let is_first = policy.count_download(&site);
+            Ok(json!({"policy": encode(&policy), "isFirst": is_first}))
+        }
+        "browser_rules_download_decision" => {
+            let DownloadDecisionRequest { is_first, setting } = parse(request)?;
+            Ok(encode(&AutomaticDownloadPolicy::decision(is_first, setting)))
+        }
+        "browser_rules_password_fills" => {
+            let PasswordFillRequest { agent_driven, profile_allows, .. } = parse(request)?;
+            Ok(json!(password_fill::fills(agent_driven, profile_allows)))
+        }
+        "browser_rules_password_fill_set_allowed" => {
+            let PasswordFillRequest { mut state, allowed, .. } = parse(request)?;
+            let allowed =
+                allowed.ok_or_else(|| OpError::Invalid("missing field `allowed`".into()))?;
+            let changed = state.set_allowed_by_profile(allowed);
+            Ok(json!({"state": encode(&state), "changed": changed}))
+        }
+        "browser_rules_password_fill_switch" => {
+            let PasswordFillRequest { mut state, agent_driven, .. } = parse(request)?;
+            let value = state.next_switch_value(agent_driven);
+            Ok(json!({"state": encode(&state), "value": value}))
         }
         other => Err(OpError::UnknownOp(other.to_owned())),
     }
