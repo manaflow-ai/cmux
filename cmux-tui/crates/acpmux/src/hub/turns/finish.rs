@@ -38,7 +38,7 @@ impl Hub {
         // `take_turn`: that read took `turn` ahead of `auto_resume`, against Stop's order
         // (`auto_resume/turn_completion_tests.rs`).
         let (detached, started_at) = {
-            let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+            let _ends = self.settled_by_shutdown.read().unwrap_or_else(|e| e.into_inner());
             let taken = self.take_turn(session, turn_id, in_place);
             let started_at = taken.as_ref().map(|t| t.started_at);
             let took = taken.as_ref().is_some_and(|t| t.turn_id == turn_id);
@@ -115,7 +115,7 @@ impl Hub {
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
-        if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+        if self.settled_by_shutdown.read().unwrap_or_else(|e| e.into_inner()).contains(turn_id) {
             if self.hands_off(session) {
                 super::digest::forget_joined(joined);
             }
@@ -265,7 +265,7 @@ impl Hub {
         // In a block of its own: a guard only dropped would still count as held at the awaits
         // below, and the prompt futures that end here are spawned (`Send`).
         let stopped_early = {
-            let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+            let ends = self.settled_by_shutdown.read().unwrap_or_else(|e| e.into_inner());
             if ends.contains(turn_id) {
                 drop(ends);
                 if self.hands_off(session) {
